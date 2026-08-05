@@ -1,0 +1,13 @@
+define bot refuse to respond
+  "The model response was blocked by the configured safety policy."
+
+define flow tasklattice model input
+  $violation = execute tasklattice_detect_model_io_violation(text=$user_message)
+  if $violation
+    bot refuse to respond
+    stop
+define flow tasklattice model output
+  $violation = execute tasklattice_detect_model_io_violation(text=$bot_message)
+  if $violation
+    bot refuse to respond
+    stop

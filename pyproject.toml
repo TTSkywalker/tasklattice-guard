@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tasklattice-model-guardrails"
+version = "0.1.0"
+description = "LiteLLM Generic Guardrail API backed by NVIDIA NeMo Guardrails."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "nemoguardrails==0.23.0",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3,<10",
+  "pytest-asyncio>=0.25,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
