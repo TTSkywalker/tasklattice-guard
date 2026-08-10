@@ -1,0 +1,26 @@
+TaskLattice Guard is installed in namespace {{ .Release.Namespace }}.
+
+The standalone control plane and deterministic evaluator are ready without a
+Gateway Adapter or external model. Wait for the workload:
+
+  kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "tasklattice-guard.fullname" . }}
+
+{{- if eq .Values.service.type "LoadBalancer" }}
+Open the UI using the external address assigned by your cluster:
+
+  kubectl --namespace {{ .Release.Namespace }} get service/{{ include "tasklattice-guard.fullname" . }}
+{{- else }}
+Open the UI through a local port-forward:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "tasklattice-guard.fullname" . }} 8092:{{ .Values.service.port }}
+
+  http://127.0.0.1:8092/protect/profiles
+{{- end }}
+
+Run the Helm smoke test:
+
+  helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+
+{{- if .Values.persistence.retain }}
+The PersistentVolumeClaim is retained when the release is uninstalled.
+{{- end }}

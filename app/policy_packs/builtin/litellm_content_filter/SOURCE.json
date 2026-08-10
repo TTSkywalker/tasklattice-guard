@@ -1,0 +1,13 @@
+{
+  "name": "LiteLLM content filter policy assets",
+  "source": "https://github.com/BerriAI/litellm",
+  "version": "1.95.0",
+  "commit": "ead62528e607b9d8e61273def638799c9c3a69ba",
+  "license": "MIT",
+  "scope": [
+    "policy_templates_backup.json",
+    "litellm_content_filter/patterns.json",
+    "litellm_content_filter/categories",
+    "litellm_content_filter/policy_templates"
+  ]
+}

@@ -4,16 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tasklattice-model-guardrails"
-version = "0.1.0"
-description = "LiteLLM Generic Guardrail API backed by NVIDIA NeMo Guardrails."
+version = "0.2.0"
+description = "Enterprise safety control plane for protected internal AI workloads."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
   "nemoguardrails==0.23.0",
+  "pyyaml>=6.0,<7",
   "uvicorn[standard]>=0.34,<1",
 ]
+
+[project.urls]
+Repository = "https://github.com/tasklattice/tasklattice-guard"
+Issues = "https://github.com/tasklattice/tasklattice-guard/issues"
 
 [project.optional-dependencies]
 test = [

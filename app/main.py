@@ -1,40 +1,109 @@
 from __future__ import annotations
 
-import hmac
+import os
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI
 
+from .adapt.litellm import LiteLLMAdapter
+from .adapt.http import HTTPAdapter
 from .config import Settings
-from .contracts import GenericGuardrailRequest, GenericGuardrailResponse
-from .runtime import GuardrailsRuntime, NemoGuardrailsRuntime
-from .service import ModelGuardrailsService
+from .control_plane.api import ControlPlaneAPI
+from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
+from .control_plane.service import ControlPlaneService
+from .engine.contracts import GuardrailEngine
+from .engine.fast_pass import FastPassEngine
+from .engine.nemo import NemoFastSemanticEngine
+from .engine.pipeline import ProgressiveGuardrailsEngine
+from .engine.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
+from .engine.risk_router import RiskAwareStageRouter
+from .engine.service import ModelGuardrailsEngineService
+from .engine.topic_judge import PurposeAwareTopicJudgeEngine
+from .identity import IdentityAPI, IdentityService
+from .ui import ControlPlaneStaticFiles
+
+
+def create_engine(
+    settings: Settings,
+) -> ProgressiveGuardrailsEngine:
+    stages = [FastPassEngine()]
+    fast_semantic = [PromptSecurityFastEngine()]
+    if settings.content_safety_model and settings.nvidia_base_url:
+        fast_semantic.append(
+            NemoFastSemanticEngine(
+                settings.profile_path,
+                base_url=settings.nvidia_base_url,
+                model=settings.content_safety_model,
+                api_key_env_var=settings.nvidia_api_key_env_var,
+            )
+        )
+    stages.append(RiskAwareStageRouter("fast_semantic", tuple(fast_semantic)))
+
+    deep_judges = []
+    if settings.content_safety_model and settings.nvidia_base_url:
+        deep_judges.append(
+            PromptSecurityJudgeEngine(
+                base_url=settings.nvidia_base_url,
+                model=settings.content_safety_model,
+                api_key_env_var=settings.nvidia_api_key_env_var,
+            )
+        )
+    if settings.topic_control_model and settings.nvidia_base_url:
+        deep_judges.append(
+            PurposeAwareTopicJudgeEngine(
+                base_url=settings.nvidia_base_url,
+                model=settings.topic_control_model,
+                api_key_env_var=settings.nvidia_api_key_env_var,
+            )
+        )
+    if deep_judges:
+        stages.append(RiskAwareStageRouter("deep_judge", tuple(deep_judges)))
+    return ProgressiveGuardrailsEngine(tuple(stages))
 
 
 def create_app(
     *,
     settings: Settings | None = None,
-    runtime: GuardrailsRuntime | None = None,
+    engine: GuardrailEngine | None = None,
+    intent_analyzer: IntentAnalyzer | None = None,
 ) -> FastAPI:
     configured = settings or Settings.from_env()
-    guardrails_runtime = runtime or NemoGuardrailsRuntime(
-        configured.profile_path,
-        nvidia_base_url=configured.nvidia_base_url,
-        content_safety_model=configured.content_safety_model,
-        topic_control_model=configured.topic_control_model,
-        nvidia_api_key_env_var=configured.nvidia_api_key_env_var,
+    control_plane = ControlPlaneService(
+        configured.database_path,
+        fast_semantic_configured=bool(
+            configured.content_safety_model and configured.nvidia_base_url
+        ),
+        deep_judge_configured=bool(
+            configured.topic_control_model and configured.nvidia_base_url
+        ),
     )
-    service = ModelGuardrailsService(guardrails_runtime)
+    runtime_engine = engine or create_engine(configured)
+    service = ModelGuardrailsEngineService(
+        runtime_engine,
+        control_plane,
+    )
+    identity = IdentityService(configured.database_path)
+    identity_api = IdentityAPI(identity)
+    litellm = LiteLLMAdapter(service, control_plane)
+    http_adapter = HTTPAdapter(service, control_plane)
+    configured_intent_analyzer = intent_analyzer or _intent_analyzer(configured)
+    control_plane_api = ControlPlaneAPI(
+        control_plane,
+        runtime_engine,
+        require_user=identity_api.require_user,
+        intent_analyzer=configured_intent_analyzer,
+    )
 
     app = FastAPI(
         title="TaskLattice Model Guardrails",
-        version="0.1.0",
+        version="0.2.0",
         docs_url=None,
         redoc_url=None,
     )
-
-    def authorize(x_api_key: str | None) -> None:
-        if not x_api_key or not hmac.compare_digest(x_api_key, configured.api_key):
-            raise HTTPException(status_code=401, detail="Unauthorized.")
+    app.include_router(litellm.router)
+    app.include_router(http_adapter.router)
+    app.include_router(identity_api.router)
+    app.include_router(control_plane_api.router)
+    app.state.control_plane = control_plane
 
     @app.get("/health/live")
     async def live() -> dict[str, str]:
@@ -44,19 +113,26 @@ def create_app(
     async def ready() -> dict[str, str]:
         return {"status": "ready"}
 
-    @app.post(
-        "/beta/litellm_basic_guardrail_api",
-        response_model=GenericGuardrailResponse,
-        response_model_exclude_none=True,
-    )
-    async def apply_guardrail(
-        request: GenericGuardrailRequest,
-        x_api_key: str | None = Header(default=None),
-    ) -> GenericGuardrailResponse:
-        authorize(x_api_key)
-        return await service.apply(request)
+    if configured.ui_dist_path.is_dir():
+        app.mount(
+            "/",
+            ControlPlaneStaticFiles(directory=configured.ui_dist_path, html=True),
+            name="control-plane-ui",
+        )
 
     return app
+
+
+def _intent_analyzer(settings: Settings) -> IntentAnalyzer | None:
+    if not settings.control_plane_ai_base_url or not settings.control_plane_ai_model:
+        return None
+    if not os.environ.get(settings.control_plane_ai_api_key_env_var, "").strip():
+        return None
+    return DeepSeekIntentAnalyzer(
+        base_url=settings.control_plane_ai_base_url,
+        model=settings.control_plane_ai_model,
+        api_key_env_var=settings.control_plane_ai_api_key_env_var,
+    )
 
 
 app = create_app()

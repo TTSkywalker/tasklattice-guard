@@ -1,0 +1,18 @@
+export const queryKeys = {
+  auth: ["identity", "session"] as const,
+  users: ["identity", "users"] as const,
+  safes: ["resources", "safes"] as const,
+  safe: (id: string) => ["resources", "safes", id] as const,
+  safeTemplates: ["resources", "safe-templates"] as const,
+  protectionDefinitions: ["resources", "protection-definitions"] as const,
+  intentAnalysisStatus: ["resources", "intent-analysis-status"] as const,
+  testRuns: (safeId: string) => ["resources", "test-runs", { safeId }] as const,
+  testCases: (safeId: string) => ["resources", "test-cases", { safeId }] as const,
+  workloads: ["resources", "workloads"] as const,
+  workloadFilterFields: ["resources", "workload-filter-fields"] as const,
+  workloadBindings: ["resources", "workload-bindings"] as const,
+  integrations: ["resources", "integrations"] as const,
+  decisions: ["resources", "decisions"] as const,
+  metrics: ["resources", "metrics"] as const,
+  systemStatus: ["resources", "system-status"] as const,
+};

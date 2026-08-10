@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "tasklattice-guard.fullname" . }}-test-standalone"
+  labels:
+    helm.sh/chart: {{ include "tasklattice-guard.chart" . }}
+    app.kubernetes.io/name: {{ printf "%s-test" (include "tasklattice-guard.name" .) | trunc 63 | trimSuffix "-" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: health
+      image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
+      imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+      command:
+        - /bin/sh
+        - -ec
+      args:
+        - |
+          service_url="http://{{ include "tasklattice-guard.fullname" . }}:{{ .Values.service.port }}"
+          attempt=0
+          until wget --quiet --output-document=/dev/null --timeout=5 \
+            "${service_url}/health/ready"; do
+            attempt=$((attempt + 1))
+            [ "${attempt}" -ge 15 ] && exit 1
+            sleep 2
+          done
+          auth_status="$(wget --quiet --output-document=- --timeout=5 \
+            "${service_url}/api/v1/session")"
+          echo "${auth_status}" | grep -q '"setup_required":'
+          wget --quiet --output-document=- --timeout=5 \
+            "${service_url}/" | grep -q '<div id="root"></div>'

@@ -1,0 +1,169 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { Activity, ArrowRight, Clock3, Gauge, MessageSquareText, ShieldAlert, ShieldCheck, Workflow } from "lucide-react";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useTranslation } from "react-i18next";
+
+import { ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { queryKeys } from "@/features/query-keys";
+import { getDecisions, getIntegrations, getMetrics, getSafes, getWorkloads, type DecisionEvent, type Metrics } from "@/lib/api";
+
+export function OverviewPage() {
+  const { t, i18n } = useTranslation();
+  const metrics = useQuery({ queryKey: queryKeys.metrics, queryFn: getMetrics, refetchInterval: 15_000 });
+  const decisions = useQuery({ queryKey: queryKeys.decisions, queryFn: () => getDecisions({ limit: 8 }), refetchInterval: 15_000 });
+  const safes = useQuery({ queryKey: queryKeys.safes, queryFn: getSafes });
+  const workloads = useQuery({ queryKey: queryKeys.workloads, queryFn: getWorkloads });
+  const integrations = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations });
+  const error = metrics.error || decisions.error || safes.error || workloads.error || integrations.error;
+
+  return (
+    <section className="py-6 sm:py-8">
+      <PageHeader
+        eyebrow={t("overview.eyebrow")}
+        title={t("overview.title")}
+        description={t("overview.description")}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild><Link to="/governance/safes"><ShieldCheck />{t("overview.manageSafes")}</Link></Button>
+            <Button asChild><Link to="/playground"><MessageSquareText />{t("overview.openPlayground")}</Link></Button>
+          </div>
+        }
+      />
+
+      {error ? <div className="mt-6"><ErrorNotice error={error} /></div> : null}
+      {metrics.isLoading ? <OverviewSkeleton /> : null}
+      {metrics.data ? (
+        <>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={t("overview.allRecordedTraffic")} />
+            <Kpi icon={ShieldAlert} label={t("overview.blockRate")} value={`${metrics.data.block_rate}%`} detail={t("overview.blockedCount", { count: metrics.data.blocked })} tone={metrics.data.block_rate > 10 ? "warning" : "default"} />
+            <Kpi icon={Workflow} label={t("overview.activeWorkloads")} value={`${metrics.data.active_workloads}/${metrics.data.total_workloads}`} detail={t("overview.protectedScope")} />
+            <Kpi icon={Clock3} label={t("overview.testP95")} value={`${metrics.data.latest_test_p95_ms} ms`} detail={t("overview.latestFormalRun")} />
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
+            <TrafficTrend metrics={metrics.data} />
+            <Attention metrics={metrics.data} />
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.58fr)]">
+            <RiskDistribution metrics={metrics.data} />
+            <RecentEvidence items={decisions.data?.items ?? []} />
+          </div>
+
+          {!metrics.data.total_safes || !metrics.data.total_workloads ? (
+            <Card className="mt-4 border-dashed shadow-none">
+              <CardHeader>
+                <CardTitle>{t("overview.getStartedTitle")}</CardTitle>
+                <CardDescription>{t("overview.getStartedDescription")}</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                {!metrics.data.total_safes ? <Button asChild><Link to="/governance/safes">{t("overview.createFirstSafe")}<ArrowRight /></Link></Button> : null}
+                {metrics.data.total_safes ? <Button asChild><Link to="/playground">{t("overview.testCurrentSafe")}<ArrowRight /></Link></Button> : null}
+                {!metrics.data.total_workloads && metrics.data.total_safes ? <Button variant="outline" asChild><Link to="/governance/workloads">{t("overview.protectFirstWorkload")}<ArrowRight /></Link></Button> : null}
+              </CardContent>
+            </Card>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function Kpi({ icon: Icon, label, value, detail, tone = "default" }: { icon: typeof Gauge; label: string; value: string; detail: string; tone?: "default" | "warning" }) {
+  return (
+    <Card className="gap-3 py-4">
+      <CardHeader className="flex grid-cols-none flex-row items-center justify-between gap-3">
+        <CardDescription className="text-xs font-medium">{label}</CardDescription>
+        <span className={tone === "warning" ? "grid size-8 place-items-center rounded-lg bg-amber-50 text-amber-700" : "grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"}><Icon className="size-4" /></span>
+      </CardHeader>
+      <CardContent><p className="text-2xl font-semibold tracking-[-0.035em] tabular-nums">{value}</p><p className="mt-1 text-xs text-muted-foreground">{detail}</p></CardContent>
+    </Card>
+  );
+}
+
+function TrafficTrend({ metrics }: { metrics: Metrics }) {
+  const { t, i18n } = useTranslation();
+  const data = metrics.trend.map((item) => ({ ...item, label: new Date(`${item.date}T00:00:00`).toLocaleDateString(i18n.language, { month: "short", day: "numeric" }) }));
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("overview.trafficTrend")}</CardTitle>
+        <CardDescription>{t("overview.trafficTrendDescription")}</CardDescription>
+        <CardAction><StateBadge state={metrics.system_status} /></CardAction>
+      </CardHeader>
+      <CardContent className="h-64 pl-0 sm:h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
+            <defs><linearGradient id="overviewTotal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--primary)" stopOpacity={0.18} /><stop offset="95%" stopColor="var(--primary)" stopOpacity={0} /></linearGradient></defs>
+            <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 3" />
+            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+            <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+            <Tooltip contentStyle={{ borderColor: "var(--border)", borderRadius: 10, background: "var(--card)", boxShadow: "var(--shadow-surface)" }} />
+            <Area type="monotone" dataKey="total" name={t("overview.requests")} stroke="var(--primary)" strokeWidth={2} fill="url(#overviewTotal)" />
+            <Area type="monotone" dataKey="blocked" name={t("overview.blocked")} stroke="var(--destructive)" fill="transparent" strokeWidth={1.5} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Attention({ metrics }: { metrics: Metrics }) {
+  const { t } = useTranslation();
+  const items = [
+    metrics.safes_needing_test ? { label: t("overview.safesNeedTest", { count: metrics.safes_needing_test }), to: "/governance/safes" as const, state: "needs_testing" } : null,
+    metrics.total_workloads === 0 ? { label: t("overview.noProtectedWorkloads"), to: "/governance/workloads" as const, state: "waiting" } : null,
+    metrics.degraded_integrations ? { label: t("overview.integrationsDegraded", { count: metrics.degraded_integrations }), to: "/system/integrations" as const, state: "degraded" } : null,
+  ].filter(Boolean) as Array<{ label: string; to: "/governance/safes" | "/governance/workloads" | "/system/integrations"; state: string }>;
+  return (
+    <Card>
+      <CardHeader><CardTitle>{t("overview.attention")}</CardTitle><CardDescription>{t("overview.attentionDescription")}</CardDescription></CardHeader>
+      <CardContent className="space-y-2">
+        {items.length ? items.map((item) => (
+          <Link key={item.label} to={item.to} className="flex min-h-14 items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring">
+            <StateBadge state={item.state} /><span className="min-w-0 flex-1 text-sm">{item.label}</span><ArrowRight className="size-4 text-muted-foreground" />
+          </Link>
+        )) : <div className="flex min-h-40 flex-col items-center justify-center text-center"><ShieldCheck className="size-7 text-emerald-600" /><p className="mt-3 text-sm font-medium">{t("overview.noAttentionTitle")}</p><p className="mt-1 text-xs text-muted-foreground">{t("overview.noAttentionDescription")}</p></div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RiskDistribution({ metrics }: { metrics: Metrics }) {
+  const { t } = useTranslation();
+  const max = Math.max(1, ...metrics.risk_counts.map((item) => item.count));
+  return (
+    <Card>
+      <CardHeader><CardTitle>{t("overview.riskDistribution")}</CardTitle><CardDescription>{t("overview.riskDistributionDescription")}</CardDescription></CardHeader>
+      <CardContent className="space-y-4">
+        {metrics.risk_counts.length ? metrics.risk_counts.slice(0, 6).map((item) => <div key={item.risk}><div className="mb-1.5 flex items-center justify-between gap-3 text-xs"><span>{riskLabel(item.risk, t)}</span><span className="font-mono text-muted-foreground">{item.count}</span></div><Progress value={item.count / max * 100} /></div>) : <p className="py-10 text-center text-sm text-muted-foreground">{t("overview.noRiskData")}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RecentEvidence({ items }: { items: DecisionEvent[] }) {
+  const { t, i18n } = useTranslation();
+  return (
+    <Card>
+      <CardHeader><CardTitle>{t("overview.recentEvidence")}</CardTitle><CardDescription>{t("overview.recentEvidenceDescription")}</CardDescription><CardAction><Button size="sm" variant="ghost" asChild><Link to="/governance/evidence">{t("common.viewAll")}<ArrowRight /></Link></Button></CardAction></CardHeader>
+      <CardContent className="px-0">
+        {items.length ? <Table><TableHeader><TableRow><TableHead className="pl-4">{t("overview.time")}</TableHead><TableHead>{t("overview.event")}</TableHead><TableHead>{t("overview.risk")}</TableHead><TableHead className="pr-4 text-right">{t("overview.outcome")}</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="pl-4 text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString(i18n.language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</TableCell><TableCell className="max-w-[420px] truncate text-xs">{item.detail}</TableCell><TableCell className="text-xs text-muted-foreground">{item.risk ? riskLabel(item.risk, t) : "—"}</TableCell><TableCell className="pr-4 text-right"><StateBadge state={item.outcome} /></TableCell></TableRow>)}</TableBody></Table> : <div className="flex min-h-52 flex-col items-center justify-center px-6 text-center"><Activity className="size-6 text-muted-foreground" /><p className="mt-3 text-sm font-medium">{t("overview.noEvidenceTitle")}</p><p className="mt-1 text-xs text-muted-foreground">{t("overview.noEvidenceDescription")}</p></div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewSkeleton() { return <div className="mt-6 space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-32 rounded-xl" />)}</div><div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]"><Skeleton className="h-96 rounded-xl" /><Skeleton className="h-96 rounded-xl" /></div></div>; }
+
+function riskLabel(risk: string, t: ReturnType<typeof useTranslation>["t"]) {
+  const key = ({ topic_control: "profiles.riskTopic", pii: "profiles.riskPii", secrets: "profiles.riskSecrets", prompt_injection: "profiles.riskInjection", jailbreak: "profiles.riskJailbreak", content_safety: "profiles.riskUnsafe", company_policy: "profiles.riskCompany", builtin_content_filter: "profiles.riskBuiltin" } as Record<string, string>)[risk];
+  return key ? t(key) : risk.replaceAll("_", " ");
+}

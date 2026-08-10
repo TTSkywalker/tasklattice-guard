@@ -1,0 +1,16 @@
+apiVersion: v2
+name: tasklattice-guard
+description: Standalone AI safety control plane with progressive guardrail evaluation.
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
+home: https://github.com/tasklattice/tasklattice-guard
+sources:
+  - https://github.com/tasklattice/tasklattice-guard
+keywords:
+  - ai-safety
+  - guardrails
+  - nemo-guardrails
+  - tasklattice
+maintainers:
+  - name: TaskLattice
