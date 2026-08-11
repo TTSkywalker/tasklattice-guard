@@ -4,7 +4,12 @@ import pytest
 import httpx
 
 from app.config import Settings
-from app.control_plane.domain import ValidationError
+from app.control_plane.domain import (
+    GuardrailControl,
+    GuardrailControlConfig,
+    GuardrailRuleConfig,
+    ValidationError,
+)
 from app.control_plane.service import ControlPlaneService
 from app.engine.content_filter import BuiltinContentFilter
 from app.engine.contracts import EngineRequest
@@ -97,6 +102,91 @@ def test_singapore_mas_template_blocks_discriminatory_financial_decision():
 
 
 @pytest.mark.asyncio
+async def test_composed_guardrail_runs_only_the_selected_template_rules(tmp_path):
+    service = ControlPlaneService(tmp_path / "composed-control.db")
+    guardrail = service.create_guardrail(
+        name="Singapore postal code only",
+        purpose="Mask Singapore postal codes while leaving other contact data unchanged.",
+        controls=(GuardrailControl("builtin_content_filter", "reject"),),
+        control_configurations=(
+            GuardrailControlConfig(
+                id="template:sg-pdpa-contact-information",
+                name="SG PDPA Contact Information",
+                kind="template",
+                runtime_risk="builtin_content_filter",
+                template_id="sg-pdpa-contact-information",
+                template_version="1.95.0",
+                rules=(
+                    GuardrailRuleConfig(
+                        id="sg_postal_code",
+                        name="Singapore Postal Code",
+                        detector="regex",
+                        action="MASK",
+                        phases=("input", "output"),
+                    ),
+                ),
+            ),
+        ),
+    )
+    plan = service.compile_draft(guardrail.id)
+    step = plan.steps_for("input", "deterministic")[0]
+    email_result = await FastPassEngine().evaluate(
+        EngineRequest("input", "Contact alice@example.com", plan),
+        (step,),
+    )
+    postal_result = await FastPassEngine().evaluate(
+        EngineRequest("input", "The postal code is 018989", plan),
+        (step,),
+    )
+
+    assert email_result.verdict == "safe"
+    assert postal_result.verdict == "unsafe"
+    assert postal_result.content == "The postal code is [sg_postal_code_REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_composed_guardrail_resolves_parameterized_rule_values(tmp_path):
+    service = ControlPlaneService(tmp_path / "parameterized-control.db")
+    guardrail = service.create_guardrail(
+        name="Reviewed competitor terms",
+        purpose="Block reviewed competitor terms in customer-facing model traffic.",
+        controls=(GuardrailControl("builtin_content_filter", "reject"),),
+        control_configurations=(
+            GuardrailControlConfig(
+                id="template:competitor-input-blocker",
+                name="Competitor Input Blocker",
+                kind="template",
+                runtime_risk="builtin_content_filter",
+                template_id="competitor-input-blocker",
+                template_version="1.95.0",
+                rules=(
+                    GuardrailRuleConfig(
+                        id="dynamic-competitors-blocked-words",
+                        name="Competitors Blocked Words",
+                        detector="keyword",
+                        action="BLOCK",
+                        phases=("input",),
+                        keywords=("Rival Finance",),
+                    ),
+                ),
+            ),
+        ),
+    )
+    plan = service.compile_draft(guardrail.id)
+    step = plan.steps_for("input", "deterministic")[0]
+    result = await FastPassEngine().evaluate(
+        EngineRequest("input", "Compare us with Rival Finance", plan),
+        (step,),
+    )
+
+    assert result.verdict == "unsafe"
+    assert any(
+        "dynamic-competitors-blocked-words" in item.evidence
+        for item in result.findings
+    )
+
+
+@pytest.mark.asyncio
 async def test_guardrail_from_builtin_template_compiles_and_runs_in_fastpass(tmp_path):
     service = ControlPlaneService(tmp_path / "control-plane.db")
     guardrail = service.create_guardrail(
@@ -160,13 +250,9 @@ async def test_builtin_template_guardrail_passes_local_api_tests(tmp_path):
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        setup = await client.post(
-            "/api/v1/initial-admin",
-            json={
-                "display_name": "Test Admin",
-                "email": "admin@example.com",
-                "password": "test-password",
-            },
+        login = await client.post(
+            "/api/v1/session",
+            json={"email": "admin", "password": "admin"},
         )
         created = await client.post(
             "/api/v1/guardrails",
@@ -179,7 +265,7 @@ async def test_builtin_template_guardrail_passes_local_api_tests(tmp_path):
             f"/api/v1/guardrails/{created.json()['id']}"
         )
 
-    assert setup.status_code == 201
+    assert login.status_code == 200
     assert created.status_code == 201
     assert tested.status_code == 201
     assert tested.json()["status"] == "passed"

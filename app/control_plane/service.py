@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import sqlite3
 import threading
@@ -18,7 +19,12 @@ from ..engine.contracts import (
     PlanResolution,
     RequestContext,
 )
-from .catalog import CONTROL_DEFINITIONS, guardrail_template, guardrail_templates
+from .catalog import (
+    CONTROL_DEFINITIONS,
+    control_templates,
+    guardrail_template,
+    guardrail_templates,
+)
 from .compiler import GuardrailCompiler
 from .defaults import (
     DEFAULT_GUARDRAIL_ID,
@@ -42,8 +48,11 @@ from .domain import (
     IntegrationAuthenticationError,
     IntegrationRegistration,
     NotFoundError,
+    RuntimeMetricEvent,
     GuardrailVersion,
     GuardrailControl,
+    GuardrailControlConfig,
+    GuardrailRuleConfig,
     GuardrailTestCase,
     GuardrailAssignment,
     EvaluationCase,
@@ -95,6 +104,9 @@ class ControlPlaneService:
     def templates(self):
         return guardrail_templates()
 
+    def control_templates(self):
+        return control_templates()
+
     def control_definitions(self):
         return CONTROL_DEFINITIONS
 
@@ -125,6 +137,7 @@ class ControlPlaneService:
         allowed_topics: tuple[str, ...] = (),
         restricted_topics: tuple[str, ...] = (),
         controls: tuple[GuardrailControl, ...] = (),
+        control_configurations: tuple[GuardrailControlConfig, ...] = (),
         template_parameters: tuple[tuple[str, str], ...] = (),
         safety_level: str = "balanced",
         output_delivery: str = "window_buffered",
@@ -161,7 +174,13 @@ class ControlPlaneService:
             ]
             if missing:
                 raise ValidationError(f"Template requires: {', '.join(missing)}.")
-        self._validate_guardrail_fields(purpose or "", controls, safety_level, output_delivery)
+        self._validate_guardrail_fields(
+            purpose or "",
+            controls,
+            safety_level,
+            output_delivery,
+            control_configurations,
+        )
         guardrail_id = f"guardrail-{uuid.uuid4().hex[:12]}"
         now = _now()
         with self._write_lock, self._connect() as connection:
@@ -170,8 +189,9 @@ class ControlPlaneService:
                 INSERT INTO guardrails
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
                      controls_json, safety_level, output_delivery, source_template_id,
-                     template_parameters_json, draft_version, active_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+                     template_parameters_json, control_configurations_json,
+                     draft_version, active_version, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
                 """,
                 (
                     guardrail_id,
@@ -184,6 +204,7 @@ class ControlPlaneService:
                     output_delivery,
                     template_id,
                     _json(dict(template_parameters)),
+                    _control_configurations_json(control_configurations),
                     now,
                 ),
             )
@@ -206,6 +227,7 @@ class ControlPlaneService:
         allowed_topics: tuple[str, ...] | None = None,
         restricted_topics: tuple[str, ...] | None = None,
         controls: tuple[GuardrailControl, ...] | None = None,
+        control_configurations: tuple[GuardrailControlConfig, ...] | None = None,
         safety_level: str | None = None,
         output_delivery: str | None = None,
     ) -> Guardrail:
@@ -215,18 +237,30 @@ class ControlPlaneService:
         next_name = current.name if name is None else name.strip()
         next_purpose = current.purpose if purpose is None else purpose.strip()
         next_controls = current.controls if controls is None else controls
+        next_control_configurations = (
+            current.control_configurations
+            if control_configurations is None
+            else control_configurations
+        )
         next_level = current.safety_level if safety_level is None else safety_level
         next_delivery = current.output_delivery if output_delivery is None else output_delivery
         if not next_name:
             raise ValidationError("Guardrail name is required.")
-        self._validate_guardrail_fields(next_purpose, next_controls, next_level, next_delivery)
+        self._validate_guardrail_fields(
+            next_purpose,
+            next_controls,
+            next_level,
+            next_delivery,
+            next_control_configurations,
+        )
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
                 UPDATE guardrails
                 SET name = ?, purpose = ?, allowed_topics_json = ?,
                     restricted_topics_json = ?, controls_json = ?, safety_level = ?,
-                    output_delivery = ?, draft_version = draft_version + 1,
+                    output_delivery = ?, control_configurations_json = ?,
+                    draft_version = draft_version + 1,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -242,6 +276,7 @@ class ControlPlaneService:
                     _controls_json(next_controls),
                     next_level,
                     next_delivery,
+                    _control_configurations_json(next_control_configurations),
                     _now(),
                     guardrail_id,
                 ),
@@ -877,6 +912,45 @@ class ControlPlaneService:
             for row in rows
         )
 
+    def runtime_metrics(
+        self,
+        *,
+        since: str,
+    ) -> tuple[RuntimeMetricEvent, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, created_at, guardrail_id, guardrail_version,
+                       assignment_id, integration_id, protocol, phase,
+                       outcome, action, risk, latency_ms, timed_out,
+                       module_invocations, evaluator_invocations
+                FROM runtime_metric_events
+                WHERE created_at >= ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (since,),
+            ).fetchall()
+        return tuple(
+            RuntimeMetricEvent(
+                id=str(row[0]),
+                created_at=str(row[1]),
+                guardrail_id=str(row[2]) if row[2] else None,
+                guardrail_version=int(row[3]) if row[3] is not None else None,
+                assignment_id=str(row[4]) if row[4] else None,
+                integration_id=str(row[5]) if row[5] else None,
+                protocol=str(row[6]),
+                phase=str(row[7]),
+                outcome=str(row[8]),
+                action=str(row[9]),
+                risk=str(row[10]) if row[10] else None,
+                latency_ms=int(row[11]),
+                timed_out=bool(row[12]),
+                module_invocations=int(row[13]),
+                evaluator_invocations=int(row[14]),
+            )
+            for row in rows
+        )
+
     def record_decision(
         self,
         *,
@@ -885,7 +959,17 @@ class ControlPlaneService:
         assignment_id: str | None,
         risk: str | None,
         detail: str,
+        guardrail_version: int | None = None,
+        integration_id: str | None = None,
+        protocol: str = "unknown",
+        phase: str = "unknown",
+        action: str = "unknown",
+        latency_ms: int = 0,
+        timed_out: bool = False,
+        module_invocations: int = 0,
+        evaluator_invocations: int = 0,
     ) -> None:
+        now = _now()
         with self._write_lock, self._connect() as connection:
             self._insert_activity(
                 connection,
@@ -895,6 +979,33 @@ class ControlPlaneService:
                 assignment_id=assignment_id,
                 risk=risk,
                 detail=detail,
+            )
+            connection.execute(
+                """
+                INSERT INTO runtime_metric_events
+                    (id, created_at, guardrail_id, guardrail_version,
+                     assignment_id, integration_id, protocol, phase,
+                     outcome, action, risk, latency_ms, timed_out,
+                     module_invocations, evaluator_invocations)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"metric-{uuid.uuid4().hex[:12]}",
+                    now,
+                    guardrail_id,
+                    guardrail_version,
+                    assignment_id,
+                    integration_id,
+                    protocol,
+                    phase,
+                    outcome,
+                    action,
+                    risk,
+                    max(0, latency_ms),
+                    int(timed_out),
+                    max(0, module_invocations),
+                    max(0, evaluator_invocations),
+                ),
             )
             connection.commit()
 
@@ -944,6 +1055,8 @@ class ControlPlaneService:
                     raise ControlPlaneError(
                         "This database is incompatible with the current TaskLattice Guard schema; initialize a new database."
                     )
+            self._ensure_guardrail_composition_schema(connection)
+            self._ensure_runtime_metrics_schema(connection)
             self._ensure_product_defaults(connection)
             connection.commit()
         self._reload_runtime()
@@ -965,6 +1078,7 @@ class ControlPlaneService:
                 output_delivery TEXT NOT NULL,
                 source_template_id TEXT,
                 template_parameters_json TEXT NOT NULL,
+                control_configurations_json TEXT NOT NULL DEFAULT '[]',
                 draft_version INTEGER NOT NULL,
                 active_version INTEGER,
                 updated_at TEXT NOT NULL
@@ -1051,6 +1165,27 @@ class ControlPlaneService:
                 risk TEXT,
                 detail TEXT NOT NULL
             );
+            CREATE TABLE runtime_metric_events (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                guardrail_id TEXT,
+                guardrail_version INTEGER,
+                assignment_id TEXT,
+                integration_id TEXT,
+                protocol TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                action TEXT NOT NULL,
+                risk TEXT,
+                latency_ms INTEGER NOT NULL,
+                timed_out INTEGER NOT NULL,
+                module_invocations INTEGER NOT NULL,
+                evaluator_invocations INTEGER NOT NULL
+            );
+            CREATE INDEX runtime_metric_events_created_at_idx
+                ON runtime_metric_events(created_at);
+            CREATE INDEX runtime_metric_events_guardrail_created_at_idx
+                ON runtime_metric_events(guardrail_id, created_at);
             CREATE TABLE users (
                 id TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL,
@@ -1076,6 +1211,46 @@ class ControlPlaneService:
         connection.execute(
             "INSERT INTO control_plane_meta (key, value) VALUES ('schema_version', ?)",
             (SCHEMA_VERSION,),
+        )
+
+    @staticmethod
+    def _ensure_guardrail_composition_schema(connection: sqlite3.Connection) -> None:
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(guardrails)").fetchall()
+        }
+        if "control_configurations_json" not in columns:
+            connection.execute(
+                "ALTER TABLE guardrails ADD COLUMN control_configurations_json "
+                "TEXT NOT NULL DEFAULT '[]'"
+            )
+
+    @staticmethod
+    def _ensure_runtime_metrics_schema(connection: sqlite3.Connection) -> None:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS runtime_metric_events (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                guardrail_id TEXT,
+                guardrail_version INTEGER,
+                assignment_id TEXT,
+                integration_id TEXT,
+                protocol TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                action TEXT NOT NULL,
+                risk TEXT,
+                latency_ms INTEGER NOT NULL,
+                timed_out INTEGER NOT NULL,
+                module_invocations INTEGER NOT NULL,
+                evaluator_invocations INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS runtime_metric_events_created_at_idx
+                ON runtime_metric_events(created_at);
+            CREATE INDEX IF NOT EXISTS runtime_metric_events_guardrail_created_at_idx
+                ON runtime_metric_events(guardrail_id, created_at);
+            """
         )
 
     def _seed(self, connection: sqlite3.Connection) -> None:
@@ -1123,8 +1298,9 @@ class ControlPlaneService:
                 INSERT INTO guardrails
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
                      controls_json, safety_level, output_delivery, source_template_id,
-                     template_parameters_json, draft_version, active_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                     template_parameters_json, control_configurations_json,
+                     draft_version, active_version, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 1, ?, ?)
                 """,
                 (
                     guardrail.id,
@@ -1303,6 +1479,7 @@ class ControlPlaneService:
         controls: tuple[GuardrailControl, ...],
         safety_level: str,
         output_delivery: str,
+        control_configurations: tuple[GuardrailControlConfig, ...] = (),
     ) -> None:
         if not purpose.strip():
             raise ValidationError("Describe what this AI is allowed to do.")
@@ -1343,6 +1520,93 @@ class ControlPlaneService:
                 raise ValidationError(
                     "Only automated reasoning may bind a reasoning policy."
                 )
+        configured_runtime_risks = {
+            item.runtime_risk for item in control_configurations
+        }
+        missing_runtime_controls = configured_runtime_risks - {
+            item.risk for item in controls
+        }
+        if missing_runtime_controls:
+            raise ValidationError(
+                "Configured Controls must be included in the Guardrail runtime plan: "
+                + ", ".join(sorted(missing_runtime_controls))
+                + "."
+            )
+        ControlPlaneService._validate_control_configurations(control_configurations)
+
+    @staticmethod
+    def _validate_control_configurations(
+        configurations: tuple[GuardrailControlConfig, ...],
+    ) -> None:
+        if len({item.id for item in configurations}) != len(configurations):
+            raise ValidationError("A Control may only be configured once.")
+        templates = {item.id: item for item in control_templates()}
+        known_risks = {item.id for item in CONTROL_DEFINITIONS}
+        for configuration in configurations:
+            if configuration.runtime_risk not in known_risks:
+                raise ValidationError(
+                    f"Unknown runtime Control {configuration.runtime_risk!r}."
+                )
+            if not configuration.rules or not any(
+                rule.enabled for rule in configuration.rules
+            ):
+                raise ValidationError(
+                    f"Control {configuration.name!r} must enable at least one Rule."
+                )
+            if len({rule.id for rule in configuration.rules}) != len(
+                configuration.rules
+            ):
+                raise ValidationError(
+                    f"Control {configuration.name!r} contains duplicate Rules."
+                )
+            if configuration.kind == "template":
+                template = templates.get(configuration.template_id or "")
+                if template is None:
+                    raise ValidationError("Unknown Control Template.")
+                if configuration.template_version != template.version:
+                    raise ValidationError(
+                        f"Control Template {template.id!r} must pin version {template.version}."
+                    )
+                available = {rule.id for rule in template.rules}
+                if any(rule.id not in available for rule in configuration.rules):
+                    raise ValidationError(
+                        f"Control {configuration.name!r} references an unknown Rule."
+                    )
+            for rule in configuration.rules:
+                if not rule.phases or any(
+                    phase not in {"input", "output"} for phase in rule.phases
+                ):
+                    raise ValidationError(
+                        f"Rule {rule.name!r} requires a supported model boundary."
+                    )
+                if rule.detector == "regex" and configuration.kind == "custom":
+                    if not (rule.expression or "").strip():
+                        raise ValidationError(
+                            f"Custom Regex Rule {rule.name!r} requires an expression."
+                        )
+                    try:
+                        re.compile(rule.expression or "")
+                    except re.error as error:
+                        raise ValidationError(
+                            f"Custom Regex Rule {rule.name!r} is invalid."
+                        ) from error
+                if rule.detector == "keyword" and configuration.kind == "custom":
+                    if not any(keyword.strip() for keyword in rule.keywords):
+                        raise ValidationError(
+                            f"Custom Keyword Rule {rule.name!r} requires a keyword."
+                        )
+                if (
+                    configuration.kind == "template"
+                    and rule.enabled
+                    and rule.id.startswith("dynamic-")
+                    and (
+                        not any(keyword.strip() for keyword in rule.keywords)
+                        or any("{{" in keyword for keyword in rule.keywords)
+                    )
+                ):
+                    raise ValidationError(
+                        f"Parameterized Rule {rule.name!r} requires reviewed values."
+                    )
 
     @staticmethod
     def _validate_test_case(
@@ -1427,6 +1691,7 @@ class ControlPlaneService:
 
 def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
     raw_controls = json.loads(str(row["controls_json"]))
+    raw_configurations = json.loads(str(row["control_configurations_json"]))
     return Guardrail(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -1454,6 +1719,41 @@ def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
             int(row["active_version"]) if row["active_version"] is not None else None
         ),
         updated_at=str(row["updated_at"]),
+        control_configurations=tuple(
+            GuardrailControlConfig(
+                id=str(item["id"]),
+                name=str(item["name"]),
+                kind=str(item["kind"]),
+                runtime_risk=str(item["runtime_risk"]),
+                template_id=(
+                    str(item["template_id"]) if item.get("template_id") else None
+                ),
+                template_version=(
+                    str(item["template_version"])
+                    if item.get("template_version")
+                    else None
+                ),
+                rules=tuple(
+                    GuardrailRuleConfig(
+                        id=str(rule["id"]),
+                        name=str(rule["name"]),
+                        detector=str(rule["detector"]),
+                        action=str(rule["action"]),
+                        phases=tuple(rule["phases"]),
+                        enabled=bool(rule.get("enabled", True)),
+                        description=str(rule.get("description", "")),
+                        expression=(
+                            str(rule["expression"])
+                            if rule.get("expression") is not None
+                            else None
+                        ),
+                        keywords=tuple(rule.get("keywords", ())),
+                    )
+                    for rule in item["rules"]
+                ),
+            )
+            for item in raw_configurations
+        ),
     )
 
 
@@ -1581,6 +1881,12 @@ def _resolution_step(kind: str, name: str, detail: str):
 
 def _controls_json(controls: tuple[GuardrailControl, ...]) -> str:
     return _json([asdict(item) for item in controls])
+
+
+def _control_configurations_json(
+    configurations: tuple[GuardrailControlConfig, ...],
+) -> str:
+    return _json([asdict(item) for item in configurations])
 
 
 def _json(value: object) -> str:

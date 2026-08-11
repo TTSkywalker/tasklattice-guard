@@ -31,7 +31,7 @@ export function OverviewPage() {
         action={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild><Link to="/guardrails"><ShieldCheck />{t("overview.manageGuardrails")}</Link></Button>
-            <Button asChild><Link to="/assignments"><ListFilter />{t("overview.manageAssignments")}</Link></Button>
+            <Button asChild><Link to="/deployments"><ListFilter />{t("overview.manageAssignments")}</Link></Button>
           </div>
         }
       />
@@ -44,8 +44,10 @@ export function OverviewPage() {
             <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={t("overview.allRecordedTraffic")} />
             <Kpi icon={ShieldAlert} label={t("overview.blockRate")} value={`${metrics.data.block_rate}%`} detail={t("overview.blockedCount", { count: metrics.data.blocked })} tone={metrics.data.block_rate > 10 ? "warning" : "default"} />
             <Kpi icon={Workflow} label={t("overview.activeAssignments")} value={`${metrics.data.active_assignments}/${metrics.data.total_assignments}`} detail={t("overview.protectedScope")} />
-            <Kpi icon={Clock3} label={t("overview.testP95")} value={`${metrics.data.latest_test_p95_ms} ms`} detail={t("overview.latestFormalRun")} />
+            <Kpi icon={Clock3} label={t("overview.runtimeP95")} value={metrics.data.total_decisions ? `${metrics.data.runtime_p95_ms} ms` : "—"} detail={metrics.data.total_decisions ? t("overview.runtimeLatencyBand", { p50: metrics.data.runtime_p50_ms, p99: metrics.data.runtime_p99_ms }) : t("overview.runtimeLatencyEmpty")} />
           </div>
+
+          <GuardrailDistribution metrics={metrics.data} />
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
             <TrafficTrend metrics={metrics.data} />
@@ -87,6 +89,122 @@ function Kpi({ icon: Icon, label, value, detail, tone = "default" }: { icon: typ
   );
 }
 
+function GuardrailDistribution({ metrics }: { metrics: Metrics }) {
+  const { t, i18n } = useTranslation();
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle>{t("overview.guardrailDistribution")}</CardTitle>
+        <CardDescription>{t("overview.guardrailDistributionDescription")}</CardDescription>
+        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+      </CardHeader>
+      <CardContent className="px-0">
+        <div className="hidden overflow-x-auto md:block">
+          <Table className="min-w-[760px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-4">{t("overview.guardrail")}</TableHead>
+                <TableHead>{t("overview.requestShare")}</TableHead>
+                <TableHead>{t("overview.outcomeDistribution")}</TableHead>
+                <TableHead>{t("overview.latencyDistribution")}</TableHead>
+                <TableHead className="pr-4 text-right">{t("overview.timeouts")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {metrics.guardrail_distribution.map((item) => (
+                <TableRow key={item.guardrail_id}>
+                  <TableCell className="pl-4"><GuardrailIdentity item={item} /></TableCell>
+                  <TableCell>
+                    <p className="font-mono text-sm tabular-nums">{item.total.toLocaleString(i18n.language)}</p>
+                    <p className="text-xs text-muted-foreground">{t("overview.trafficShare", { share: item.share })}</p>
+                  </TableCell>
+                  <TableCell className="min-w-56"><OutcomeDistribution item={item} /></TableCell>
+                  <TableCell><LatencyDistribution item={item} /></TableCell>
+                  <TableCell className="pr-4 text-right font-mono text-sm tabular-nums">
+                    <span className={item.timeout_count ? "text-destructive" : "text-muted-foreground"}>{item.timeout_count}</span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="divide-y md:hidden">
+          {metrics.guardrail_distribution.map((item) => (
+            <div key={item.guardrail_id} className="px-4 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <GuardrailIdentity item={item} />
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-base tabular-nums">{item.total.toLocaleString(i18n.language)}</p>
+                  <p className="text-xs text-muted-foreground">{t("overview.trafficShare", { share: item.share })}</p>
+                </div>
+              </div>
+              <div className="mt-4"><OutcomeDistribution item={item} /></div>
+              <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">{t("overview.runtimeP95")}</p>
+                  <p className="mt-1 font-mono text-sm tabular-nums">{item.total ? `${item.p95_latency_ms} ms` : "—"}</p>
+                  {item.total ? <p className="mt-0.5 text-xs text-muted-foreground">{t("overview.runtimeLatencyBand", { p50: item.p50_latency_ms, p99: item.p99_latency_ms })}</p> : null}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">{t("overview.timeouts")}</p>
+                  <p className={`mt-1 font-mono text-sm tabular-nums ${item.timeout_count ? "text-destructive" : ""}`}>{item.timeout_count}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {metrics.unassigned_requests ? <p className="border-t px-4 py-3 text-xs text-amber-700">{t("overview.unassignedRequests", { count: metrics.unassigned_requests })}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+type GuardrailMetric = Metrics["guardrail_distribution"][number];
+
+function GuardrailIdentity({ item }: { item: GuardrailMetric }) {
+  const { t } = useTranslation();
+  return (
+    <div className="min-w-0">
+      <Link to="/guardrails/$guardrailId" params={{ guardrailId: item.guardrail_id }} className="font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+        {item.name}
+      </Link>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {item.versions.length ? t("overview.observedVersions", { versions: item.versions.map((version) => `v${version}`).join(", ") }) : t("overview.noObservedVersion")}
+      </p>
+    </div>
+  );
+}
+
+function OutcomeDistribution({ item }: { item: GuardrailMetric }) {
+  const { t } = useTranslation();
+  if (!item.total) return <p className="text-xs text-muted-foreground">{t("overview.noRuntimeTraffic")}</p>;
+  const outcomes = [
+    { count: item.allowed, className: "bg-emerald-500" },
+    { count: item.intervened, className: "bg-amber-400" },
+    { count: item.blocked, className: "bg-destructive" },
+    { count: item.errors, className: "bg-foreground" },
+  ];
+  return (
+    <>
+      <div className="flex h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label={t("overview.outcomeDistributionLabel", { allowed: item.allowed, intervened: item.intervened, blocked: item.blocked, errors: item.errors })}>
+        {outcomes.map((outcome, index) => <span key={index} className={outcome.className} style={{ width: `${outcome.count / item.total * 100}%` }} />)}
+      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">{t("overview.outcomeSummary", { allowed: item.allowed, intervened: item.intervened, blocked: item.blocked, errors: item.errors })}</p>
+    </>
+  );
+}
+
+function LatencyDistribution({ item }: { item: GuardrailMetric }) {
+  if (!item.total) return <span className="text-muted-foreground">—</span>;
+  return (
+    <p className="font-mono text-xs tabular-nums">
+      <span className="text-muted-foreground">P50</span> {item.p50_latency_ms} ms
+      <span className="ml-3 text-muted-foreground">P95</span> {item.p95_latency_ms} ms
+      <span className="ml-3 text-muted-foreground">P99</span> {item.p99_latency_ms} ms
+    </p>
+  );
+}
+
 function TrafficTrend({ metrics }: { metrics: Metrics }) {
   const { t, i18n } = useTranslation();
   const data = metrics.trend.map((item) => ({ ...item, label: new Date(`${item.date}T00:00:00`).toLocaleDateString(i18n.language, { month: "short", day: "numeric" }) }));
@@ -118,7 +236,7 @@ function Attention({ metrics }: { metrics: Metrics }) {
   const { t } = useTranslation();
   const items = [
     metrics.guardrails_needing_test ? { label: t("overview.guardrailsNeedTest", { count: metrics.guardrails_needing_test }), to: "/guardrails" as const, state: "needs_testing" } : null,
-    metrics.total_assignments === 0 ? { label: t("overview.noAssignments"), to: "/assignments" as const, state: "waiting" } : null,
+    metrics.total_assignments === 0 ? { label: t("overview.noAssignments"), to: "/deployments" as const, state: "waiting" } : null,
     metrics.degraded_integrations ? { label: t("overview.integrationsDegraded", { count: metrics.degraded_integrations }), to: "/integrations" as const, state: "degraded" } : null,
   ].filter(Boolean) as Array<{ label: string; to: "/guardrails" | "/assignments" | "/integrations"; state: string }>;
   return (

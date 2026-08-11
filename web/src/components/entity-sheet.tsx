@@ -42,7 +42,7 @@ export function EntitySheet({
       <SheetContent
         side="right"
         className={cn(
-          "gap-0 border-l bg-background shadow-[var(--shadow-overlay)] [&>button]:size-10 [&>button]:rounded-lg",
+          "gap-0 border-l bg-background shadow-[var(--shadow-overlay)] [&>button]:size-11 [&>button]:rounded-lg",
           widthClasses[width],
         )}
       >

@@ -20,11 +20,15 @@ import { LoginPage } from "@/routes/login";
 
 const names: Record<string, { group: string; page: string }> = {
   "/": { group: "nav.home", page: "nav.overview" },
-  "/guardrails": { group: "nav.governance", page: "nav.guardrails" },
-  "/assignments": { group: "nav.governance", page: "nav.assignments" },
-  "/enforcements": { group: "nav.governance", page: "nav.enforcements" },
-  "/integrations": { group: "nav.operations", page: "nav.integrations" },
-  "/evidence": { group: "nav.operations", page: "nav.evidence" },
+  "/guardrails": { group: "nav.buildValidate", page: "nav.guardrails" },
+  "/control-library": { group: "nav.buildValidate", page: "nav.controlLibrary" },
+  "/playground": { group: "nav.buildValidate", page: "nav.playground" },
+  "/evaluations": { group: "nav.buildValidate", page: "nav.evaluations" },
+  "/deployments": { group: "nav.runtime", page: "nav.deployments" },
+  "/assignments": { group: "nav.runtime", page: "nav.deployments" },
+  "/enforcements": { group: "nav.runtime", page: "nav.deployments" },
+  "/integrations": { group: "nav.runtime", page: "nav.integrations" },
+  "/evidence": { group: "nav.assurance", page: "nav.evidence" },
   "/access": { group: "nav.system", page: "nav.access" },
 };
 
@@ -46,7 +50,7 @@ export function ControlPlaneLayout() {
         <SidebarInset className="min-w-0 bg-background">
           <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-card/90 px-4 backdrop-blur-md sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
-              <SidebarTrigger className="size-10 rounded-lg" />
+              <SidebarTrigger className="size-11 rounded-lg" />
               <Separator orientation="vertical" className="h-5" />
               <Breadcrumb className="min-w-0">
                 <BreadcrumbList className="flex-nowrap">

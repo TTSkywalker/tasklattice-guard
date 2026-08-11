@@ -22,6 +22,11 @@ address; inspect it with:
 kubectl --namespace tali get service tasklattice-guard
 ```
 
+A fresh persistent volume is initialized with the local administrator
+`admin` / `admin`. Sign in and use **Change password** from the account menu
+before exposing the Service beyond a trusted setup network. The password is
+stored in the persistent database and is not reset by pod restarts or upgrades.
+
 ## Important values
 
 | Value | Default | Purpose |

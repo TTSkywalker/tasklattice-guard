@@ -29,6 +29,8 @@ from .domain import (
     EvaluationMetrics,
     NotFoundError,
     GuardrailControl,
+    GuardrailControlConfig,
+    GuardrailRuleConfig,
     TrafficScopeExpression,
     TrafficScopeRule,
     ValidationError,
@@ -54,6 +56,32 @@ class GuardrailControlInput(BaseModel):
     reasoning_policy: AutomatedReasoningPolicyInput | None = None
 
 
+class GuardrailRuleConfigInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=256)
+    detector: Literal["regex", "keyword", "category", "classifier", "judge"]
+    action: str = Field(min_length=1, max_length=64)
+    phases: list[Literal["input", "output"]] = Field(min_length=1, max_length=2)
+    enabled: bool = True
+    description: str = Field(default="", max_length=2_000)
+    expression: str | None = Field(default=None, max_length=8_000)
+    keywords: list[str] = Field(default_factory=list, max_length=256)
+
+
+class GuardrailControlConfigInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=256)
+    kind: Literal["template", "custom"]
+    runtime_risk: str = Field(min_length=1, max_length=128)
+    template_id: str | None = Field(default=None, max_length=256)
+    template_version: str | None = Field(default=None, max_length=128)
+    rules: list[GuardrailRuleConfigInput] = Field(min_length=1, max_length=512)
+
+
 class CreateGuardrailRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -64,6 +92,7 @@ class CreateGuardrailRequest(BaseModel):
     allowed_topics: list[str] = Field(default_factory=list)
     restricted_topics: list[str] = Field(default_factory=list)
     controls: list[GuardrailControlInput] = Field(default_factory=list)
+    control_configurations: list[GuardrailControlConfigInput] = Field(default_factory=list)
     safety_level: Literal["balanced", "strict"] = "balanced"
     output_delivery: Literal[
         "interruptible", "window_buffered", "full_buffered"
@@ -104,6 +133,7 @@ class UpdateGuardrailRequest(BaseModel):
     allowed_topics: list[str] | None = None
     restricted_topics: list[str] | None = None
     controls: list[GuardrailControlInput] | None = None
+    control_configurations: list[GuardrailControlConfigInput] | None = None
     safety_level: Literal["balanced", "strict"] | None = None
     output_delivery: Literal[
         "interruptible", "window_buffered", "full_buffered"
@@ -168,6 +198,14 @@ class CreateTestRunRequest(BaseModel):
     guardrail_id: str = Field(min_length=1)
 
 
+class QuickTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    guardrail_id: str = Field(min_length=1)
+    phase: Literal["input", "output"] = "input"
+    content: str = Field(min_length=1, max_length=8_000)
+
+
 class ControlPlaneAPI:
     def __init__(
         self,
@@ -192,6 +230,10 @@ class ControlPlaneAPI:
         @router.get("/guardrail-templates")
         def guardrail_templates():
             return _collection([_guardrail_template_payload(item) for item in self._service.templates()])
+
+        @router.get("/control-templates")
+        def control_templates():
+            return _collection([asdict(item) for item in self._service.control_templates()])
 
         @router.get("/control-definitions")
         def control_definitions():
@@ -242,6 +284,9 @@ class ControlPlaneAPI:
                     allowed_topics=tuple(_clean_lines(request.allowed_topics)),
                     restricted_topics=tuple(_clean_lines(request.restricted_topics)),
                     controls=_controls(request.controls),
+                    control_configurations=_control_configurations(
+                        request.control_configurations
+                    ),
                     template_parameters=tuple(request.template_parameters.items()),
                     safety_level=request.safety_level,
                     output_delivery=request.output_delivery,
@@ -274,6 +319,11 @@ class ControlPlaneAPI:
                     controls=(
                         _controls(request.controls)
                         if request.controls is not None
+                        else None
+                    ),
+                    control_configurations=(
+                        _control_configurations(request.control_configurations)
+                        if request.control_configurations is not None
                         else None
                     ),
                     safety_level=request.safety_level,
@@ -455,6 +505,51 @@ class ControlPlaneAPI:
                 _raise(error)
             return _test_payload(run)
 
+        @router.post("/quick-tests")
+        async def run_quick_test(request: QuickTestRequest):
+            try:
+                guardrail = self._service.guardrail(request.guardrail_id)
+                plan = self._service.compile_draft(request.guardrail_id)
+                started = time.perf_counter()
+                decision = await self._engine.evaluate(
+                    EngineRequest(
+                        phase=request.phase,
+                        text=request.content,
+                        plan=plan,
+                        context_messages=(
+                            {
+                                "role": "user" if request.phase == "input" else "assistant",
+                                "content": request.content,
+                            },
+                        ),
+                        target_source=(
+                            "user_input" if request.phase == "input" else "model_output"
+                        ),
+                        evidence_scope="full",
+                    )
+                )
+                latency = max(0, round((time.perf_counter() - started) * 1000))
+            except ControlPlaneError as error:
+                _raise(error)
+            return {
+                "guardrail_id": guardrail.id,
+                "source_draft_version": guardrail.draft_version,
+                "phase": request.phase,
+                "input_content": request.content,
+                "decision": decision.decision,
+                "action": decision.action,
+                "output_content": (
+                    decision.texts[0]
+                    if decision.texts
+                    else "" if decision.decision == "block" else request.content
+                ),
+                "stage_reached": _stage_reached(decision.trace),
+                "latency_ms": latency,
+                "reason": decision.reason or "",
+                "findings": [asdict(item) for item in decision.findings],
+                "trace": [asdict(item) for item in decision.trace],
+            }
+
         @router.get("/assignments")
         def assignments():
             return _collection([_assignment_payload(item) for item in self._service.assignments()])
@@ -553,6 +648,9 @@ class ControlPlaneAPI:
             "allowed_topics": guardrail.allowed_topics,
             "restricted_topics": guardrail.restricted_topics,
             "controls": [asdict(item) for item in guardrail.controls],
+            "control_configurations": [
+                asdict(item) for item in guardrail.control_configurations
+            ],
             "safety_level": guardrail.safety_level,
             "output_delivery": guardrail.output_delivery,
             "source_template_id": guardrail.source_template_id,
@@ -653,15 +751,14 @@ def _guardrail_id_for_case(service: ControlPlaneService, case_id: str) -> str:
 
 
 def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
-    events = tuple(
-        item
-        for item in service.activities(limit=500)
-        if item.kind == "interaction.decision"
-    )
+    now = datetime.now(UTC)
+    window_start = now - timedelta(days=7)
+    events = service.runtime_metrics(since=window_start.isoformat())
     counts = {
         "allow": sum(item.outcome == "allow" for item in events),
         "block": sum(item.outcome == "block" for item in events),
         "transform": sum(item.outcome == "transform" for item in events),
+        "error": sum(item.outcome == "error" for item in events),
     }
     total = len(events)
     risk_counts: dict[str, int] = {}
@@ -669,10 +766,16 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         if item.risk:
             risk_counts[item.risk] = risk_counts.get(item.risk, 0) + 1
 
-    today = datetime.now(UTC).date()
+    today = now.date()
     days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
     trend = {
-        day.isoformat(): {"date": day.isoformat(), "total": 0, "blocked": 0, "intervened": 0}
+        day.isoformat(): {
+            "date": day.isoformat(),
+            "total": 0,
+            "blocked": 0,
+            "intervened": 0,
+            "errored": 0,
+        }
         for day in days
     }
     for item in events:
@@ -686,6 +789,7 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         bucket["total"] += 1
         bucket["blocked"] += int(item.outcome == "block")
         bucket["intervened"] += int(item.outcome == "transform")
+        bucket["errored"] += int(item.outcome == "error")
 
     guardrails = service.guardrails()
     needs_testing = 0
@@ -700,14 +804,68 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
     test_runs = service.evaluations()
     latest_test_p95 = test_runs[0].metrics.p95_latency_ms if test_runs else 0
     status = service.summary()
+    latency = _runtime_latency(events)
+    guardrail_distribution = []
+    for guardrail in guardrails:
+        matching = tuple(item for item in events if item.guardrail_id == guardrail.id)
+        item_counts = {
+            "allow": sum(item.outcome == "allow" for item in matching),
+            "block": sum(item.outcome == "block" for item in matching),
+            "transform": sum(item.outcome == "transform" for item in matching),
+            "error": sum(item.outcome == "error" for item in matching),
+        }
+        item_total = len(matching)
+        item_latency = _runtime_latency(matching)
+        guardrail_distribution.append(
+            {
+                "guardrail_id": guardrail.id,
+                "name": guardrail.name,
+                "total": item_total,
+                "share": round(item_total / total * 100, 1) if total else 0,
+                "allowed": item_counts["allow"],
+                "blocked": item_counts["block"],
+                "intervened": item_counts["transform"],
+                "errors": item_counts["error"],
+                "block_rate": round(item_counts["block"] / item_total * 100, 1)
+                if item_total
+                else 0,
+                "intervention_rate": round(
+                    item_counts["transform"] / item_total * 100, 1
+                )
+                if item_total
+                else 0,
+                "error_rate": round(item_counts["error"] / item_total * 100, 1)
+                if item_total
+                else 0,
+                "p50_latency_ms": item_latency["p50"],
+                "p95_latency_ms": item_latency["p95"],
+                "p99_latency_ms": item_latency["p99"],
+                "timeout_count": sum(item.timed_out for item in matching),
+                "versions": sorted(
+                    {
+                        item.guardrail_version
+                        for item in matching
+                        if item.guardrail_version is not None
+                    }
+                ),
+            }
+        )
+    guardrail_distribution.sort(key=lambda item: (-int(item["total"]), str(item["name"])))
     return {
-        "window": "all_time",
+        "window": "7d",
+        "window_start": window_start.isoformat(),
         "total_decisions": total,
         "allowed": counts["allow"],
         "blocked": counts["block"],
         "intervened": counts["transform"],
+        "errors": counts["error"],
         "block_rate": round(counts["block"] / total * 100, 1) if total else 0,
         "intervention_rate": round(counts["transform"] / total * 100, 1) if total else 0,
+        "error_rate": round(counts["error"] / total * 100, 1) if total else 0,
+        "timeout_count": sum(item.timed_out for item in events),
+        "runtime_p50_ms": latency["p50"],
+        "runtime_p95_ms": latency["p95"],
+        "runtime_p99_ms": latency["p99"],
         "latest_test_p95_ms": latest_test_p95,
         "active_assignments": sum(item.enabled for item in assignments),
         "total_assignments": len(assignments),
@@ -723,9 +881,26 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
                 risk_counts.items(), key=lambda item: (-item[1], item[0])
             )
         ],
+        "guardrail_distribution": guardrail_distribution,
+        "unassigned_requests": sum(item.guardrail_id is None for item in events),
         "trend": list(trend.values()),
         "system_status": status["status"],
     }
+
+
+def _runtime_latency(events) -> dict[str, int]:
+    values = sorted(item.latency_ms for item in events)
+    return {
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+        "p99": _percentile(values, 0.99),
+    }
+
+
+def _percentile(values: list[int], quantile: float) -> int:
+    if not values:
+        return 0
+    return values[max(0, math.ceil(len(values) * quantile) - 1)]
 
 
 def _controls(items: list[GuardrailControlInput]) -> tuple[GuardrailControl, ...]:
@@ -741,6 +916,36 @@ def _controls(items: list[GuardrailControlInput]) -> tuple[GuardrailControl, ...
                 )
                 if item.reasoning_policy is not None
                 else None
+            ),
+        )
+        for item in items
+    )
+
+
+def _control_configurations(
+    items: list[GuardrailControlConfigInput],
+) -> tuple[GuardrailControlConfig, ...]:
+    return tuple(
+        GuardrailControlConfig(
+            id=item.id,
+            name=item.name,
+            kind=item.kind,
+            runtime_risk=item.runtime_risk,
+            template_id=item.template_id,
+            template_version=item.template_version,
+            rules=tuple(
+                GuardrailRuleConfig(
+                    id=rule.id,
+                    name=rule.name,
+                    detector=rule.detector,
+                    action=rule.action,
+                    phases=tuple(rule.phases),
+                    enabled=rule.enabled,
+                    description=rule.description,
+                    expression=rule.expression,
+                    keywords=tuple(rule.keywords),
+                )
+                for rule in item.rules
             ),
         )
         for item in items

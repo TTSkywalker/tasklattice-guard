@@ -1,10 +1,12 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, Cable, ChevronsUpDown, Globe2, ListFilter, LockKeyhole, LogOut, ShieldCheck, UsersRound } from "lucide-react";
+import { Activity, Cable, ChevronsUpDown, FlaskConical, Globe2, KeyRound, LibraryBig, ListChecks, LogOut, Rocket, ShieldCheck, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ChangePasswordSheet } from "@/components/change-password-sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,17 +39,24 @@ import { getAssignments, getGuardrails, getIntegrations } from "@/lib/api";
 
 const navigation = [
   {
-    label: "nav.governance",
+    label: "nav.buildValidate",
     items: [
       { label: "nav.guardrails", to: "/guardrails", icon: ShieldCheck, count: "guardrails" },
-      { label: "nav.assignments", to: "/assignments", icon: ListFilter, count: "assignments" },
-      { label: "nav.enforcements", to: "/enforcements", icon: LockKeyhole },
+      { label: "nav.controlLibrary", to: "/control-library", icon: LibraryBig },
+      { label: "nav.playground", to: "/playground", icon: FlaskConical },
+      { label: "nav.evaluations", to: "/evaluations", icon: ListChecks },
     ],
   },
   {
-    label: "nav.operations",
+    label: "nav.runtime",
     items: [
+      { label: "nav.deployments", to: "/deployments", icon: Rocket, count: "assignments" },
       { label: "nav.integrations", to: "/integrations", icon: Cable, count: "integrations" },
+    ],
+  },
+  {
+    label: "nav.assurance",
+    items: [
       { label: "nav.evidence", to: "/evidence", icon: Activity },
     ],
   },
@@ -57,6 +66,7 @@ export function ControlPlaneSidebar() {
   const { t, i18n } = useTranslation();
   const { user, logout, logoutPending, setLanguage } = useAuth();
   const { setOpenMobile, state } = useSidebar();
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const pathname = useRouterState({ select: (routerState) => routerState.location.pathname });
   const guardrails = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
   const assignments = useQuery({ queryKey: queryKeys.assignments, queryFn: getAssignments });
@@ -86,7 +96,8 @@ export function ControlPlaneSidebar() {
   }
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+    <>
+      <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       <SidebarHeader className="h-16 justify-center border-b border-sidebar-border px-4 group-data-[collapsible=icon]:px-3">
         <Link
           to="/"
@@ -164,13 +175,16 @@ export function ControlPlaneSidebar() {
               <DropdownMenuRadioItem value="zh-CN">简体中文</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => { setPasswordOpen(true); setOpenMobile(false); }}><KeyRound />{t("auth.changePassword")}</DropdownMenuItem>
             {user?.role === "admin" ? <DropdownMenuItem asChild><Link to="/access" onClick={() => setOpenMobile(false)}><UsersRound />{t("auth.manageUsers")}</Link></DropdownMenuItem> : null}
             <DropdownMenuItem variant="destructive" disabled={logoutPending} onSelect={() => void signOut()}><LogOut />{t(logoutPending ? "auth.signingOut" : "auth.signOut")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarFooter>
       <SidebarRail />
-    </Sidebar>
+      </Sidebar>
+      <ChangePasswordSheet open={passwordOpen} onOpenChange={setPasswordOpen} />
+    </>
   );
 }
 

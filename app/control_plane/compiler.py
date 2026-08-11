@@ -248,6 +248,70 @@ class GuardrailCompiler:
     @staticmethod
     def _guardrail_parameters(guardrail: Guardrail, risk: str) -> tuple[tuple[str, str], ...]:
         if risk == "builtin_content_filter":
+            composed = tuple(
+                item
+                for item in guardrail.control_configurations
+                if item.runtime_risk == "builtin_content_filter"
+            )
+            if composed:
+                template_controls = tuple(
+                    item for item in composed if item.kind == "template" and item.template_id
+                )
+                enabled_rules = {
+                    item.template_id: [
+                        rule.id
+                        for rule in item.rules
+                        if rule.enabled and not rule.id.startswith("dynamic-")
+                    ]
+                    for item in template_controls
+                }
+                rule_actions = {
+                    f"{item.template_id}:{rule.id}": rule.action
+                    for item in template_controls
+                    for rule in item.rules
+                    if rule.enabled
+                }
+                custom_rules = [
+                    {
+                        "id": rule.id,
+                        "name": rule.name,
+                        "detector": rule.detector,
+                        "action": rule.action,
+                        "phases": list(rule.phases),
+                        "expression": rule.expression,
+                        "keywords": list(rule.keywords),
+                    }
+                    for item in composed
+                    if item.kind == "custom" or item.kind == "template"
+                    for rule in item.rules
+                    if rule.enabled
+                    and rule.detector in {"regex", "keyword"}
+                    and (item.kind == "custom" or rule.id.startswith("dynamic-"))
+                ]
+                return (
+                    ("policy_pack_version", LITELLM_POLICY_PACK_VERSION),
+                    ("template_id", "composed-control-library"),
+                    (
+                        "controls",
+                        "\n".join(item.template_id or "" for item in template_controls),
+                    ),
+                    (
+                        "enabled_rules_json",
+                        json.dumps(enabled_rules, sort_keys=True, separators=(",", ":")),
+                    ),
+                    (
+                        "rule_actions_json",
+                        json.dumps(rule_actions, sort_keys=True, separators=(",", ":")),
+                    ),
+                    (
+                        "custom_rules_json",
+                        json.dumps(custom_rules, sort_keys=True, separators=(",", ":")),
+                    ),
+                    *tuple(
+                        (f"template_parameter.{key}", value)
+                        for key, value in guardrail.template_parameters
+                    ),
+                )
             if not guardrail.source_template_id:
                 raise PlanCompilationError(
                     "A built-in content-filter Control requires a source template."
@@ -345,6 +409,18 @@ class GuardrailCompiler:
         risk: str,
         defaults: tuple[str, ...],
     ) -> tuple[str, ...]:
+        configured_phases = {
+            phase
+            for configuration in guardrail.control_configurations
+            if configuration.runtime_risk == risk
+            for rule in configuration.rules
+            if rule.enabled
+            for phase in rule.phases
+        }
+        if configured_phases:
+            return tuple(
+                phase for phase in ("input", "output") if phase in configured_phases
+            )
         if risk != "builtin_content_filter" or not guardrail.source_template_id:
             return defaults
         try:

@@ -6,7 +6,6 @@ import {
   getAuthStatus,
   login as loginRequest,
   logout as logoutRequest,
-  setupAdmin as setupAdminRequest,
   updateMe,
   type AuthStatus,
   type IdentityUser,
@@ -14,7 +13,6 @@ import {
 import { queryKeys } from "@/features/query-keys";
 
 type LoginInput = { email: string; password: string };
-type SetupInput = LoginInput & { display_name: string; preferred_language: SupportedLanguage };
 
 type AuthContextValue = {
   status: AuthStatus | undefined;
@@ -22,11 +20,9 @@ type AuthContextValue = {
   isLoading: boolean;
   error: unknown;
   login: (input: LoginInput) => Promise<void>;
-  setup: (input: SetupInput) => Promise<void>;
   logout: () => Promise<void>;
   setLanguage: (language: SupportedLanguage) => Promise<void>;
   loginPending: boolean;
-  setupPending: boolean;
   logoutPending: boolean;
 };
 
@@ -43,7 +39,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setAuthenticatedUser = useCallback((user: IdentityUser) => {
     queryClient.setQueryData<AuthStatus>(queryKeys.auth, {
-      setup_required: false,
       authenticated: true,
       user,
     });
@@ -53,16 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: loginRequest,
     onSuccess: ({ user }) => setAuthenticatedUser(user),
   });
-  const setupMutation = useMutation({
-    mutationFn: setupAdminRequest,
-    onSuccess: ({ user }) => setAuthenticatedUser(user),
-  });
   const logoutMutation = useMutation({
     mutationFn: logoutRequest,
     onSettled: () => {
       queryClient.clear();
       queryClient.setQueryData<AuthStatus>(queryKeys.auth, {
-        setup_required: false,
         authenticated: false,
         user: null,
       });
@@ -101,11 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading: statusQuery.isLoading,
         error: statusQuery.error,
         login: async (input) => { await loginMutation.mutateAsync(input); },
-        setup: async (input) => { await setupMutation.mutateAsync(input); },
         logout: async () => { await logoutMutation.mutateAsync(); },
         setLanguage,
         loginPending: loginMutation.isPending,
-        setupPending: setupMutation.isPending,
         logoutPending: logoutMutation.isPending,
       }}
     >

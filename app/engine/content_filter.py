@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 from ..policy_packs.litellm import (
     BlockedWordRule,
@@ -32,8 +32,16 @@ class BuiltinContentFilter:
         phase: GuardrailPhase,
         controls: Iterable[str],
         parameters: Mapping[str, str] | None = None,
+        enabled_rules: Mapping[str, Iterable[str]] | None = None,
+        rule_actions: Mapping[str, str] | None = None,
+        custom_rules: Iterable[Mapping[str, Any]] = (),
     ) -> StageResult:
         configured = parameters or {}
+        selected_rules = {
+            name: frozenset(rule_ids)
+            for name, rule_ids in (enabled_rules or {}).items()
+        }
+        configured_actions = rule_actions or {}
         content = text
         detections: list[_Detection] = []
         for name in controls:
@@ -50,8 +58,22 @@ class BuiltinContentFilter:
                 definition,
                 content,
                 configured,
+                selected_rules.get(name),
+                configured_actions,
             )
             detections.extend(matches)
+
+        try:
+            content, custom_detections = self._apply_custom_rules(
+                tuple(custom_rules), content, phase
+            )
+        except re.error as error:
+            return StageResult(
+                verdict="error",
+                content=text,
+                reason=f"Custom content-filter Rule is invalid: {error}.",
+            )
+        detections.extend(custom_detections)
 
         if not detections:
             return StageResult(
@@ -91,17 +113,31 @@ class BuiltinContentFilter:
         definition: ContentControlDefinition,
         text: str,
         parameters: Mapping[str, str],
+        enabled_rules: frozenset[str] | None,
+        rule_actions: Mapping[str, str],
     ) -> tuple[str, list[_Detection]]:
         content = text
         detections: list[_Detection] = []
-        category_match = self._category_match(definition.categories, content)
+        categories = tuple(
+            item
+            for item in definition.categories
+            if enabled_rules is None or item.name in enabled_rules
+        )
+        category_match = self._category_match(categories, content)
         if category_match:
-            rule, action = category_match
-            detections.append(_Detection(definition.name, "category", rule, action))
+            rule_id, evidence, default_action = category_match
+            action = rule_actions.get(
+                f"{definition.name}:{rule_id}", default_action
+            )
+            detections.append(
+                _Detection(definition.name, "category", evidence, action)
+            )
             if action == "MASK":
-                content = self._mask_keyword(content, rule)
+                content = self._mask_keyword(content, evidence)
 
         for pattern in definition.patterns:
+            if enabled_rules is not None and pattern.name not in enabled_rules:
+                continue
             expression = self._render(pattern.expression, parameters)
             keyword = (
                 self._render(pattern.keyword_expression, parameters)
@@ -113,38 +149,88 @@ class BuiltinContentFilter:
             matches = list(re.finditer(expression, content, re.IGNORECASE))
             if not matches:
                 continue
-            detections.append(
-                _Detection(definition.name, "pattern", pattern.name, pattern.action)
+            action = rule_actions.get(
+                f"{definition.name}:{pattern.name}", pattern.action
             )
-            if pattern.action == "MASK":
+            detections.append(_Detection(definition.name, "pattern", pattern.name, action))
+            if action == "MASK":
                 content = self._mask_spans(content, matches, pattern.redaction)
 
-        for blocked in self._blocked_words(definition.blocked_words, parameters):
+        blocked_words = self._blocked_words(definition.blocked_words, parameters)
+        dynamic_rule_id = (
+            f"dynamic-{definition.blocked_words.strip('{}').replace('_', '-')}"
+            if isinstance(definition.blocked_words, str)
+            else None
+        )
+        for index, blocked in enumerate(blocked_words, start=1):
+            rule_id = dynamic_rule_id or f"blocked-word-{index}"
+            if enabled_rules is not None and rule_id not in enabled_rules:
+                continue
             rendered = self._render(blocked.keyword, parameters).strip()
             if not rendered:
                 continue
             expression = keyword_expression(rendered)
             if not re.search(expression, content, re.IGNORECASE):
                 continue
-            detections.append(
-                _Detection(definition.name, "blocked word", rendered, blocked.action)
+            action = rule_actions.get(
+                f"{definition.name}:{rule_id}", blocked.action
             )
-            if blocked.action == "MASK":
+            detections.append(_Detection(definition.name, "blocked word", rendered, action))
+            if action == "MASK":
                 content = re.sub(expression, "[REDACTED]", content, flags=re.IGNORECASE)
+        return content, detections
+
+    def _apply_custom_rules(
+        self,
+        rules: tuple[Mapping[str, Any], ...],
+        text: str,
+        phase: GuardrailPhase,
+    ) -> tuple[str, list[_Detection]]:
+        content = text
+        detections: list[_Detection] = []
+        for rule in rules:
+            if phase not in tuple(rule.get("phases", ())):
+                continue
+            rule_id = str(rule.get("id", "custom-rule"))
+            action = str(rule.get("action", "BLOCK")).upper()
+            detector = str(rule.get("detector", "keyword"))
+            if detector == "regex":
+                expression = str(rule.get("expression") or "")
+                matches = list(re.finditer(expression, content, re.IGNORECASE))
+                if not matches:
+                    continue
+                detections.append(_Detection("custom", "pattern", rule_id, action))
+                if action == "MASK":
+                    content = self._mask_spans(content, matches, "[REDACTED]")
+                continue
+            if detector == "keyword":
+                for keyword in tuple(rule.get("keywords", ())):
+                    rendered = str(keyword).strip()
+                    if not rendered:
+                        continue
+                    expression = keyword_expression(rendered)
+                    if not re.search(expression, content, re.IGNORECASE):
+                        continue
+                    detections.append(_Detection("custom", "keyword", rule_id, action))
+                    if action == "MASK":
+                        content = re.sub(
+                            expression, "[REDACTED]", content, flags=re.IGNORECASE
+                        )
+                    break
         return content, detections
 
     def _category_match(
         self,
         categories: tuple[CategoryRule, ...],
         text: str,
-    ) -> tuple[str, str] | None:
+    ) -> tuple[str, str, str] | None:
         lowered = text.lower()
         if any(exception in lowered for item in categories for exception in item.exceptions):
             return None
         for item in categories:
             for expression in item.phrase_patterns:
                 if re.search(expression, text, re.IGNORECASE):
-                    return (item.name, item.action)
+                    return (item.name, item.name, item.action)
             if item.identifiers and item.conditional_words:
                 for sentence in re.split(r"[.!?]+", lowered):
                     identifier = next(
@@ -160,10 +246,14 @@ class BuiltinContentFilter:
                         None,
                     )
                     if identifier and conditional:
-                        return (f"{identifier} + {conditional}", item.action)
+                        return (
+                            item.name,
+                            f"{identifier} + {conditional}",
+                            item.action,
+                        )
             for keyword, _severity in (*item.always_block, *item.keywords):
                 if self._keyword_matches(keyword, lowered):
-                    return (keyword, item.action)
+                    return (item.name, keyword, item.action)
         return None
 
     @staticmethod

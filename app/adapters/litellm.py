@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException
@@ -14,6 +15,7 @@ from ..control_plane.service import ControlPlaneService
 from ..engine.contracts import EvaluationDecision, EvaluationRequest, RequestContext
 from ..engine.service import ModelGuardrailsEngineService
 from .http import SENSITIVE_HEADERS
+from .observability import record_runtime_decision, record_runtime_failure
 
 
 class LiteLLMGuardrailRequest(BaseModel):
@@ -45,7 +47,7 @@ class LiteLLMGuardrailResponse(BaseModel):
 
 
 class LiteLLMAdapter:
-    """Translate LiteLLM's API contract into the Engine contract."""
+    """Translate LiteLLM's API contract into the engine contract."""
 
     def __init__(
         self,
@@ -67,26 +69,48 @@ class LiteLLMAdapter:
             request: LiteLLMGuardrailRequest,
             x_api_key: str | None = Header(default=None),
         ) -> LiteLLMGuardrailResponse:
+            started = time.perf_counter()
             integration = self._authorize(x_api_key)
+            phase = "input" if request.input_type == "request" else "output"
             try:
                 decision = await self._service.evaluate(
                     self._to_engine_request(request, integration)
                 )
-            except ControlPlaneError:
+            except ControlPlaneError as error:
                 self._control_plane.record_integration_activity(integration.id, success=True)
+                record_runtime_failure(
+                    self._control_plane,
+                    integration_id=integration.id,
+                    protocol="litellm",
+                    phase=phase,
+                    started=started,
+                    outcome="block",
+                    detail=str(error),
+                )
                 return LiteLLMGuardrailResponse(
                     action="BLOCKED",
                     blocked_reason="No Assignment matches this request.",
                 )
-            except Exception:
+            except Exception as error:
                 self._control_plane.record_integration_activity(integration.id, success=False)
+                record_runtime_failure(
+                    self._control_plane,
+                    integration_id=integration.id,
+                    protocol="litellm",
+                    phase=phase,
+                    started=started,
+                    outcome="error",
+                    detail=f"Guardrail evaluation failed with {type(error).__name__}.",
+                )
                 raise
             self._control_plane.record_integration_activity(integration.id, success=True)
-            self._control_plane.record_decision(
-                outcome=decision.decision,
-                guardrail_id=decision.guardrail_id,
-                assignment_id=decision.assignment_id,
-                risk=decision.findings[0].risk if decision.findings else None,
+            record_runtime_decision(
+                self._control_plane,
+                decision=decision,
+                integration_id=integration.id,
+                protocol="litellm",
+                phase=phase,
+                started=started,
                 detail=decision.reason or "Model interaction evaluated.",
             )
             return self._to_litellm_response(decision)

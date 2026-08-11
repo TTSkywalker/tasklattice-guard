@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 
@@ -57,11 +58,23 @@ class FastPassEngine:
                 for key, value in builtin_step.parameters
                 if key.startswith("template_parameter.")
             }
+            enabled_rules = json.loads(
+                builtin_step.parameter("enabled_rules_json") or "{}"
+            )
+            rule_actions = json.loads(
+                builtin_step.parameter("rule_actions_json") or "{}"
+            )
+            custom_rules = json.loads(
+                builtin_step.parameter("custom_rules_json") or "[]"
+            )
             filtered = self._content_filter.evaluate(
                 text=content,
                 phase=request.phase,
                 controls=controls,
                 parameters=parameters,
+                enabled_rules=enabled_rules,
+                rule_actions=rule_actions,
+                custom_rules=custom_rules,
             )
             if filtered.verdict == "error":
                 return filtered

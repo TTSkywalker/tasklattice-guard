@@ -9,11 +9,10 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  FileText,
   FlaskConical,
   History,
-  Library,
   LoaderCircle,
+  Play,
   Plus,
   Save,
   ShieldCheck,
@@ -43,20 +42,20 @@ import {
   analyzeGuardrailIntent,
   createGuardrail,
   createTestCase,
-  createTestRun,
-  deleteTestCase,
   getGuardrail,
   getGuardrailVersions,
   getGuardrails,
-  getTestCases,
   getIntentAnalysisStatus,
   getControlDefinitions,
   getGuardrailTemplates,
   getAssignments,
+  runQuickTest,
   updateGuardrail,
   type GuardrailControl,
+  type GuardrailControlConfig,
   type EvaluationCaseResult,
   type IntentAnalysis,
+  type QuickTestResult,
   type TestCase,
   type ControlDefinition,
   type Guardrail,
@@ -64,8 +63,8 @@ import {
   type GuardrailVersion,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { countTrafficRules } from "@/components/traffic-scope";
-import { CreateAssignmentSheet, TrafficScopeBadges } from "@/routes/assignments";
+import { CreateAssignmentSheet } from "@/routes/assignments";
+import { CreateGuardrailWizard } from "@/routes/create-guardrail-wizard";
 
 const defaultControls: GuardrailControl[] = [
   { risk: "topic_control", action: "redirect" },
@@ -136,7 +135,7 @@ export function GuardrailsPage() {
                     </Link>
                   </TableCell>
                   <TableCell><StateBadge state={guardrail.status} /></TableCell>
-                  <TableCell className="hidden tabular-nums lg:table-cell">{guardrail.controls.length}</TableCell>
+                  <TableCell className="hidden tabular-nums lg:table-cell">{guardrail.control_configurations.length || guardrail.controls.length}</TableCell>
                   <TableCell>
                     <p className="text-sm tabular-nums">{guardrail.system_managed ? t("guardrails.builtinVerified") : t("guardrails.testCount", { count: guardrail.test_case_count })}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{guardrail.local_only ? t("guardrails.localOnly") : guardrail.latest_test_run ? t("guardrails.compliance", { rate: guardrail.latest_test_run.metrics.compliance_rate }) : t("guardrails.noEvidence")}</p>
@@ -155,7 +154,7 @@ export function GuardrailsPage() {
         </section>
       ) : null}
 
-      <CreateGuardrailSheet
+      <CreateGuardrailWizard
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={async (id) => {
@@ -187,43 +186,17 @@ function GuardrailDetail({ guardrailId, onRefresh }: { guardrailId: string; onRe
   const queryClient = useQueryClient();
   const guardrailQuery = useQuery({ queryKey: queryKeys.guardrail(guardrailId), queryFn: () => getGuardrail(guardrailId), enabled: Boolean(guardrailId) });
   const versionsQuery = useQuery({ queryKey: queryKeys.guardrailVersions(guardrailId), queryFn: () => getGuardrailVersions(guardrailId), enabled: Boolean(guardrailId) });
-  const casesQuery = useQuery({ queryKey: queryKeys.testCases(guardrailId), queryFn: () => getTestCases(guardrailId), enabled: Boolean(guardrailId) });
   const templatesQuery = useQuery({ queryKey: queryKeys.guardrailTemplates, queryFn: getGuardrailTemplates });
   const controlsQuery = useQuery({ queryKey: queryKeys.controlDefinitions, queryFn: getControlDefinitions });
   const assignmentsQuery = useQuery({ queryKey: queryKeys.assignments, queryFn: getAssignments });
   const [editOpen, setEditOpen] = useState(false);
-  const [addCaseOpen, setAddCaseOpen] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
-
-  const test = useMutation({
-    mutationFn: () => createTestRun(guardrailId),
-    onSuccess: async (run) => {
-      await onRefresh();
-      await queryClient.invalidateQueries({ queryKey: queryKeys.assignments });
-      toast[run.status === "passed" ? "success" : "error"](
-        run.status === "passed" ? t("guardrails.testsPassed") : t("guardrails.testsFailed", { rate: run.metrics.compliance_rate }),
-      );
-    },
-    onError: (error) => notifyError(error, t("guardrails.operationFailed")),
-  });
-
-  const removeCase = useMutation({
-    mutationFn: (caseId: string) => deleteTestCase(caseId),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.testCases(guardrailId) }),
-        onRefresh(),
-      ]);
-      toast.success(t("guardrails.caseRemoved"));
-    },
-    onError: (error) => notifyError(error, t("guardrails.operationFailed")),
-  });
+  const [activeTab, setActiveTab] = useState("definition");
 
   const guardrail = guardrailQuery.data;
   if (guardrailQuery.error) return <section className="py-6 sm:py-8"><GuardrailBackLink /><div className="mt-4"><ErrorNotice error={guardrailQuery.error} /></div></section>;
   if (guardrailQuery.isLoading || !guardrail) return <section className="py-6 sm:py-8"><GuardrailBackLink /><Skeleton className="mt-4 h-[680px] rounded-xl" /></section>;
 
-  const testCases = casesQuery.data?.items ?? [];
   const versions = versionsQuery.data?.items ?? [];
   const template = templatesQuery.data?.items.find((item) => item.id === guardrail.source_template_id);
   const definitions = controlsQuery.data?.items ?? [];
@@ -234,16 +207,13 @@ function GuardrailDetail({ guardrailId, onRefresh }: { guardrailId: string; onRe
       <GuardrailBackLink />
       <div className="mt-4">
         <PageHeader
-          eyebrow={guardrail.is_default ? t("guardrails.defaultEyebrow") : template ? t("guardrails.builtFrom", { name: template.name }) : t("guardrails.customIntent")}
+          eyebrow={guardrail.is_default ? t("guardrails.defaultEyebrow") : t("guardrails.definitionEyebrow")}
           title={guardrailDisplayName(guardrail, t)}
           description={guardrailDisplayPurpose(guardrail, t)}
-          action={guardrail.system_managed ? undefined : <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="min-h-11" onClick={() => setEditOpen(true)}><Save />{t("guardrails.editIntent")}</Button>
-            {guardrail.tested_current ? (
-              <Button className="min-h-11" onClick={() => setApplyOpen(true)}><Building2 />{t("guardrails.createAssignment")}</Button>
-            ) : (
-              <Button className="min-h-11" disabled={test.isPending || !testCases.length} onClick={() => test.mutate()}><FlaskConical />{t(test.isPending ? "guardrails.runningTests" : "guardrails.runReviewed")}</Button>
-            )}
+          action={<div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" className="min-h-11"><Link to="/playground" search={{ guardrail: guardrail.id }}><Play />{t("guardrails.openInPlayground")}</Link></Button>
+            {!guardrail.system_managed ? <Button variant="outline" className="min-h-11" onClick={() => setEditOpen(true)}><Save />{t("guardrails.editDefinition")}</Button> : null}
+            {!guardrail.system_managed ? guardrail.tested_current ? <Button className="min-h-11" onClick={() => setApplyOpen(true)}><Building2 />{t("guardrails.createDeployment")}</Button> : <Button asChild className="min-h-11"><Link to="/evaluations" search={{ guardrail: guardrail.id }}><FlaskConical />{t("guardrails.openEvaluations")}</Link></Button> : null}
           </div>}
         />
       </div>
@@ -255,77 +225,55 @@ function GuardrailDetail({ guardrailId, onRefresh }: { guardrailId: string; onRe
           <StateBadge state={guardrail.status} />
           <span className="text-xs text-muted-foreground">{t("guardrails.lastUpdatedValue", { date: new Date(guardrail.updated_at).toLocaleString(i18n.language) })}</span>
         </div>
-        <WorkflowStatus guardrail={guardrail} testCaseCount={testCases.length} onApply={() => setApplyOpen(true)} />
+        <WorkflowStatus guardrail={guardrail} testCaseCount={guardrail.test_case_count} onApply={() => setApplyOpen(true)} />
 
         <div className="grid grid-cols-2 gap-3 border-b p-4 sm:grid-cols-4">
-          <Metric label={t("guardrails.controls")} value={guardrail.controls.length} detail={t("guardrails.reviewedControls")} />
-          <Metric label={t("guardrails.testCases")} value={guardrail.system_managed ? t("guardrails.builtin") : testCases.length} detail={guardrail.system_managed ? t("guardrails.productManaged") : t("guardrails.visibleEditable")} />
-          <Metric label={t("guardrails.testStatus")} value={t(guardrail.system_managed ? "guardrails.builtinVerified" : guardrail.tested_current ? "guardrails.passed" : "guardrails.required")} detail={guardrail.local_only ? t("guardrails.localOnly") : guardrail.latest_test_run ? t("guardrails.compliance", { rate: guardrail.latest_test_run.metrics.compliance_rate }) : t("guardrails.noEvidence")} />
-          <Metric label={t("guardrails.assignments")} value={guardrail.assignment_count} detail={t("guardrails.trafficAssignments")} />
+          <Metric label={t("guardrails.controls")} value={guardrail.control_configurations.length || guardrail.controls.length} detail={t("guardrails.reviewedControls")} />
+          <Metric label={t("guardrails.regressionCases")} value={guardrail.system_managed ? t("guardrails.builtin") : guardrail.test_case_count} detail={guardrail.system_managed ? t("guardrails.productManaged") : t("guardrails.visibleEditable")} />
+          <Metric label={t("guardrails.releaseGate")} value={t(guardrail.system_managed ? "guardrails.builtinVerified" : guardrail.tested_current ? "guardrails.passed" : "guardrails.required")} detail={guardrail.local_only ? t("guardrails.localOnly") : guardrail.latest_test_run ? t("guardrails.compliance", { rate: guardrail.latest_test_run.metrics.compliance_rate }) : t("guardrails.noEvaluationEvidence")} />
+          <Metric label={t("guardrails.deployments")} value={guardrail.assignment_count} detail={t("guardrails.trafficDeployments")} />
         </div>
 
-        <Tabs defaultValue="intent" className="p-5 sm:p-6">
-        <TabsList className="h-auto min-h-10 w-full flex-wrap justify-start rounded-lg bg-muted p-1">
-          <TabsTrigger value="intent" className="min-h-8 rounded-md px-3">{t("guardrails.intent")}</TabsTrigger>
-          <TabsTrigger value="controls" className="min-h-8 rounded-md px-3">{t("guardrails.controls")}</TabsTrigger>
-          <TabsTrigger value="tests" className="min-h-8 rounded-md px-3">{t("guardrails.testCases")}</TabsTrigger>
-          <TabsTrigger value="versions" className="min-h-8 rounded-md px-3">{t("guardrails.versions")}</TabsTrigger>
-          <TabsTrigger value="assignments" className="min-h-8 rounded-md px-3">{t("guardrails.assignments")}</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="p-5 sm:p-6">
+        <TabsList className="h-auto min-h-11 w-full flex-wrap justify-start rounded-lg bg-muted p-1">
+          <TabsTrigger value="definition" className="min-h-11 rounded-md px-3">{t("guardrails.definition")}</TabsTrigger>
+          <TabsTrigger value="versions" className="min-h-11 rounded-md px-3">{t("guardrails.versions")}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="intent" className="mt-5 grid gap-5 xl:grid-cols-2">
-          <TopicPanel title={t("guardrails.allowedDomains")} items={guardrail.allowed_topics} empty={t(template ? "guardrails.templateDefined" : "guardrails.noAllowed")} />
-          <TopicPanel title={t("guardrails.restrictedDomains")} items={guardrail.restricted_topics} empty={t(template ? "guardrails.templateDefined" : "guardrails.noRestricted")} danger />
-          <section className="rounded-lg border bg-card p-4 xl:col-span-2">
+        <TabsContent value="definition" className="mt-5 space-y-5">
+          <div className="grid gap-5 xl:grid-cols-2">
+            <TopicPanel title={t("guardrails.allowedDomains")} items={guardrail.allowed_topics} empty={t(template ? "guardrails.templateDefined" : "guardrails.noAllowed")} />
+            <TopicPanel title={t("guardrails.restrictedDomains")} items={guardrail.restricted_topics} empty={t(template ? "guardrails.templateDefined" : "guardrails.noRestricted")} danger />
+          </div>
+          <section className="rounded-lg border bg-card p-4">
             <h3 className="text-lg">{t("guardrails.decisionPosture")}</h3>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <Fact label={t("guardrails.evaluation")} value={guardrail.local_only ? t("guardrails.localDeterministic") : t(guardrail.safety_level === "strict" ? "guardrails.strict" : "guardrails.balanced")} />
+              <Fact label={t("guardrails.evaluation")} value={guardrail.local_only ? t("guardrails.ruleChecksOnly") : t(guardrail.safety_level === "strict" ? "guardrails.strict" : "guardrails.balanced")} />
               <Fact label={t("guardrails.modelOutput")} value={deliveryLabel(guardrail.output_delivery, t)} />
               <Fact label={t("guardrails.ownership")} value={t(guardrail.system_managed ? "guardrails.productManagedBaseline" : "guardrails.organizationOwned")} />
             </div>
           </section>
-          <InfoNotice title={t("guardrails.runtimeBoundary")}>
-            {t(guardrail.local_only ? "guardrails.defaultRuntimeBoundaryDescription" : "guardrails.runtimeBoundaryDescription")}
-          </InfoNotice>
-        </TabsContent>
-
-        <TabsContent value="controls" className="mt-5 space-y-5">
           {template ? <TemplateControlSummary template={template} parameters={guardrail.template_parameters} /> : null}
+          {guardrail.control_configurations.length ? <ConfiguredControlsSummary configurations={guardrail.control_configurations} /> : null}
+          <DetectionPipeline definitions={definitions} controls={guardrail.controls} />
           <section className="overflow-hidden rounded-lg border bg-card">
-            <div className="grid grid-cols-[minmax(0,1fr)_140px_150px] border-b bg-muted/40 px-4 py-3 text-xs font-medium text-muted-foreground"><span>{t("guardrails.control")}</span><span>{t("guardrails.modelBoundary")}</span><span>{t("guardrails.whenDetected")}</span></div>
+            <div className="hidden grid-cols-[minmax(0,1fr)_150px_190px_140px] border-b bg-muted/40 px-4 py-3 text-xs font-medium text-muted-foreground md:grid"><span>{t("guardrails.control")}</span><span>{t("guardrails.modelBoundary")}</span><span>{t("guardrails.detectionRoute")}</span><span>{t("guardrails.whenDetected")}</span></div>
             <div className="divide-y divide-border">
               {guardrail.controls.map((risk) => <RiskRow key={risk.risk} risk={risk} definition={definitions.find((item) => item.id === risk.risk)} template={template} />)}
             </div>
           </section>
-        </TabsContent>
-
-        <TabsContent value="tests" className="mt-5 space-y-5">
-          {guardrail.system_managed ? <InfoNotice title={t("guardrails.builtinVerificationTitle")}>{t("guardrails.builtinVerificationDescription")}</InfoNotice> : <><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div><h3 className="text-lg">{t("guardrails.reviewedCases")}</h3><p className="mt-1 text-xs text-muted-foreground">{t("guardrails.reviewedCasesDescription")}</p></div>
-            <div className="flex gap-2"><Button variant="outline" onClick={() => setAddCaseOpen(true)}><Plus />{t("guardrails.addCase")}</Button><Button disabled={test.isPending || !testCases.length} onClick={() => test.mutate()}><FlaskConical />{t(test.isPending ? "guardrails.running" : "guardrails.runTests")}</Button></div>
-          </div>
-          {!guardrail.tested_current ? <InfoNotice title={t("guardrails.notReady")}>{t("guardrails.notReadyDescription")}</InfoNotice> : null}
-          {casesQuery.isLoading ? <Skeleton className="h-48 rounded-lg" /> : testCases.length ? (
-            <section className="overflow-hidden rounded-lg border bg-card">
-              <div className="divide-y divide-border">{testCases.map((item) => <TestCaseRow key={item.id} item={item} onDelete={() => removeCase.mutate(item.id)} deleting={removeCase.isPending} />)}</div>
-            </section>
-          ) : <EmptyState title={t("guardrails.noCases")} description={t("guardrails.noCasesDescription")} action={<Button onClick={() => setAddCaseOpen(true)}><Plus />{t("guardrails.addTestCase")}</Button>} />}
-          {guardrail.latest_test_run ? <TestEvidence guardrail={guardrail} /> : null}</>}
+          <InfoNotice title={t("guardrails.runtimeBoundary")}>{t(guardrail.local_only ? "guardrails.defaultRuntimeBoundaryDescription" : "guardrails.runtimeBoundaryDescription")}</InfoNotice>
+          <section className="flex flex-col gap-4 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-lg">{t("guardrails.deployments")}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{assignments.length ? t("guardrails.deploymentCount", { count: assignments.length }) : t("guardrails.noDeploymentsDescription")}</p></div><Button asChild variant="outline"><Link to="/deployments">{t("guardrails.manageDeployments")}</Link></Button></section>
         </TabsContent>
 
         <TabsContent value="versions" className="mt-5">
           <GuardrailVersions versions={versions} loading={versionsQuery.isLoading} />
         </TabsContent>
 
-        <TabsContent value="assignments" className="mt-5 space-y-4">
-          <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg">{t("guardrails.guardrailAssignments")}</h3><p className="mt-1 text-xs text-muted-foreground">{t("guardrails.guardrailAssignmentsDescription")}</p></div>{guardrail.tested_current && !guardrail.system_managed ? <Button onClick={() => setApplyOpen(true)}><Building2 />{t("guardrails.apply")}</Button> : null}</div>
-          {assignments.length ? <div className="overflow-hidden rounded-lg border bg-card"><div className="divide-y divide-border">{assignments.map((item) => <div key={item.id} className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(240px,1fr)_auto] sm:items-center"><div><strong className="text-sm font-medium">{item.is_default ? t("assignments.defaultName") : item.name}</strong><p className="mt-1 text-xs text-muted-foreground">{item.is_default ? t("assignments.defaultDescription") : t("assignments.conditionCount", { count: countTrafficRules(item.traffic_scope) })}</p></div><TrafficScopeBadges assignment={item} /><StateBadge state={item.enabled ? "protected" : "paused"} /></div>)}</div></div> : <EmptyState title={t("guardrails.noAssignments")} description={t(guardrail.tested_current ? "guardrails.noAssignmentsReady" : "guardrails.noAssignmentsNotReady")} action={guardrail.tested_current && !guardrail.system_managed ? <Button onClick={() => setApplyOpen(true)}><Building2 />{t("guardrails.createAssignment")}</Button> : undefined} />}
-        </TabsContent>
         </Tabs>
       </div>
 
       {!guardrail.system_managed ? <><EditGuardrailSheet guardrail={guardrail} open={editOpen} onOpenChange={setEditOpen} onSaved={async () => { setEditOpen(false); await onRefresh(); }} />
-      <AddTestCaseSheet guardrail={guardrail} open={addCaseOpen} onOpenChange={setAddCaseOpen} onCreated={async () => { setAddCaseOpen(false); await onRefresh(); }} />
       <CreateAssignmentSheet
         open={applyOpen}
         onOpenChange={setApplyOpen}
@@ -401,11 +349,10 @@ function CreateGuardrailSheet({ open, onOpenChange, onCreated }: { open: boolean
   const templatesQuery = useQuery({ queryKey: queryKeys.guardrailTemplates, queryFn: getGuardrailTemplates });
   const controlsQuery = useQuery({ queryKey: queryKeys.controlDefinitions, queryFn: getControlDefinitions });
   const [step, setStep] = useState(0);
-  const [mode, setMode] = useState<"template" | "blank">("template");
   const intentAnalysisStatusQuery = useQuery({
     queryKey: queryKeys.intentAnalysisStatus,
     queryFn: getIntentAnalysisStatus,
-    enabled: open && mode === "blank",
+    enabled: open,
     retry: false,
   });
   const [templateId, setTemplateId] = useState("");
@@ -429,9 +376,9 @@ function CreateGuardrailSheet({ open, onOpenChange, onCreated }: { open: boolean
   const visibleTemplates = templates.filter((item) => `${item.name} ${item.description} ${item.domain}`.toLowerCase().includes(search.toLowerCase()));
   const definitions = controlsQuery.data?.items.filter((item) => item.id !== "builtin_content_filter") ?? [];
   const missingParameter = selected?.parameters?.some((item) => item.required && !parameters[item.name]?.trim());
-  const invalidCustomTopics = mode === "blank" && risks.some((item) => item.risk === "topic_control") && (!lines(allowed).length || !lines(restricted).length);
+  const invalidCustomTopics = risks.some((item) => item.risk === "topic_control") && (!lines(allowed).length || !lines(restricted).length);
   const invalidReasoningPolicy = hasInvalidReasoningPolicy(risks);
-  const canContinue = step === 0 ? mode === "blank" || Boolean(templateId) : step === 1 ? Boolean(name.trim()) && (mode === "template" ? !missingParameter : Boolean(purpose.trim())) : true;
+  const canContinue = step === 0 ? true : step === 1 ? Boolean(name.trim()) && Boolean(purpose.trim()) && !missingParameter : true;
   const profileLanguage = user?.preferred_language ?? (i18n.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en");
   const analysisStale = Boolean(analysis && purpose.trim() !== analyzedPurpose);
 
@@ -456,13 +403,20 @@ function CreateGuardrailSheet({ open, onOpenChange, onCreated }: { open: boolean
 
   useEffect(() => {
     if (open) {
-      setStep(0); setMode("template"); setTemplateId(""); setSearch(""); setName(""); setPurpose(""); setAllowed(""); setRestricted(""); setRisks(defaultControls); setParameters({}); setAnalysis(null); setAnalyzedPurpose("");
+      setStep(0); setTemplateId(""); setSearch(""); setName(""); setPurpose(""); setAllowed(""); setRestricted(""); setRisks(defaultControls); setParameters({}); setAnalysis(null); setAnalyzedPurpose("");
     }
   }, [open]);
 
-  const submit = () => mutation.mutate(mode === "template"
-    ? { name, template_id: templateId, template_parameters: parameters }
-    : { name, purpose, allowed_topics: lines(allowed), restricted_topics: lines(restricted), controls: risks, safety_level: "balanced", output_delivery: risks.some((item) => item.risk === "automated_reasoning") ? "full_buffered" : "window_buffered" });
+  const submit = () => mutation.mutate({
+    name,
+    purpose,
+    ...(templateId ? { template_id: templateId, template_parameters: parameters } : {}),
+    allowed_topics: lines(allowed),
+    restricted_topics: lines(restricted),
+    controls: templateId ? [{ risk: "builtin_content_filter", action: "reject" }, ...risks.filter((item) => item.risk !== "builtin_content_filter")] : risks,
+    safety_level: "balanced",
+    output_delivery: risks.some((item) => item.risk === "automated_reasoning") ? "full_buffered" : "window_buffered",
+  });
 
   return (
     <EntitySheet
@@ -484,41 +438,30 @@ function CreateGuardrailSheet({ open, onOpenChange, onCreated }: { open: boolean
       <CreationFlow currentStep={step} onStepChange={setStep} progressLabel={t("guardrails.create")} steps={creationSteps}>
         {step === 0 ? (
           <div className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <SourceChoice active={mode === "template"} icon={Library} title={t("guardrails.builtinTemplate")} description={t("guardrails.builtinTemplateDescription")} onClick={() => setMode("template")} />
-              <SourceChoice active={mode === "blank"} icon={FileText} title={t("guardrails.blankIntent")} description={t("guardrails.blankIntentDescription")} onClick={() => setMode("blank")} />
-            </div>
-            {mode === "template" ? (
-              <section>
-                <label className="grid gap-2 text-sm font-medium">{t("guardrails.findTemplate")}<Input className="min-h-11 rounded-lg bg-card" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="MAS, PDPA, PII, Topic Control…" /></label>
-                <div className="mt-3 grid max-h-[390px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-                  {visibleTemplates.map((item) => (
-                    <button key={item.id} type="button" aria-pressed={templateId === item.id} onClick={() => { setTemplateId(item.id); setName(item.name); setParameters({}); }} className={cn("min-h-36 rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-ring", templateId === item.id && "border-primary/40 bg-accent")}>
-                      <span className="flex items-start justify-between gap-3"><strong className="font-medium">{item.name}</strong>{templateId === item.id ? <Check className="size-4 text-primary" /> : null}</span>
-                      <span className="mt-2 block text-xs leading-5 text-muted-foreground">{item.description}</span>
-                      <span className="mt-3 block text-xs font-medium text-muted-foreground">{t("guardrails.localControls", { count: item.controls?.length ?? 0, version: item.version })}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ) : <InfoNotice title={t("guardrails.blankStructured")}>{t("guardrails.blankStructuredDescription")}</InfoNotice>}
+            <InfoNotice title={t("guardrails.composableTitle")}>{t("guardrails.composableDescription")}</InfoNotice>
+            <section>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end"><label className="grid flex-1 gap-2 text-sm font-medium">{t("guardrails.findTemplate")}<Input className="min-h-11 rounded-lg bg-card" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="MAS, PDPA, PII, Topic Control…" /></label>{templateId ? <Button type="button" variant="outline" onClick={() => { setTemplateId(""); setParameters({}); }}>{t("guardrails.removeTemplate")}</Button> : null}</div>
+              <div className="mt-3 grid max-h-[430px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                {visibleTemplates.map((item) => (
+                  <button key={item.id} type="button" aria-pressed={templateId === item.id} onClick={() => { const next = templateId === item.id ? "" : item.id; setTemplateId(next); setParameters({}); if (next) { setName((current) => current || item.name); setPurpose(item.purpose); setAllowed(item.allowed_topics.join("\n")); setRestricted(item.restricted_topics.join("\n")); } }} className={cn("min-h-36 rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-ring", templateId === item.id && "border-primary/40 bg-accent")}>
+                    <span className="flex items-start justify-between gap-3"><strong className="font-medium">{item.name}</strong>{templateId === item.id ? <Check className="size-4 text-primary" /> : null}</span>
+                    <span className="mt-2 block text-xs leading-5 text-muted-foreground">{item.description}</span>
+                    <span className="mt-3 block text-xs font-medium text-muted-foreground">{t("guardrails.includedChecks", { count: item.controls?.length ?? 0, version: item.version })}</span>
+                  </button>
+                ))}
+              </div>
+              {!templateId ? <p className="mt-3 text-xs leading-5 text-muted-foreground">{t("guardrails.templateOptional")}</p> : null}
+            </section>
           </div>
         ) : null}
 
         {step === 1 ? (
           <div className="grid gap-5">
             <Field label={t("guardrails.guardrailName")}><Input autoFocus className="min-h-11 rounded-lg bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder="Finance Assistant Guardrail" /></Field>
-            {mode === "template" && selected ? (
-              <>
-                <TemplateControlSummary template={selected} parameters={parameters} compact />
-                {selected.parameters?.map((parameter) => (
-                  <Field key={parameter.name} label={`${parameter.label}${parameter.required ? " *" : ""}`} hint={parameter.description}>
-                    {parameter.kind === "multiline" ? <Textarea className="min-h-28 rounded-lg bg-card" value={parameters[parameter.name] ?? ""} onChange={(event) => setParameters((current) => ({ ...current, [parameter.name]: event.target.value }))} placeholder={parameter.placeholder} /> : <Input className="min-h-11 rounded-lg bg-card" value={parameters[parameter.name] ?? ""} onChange={(event) => setParameters((current) => ({ ...current, [parameter.name]: event.target.value }))} placeholder={parameter.placeholder} />}
-                  </Field>
-                ))}
-              </>
-            ) : (
-              <>
+            {selected ? <>
+              <TemplateControlSummary template={selected} parameters={parameters} compact />
+              {selected.parameters?.map((parameter) => <Field key={parameter.name} label={`${parameter.label}${parameter.required ? " *" : ""}`} hint={parameter.description}>{parameter.kind === "multiline" ? <Textarea className="min-h-28 rounded-lg bg-card" value={parameters[parameter.name] ?? ""} onChange={(event) => setParameters((current) => ({ ...current, [parameter.name]: event.target.value }))} placeholder={parameter.placeholder} /> : <Input className="min-h-11 rounded-lg bg-card" value={parameters[parameter.name] ?? ""} onChange={(event) => setParameters((current) => ({ ...current, [parameter.name]: event.target.value }))} placeholder={parameter.placeholder} />}</Field>)}
+            </> : null}
                 <Field label={t("guardrails.businessPurpose")} hint={t("guardrails.businessPurposeHint")}><Textarea className="min-h-32 rounded-lg bg-card" value={purpose} onChange={(event) => setPurpose(event.target.value)} placeholder="Finance employees use this assistant to analyze approved company and market data." /></Field>
                 <section className="rounded-lg border bg-muted/30 p-4" aria-live="polite">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -554,22 +497,15 @@ function CreateGuardrailSheet({ open, onOpenChange, onCreated }: { open: boolean
                   <Field label={t("guardrails.allowedDomains")} hint={t("guardrails.onePerLine")}><Textarea className="min-h-36 rounded-lg bg-card" value={allowed} onChange={(event) => setAllowed(event.target.value)} placeholder={"Financial data analysis\nAccounting and reporting\nSQL, Python, and statistics for finance"} /></Field>
                   <Field label={t("guardrails.restrictedDomains")} hint={t("guardrails.restrictedHint")}><Textarea className="min-h-36 rounded-lg bg-card" value={restricted} onChange={(event) => setRestricted(event.target.value)} placeholder={"Standalone physics questions\nBiomedical advice or research\nManufacturing process design\nChemical refining instructions"} /></Field>
                 </div>
-              </>
-            )}
           </div>
         ) : null}
 
         {step === 2 ? (
           <div className="space-y-5">
-            {mode === "template" && selected ? (
-              <TemplateControlSummary template={selected} parameters={parameters} />
-            ) : (
-              <>
-                <InfoNotice title={t("guardrails.reviewBefore")}>{t("guardrails.reviewBeforeDescription")}</InfoNotice>
-                <ControlEditor definitions={definitions} risks={risks} onChange={setRisks} />
-                {invalidCustomTopics ? <p className="text-sm text-destructive">{t("guardrails.topicRequired")}</p> : null}
-              </>
-            )}
+            {selected ? <TemplateControlSummary template={selected} parameters={parameters} /> : null}
+            <InfoNotice title={t("guardrails.reviewBefore")}>{t(selected ? "guardrails.reviewCombinedDescription" : "guardrails.reviewBeforeDescription")}</InfoNotice>
+            <ControlEditor definitions={definitions} risks={risks} onChange={setRisks} />
+            {invalidCustomTopics ? <p className="text-sm text-destructive">{t("guardrails.topicRequired")}</p> : null}
             <InfoNotice title={t("guardrails.nextTitle")}>{t("guardrails.nextDescription")}</InfoNotice>
           </div>
         ) : null}
@@ -618,7 +554,7 @@ function EditGuardrailSheet({ guardrail, open, onOpenChange, onSaved }: { guardr
   );
 }
 
-function AddTestCaseSheet({ guardrail, open, onOpenChange, onCreated }: { guardrail: Guardrail; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void }) {
+export function AddTestCaseSheet({ guardrail, open, onOpenChange, onCreated }: { guardrail: Guardrail; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void }) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [risk, setRisk] = useState(guardrail.controls[0]?.risk ?? "");
@@ -715,14 +651,195 @@ function TemplateControlSummary({ template, parameters, compact = false }: { tem
   const { t } = useTranslation();
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
-      <div className="flex items-start justify-between gap-3 border-b bg-muted/40 p-4"><div><h3 className="text-lg">{template.name}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{template.description}</p></div><StateBadge state="local" /></div>
-      <div className="grid gap-4 p-4 sm:grid-cols-3"><Fact label={t("guardrails.source")} value={template.source ?? "TaskLattice"} /><Fact label={t("guardrails.version")} value={template.version ?? t("guardrails.builtIn")} /><Fact label={t("guardrails.localControlsLabel")} value={String(template.controls?.length ?? 0)} /></div>
+      <div className="flex items-start justify-between gap-3 border-b bg-muted/40 p-4"><div><p className="text-xs font-medium text-primary">{t("guardrails.templateRulePack")}</p><h3 className="mt-1 text-lg">{template.name}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{template.description}</p></div><StateBadge state="local" /></div>
+      <div className="grid gap-4 p-4 sm:grid-cols-2"><Fact label={t("guardrails.version")} value={template.version ?? t("guardrails.builtIn")} /><Fact label={t("guardrails.includedChecksLabel")} value={String(template.controls?.length ?? 0)} /></div>
       {!compact ? <div className="border-t p-4"><p className="text-xs font-medium text-muted-foreground">{t("guardrails.includedControls")}</p><div className="mt-2 flex flex-wrap gap-2">{template.controls?.map((control) => <span key={control} className="rounded-md border bg-muted/40 px-2 py-1 font-mono text-[11px]">{control}</span>)}</div>{Object.keys(parameters).length ? <p className="mt-3 text-xs text-muted-foreground">{t("guardrails.reviewedParameters", { parameters: Object.keys(parameters).join(", ") })}</p> : null}</div> : null}
     </section>
   );
 }
 
-function TestEvidence({ guardrail }: { guardrail: Guardrail }) {
+function ConfiguredControlsSummary({ configurations }: { configurations: GuardrailControlConfig[] }) {
+  const { t } = useTranslation();
+  return (
+    <section className="overflow-hidden rounded-lg border bg-card">
+      <header className="border-b bg-muted/30 p-4">
+        <h3 className="text-lg">{t("guardrailWizard.controls")}</h3>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.selectedControlsDescription")}</p>
+      </header>
+      <div className="divide-y">
+        {configurations.map((configuration) => {
+          const active = configuration.rules.filter((rule) => rule.enabled);
+          return (
+            <details key={configuration.id} className="group">
+              <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 p-4 hover:bg-muted/20 [&::-webkit-details-marker]:hidden">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2"><strong className="text-sm font-medium">{configuration.name}</strong><span className="rounded-md border bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">{t(`guardrailWizard.kinds.${configuration.kind}`)}</span></div>
+                  <p className="mt-1 font-mono text-[11px] text-muted-foreground">{configuration.template_id ? `${configuration.template_id} · ${configuration.template_version}` : configuration.id}</p>
+                </div>
+                <span className="text-xs text-muted-foreground">{t("guardrailWizard.activeRuleCount", { active: active.length, total: configuration.rules.length })}</span>
+                <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="border-t bg-muted/15 px-4 py-3">
+                <ul className="space-y-2">
+                  {active.map((rule) => <li key={rule.id} className="grid gap-1 text-xs sm:grid-cols-[minmax(0,1fr)_8rem_8rem]"><span className="font-medium">{rule.name}</span><span className="text-muted-foreground">{t(`guardrailWizard.detectors.${rule.detector}`)}</span><span className="text-muted-foreground">{configuredRuleActionLabel(rule.action, t)}</span></li>)}
+                </ul>
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function configuredRuleActionLabel(value: string, t: TFunction) {
+  const normalized = value.toLowerCase();
+  if (["block", "reject"].includes(normalized)) return t("guardrailWizard.actions.block");
+  if (["mask", "redact"].includes(normalized)) return t("guardrailWizard.actions.mask");
+  if (normalized === "rewrite") return t("guardrailWizard.actions.rewrite");
+  if (normalized === "redirect") return t("guardrailWizard.actions.redirect");
+  if (normalized === "allow") return t("guardrailWizard.actions.allow");
+  return value;
+}
+
+function DetectionPipeline({ definitions, controls }: { definitions: ControlDefinition[]; controls: GuardrailControl[] }) {
+  const { t } = useTranslation();
+  const stages = [
+    { id: "deterministic", title: t("guardrails.stageDeterministic"), description: t("guardrails.stageDeterministicDescription") },
+    { id: "fast_semantic", title: t("guardrails.stageFastSemantic"), description: t("guardrails.stageFastSemanticDescription") },
+    { id: "deep_judge", title: t("guardrails.stageDeepJudge"), description: t("guardrails.stageDeepJudgeDescription") },
+  ];
+  return (
+    <section className="overflow-hidden rounded-lg border bg-card">
+      <header className="border-b bg-muted/30 p-4"><h3 className="text-lg">{t("guardrails.detectionPipeline")}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrails.detectionPipelineDescription")}</p></header>
+      <div className="grid md:grid-cols-3">
+        {stages.map((stage, index) => {
+          const count = controls.filter((control) => control.risk === "builtin_content_filter" ? stage.id === "deterministic" : definitions.find((definition) => definition.id === control.risk)?.available_stages.includes(stage.id)).length;
+          return <div key={stage.id} className="relative border-b p-4 last:border-b-0 md:border-r md:border-b-0 md:last:border-r-0"><div className="flex items-center justify-between gap-3"><span className="grid size-7 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span><span className="text-xs font-medium text-muted-foreground">{t("guardrails.routeCount", { count })}</span></div><h4 className="mt-4 text-sm font-semibold">{stage.title}</h4><p className="mt-1 text-xs leading-5 text-muted-foreground">{stage.description}</p></div>;
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function QuickTestPanel({ guardrailId }: { guardrailId: string }) {
+  const { t } = useTranslation();
+  const [phase, setPhase] = useState<"input" | "output">("input");
+  const [content, setContent] = useState("");
+  const [result, setResult] = useState<QuickTestResult | null>(null);
+  const quickTest = useMutation({
+    mutationFn: () => runQuickTest(guardrailId, { phase, content: content.trim() }),
+    onSuccess: setResult,
+  });
+
+  const changePhase = (value: "input" | "output") => {
+    setPhase(value);
+    setResult(null);
+    quickTest.reset();
+  };
+  const changeContent = (value: string) => {
+    setContent(value);
+    setResult(null);
+    quickTest.reset();
+  };
+
+  return (
+    <section className="overflow-hidden rounded-lg border bg-card">
+      <header className="flex flex-col gap-3 border-b bg-muted/30 p-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-2xl">
+          <h3 className="text-lg font-semibold">{t("guardrails.quickTestTitle")}</h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{t("guardrails.quickTestDescription")}</p>
+        </div>
+        <span className="shrink-0 self-start rounded-md border bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground">{t("guardrails.draftOnly")}</span>
+      </header>
+
+      <div className="grid xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,.95fr)]">
+        <div className="border-b p-5 xl:border-r xl:border-b-0">
+          <div className="grid gap-5">
+            <Field label={t("guardrails.testSurface")} hint={t("guardrails.testSurfaceHint")}>
+              <Select value={phase} onValueChange={(value) => changePhase(value as "input" | "output")}>
+                <SelectTrigger aria-label={t("guardrails.testSurface")} className="min-h-11 rounded-lg bg-card"><SelectValue /></SelectTrigger>
+                <SelectContent className="rounded-lg">
+                  <SelectItem value="input">{t("guardrails.modelInput")}</SelectItem>
+                  <SelectItem value="output">{t("guardrails.modelResponse")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={t(phase === "input" ? "guardrails.inputToInspect" : "guardrails.outputToInspect")}>
+              <Textarea
+                value={content}
+                onChange={(event) => changeContent(event.target.value)}
+                className="min-h-56 resize-y rounded-lg bg-card font-mono text-sm leading-6"
+                placeholder={t(phase === "input" ? "guardrails.quickInputPlaceholder" : "guardrails.quickOutputPlaceholder")}
+                maxLength={8_000}
+              />
+            </Field>
+          </div>
+          <div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-md text-xs leading-5 text-muted-foreground">{t("guardrails.quickTestNoEvidence")}</p>
+            <Button className="min-h-11 shrink-0" disabled={!content.trim() || quickTest.isPending} onClick={() => quickTest.mutate()}>
+              {quickTest.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
+              {t(quickTest.isPending ? "guardrails.runningQuickTest" : "guardrails.runQuickTest")}
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-[440px] bg-muted/15 p-5" aria-live="polite">
+          {quickTest.error ? <ErrorNotice error={quickTest.error} /> : result ? (
+            <QuickTestResultView result={result} />
+          ) : quickTest.isPending ? (
+            <div className="space-y-4"><Skeleton className="h-8 w-32" /><Skeleton className="h-24 rounded-lg" /><Skeleton className="h-32 rounded-lg" /></div>
+          ) : (
+            <div className="flex h-full min-h-96 items-center justify-center text-center">
+              <div className="max-w-xs">
+                <span className="mx-auto grid size-10 place-items-center rounded-full border bg-card text-muted-foreground"><FlaskConical className="size-4" /></span>
+                <h4 className="mt-4 text-sm font-semibold">{t("guardrails.noQuickTest")}</h4>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("guardrails.noQuickTestDescription")}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function QuickTestResultView({ result }: { result: QuickTestResult }) {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <div><p className="text-xs font-medium text-muted-foreground">{t("guardrails.currentDecision")}</p><h4 className="mt-1 text-lg font-semibold">{t("guardrails.quickTestResult")}</h4></div>
+        <StateBadge state={result.decision} />
+      </div>
+      <dl className="mt-5 divide-y overflow-hidden rounded-lg border bg-card">
+        <QuickResultFact label={t("guardrails.actualAction")} value={actionLabel(result.action, t)} />
+        <QuickResultFact label={t("guardrails.stageReached")} value={stageLabel(result.stage_reached, t)} />
+        <QuickResultFact label={t("guardrails.executionLatency")} value={`${result.latency_ms} ms`} />
+      </dl>
+      <section className="mt-4 rounded-lg border bg-card p-4">
+        <h5 className="text-xs font-medium text-muted-foreground">{t("guardrails.decisionReason")}</h5>
+        <p className="mt-2 text-sm leading-6">{result.reason || t("guardrails.evidenceNotRecorded")}</p>
+      </section>
+      {result.decision === "transform" && result.output_content ? <div className="mt-4"><EvidenceContent label={t("guardrails.transformedContent")} meta={actionLabel(result.action, t)} value={result.output_content} /></div> : null}
+      {result.findings.length ? (
+        <section className="mt-4">
+          <h5 className="text-xs font-medium text-muted-foreground">{t("guardrails.triggeredFindings")}</h5>
+          <div className="mt-2 divide-y overflow-hidden rounded-lg border bg-card">
+            {result.findings.map((finding, index) => <div key={`${finding.risk}-${index}`} className="p-3"><div className="flex items-center justify-between gap-3"><strong className="text-sm font-medium">{riskLabel(finding.risk, t)}</strong><span className="font-mono text-xs text-muted-foreground">{Math.round(finding.confidence * 100)}%</span></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{finding.evidence}</p></div>)}
+          </div>
+        </section>
+      ) : null}
+      <p className="mt-4 text-xs leading-5 text-muted-foreground">{t("guardrails.quickTestDraftVersion", { version: result.source_draft_version })}</p>
+    </div>
+  );
+}
+
+function QuickResultFact({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between gap-4 px-4 py-3"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="text-right text-sm font-medium">{value}</dd></div>;
+}
+
+export function TestEvidence({ guardrail }: { guardrail: Guardrail }) {
   const { t, i18n } = useTranslation();
   const latest = guardrail.latest_test_run;
   if (!latest) return null;
@@ -863,11 +980,11 @@ function EvidenceFact({ label, children }: { label: string; children: React.Reac
   return <div className="rounded-lg bg-card p-3 ring-1 ring-border"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-2">{children}</dd></div>;
 }
 
-function TestCaseRow({ item, onDelete, deleting }: { item: TestCase; onDelete: () => void; deleting: boolean }) {
+export function TestCaseRow({ item, onDelete, deleting }: { item: TestCase; onDelete: () => void; deleting: boolean }) {
   const { t } = useTranslation();
   return (
     <article className="grid gap-3 p-4 md:grid-cols-[minmax(0,1fr)_130px_120px_44px] md:items-center">
-      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm font-medium">{item.name}</strong><span className="rounded-md border bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">{item.origin}</span></div><p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.content}</p></div>
+      <div className="min-w-0"><strong className="text-sm font-medium">{item.name}</strong><p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.content}</p></div>
       <div className="text-xs"><p>{riskLabel(item.risk, t)}</p><p className="mt-1 text-muted-foreground capitalize">{t(item.phase === "input" ? "guardrails.input" : "guardrails.output")}{item.risk === "prompt_injection" || item.risk === "jailbreak" ? ` · ${targetSourceLabel(item.target_source, t)}` : ""}</p></div>
       <StateBadge state={item.expected_decision === "intervene" ? "intervene" : item.expected_decision} />
       <Button type="button" size="icon" variant="ghost" aria-label={`Delete ${item.name}`} disabled={deleting} onClick={onDelete}><Trash2 /></Button>
@@ -878,11 +995,8 @@ function TestCaseRow({ item, onDelete, deleting }: { item: TestCase; onDelete: (
 function RiskRow({ risk, definition, template }: { risk: GuardrailControl; definition?: ControlDefinition; template?: GuardrailTemplate }) {
   const { t } = useTranslation();
   const phases: Record<string, string> = { secrets: t("guardrails.inputOutput"), pii: t("guardrails.inputOutput"), prompt_injection: t("guardrails.input"), jailbreak: t("guardrails.input"), content_safety: t("guardrails.inputOutput"), topic_control: t("guardrails.inputOutput"), company_policy: t("guardrails.inputOutput"), contextual_grounding: t("guardrails.output"), automated_reasoning: t("guardrails.output"), builtin_content_filter: t("guardrails.perLocalControl") };
-  return <div className="grid min-h-16 grid-cols-[minmax(0,1fr)_140px_150px] items-center px-4 py-3 text-xs"><div><strong className="font-medium">{risk.risk === "builtin_content_filter" && template ? template.name : definition?.display_name ?? riskLabel(risk.risk, t)}</strong>{definition ? <p className="mt-1 line-clamp-1 text-muted-foreground">{definition.description}</p> : null}{risk.reasoning_policy ? <p className="mt-1 font-mono text-[11px] text-muted-foreground">{t("guardrails.reasoningPolicyBinding", { id: risk.reasoning_policy.policy_id, version: risk.reasoning_policy.policy_version, threshold: risk.reasoning_policy.confidence_threshold })}</p> : null}</div><span>{phases[risk.risk] ?? t("guardrails.modelIo")}</span><span>{actionLabel(risk.action, t)}</span></div>;
-}
-
-function SourceChoice({ active, icon: Icon, title, description, onClick }: { active: boolean; icon: typeof Library; title: string; description: string; onClick: () => void }) {
-  return <button type="button" aria-pressed={active} onClick={onClick} className={cn("min-h-32 rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-ring", active && "border-primary/40 bg-accent")}><span className="flex items-center justify-between"><Icon className="size-5 text-primary" />{active ? <Check className="size-4 text-primary" /> : null}</span><strong className="mt-4 block text-sm font-medium">{title}</strong><span className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span></button>;
+  const route = risk.risk === "builtin_content_filter" ? ["deterministic"] : definition?.available_stages ?? [];
+  return <div className="grid min-h-16 gap-3 px-4 py-4 text-xs md:grid-cols-[minmax(0,1fr)_150px_190px_140px] md:items-center"><div><strong className="font-medium">{risk.risk === "builtin_content_filter" && template ? template.name : definition?.display_name ?? riskLabel(risk.risk, t)}</strong>{definition ? <p className="mt-1 line-clamp-1 text-muted-foreground">{definition.description}</p> : null}{risk.reasoning_policy ? <p className="mt-1 font-mono text-[11px] text-muted-foreground">{t("guardrails.reasoningPolicyBinding", { id: risk.reasoning_policy.policy_id, version: risk.reasoning_policy.policy_version, threshold: risk.reasoning_policy.confidence_threshold })}</p> : null}</div><span><span className="mr-1 text-muted-foreground md:hidden">{t("guardrails.modelBoundary")}:</span>{phases[risk.risk] ?? t("guardrails.modelIo")}</span><span className="flex flex-wrap gap-1">{route.map((stage) => <span key={stage} className="rounded-md border bg-muted/40 px-1.5 py-1">{stageLabel(stage, t)}</span>)}</span><span><span className="mr-1 text-muted-foreground md:hidden">{t("guardrails.whenDetected")}:</span>{actionLabel(risk.action, t)}</span></div>;
 }
 
 function TopicPanel({ title, items, empty, danger = false }: { title: string; items: string[]; empty: string; danger?: boolean }) {
@@ -906,6 +1020,6 @@ function guardrailDisplayPurpose(guardrail: Guardrail, t: TFunction) { return gu
 function deliveryLabel(value: string, t: TFunction) { return value === "interruptible" ? t("guardrails.outputRealtime") : value === "full_buffered" ? t("guardrails.outputFull") : t("guardrails.outputWindow"); }
 function riskLabel(value: string, t: TFunction) { return ({ builtin_content_filter: t("guardrails.riskBuiltin"), topic_control: t("guardrails.riskTopic"), pii: t("guardrails.riskPii"), secrets: t("guardrails.riskSecrets"), prompt_injection: t("guardrails.riskInjection"), jailbreak: t("guardrails.riskJailbreak"), content_safety: t("guardrails.riskUnsafe"), company_policy: t("guardrails.riskCompany"), contextual_grounding: t("guardrails.riskGrounding"), automated_reasoning: t("guardrails.riskReasoning") } as Record<string, string>)[value] ?? value.replaceAll("_", " "); }
 function actionLabel(value: string, t: TFunction) { return ({ reject: t("guardrails.actionReject"), redact: t("guardrails.actionRedact"), rewrite: t("guardrails.actionRewrite"), regenerate: t("guardrails.actionRegenerate"), redirect: t("guardrails.actionRedirect"), clarify: t("guardrails.actionClarify"), pass: t("guardrails.actionPass"), fallback: t("guardrails.actionFallback") } as Record<string, string>)[value] ?? value; }
-function stageLabel(value: string, t: TFunction) { return ({ deterministic: t("playground.stages.deterministic"), fast_semantic: t("playground.stages.fast_semantic"), deep_judge: t("playground.stages.deep_judge"), none: t("states.not evaluated") } as Record<string, string>)[value.toLowerCase().replaceAll(" ", "_")] ?? value; }
+function stageLabel(value: string, t: TFunction) { return ({ deterministic: t("guardrails.stageDeterministic"), fast_semantic: t("guardrails.stageFastSemantic"), deep_judge: t("guardrails.stageDeepJudge"), none: t("states.not evaluated") } as Record<string, string>)[value.toLowerCase().replaceAll(" ", "_")] ?? value; }
 function targetSourceLabel(value: string, t: TFunction) { return ({ user_input: t("guardrails.sourceUserInput"), retrieved_content: t("guardrails.sourceRetrieved"), tool_output: t("guardrails.sourceToolOutput"), model_output: t("guardrails.sourceModelOutput") } as Record<string, string>)[value] ?? value; }
 function notifyError(error: unknown, fallback: string) { toast.error(error instanceof Error ? error.message : fallback); }

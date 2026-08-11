@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
 from typing import Any, Literal
 
@@ -10,6 +11,7 @@ from ..control_plane.domain import Integration, IntegrationAuthenticationError, 
 from ..control_plane.service import ControlPlaneService
 from ..engine.contracts import EvaluationRequest, GuardContentBlock, RequestContext
 from ..engine.service import ModelGuardrailsEngineService
+from .observability import record_runtime_decision, record_runtime_failure
 
 
 SENSITIVE_HEADERS = frozenset({"authorization", "cookie", "proxy-authorization", "x-api-key"})
@@ -138,28 +140,50 @@ class HTTPAdapter:
             request: Request,
             x_api_key: str | None = Header(default=None),
         ) -> HTTPGuardrailResponse:
+            started = time.perf_counter()
             integration = self._authorize(x_api_key, payload.protocol)
+            phase = "input" if payload.input_type == "request" else "output"
             try:
                 decision = await self._service.evaluate(
                     self._to_engine_request(payload, request, integration)
                 )
             except ControlPlaneError as error:
                 self._control_plane.record_integration_activity(integration.id, success=True)
+                record_runtime_failure(
+                    self._control_plane,
+                    integration_id=integration.id,
+                    protocol=payload.protocol,
+                    phase=phase,
+                    started=started,
+                    outcome="block",
+                    detail=str(error),
+                )
                 return HTTPGuardrailResponse(
                     decision="block",
                     action="reject",
                     reason=str(error),
                     mode="enforce",
                 )
-            except Exception:
+            except Exception as error:
                 self._control_plane.record_integration_activity(integration.id, success=False)
+                record_runtime_failure(
+                    self._control_plane,
+                    integration_id=integration.id,
+                    protocol=payload.protocol,
+                    phase=phase,
+                    started=started,
+                    outcome="error",
+                    detail=f"Guardrail evaluation failed with {type(error).__name__}.",
+                )
                 raise
             self._control_plane.record_integration_activity(integration.id, success=True)
-            self._control_plane.record_decision(
-                outcome=decision.decision,
-                guardrail_id=decision.guardrail_id,
-                assignment_id=decision.assignment_id,
-                risk=decision.findings[0].risk if decision.findings else None,
+            record_runtime_decision(
+                self._control_plane,
+                decision=decision,
+                integration_id=integration.id,
+                protocol=payload.protocol,
+                phase=phase,
+                started=started,
                 detail=decision.reason or "HTTP interaction evaluated.",
             )
             return HTTPGuardrailResponse(

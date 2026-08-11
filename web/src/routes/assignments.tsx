@@ -114,7 +114,7 @@ function AssignmentRow({ assignment, guardrail, onToggle }: { assignment: Guardr
   return (
     <article className="grid gap-4 p-5 lg:grid-cols-[minmax(210px,1.1fr)_minmax(320px,1.8fr)_minmax(155px,.8fr)_132px] lg:items-center">
       <div>
-        <div className="flex items-center gap-2"><ListFilter className="size-4 text-primary" /><strong className="text-sm font-medium">{assignmentName}</strong>{assignment.is_default ? <span className="rounded-md border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{t("assignments.defaultBadge")}</span> : null}</div>
+        <div className="flex flex-wrap items-center gap-2"><ListFilter className="size-4 text-primary" /><strong className="text-sm font-medium">{assignmentName}</strong><span className="rounded-md border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{t(assignment.is_default ? "assignments.fallbackMode" : "assignments.routedMode")}</span></div>
         <p className="mt-2 text-xs text-muted-foreground">{assignment.is_default ? t("assignments.defaultDescription") : t("assignments.conditionCount", { count: countTrafficRules(assignment.traffic_scope) })}</p>
       </div>
       <TrafficScopeBadges assignment={assignment} />

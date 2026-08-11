@@ -19,20 +19,17 @@ SESSION_COOKIE = "tasklattice_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7
 
 
-class SetupRequest(BaseModel):
+class CreateUserRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=10, max_length=256)
     preferred_language: Literal["en", "zh-CN"] = "en"
+    role: Literal["admin", "member"] = "member"
 
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=256)
-
-
-class CreateUserRequest(SetupRequest):
-    role: Literal["admin", "member"] = "member"
 
 
 class UpdateUserRequest(BaseModel):
@@ -44,6 +41,11 @@ class UpdateUserRequest(BaseModel):
 
 class UpdateMeRequest(BaseModel):
     preferred_language: Literal["en", "zh-CN"]
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=10, max_length=256)
 
 
 class IdentityAPI:
@@ -67,36 +69,14 @@ class IdentityAPI:
     def _register_routes(self) -> None:
         @self.router.get("/session")
         def status(request: Request):
-            setup_required = self._service.setup_required()
-            if setup_required:
-                return {
-                    "setup_required": True,
-                    "authenticated": False,
-                    "user": None,
-                }
             try:
                 user = self._service.authenticate(request.cookies.get(SESSION_COOKIE))
             except IdentityAuthenticationError:
                 user = None
             return {
-                "setup_required": False,
                 "authenticated": user is not None,
                 "user": _user_payload(user) if user else None,
             }
-
-        @self.router.post("/initial-admin", status_code=201)
-        def setup(request: SetupRequest, response: Response, http_request: Request):
-            try:
-                result = self._service.create_initial_admin(
-                    display_name=request.display_name,
-                    email=request.email,
-                    password=request.password,
-                    preferred_language=request.preferred_language,
-                )
-            except IdentityError as error:
-                _raise_identity(error)
-            _set_session_cookie(response, http_request, result.session_token)
-            return {"user": _user_payload(result.user)}
 
         @self.router.post("/session")
         def login(request: LoginRequest, response: Response, http_request: Request):
@@ -119,6 +99,20 @@ class IdentityAPI:
             try:
                 updated = self._service.update_preferred_language(
                     user.id, request.preferred_language
+                )
+            except IdentityError as error:
+                _raise_identity(error)
+            return {"user": _user_payload(updated)}
+
+        @self.router.patch("/me/password")
+        def change_password(request: ChangePasswordRequest, http_request: Request):
+            user = self.require_user(http_request)
+            try:
+                updated = self._service.change_password(
+                    user.id,
+                    current_password=request.current_password,
+                    new_password=request.new_password,
+                    current_session_token=http_request.cookies.get(SESSION_COOKIE) or "",
                 )
             except IdentityError as error:
                 _raise_identity(error)

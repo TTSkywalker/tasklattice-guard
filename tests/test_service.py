@@ -77,18 +77,64 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
-async def setup_admin(client: httpx.AsyncClient) -> dict[str, object]:
+async def login_default_admin(client: httpx.AsyncClient) -> dict[str, object]:
     response = await client.post(
-        "/api/v1/initial-admin",
-        json={
-            "display_name": "Test Admin",
-            "email": "admin@example.com",
-            "password": "test-password",
-            "preferred_language": "en",
-        },
+        "/api/v1/session",
+        json={"email": "admin", "password": "admin"},
     )
-    assert response.status_code == 201
+    assert response.status_code == 200
     return response.json()["user"]
+
+
+@pytest.mark.asyncio
+async def test_default_admin_exists_and_changed_password_survives_restart(tmp_path):
+    configured = settings(tmp_path)
+    app = create_app(settings=configured)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        status = await client.get("/api/v1/session")
+        admin = await login_default_admin(client)
+        removed_setup = await client.post(
+            "/api/v1/initial-admin",
+            json={
+                "display_name": "Another Admin",
+                "email": "another@example.com",
+                "password": "another-password",
+            },
+        )
+        wrong_current = await client.patch(
+            "/api/v1/me/password",
+            json={"current_password": "wrong", "new_password": "new-admin-password"},
+        )
+        changed = await client.patch(
+            "/api/v1/me/password",
+            json={"current_password": "admin", "new_password": "new-admin-password"},
+        )
+        still_authenticated = await client.get("/api/v1/session")
+
+    restarted = create_app(settings=configured)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=restarted), base_url="http://test"
+    ) as client:
+        old_password = await client.post(
+            "/api/v1/session", json={"email": "admin", "password": "admin"}
+        )
+        new_password = await client.post(
+            "/api/v1/session",
+            json={"email": "admin", "password": "new-admin-password"},
+        )
+
+    assert status.json() == {"authenticated": False, "user": None}
+    assert admin["id"] == "user-default-admin"
+    assert admin["email"] == "admin@tasklattice.local"
+    assert admin["role"] == "admin"
+    assert removed_setup.status_code == 404
+    assert wrong_current.status_code == 400
+    assert changed.status_code == 200
+    assert still_authenticated.json()["authenticated"] is True
+    assert old_password.status_code == 401
+    assert new_password.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -98,7 +144,7 @@ async def test_control_plane_exposes_enterprise_product_resources(tmp_path):
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         unauthorized = await client.get("/api/v1/guardrails")
-        await setup_admin(client)
+        await login_default_admin(client)
         created_integration = await client.post(
             "/api/v1/integrations",
             json={
@@ -116,6 +162,7 @@ async def test_control_plane_exposes_enterprise_product_resources(tmp_path):
         )
         paths = (
             "/api/v1/guardrails",
+            "/api/v1/control-templates",
             "/api/v1/assignments",
             "/api/v1/traffic-scope-fields",
             "/api/v1/integrations",
@@ -143,6 +190,18 @@ async def test_control_plane_exposes_enterprise_product_resources(tmp_path):
     assert obsolete_guardrail_payload.status_code == 422
     assert all(response.status_code == 200 for response in responses)
     assert all(response.status_code == 404 for response in removed_routes)
+    control_library = responses[1].json()
+    contact_template = next(
+        item
+        for item in control_library["items"]
+        if item["id"] == "sg-pdpa-contact-information"
+    )
+    assert control_library["count"] == 81
+    assert {item["id"] for item in contact_template["rules"]} == {
+        "sg_phone",
+        "sg_postal_code",
+        "email",
+    }
 
 
 @pytest.mark.asyncio
@@ -157,7 +216,7 @@ async def test_control_plane_agent_returns_reviewable_rules_without_saving_guard
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         status = await client.get("/api/v1/intent-analysis-status")
         result = await client.post(
             "/api/v1/intent-analyses",
@@ -187,7 +246,7 @@ async def test_tests_create_a_deployable_guardrail_version(tmp_path):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         created = await client.post(
             "/api/v1/guardrails",
             json={"name": "Topic Filter", "template_id": "topic-filtering"},
@@ -224,12 +283,154 @@ async def test_tests_create_a_deployable_guardrail_version(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_guardrail_combines_template_checks_with_custom_intent_controls(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Composed finance boundary",
+                "template_id": "topic-filtering",
+                "purpose": "Support approved finance analysis with organization boundaries.",
+                "allowed_topics": ["Finance analysis"],
+                "restricted_topics": ["Medical advice"],
+                "controls": [
+                    {"risk": "builtin_content_filter", "action": "reject"},
+                    {"risk": "topic_control", "action": "redirect"},
+                    {"risk": "secrets", "action": "reject"},
+                ],
+            },
+        )
+
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["source_template_id"] == "topic-filtering"
+    assert payload["purpose"] == (
+        "Support approved finance analysis with organization boundaries."
+    )
+    assert payload["allowed_topics"] == ["Finance analysis"]
+    assert payload["restricted_topics"] == ["Medical advice"]
+    assert payload["controls"] == [
+        {"risk": "builtin_content_filter", "action": "reject", "reasoning_policy": None},
+        {"risk": "topic_control", "action": "redirect", "reasoning_policy": None},
+        {"risk": "secrets", "action": "reject", "reasoning_policy": None},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_guardrail_creation_persists_selected_control_template_rules(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Singapore contact boundary",
+                "purpose": "Mask reviewed Singapore contact identifiers in model traffic.",
+                "controls": [
+                    {"risk": "builtin_content_filter", "action": "reject"}
+                ],
+                "control_configurations": [
+                    {
+                        "id": "template:sg-pdpa-contact-information",
+                        "name": "SG PDPA Contact Information",
+                        "kind": "template",
+                        "runtime_risk": "builtin_content_filter",
+                        "template_id": "sg-pdpa-contact-information",
+                        "template_version": "1.95.0",
+                        "rules": [
+                            {
+                                "id": "sg_postal_code",
+                                "name": "Singapore Postal Code",
+                                "detector": "regex",
+                                "action": "MASK",
+                                "phases": ["input"],
+                                "enabled": True,
+                                "description": "Singapore postal code",
+                                "expression": r"\b\d{6}\b",
+                                "keywords": [],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+    assert created.status_code == 201
+    configuration = created.json()["control_configurations"][0]
+    assert configuration["template_id"] == "sg-pdpa-contact-information"
+    assert configuration["template_version"] == "1.95.0"
+    assert [item["id"] for item in configuration["rules"]] == ["sg_postal_code"]
+
+
+@pytest.mark.asyncio
+async def test_quick_test_runs_current_draft_without_creating_release_evidence(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Draft smoke check",
+                "purpose": "Check draft behavior without creating release evidence.",
+                "controls": [{"risk": "secrets", "action": "reject"}],
+            },
+        )
+        guardrail_id = created.json()["id"]
+        quick_test = await client.post(
+            "/api/v1/quick-tests",
+            json={
+                "guardrail_id": guardrail_id,
+                "phase": "input",
+                "content": "This blocked sample should be rejected.",
+            },
+        )
+        runs = await client.get(
+            "/api/v1/test-runs", params={"guardrail_id": guardrail_id}
+        )
+        versions = await client.get(
+            "/api/v1/guardrail-versions", params={"guardrail_id": guardrail_id}
+        )
+        guardrail = await client.get(f"/api/v1/guardrails/{guardrail_id}")
+
+    assert quick_test.status_code == 200
+    quick_test_payload = quick_test.json()
+    latency_ms = quick_test_payload.pop("latency_ms")
+    assert isinstance(latency_ms, int)
+    assert latency_ms >= 0
+    assert quick_test_payload == {
+        "guardrail_id": guardrail_id,
+        "source_draft_version": 1,
+        "phase": "input",
+        "input_content": "This blocked sample should be rejected.",
+        "decision": "block",
+        "action": "reject",
+        "output_content": "",
+        "stage_reached": "none",
+        "reason": "Test engine blocked content.",
+        "findings": [],
+        "trace": [],
+    }
+    assert runs.json()["count"] == 0
+    assert versions.json()["count"] == 0
+    assert guardrail.json()["status"] == "needs_testing"
+    assert guardrail.json()["tested_current"] is False
+
+
+@pytest.mark.asyncio
 async def test_failed_guardrail_test_preserves_input_output_and_decision_evidence(tmp_path):
     app = create_app(settings=settings(tmp_path), engine=Engine())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         created = await client.post(
             "/api/v1/guardrails",
             json={
@@ -285,7 +486,7 @@ async def test_generated_prompt_security_case_exposes_trusted_and_untrusted_side
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         created = await client.post(
             "/api/v1/guardrails",
             json={
@@ -317,7 +518,7 @@ async def test_topic_control_validates_and_runs_locally_without_a_gateway(tmp_pa
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         created = await client.post(
             "/api/v1/guardrails",
             json={
@@ -389,7 +590,7 @@ async def test_guardrail_test_cases_are_visible_and_editable(tmp_path):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         created = await client.post(
             "/api/v1/guardrails",
             json={
@@ -431,7 +632,7 @@ async def test_admin_can_manage_users_and_language(tmp_path):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        admin = await setup_admin(client)
+        admin = await login_default_admin(client)
         created = await client.post(
             "/api/v1/users",
             json={
@@ -472,22 +673,11 @@ async def test_local_username_alias_can_sign_in(tmp_path):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        setup = await client.post(
-            "/api/v1/initial-admin",
-            json={
-                "display_name": "Local Admin",
-                "email": "admin@tasklattice.local",
-                "password": "secure-admin-password",
-                "preferred_language": "en",
-            },
-        )
-        await client.delete("/api/v1/session")
         login = await client.post(
             "/api/v1/session",
-            json={"email": "admin", "password": "secure-admin-password"},
+            json={"email": "admin", "password": "admin"},
         )
 
-    assert setup.status_code == 201
     assert login.status_code == 200
     assert login.json()["user"]["email"] == "admin@tasklattice.local"
 
@@ -539,6 +729,82 @@ async def test_litellm_adapter_keeps_gateway_protocol_and_uses_guardrail_decisio
         "action": "BLOCKED",
         "blocked_reason": "Test engine blocked content.",
     }
+
+
+@pytest.mark.asyncio
+async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    control_plane = app.state.control_plane
+    guardrail = control_plane.create_guardrail(
+        name="Observed Guardrail",
+        purpose="Measure protected model calls.",
+        controls=(GuardrailControl("secrets", "reject"),),
+    )
+    control_plane.save_evaluation(
+        guardrail_id=guardrail.id,
+        guardrail_version=None,
+        source_draft_version=guardrail.draft_version,
+        status="passed",
+        metrics=EvaluationMetrics(1, 1, 100, 0, 0, 0, 1),
+        results=(
+            EvaluationCaseResult(
+                "case",
+                "case",
+                "secrets",
+                "block",
+                "block",
+                True,
+                "deterministic",
+                1,
+                "blocked",
+            ),
+        ),
+    )
+    version = control_plane.activate_tested_version(guardrail.id).version.version
+    control_plane.create_assignment(
+        name="Observed traffic",
+        guardrail_id=guardrail.id,
+        traffic_scope=filter_expression(filter_rule("protocol", "equals", "litellm")),
+    )
+    registration = control_plane.create_integration(
+        name="Observed LiteLLM",
+        description="Runtime metrics test",
+        environment="test",
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for text in ("hello", "blocked"):
+            response = await client.post(
+                "/beta/litellm_basic_guardrail_api",
+                headers={"x-api-key": registration.credential},
+                json={"input_type": "request", "texts": [text]},
+            )
+            assert response.status_code == 200
+        await login_default_admin(client)
+        metrics = (await client.get("/api/v1/metrics")).json()
+
+    observed = next(
+        item
+        for item in metrics["guardrail_distribution"]
+        if item["guardrail_id"] == guardrail.id
+    )
+    events = control_plane.runtime_metrics(since="1970-01-01T00:00:00+00:00")
+
+    assert metrics["window"] == "7d"
+    assert metrics["total_decisions"] == 2
+    assert metrics["allowed"] == 1
+    assert metrics["blocked"] == 1
+    assert metrics["runtime_p95_ms"] >= 0
+    assert observed["name"] == "Observed Guardrail"
+    assert observed["total"] == 2
+    assert observed["share"] == 100
+    assert observed["versions"] == [version]
+    assert {event.outcome for event in events} == {"allow", "block"}
+    assert all(event.protocol == "litellm" for event in events)
+    assert all(event.phase == "input" for event in events)
+    assert not hasattr(events[0], "text")
 
 
 @pytest.mark.asyncio
@@ -687,6 +953,12 @@ async def test_http_and_a2a_adapters_expose_filterable_request_facts(tmp_path):
     assert http_result.json()["decision"] == "allow"
     assert a2a_result.status_code == 200
     assert a2a_result.json()["decision"] == "allow"
+    runtime_events = control_plane.runtime_metrics(
+        since="1970-01-01T00:00:00+00:00"
+    )
+    assert {event.protocol for event in runtime_events} == {"http", "a2a"}
+    assert {event.guardrail_id for event in runtime_events} == {guardrail.id}
+    assert all(event.phase == "input" for event in runtime_events)
 
 
 @pytest.mark.asyncio
@@ -842,7 +1114,7 @@ async def test_contextual_grounding_guardrail_persists_and_runs_structured_test_
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         created = await client.post(
             "/api/v1/guardrails",
             json={
@@ -927,7 +1199,7 @@ async def test_automated_reasoning_policy_binding_is_pinned_and_formally_tested(
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await setup_admin(client)
+        await login_default_admin(client)
         missing_policy = await client.post(
             "/api/v1/guardrails",
             json={
@@ -1065,6 +1337,9 @@ async def test_final_product_routes_fall_back_to_spa_entrypoint(tmp_path):
         routes = (
             "/guardrails",
             "/guardrails/guardrail-123",
+            "/playground",
+            "/evaluations",
+            "/deployments",
             "/assignments",
             "/enforcements",
             "/integrations",

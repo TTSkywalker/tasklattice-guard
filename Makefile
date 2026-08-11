@@ -5,6 +5,11 @@ HELM_CHART := charts/tasklattice-guard
 HELM_TIMEOUT ?= 180s
 PORT ?= 8091
 LOCAL_ENV_FILE := $(if $(wildcard .env),--env-file .env,)
+LOCAL_PROVIDER_SECRET ?= tasklattice-guard-provider-keys
+NVIDIA_BASE_URL ?= https://integrate.api.nvidia.com/v1
+NVIDIA_CONTENT_SAFETY_MODEL ?= nvidia/llama-3.1-nemotron-safety-guard-8b-v3
+DEEP_JUDGE_BASE_URL ?= https://api.deepseek.com
+DEEP_JUDGE_MODEL ?= deepseek-v4-flash
 
 .PHONY: sync test web-dev web-build run image helm-lint helm-template helm-install helm-test helm-uninstall deploy-local
 
@@ -35,12 +40,47 @@ helm-template:
 	helm template $(HELM_RELEASE) $(HELM_CHART) --namespace $(DEV_NAMESPACE)
 
 helm-install: image helm-lint
-	helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) \
-		--namespace $(DEV_NAMESPACE) \
-		--create-namespace \
-		--set image.tag=dev \
-		--wait \
-		--timeout $(HELM_TIMEOUT)
+	@set -eu; \
+		helm_args="--set-string image.tag=dev"; \
+		provider_configured=false; \
+		if [ -f .env ]; then \
+			if grep -Eq '^NVAPI_API_KEY=.+$$' .env; then \
+				provider_configured=true; \
+				helm_args="$$helm_args \
+					--set-string evaluators.nvidia.baseUrl=$(NVIDIA_BASE_URL) \
+					--set-string evaluators.nvidia.contentSafetyModel=$(NVIDIA_CONTENT_SAFETY_MODEL) \
+					--set-string evaluators.nvidia.existingSecret=$(LOCAL_PROVIDER_SECRET) \
+					--set-string evaluators.nvidia.secretKey=NVAPI_API_KEY"; \
+				echo "Enabling NVIDIA fast-semantic evaluator from .env"; \
+			fi; \
+			if grep -Eq '^DEEPSEEK_API_KEY=.+$$' .env; then \
+				provider_configured=true; \
+				helm_args="$$helm_args \
+					--set-string evaluators.deepJudge.baseUrl=$(DEEP_JUDGE_BASE_URL) \
+					--set-string evaluators.deepJudge.model=$(DEEP_JUDGE_MODEL) \
+					--set-string evaluators.deepJudge.existingSecret=$(LOCAL_PROVIDER_SECRET) \
+					--set-string evaluators.deepJudge.secretKey=DEEPSEEK_API_KEY \
+					--set-string controlPlaneAgent.deepseek.baseUrl=$(DEEP_JUDGE_BASE_URL) \
+					--set-string controlPlaneAgent.deepseek.model=$(DEEP_JUDGE_MODEL) \
+					--set-string controlPlaneAgent.deepseek.existingSecret=$(LOCAL_PROVIDER_SECRET) \
+					--set-string controlPlaneAgent.deepseek.secretKey=DEEPSEEK_API_KEY"; \
+				echo "Enabling Deep Judge and the control-plane assistant from .env"; \
+			fi; \
+			if [ "$$provider_configured" = true ]; then \
+				kubectl create namespace $(DEV_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f - >/dev/null; \
+				kubectl --namespace $(DEV_NAMESPACE) create secret generic $(LOCAL_PROVIDER_SECRET) \
+					--from-env-file=.env \
+					--dry-run=client \
+					-o yaml | kubectl apply -f - >/dev/null; \
+				echo "Updated Kubernetes provider Secret from .env"; \
+			fi; \
+		fi; \
+		helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) \
+			--namespace $(DEV_NAMESPACE) \
+			--create-namespace \
+			$$helm_args \
+			--wait \
+			--timeout $(HELM_TIMEOUT)
 	kubectl --namespace $(DEV_NAMESPACE) rollout restart deployment/$(HELM_RELEASE)
 	kubectl --namespace $(DEV_NAMESPACE) rollout status deployment/$(HELM_RELEASE) --timeout=$(HELM_TIMEOUT)
 

@@ -403,3 +403,25 @@ def test_catalog_supports_guardrail_creation_without_exposing_evaluator_configur
         for template in service.templates()
         for item in template.default_controls
     )
+
+
+def test_control_library_exposes_auditable_rules_and_pack_membership(tmp_path):
+    service = ControlPlaneService(tmp_path / "control-library.db")
+
+    templates = service.control_templates()
+    contact = next(
+        item for item in templates if item.id == "sg-pdpa-contact-information"
+    )
+
+    assert len(templates) == 81
+    assert contact.name == "SG PDPA Contact Information"
+    assert contact.detector_types == ("regex",)
+    assert contact.default_action == "MASK"
+    assert {item.id for item in contact.rules} == {
+        "sg_phone",
+        "sg_postal_code",
+        "email",
+    }
+    assert {item.action for item in contact.rules} == {"MASK"}
+    assert {item.id for item in contact.packs} == {"pdpa-singapore"}
+    assert all(item.rules for item in templates)

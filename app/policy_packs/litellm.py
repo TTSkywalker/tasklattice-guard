@@ -266,6 +266,8 @@ class PatternRule:
     action: str
     redaction: str
     keyword_expression: str | None = None
+    display_name: str = ""
+    description: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +288,7 @@ class CategoryRule:
     conditional_words: tuple[str, ...]
     always_block: tuple[tuple[str, str], ...]
     phrase_patterns: tuple[str, ...]
+    description: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,6 +470,12 @@ def _translate_control(
                 action=item.get("action", "BLOCK"),
                 redaction=redaction_format.replace("{pattern_name}", name),
                 keyword_expression=keyword_expression,
+                display_name=prebuilt.get("display_name", _display_name(name))
+                if item.get("pattern_type") == "prebuilt"
+                else _display_name(name),
+                description=prebuilt.get("description", "")
+                if item.get("pattern_type") == "prebuilt"
+                else "Custom regular-expression rule.",
             )
         )
 
@@ -564,6 +573,7 @@ def _load_category(root: Path, config: dict[str, Any]) -> CategoryRule:
             for item in data.get("always_block_keywords", [])
         ),
         phrase_patterns=tuple(data.get("phrase_patterns", [])),
+        description=data.get("description", ""),
     )
 
 
@@ -614,6 +624,7 @@ def _inline_category(name: str, config: dict[str, Any]) -> CategoryRule:
         conditional_words=(),
         always_block=(),
         phrase_patterns=(),
+        description="Inline keyword category bundled with the local policy pack.",
     )
 
 

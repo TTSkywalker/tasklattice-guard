@@ -78,10 +78,82 @@ class GuardrailTemplate:
 
 
 @dataclass(frozen=True, slots=True)
+class ControlTemplatePackReference:
+    id: str
+    name: str
+    domain: str
+
+
+@dataclass(frozen=True, slots=True)
+class ControlTemplateRule:
+    id: str
+    name: str
+    detector: Literal["regex", "keyword", "category"]
+    action: str
+    description: str = ""
+    expression: str | None = None
+    context_expression: str | None = None
+    redaction: str | None = None
+    severity_threshold: str | None = None
+    identifiers: tuple[str, ...] = ()
+    conditions: tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
+    always_block: tuple[str, ...] = ()
+    exceptions: tuple[str, ...] = ()
+    phrase_patterns: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ControlTemplate:
+    id: str
+    name: str
+    description: str
+    source: str
+    version: str
+    status: Literal["built_in", "registered"]
+    phases: tuple[GuardrailPhase, ...]
+    default_action: str
+    allowed_actions: tuple[str, ...]
+    detector_types: tuple[Literal["regex", "keyword", "category"], ...]
+    rules: tuple[ControlTemplateRule, ...]
+    packs: tuple[ControlTemplatePackReference, ...]
+    tags: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class GuardrailControl:
     risk: str
     action: EnforcementAction
     reasoning_policy: AutomatedReasoningPolicyBinding | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailRuleConfig:
+    """A reviewed Rule enabled inside one Guardrail Control instance."""
+
+    id: str
+    name: str
+    detector: str
+    action: str
+    phases: tuple[GuardrailPhase, ...]
+    enabled: bool = True
+    description: str = ""
+    expression: str | None = None
+    keywords: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailControlConfig:
+    """A version-pinned Control Template or custom Control in a Guardrail."""
+
+    id: str
+    name: str
+    kind: Literal["template", "custom"]
+    runtime_risk: str
+    template_id: str | None
+    template_version: str | None
+    rules: tuple[GuardrailRuleConfig, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +180,7 @@ class Guardrail:
     draft_version: int
     active_version: int | None
     updated_at: str
+    control_configurations: tuple[GuardrailControlConfig, ...] = ()
 
 @dataclass(frozen=True, slots=True)
 class GuardrailVersion:
@@ -260,6 +333,27 @@ class DecisionEvent:
     assignment_id: str | None
     risk: str | None
     detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeMetricEvent:
+    """Privacy-safe dimensions for one Guardrail runtime evaluation."""
+
+    id: str
+    created_at: str
+    guardrail_id: str | None
+    guardrail_version: int | None
+    assignment_id: str | None
+    integration_id: str | None
+    protocol: str
+    phase: str
+    outcome: str
+    action: str
+    risk: str | None
+    latency_ms: int
+    timed_out: bool
+    module_invocations: int
+    evaluator_invocations: int
 
 
 @dataclass(frozen=True, slots=True)

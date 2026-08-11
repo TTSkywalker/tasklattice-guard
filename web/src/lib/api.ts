@@ -44,6 +44,28 @@ export type GuardrailControl = {
   } | null;
 };
 
+export type GuardrailRuleConfig = {
+  id: string;
+  name: string;
+  detector: "regex" | "keyword" | "category" | "classifier" | "judge";
+  action: string;
+  phases: Array<"input" | "output">;
+  enabled: boolean;
+  description: string;
+  expression: string | null;
+  keywords: string[];
+};
+
+export type GuardrailControlConfig = {
+  id: string;
+  name: string;
+  kind: "template" | "custom";
+  runtime_risk: string;
+  template_id: string | null;
+  template_version: string | null;
+  rules: GuardrailRuleConfig[];
+};
+
 export type EvaluationMetrics = {
   total: number;
   passed: number;
@@ -115,6 +137,21 @@ export type TestRun = {
   created_at: string;
 };
 
+export type QuickTestResult = {
+  guardrail_id: string;
+  source_draft_version: number;
+  phase: "input" | "output";
+  input_content: string;
+  decision: "allow" | "transform" | "block";
+  action: string;
+  output_content: string;
+  stage_reached: string;
+  latency_ms: number;
+  reason: string;
+  findings: EvaluationFinding[];
+  trace: EvaluationTraceStep[];
+};
+
 export type TestCase = {
   id: string;
   guardrail_id: string;
@@ -183,6 +220,7 @@ export type Guardrail = {
   allowed_topics: string[];
   restricted_topics: string[];
   controls: GuardrailControl[];
+  control_configurations: GuardrailControlConfig[];
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
   source_template_id: string | null;
@@ -234,6 +272,41 @@ export type GuardrailTemplate = {
     placeholder: string;
     description: string;
   }>;
+};
+
+export type ControlTemplateRule = {
+  id: string;
+  name: string;
+  detector: "regex" | "keyword" | "category";
+  action: "MASK" | "BLOCK" | string;
+  description: string;
+  expression: string | null;
+  context_expression: string | null;
+  redaction: string | null;
+  severity_threshold: string | null;
+  identifiers: string[];
+  conditions: string[];
+  keywords: string[];
+  always_block: string[];
+  exceptions: string[];
+  phrase_patterns: string[];
+};
+
+export type ControlTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  version: string;
+  status: "built_in" | "registered";
+  phases: Array<"input" | "output">;
+  default_action: "MASK" | "BLOCK" | "POLICY" | string;
+  allowed_actions: string[];
+  detector_types: Array<ControlTemplateRule["detector"]>;
+  rules: ControlTemplateRule[];
+  packs: Array<{ id: string; name: string; domain: string }>;
+  tags: string[];
+  limitations: string[];
 };
 
 export type ControlDefinition = {
@@ -290,13 +363,20 @@ export type SystemStatus = {
 };
 
 export type Metrics = {
-  window: "all_time";
+  window: "7d";
+  window_start: string;
   total_decisions: number;
   allowed: number;
   blocked: number;
   intervened: number;
+  errors: number;
   block_rate: number;
   intervention_rate: number;
+  error_rate: number;
+  timeout_count: number;
+  runtime_p50_ms: number;
+  runtime_p95_ms: number;
+  runtime_p99_ms: number;
   latest_test_p95_ms: number;
   active_assignments: number;
   total_assignments: number;
@@ -305,7 +385,26 @@ export type Metrics = {
   degraded_integrations: number;
   total_integrations: number;
   risk_counts: Array<{ risk: string; count: number }>;
-  trend: Array<{ date: string; total: number; blocked: number; intervened: number }>;
+  guardrail_distribution: Array<{
+    guardrail_id: string;
+    name: string;
+    total: number;
+    share: number;
+    allowed: number;
+    blocked: number;
+    intervened: number;
+    errors: number;
+    block_rate: number;
+    intervention_rate: number;
+    error_rate: number;
+    p50_latency_ms: number;
+    p95_latency_ms: number;
+    p99_latency_ms: number;
+    timeout_count: number;
+    versions: number[];
+  }>;
+  unassigned_requests: number;
+  trend: Array<{ date: string; total: number; blocked: number; intervened: number; errored: number }>;
   system_status: "healthy" | "degraded";
 };
 
@@ -321,7 +420,7 @@ export type IdentityUser = {
   created_at: string;
   updated_at: string;
 };
-export type AuthStatus = { setup_required: boolean; authenticated: boolean; user: IdentityUser | null };
+export type AuthStatus = { authenticated: boolean; user: IdentityUser | null };
 export type IntentAnalysisStatus = { available: boolean; provider: string | null; model: string | null };
 export type IntentAnalysis = { summary: string; allowed_topics: string[]; restricted_topics: string[]; review_notes: string[] };
 
@@ -353,26 +452,28 @@ const query = (params: Record<string, string | number | undefined>) => {
 };
 
 export const getAuthStatus = () => read<AuthStatus>("/api/v1/session");
-export const setupAdmin = (input: { display_name: string; email: string; password: string; preferred_language: "en" | "zh-CN" }) => mutate<{ user: IdentityUser }>("/api/v1/initial-admin", "POST", input);
 export const login = (input: { email: string; password: string }) => mutate<{ user: IdentityUser }>("/api/v1/session", "POST", input);
 export const logout = () => mutate<void>("/api/v1/session", "DELETE");
 export const updateMe = (input: { preferred_language: "en" | "zh-CN" }) => mutate<{ user: IdentityUser }>("/api/v1/me", "PATCH", input);
+export const changePassword = (input: { current_password: string; new_password: string }) => mutate<{ user: IdentityUser }>("/api/v1/me/password", "PATCH", input);
 export const getUsers = () => read<{ users: IdentityUser[] }>("/api/v1/users");
 export const createUser = (input: { display_name: string; email: string; password: string; role: IdentityRole; preferred_language: "en" | "zh-CN" }) => mutate<IdentityUser>("/api/v1/users", "POST", input);
 export const updateUser = (id: string, input: { display_name?: string; role?: IdentityRole; enabled?: boolean; password?: string }) => mutate<IdentityUser>(`/api/v1/users/${encodeURIComponent(id)}`, "PATCH", input);
 
 export const getGuardrails = () => read<Collection<Guardrail>>("/api/v1/guardrails");
 export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
-export const createGuardrail = (input: { name: string; purpose?: string; template_id?: string; template_parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
-export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "controls" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
+export const createGuardrail = (input: { name: string; purpose?: string; template_id?: string; template_parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; control_configurations?: GuardrailControlConfig[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
+export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "controls" | "control_configurations" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
 
 export const getGuardrailTemplates = () => read<Collection<GuardrailTemplate>>("/api/v1/guardrail-templates");
+export const getControlTemplates = () => read<Collection<ControlTemplate>>("/api/v1/control-templates");
 export const getControlDefinitions = () => read<Collection<ControlDefinition>>("/api/v1/control-definitions");
 export const getIntentAnalysisStatus = () => read<IntentAnalysisStatus>("/api/v1/intent-analysis-status");
 export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" | "zh-CN" }) => mutate<IntentAnalysis>("/api/v1/intent-analyses", "POST", input);
 
 export const createTestRun = (guardrailId: string) => mutate<TestRun>("/api/v1/test-runs", "POST", { guardrail_id: guardrailId });
+export const runQuickTest = (guardrailId: string, input: { phase: "input" | "output"; content: string }) => mutate<QuickTestResult>("/api/v1/quick-tests", "POST", { guardrail_id: guardrailId, ...input });
 export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
 export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "risk" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
 export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");

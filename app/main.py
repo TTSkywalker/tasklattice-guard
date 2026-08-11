@@ -5,8 +5,8 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 
-from .adapt.litellm import LiteLLMAdapter
-from .adapt.http import HTTPAdapter
+from .adapters.http import HTTPAdapter
+from .adapters.litellm import LiteLLMAdapter
 from .config import Settings
 from .control_plane.api import ControlPlaneAPI
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer

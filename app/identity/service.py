@@ -12,6 +12,10 @@ from pathlib import Path
 
 SESSION_DAYS = 7
 PASSWORD_ITERATIONS = 310_000
+DEFAULT_ADMIN_ID = "user-default-admin"
+DEFAULT_ADMIN_NAME = "Administrator"
+DEFAULT_ADMIN_EMAIL = "admin@tasklattice.local"
+DEFAULT_ADMIN_PASSWORD = "admin"
 
 
 class IdentityError(RuntimeError):
@@ -54,11 +58,7 @@ class IdentityService:
 
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
-
-    def setup_required(self) -> bool:
-        with self._connect() as connection:
-            row = connection.execute("SELECT COUNT(*) FROM users").fetchone()
-        return not row or int(row[0]) == 0
+        self._ensure_default_admin()
 
     def users(self) -> tuple[IdentityUser, ...]:
         with self._connect() as connection:
@@ -75,25 +75,6 @@ class IdentityService:
         if row is None:
             raise IdentityValidationError("User was not found.")
         return _user_from_row(row)
-
-    def create_initial_admin(
-        self,
-        *,
-        display_name: str,
-        email: str,
-        password: str,
-        preferred_language: str = "en",
-    ) -> LoginResult:
-        if not self.setup_required():
-            raise IdentityValidationError("TaskLattice Guard has already been initialized.")
-        user = self.create_user(
-            display_name=display_name,
-            email=email,
-            password=password,
-            role="admin",
-            preferred_language=preferred_language,
-        )
-        return self.login(email=email, password=password)
 
     def create_user(
         self,
@@ -215,6 +196,49 @@ class IdentityService:
             connection.commit()
         return self.user(user_id)
 
+    def change_password(
+        self,
+        user_id: str,
+        *,
+        current_password: str,
+        new_password: str,
+        current_session_token: str,
+    ) -> IdentityUser:
+        _validate_password(new_password)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT password_salt, password_hash FROM users WHERE id = ? AND enabled = 1",
+                (user_id,),
+            ).fetchone()
+            if row is None or not hmac.compare_digest(
+                str(row["password_hash"]),
+                _password_hash(current_password, str(row["password_salt"])),
+            ):
+                raise IdentityValidationError("Current password is incorrect.")
+            if hmac.compare_digest(
+                str(row["password_hash"]),
+                _password_hash(new_password, str(row["password_salt"])),
+            ):
+                raise IdentityValidationError(
+                    "New password must be different from the current password."
+                )
+
+            salt = secrets.token_hex(16)
+            connection.execute(
+                """
+                UPDATE users
+                SET password_salt = ?, password_hash = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (salt, _password_hash(new_password, salt), _now(), user_id),
+            )
+            connection.execute(
+                "DELETE FROM user_sessions WHERE user_id = ? AND token_hash != ?",
+                (user_id, _token_hash(current_session_token)),
+            )
+            connection.commit()
+        return self.user(user_id)
+
     def login(self, *, email: str, password: str) -> LoginResult:
         normalized_email = _normalize_login_identifier(email)
         with self._connect() as connection:
@@ -282,6 +306,35 @@ class IdentityService:
                 "SELECT COUNT(*) FROM users WHERE role = 'admin' AND enabled = 1"
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def _ensure_default_admin(self) -> None:
+        """Create the built-in local administrator only for an empty user store."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT COUNT(*) FROM users").fetchone()
+            if row and int(row[0]) > 0:
+                connection.commit()
+                return
+            salt = secrets.token_hex(16)
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO users
+                    (id, display_name, email, role, password_salt, password_hash,
+                     enabled, preferred_language, last_login_at, created_at, updated_at)
+                VALUES (?, ?, ?, 'admin', ?, ?, 1, 'en', NULL, ?, ?)
+                """,
+                (
+                    DEFAULT_ADMIN_ID,
+                    DEFAULT_ADMIN_NAME,
+                    DEFAULT_ADMIN_EMAIL,
+                    salt,
+                    _password_hash(DEFAULT_ADMIN_PASSWORD, salt),
+                    now,
+                    now,
+                ),
+            )
+            connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path, timeout=10)

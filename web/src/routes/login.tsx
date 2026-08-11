@@ -11,33 +11,16 @@ import type { SupportedLanguage } from "@/i18n";
 
 export function LoginPage() {
   const { t, i18n } = useTranslation();
-  const { status, setup, login, setLanguage, loginPending, setupPending } = useAuth();
-  const setupRequired = Boolean(status?.setup_required);
-  const pending = setupRequired ? setupPending : loginPending;
-  const [displayName, setDisplayName] = useState("");
+  const { login, setLanguage, loginPending } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (setupRequired && password !== confirmPassword) {
-      setError(t("auth.passwordMismatch"));
-      return;
-    }
     try {
-      if (setupRequired) {
-        await setup({
-          display_name: displayName,
-          email,
-          password,
-          preferred_language: languageValue(i18n.language),
-        });
-      } else {
-        await login({ email, password });
-      }
+      await login({ email, password });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("common.unknownError"));
     }
@@ -70,22 +53,20 @@ export function LoginPage() {
           <div className="w-full max-w-md">
             <div className="mb-8 flex items-center gap-2 lg:hidden"><ShieldCheck className="size-5 text-primary" /><span className="font-semibold">TaskLattice Guard</span></div>
             <span className="inline-flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><LockKeyhole className="size-5" /></span>
-            <p className="mt-6 text-sm font-medium text-primary">{t(setupRequired ? "auth.setupEyebrow" : "auth.loginEyebrow")}</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.035em]">{t(setupRequired ? "auth.setupTitle" : "auth.loginTitle")}</h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t(setupRequired ? "auth.setupDescription" : "auth.loginDescription")}</p>
+            <p className="mt-6 text-sm font-medium text-primary">{t("auth.loginEyebrow")}</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.035em]">{t("auth.loginTitle")}</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("auth.loginDescription")}</p>
 
             <form className="mt-8 grid gap-5" onSubmit={submit}>
-              {setupRequired ? <Field label={t("auth.displayName")}><Input autoFocus autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></Field> : null}
-              <Field label={t(setupRequired ? "auth.workEmail" : "auth.loginIdentifier")}><Input autoFocus={!setupRequired} type={setupRequired ? "email" : "text"} autoComplete={setupRequired ? "email" : "username"} value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>
-              <Field label={t("common.password")} hint={setupRequired ? t("auth.passwordHint") : undefined}><Input type="password" autoComplete={setupRequired ? "new-password" : "current-password"} minLength={setupRequired ? 10 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} required /></Field>
-              {setupRequired ? <Field label={t("auth.confirmPassword")}><Input type="password" autoComplete="new-password" minLength={10} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></Field> : null}
+              <Field label={t("auth.loginIdentifier")}><Input autoFocus type="text" autoComplete="username" placeholder="admin" value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>
+              <Field label={t("common.password")}><Input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></Field>
               {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-              <Button size="lg" className="mt-1 w-full" disabled={pending}>{pending ? t(setupRequired ? "auth.setupSubmitting" : "auth.loginSubmitting") : t(setupRequired ? "auth.setupSubmit" : "auth.loginSubmit")}</Button>
+              <Button size="lg" className="mt-1 w-full" disabled={loginPending}>{loginPending ? t("auth.loginSubmitting") : t("auth.loginSubmit")}</Button>
             </form>
 
             <div className="mt-8 flex gap-3 rounded-xl border bg-muted/35 p-4">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div><p className="text-sm font-medium">{t("auth.localIdentity")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("auth.localIdentityDescription")}</p></div>
+              <div><p className="text-sm font-medium">{t("auth.defaultAdmin")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("auth.defaultAdminDescription")}</p></div>
             </div>
           </div>
         </div>

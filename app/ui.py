@@ -19,6 +19,10 @@ class ControlPlaneStaticFiles(StaticFiles):
                 or path.split("/", 1)[0]
                 not in {
                     "guardrails",
+                    "control-library",
+                    "playground",
+                    "evaluations",
+                    "deployments",
                     "assignments",
                     "enforcements",
                     "integrations",
