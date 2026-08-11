@@ -56,6 +56,7 @@ SafetyLevel = Literal["balanced", "strict"]
 OutputDeliveryMode = Literal["interruptible", "window_buffered", "full_buffered"]
 EscalationMode = Literal["never", "on_uncertain", "always"]
 MatcherKind = Literal["header", "jwt_claim", "field"]
+NeMoRuntimeEngine = Literal["iorails", "llmrails"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +245,51 @@ class GuardrailPlanSnapshot:
             return next(item for item in self.reasoning_policies if item.id == snapshot_id)
         except StopIteration as error:
             raise KeyError(f"Unknown Automated Reasoning policy snapshot {snapshot_id!r}.") from error
+
+
+@dataclass(frozen=True, slots=True)
+class NeMoActionBinding:
+    """One version-pinned TaskLattice evaluator exposed as a NeMo action."""
+
+    id: str
+    risk: str
+    stage: EvaluationStage
+    phases: tuple[GuardrailPhase, ...]
+    on_unsafe: EnforcementAction
+    escalation: EscalationMode = "never"
+    timeout_ms: int = 2_000
+    parameters: tuple[tuple[str, str], ...] = ()
+
+    def parameter(self, name: str) -> str | None:
+        return next((value for key, value in self.parameters if key == name), None)
+
+
+@dataclass(frozen=True, slots=True)
+class NeMoConfigSnapshot:
+    """Immutable NeMo configuration compiled for one released Guardrail version."""
+
+    guardrail_id: str
+    guardrail_version: int
+    compiler_version: str
+    output_delivery: OutputDeliveryMode
+    config_yaml: str
+    colang_content: str
+    prompts_yaml: str = ""
+    action_bindings: tuple[NeMoActionBinding, ...] = ()
+    required_models: tuple[str, ...] = ()
+    required_features: tuple[str, ...] = ()
+    runtime_engine: NeMoRuntimeEngine = "llmrails"
+
+    def bindings_for(
+        self,
+        phase: GuardrailPhase,
+        risk: str | None = None,
+    ) -> tuple[NeMoActionBinding, ...]:
+        return tuple(
+            binding
+            for binding in self.action_bindings
+            if phase in binding.phases and (risk is None or binding.risk == risk)
+        )
 
 
 @dataclass(frozen=True, slots=True)
