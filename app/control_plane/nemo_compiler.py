@@ -17,12 +17,13 @@ from ..engine.contracts import (
 from .domain import PlanCompilationError
 
 
-NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v1"
+NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v2"
 
 _NATIVE_IORAILS_FLOWS = {
     "content safety check input $model=content_safety",
     "content safety check output $model=content_safety",
     "topic safety check input $model=topic_control",
+    "jailbreak detection model",
 }
 
 
@@ -34,19 +35,29 @@ class NeMoConfigCompiler:
         *,
         models: tuple[dict[str, Any], ...] = (),
         profile_prompts_yaml: str = "",
+        jailbreak_detection: dict[str, Any] | None = None,
+        otel_enabled: bool = False,
     ) -> None:
         self._models = tuple(dict(item) for item in models)
         self._model_types = frozenset(str(item.get("type", "")) for item in models)
         self._profile_prompts = _prompts(profile_prompts_yaml)
+        self._jailbreak_detection = (
+            dict(jailbreak_detection) if jailbreak_detection else None
+        )
+        self._otel_enabled = otel_enabled
 
     def compile(self, plan: GuardrailPlanSnapshot) -> NeMoConfigSnapshot:
         flows: dict[GuardrailPhase, list[str]] = {"input": [], "output": []}
-        bindings: list[NeMoActionBinding] = []
+        binding_phases: dict[str, list[GuardrailPhase]] = {}
+        binding_steps = {}
         required_models: set[str] = set()
         required_features: set[str] = set()
 
         risks = tuple(dict.fromkeys(step.risk for step in plan.steps))
         for phase in ("input", "output"):
+            native_detection: list[str] = []
+            native_mutation: list[str] = []
+            has_custom_actions = False
             for risk in risks:
                 steps = tuple(
                     step
@@ -58,33 +69,45 @@ class NeMoConfigCompiler:
 
                 native = self._native_flow(risk, phase, steps[0].on_unsafe)
                 if native is not None:
-                    flows[phase].append(native)
+                    target = native_mutation if native.startswith("mask ") else native_detection
+                    target.append(native)
                     if risk == "content_safety":
                         required_models.add("content_safety")
                     elif risk == "topic_control":
                         required_models.add("topic_control")
                     elif risk == "pii":
                         required_features.add("sensitive_data_detection")
+                    elif risk == "jailbreak":
+                        required_features.add("jailbreak_detection")
                     continue
 
-                flow_name = f"tasklattice {risk.replace('_', ' ')} {phase}"
-                flows[phase].append(flow_name)
+                has_custom_actions = True
                 for step in steps:
-                    bindings.append(
-                        NeMoActionBinding(
-                            id=step.id,
-                            risk=step.risk,
-                            stage=step.stage,
-                            phases=(phase,),
-                            on_unsafe=step.on_unsafe,
-                            escalation=step.escalation,
-                            timeout_ms=_timeout_for(plan, step.id, phase),
-                            parameters=step.parameters,
-                        )
-                    )
+                    binding_steps[step.id] = step
+                    binding_phases.setdefault(step.id, []).append(phase)
 
-            if any(phase in binding.phases for binding in bindings):
+            flows[phase].extend(native_detection)
+            if has_custom_actions:
+                flows[phase].append(f"tasklattice evaluate {phase}")
+            flows[phase].extend(native_mutation)
+            if has_custom_actions:
                 flows[phase].append(f"tasklattice enforce {phase}")
+
+        bindings = tuple(
+            NeMoActionBinding(
+                id=step_id,
+                risk=binding_steps[step_id].risk,
+                stage=binding_steps[step_id].stage,
+                phases=tuple(dict.fromkeys(phases)),
+                on_unsafe=binding_steps[step_id].on_unsafe,
+                escalation=binding_steps[step_id].escalation,
+                timeout_ms=max(
+                    _timeout_for(plan, step_id, phase) for phase in phases
+                ),
+                parameters=binding_steps[step_id].parameters,
+            )
+            for step_id, phases in binding_phases.items()
+        )
 
         missing = required_models - self._model_types
         if missing:
@@ -101,7 +124,7 @@ class NeMoConfigCompiler:
             allow_unicode=True,
             sort_keys=False,
         )
-        colang_content = _colang(plan, tuple(bindings))
+        colang_content = _colang(bindings)
         runtime_engine = (
             "iorails"
             if not bindings
@@ -118,7 +141,7 @@ class NeMoConfigCompiler:
             prompts_yaml=yaml.safe_dump(
                 {"prompts": prompts}, allow_unicode=True, sort_keys=False
             ) if prompts else "",
-            action_bindings=tuple(bindings),
+            action_bindings=bindings,
             required_models=tuple(sorted(required_models)),
             required_features=tuple(sorted(required_features)),
             runtime_engine=runtime_engine,
@@ -156,6 +179,12 @@ class NeMoConfigCompiler:
         if risk == "pii":
             operation = "mask" if action in {"redact", "rewrite"} else "detect"
             return f"{operation} sensitive data on {phase}"
+        if (
+            risk == "jailbreak"
+            and phase == "input"
+            and self._jailbreak_detection is not None
+        ):
+            return "jailbreak detection model"
         return None
 
     def _prompts_for(
@@ -210,10 +239,21 @@ class NeMoConfigCompiler:
                     "retrieval": {"entities": ["EMAIL_ADDRESS", "CREDIT_CARD", "US_SSN"]},
                 }
             }
+        if "jailbreak_detection" in required_features:
+            rails.setdefault("config", {})["jailbreak_detection"] = dict(
+                self._jailbreak_detection or {}
+            )
         config: dict[str, Any] = {
             "colang_version": "1.0",
             "enable_rails_exceptions": False,
             "rails": rails,
+            "tracing": {
+                "enabled": self._otel_enabled,
+                "adapters": [{"name": "OpenTelemetry"}],
+                "span_format": "opentelemetry",
+                "enable_content_capture": False,
+            },
+            "metrics": {"enabled": self._otel_enabled},
         }
         if self._models:
             config["models"] = [dict(item) for item in self._models]
@@ -245,10 +285,7 @@ def _timeout_for(
     return module.timeout_ms if module is not None else 2_000
 
 
-def _colang(
-    plan: GuardrailPlanSnapshot,
-    bindings: tuple[NeMoActionBinding, ...],
-) -> str:
+def _colang(bindings: tuple[NeMoActionBinding, ...]) -> str:
     lines = [
         'define bot tasklattice refuse to respond',
         '  "The interaction was blocked by the active Guardrail."',
@@ -256,15 +293,13 @@ def _colang(
     ]
     for phase in ("input", "output"):
         phase_bindings = tuple(item for item in bindings if phase in item.phases)
-        risks = tuple(dict.fromkeys(item.risk for item in phase_bindings))
-        for risk in risks:
-            selected = tuple(item for item in phase_bindings if item.risk == risk)
-            lines.extend(_control_flow(risk, phase, selected))
-            lines.append("")
         if phase_bindings:
             variable = "$user_message" if phase == "input" else "$bot_message"
             lines.extend(
                 (
+                    f"define flow tasklattice evaluate {phase}",
+                    f'  $tasklattice_actions = execute tasklattice_evaluate_phase(text={variable}, phase="{phase}")',
+                    "",
                     f"define flow tasklattice enforce {phase}",
                     f"  $tasklattice_decision = execute tasklattice_resolve(text={variable})",
                     '  if $tasklattice_decision["blocked"]',
@@ -276,41 +311,3 @@ def _colang(
                 )
             )
     return "\n".join(lines).rstrip() + "\n"
-
-
-def _control_flow(
-    risk: str,
-    phase: GuardrailPhase,
-    bindings: tuple[NeMoActionBinding, ...],
-) -> list[str]:
-    variable = "$user_message" if phase == "input" else "$bot_message"
-    lines = [f"define flow tasklattice {risk.replace('_', ' ')} {phase}"]
-    previous_variable: str | None = None
-    for index, binding in enumerate(bindings):
-        result_variable = f"$tl_{risk}_{phase}_{index}"
-        execute = (
-            f'{result_variable} = execute tasklattice_evaluate_step('
-            f'text={variable}, step_id="{binding.id}")'
-        )
-        if previous_variable is None:
-            lines.append(f"  {execute}")
-        elif binding.escalation == "always":
-            lines.extend(
-                (
-                    f'  if {previous_variable}["verdict"] == "safe"',
-                    f"    {execute}",
-                    f'  if {previous_variable}["verdict"] == "uncertain"',
-                    f"    {execute}",
-                )
-            )
-        elif binding.escalation == "on_uncertain":
-            lines.extend(
-                (
-                    f'  if {previous_variable}["verdict"] == "uncertain"',
-                    f"    {execute}",
-                )
-            )
-        else:
-            lines.append(f"  {execute}")
-        previous_variable = result_variable
-    return lines

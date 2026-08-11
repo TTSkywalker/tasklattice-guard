@@ -31,6 +31,15 @@ def record_runtime_decision(
         timed_out=_timed_out(decision),
         module_invocations=usage.module_invocations if usage else len(decision.assessments),
         evaluator_invocations=usage.evaluator_invocations if usage else 0,
+        rail_invocations=usage.rail_invocations if usage else 0,
+        action_invocations=usage.action_invocations if usage else 0,
+        model_invocations=usage.model_invocations if usage else 0,
+        queue_latency_ms=usage.queue_latency_ms if usage else 0,
+        cache_hits=usage.cache_hits if usage else 0,
+        cache_misses=usage.cache_misses if usage else 0,
+        runtime_engine=usage.runtime_engine if usage else "",
+        config_checksum=usage.config_checksum if usage else "",
+        fail_closed=usage.fail_closed if usage else False,
         detail=detail,
     )
 

@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,8 @@ from ..engine.contracts import (
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
+    NeMoActionBinding,
+    NeMoConfigSnapshot,
     PlanResolution,
     RequestContext,
 )
@@ -26,6 +29,7 @@ from .catalog import (
     guardrail_templates,
 )
 from .compiler import GuardrailCompiler
+from .nemo_compiler import NeMoConfigCompiler
 from .defaults import (
     DEFAULT_GUARDRAIL_ID,
     DEFAULT_GUARDRAIL_NAME,
@@ -49,6 +53,7 @@ from .domain import (
     IntegrationRegistration,
     NotFoundError,
     RuntimeMetricEvent,
+    RuntimeComparisonEvent,
     GuardrailVersion,
     GuardrailControl,
     GuardrailControlConfig,
@@ -84,16 +89,28 @@ class ControlPlaneService:
         fast_semantic_configured: bool = False,
         deep_judge_configured: bool = False,
         automated_reasoning_configured: bool = False,
+        nemo_compiler: NeMoConfigCompiler | None = None,
+        runtime_p95_budget_ms: int = 2_500,
+        runtime_p99_budget_ms: int = 5_000,
     ) -> None:
         self._database_path = database_path
         self._fast_semantic_configured = fast_semantic_configured
         self._deep_judge_configured = deep_judge_configured
         self._automated_reasoning_configured = automated_reasoning_configured
         self._compiler = GuardrailCompiler()
+        self._nemo_compiler = nemo_compiler or NeMoConfigCompiler()
+        self._runtime_p95_budget_ms = runtime_p95_budget_ms
+        self._runtime_p99_budget_ms = runtime_p99_budget_ms
+        self._nemo_runtime_validator: (
+            Callable[[GuardrailPlanSnapshot, NeMoConfigSnapshot], None] | None
+        ) = None
+        self._nemo_runtime_reloader: Callable[[], None] | None = None
         self._write_lock = threading.Lock()
         self._runtime_lock = threading.Lock()
         self._integration_runtime: dict[str, dict[str, object]] = {}
         self._plans: dict[tuple[str, int], GuardrailPlanSnapshot] = {}
+        self._nemo_configs: dict[tuple[str, int], NeMoConfigSnapshot] = {}
+        self._execution_modes: dict[tuple[str, int], str] = {}
         self._assignments: tuple[GuardrailAssignment, ...] = ()
         self._credential_index: dict[str, str] = {}
         self._initialize()
@@ -293,7 +310,23 @@ class ControlPlaneService:
 
     def compile_draft(self, guardrail_id: str) -> GuardrailPlanSnapshot:
         guardrail = self.guardrail(guardrail_id)
-        return self._compiler.compile(guardrail, (guardrail.active_version or 0) + 1)
+        plan = self._compiler.compile(guardrail, (guardrail.active_version or 0) + 1)
+        # Draft evaluation uses the same compiler/runtime as released traffic,
+        # without making the candidate deployable or durable.
+        self._nemo_configs[(plan.guardrail_id, plan.guardrail_version)] = (
+            self._nemo_compiler.compile(plan)
+        )
+        return plan
+
+    def bind_nemo_runtime(
+        self,
+        *,
+        validator: Callable[[GuardrailPlanSnapshot, NeMoConfigSnapshot], None],
+        reloader: Callable[[], None],
+    ) -> None:
+        """Install activation hooks after the process-wide NeMo registry exists."""
+        self._nemo_runtime_validator = validator
+        self._nemo_runtime_reloader = reloader
 
     def activate_tested_version(self, guardrail_id: str) -> TestedGuardrailVersion:
         """Create the immutable deployable snapshot after a passing test run."""
@@ -322,11 +355,24 @@ class ControlPlaneService:
                         (existing.version, latest.id),
                     )
                     connection.commit()
-            return TestedGuardrailVersion(guardrail, existing, self.plan(guardrail_id, existing.version))
+            if guardrail.active_version != existing.version:
+                existing = self.rollback_guardrail(guardrail_id, existing.version)
+                guardrail = self.guardrail(guardrail_id)
+            return TestedGuardrailVersion(
+                guardrail,
+                existing,
+                self.plan(guardrail_id, existing.version),
+                self.nemo_config(guardrail_id, existing.version),
+            )
 
         next_version = (guardrail.active_version or 0) + 1
         plan = self._compiler.compile(guardrail, next_version)
-        checksum = self._compiler.checksum(plan)
+        nemo_config = self._nemo_compiler.compile(plan)
+        checksum = self._nemo_compiler.checksum(nemo_config)
+        if self._nemo_runtime_validator is not None:
+            # A version is never committed or activated unless its exact immutable
+            # NeMo runtime can be constructed successfully.
+            self._nemo_runtime_validator(plan, nemo_config)
         created_at = _now()
         with self._write_lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -334,8 +380,9 @@ class ControlPlaneService:
                 """
                 INSERT INTO guardrail_versions
                     (guardrail_id, version, source_draft_version, guardrail_json,
-                     plan_json, compiler_version, plan_checksum, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     plan_json, nemo_config_json, compiler_version, plan_checksum,
+                     runtime_engine, config_checksum, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     guardrail_id,
@@ -343,13 +390,21 @@ class ControlPlaneService:
                     guardrail.draft_version,
                     _json(asdict(guardrail)),
                     _json(asdict(plan)),
-                    plan.compiler_version,
+                    _json(asdict(nemo_config)),
+                    nemo_config.compiler_version,
+                    checksum,
+                    nemo_config.runtime_engine,
                     checksum,
                     created_at,
                 ),
             )
             connection.execute(
                 "UPDATE guardrails SET active_version = ?, updated_at = ? WHERE id = ?",
+                (next_version, created_at, guardrail_id),
+            )
+            connection.execute(
+                "UPDATE assignments SET guardrail_version = ?, updated_at = ? "
+                "WHERE guardrail_id = ?",
                 (next_version, created_at, guardrail_id),
             )
             connection.execute(
@@ -365,16 +420,22 @@ class ControlPlaneService:
             )
             connection.commit()
         self._reload_runtime()
+        if self._nemo_runtime_reloader is not None:
+            self._nemo_runtime_reloader()
         version = GuardrailVersion(
             guardrail_id=guardrail_id,
             version=next_version,
             source_draft_version=guardrail.draft_version,
-            compiler_version=plan.compiler_version,
+            compiler_version=nemo_config.compiler_version,
             plan_checksum=checksum,
             created_at=created_at,
             active=True,
+            runtime_engine=nemo_config.runtime_engine,
+            config_checksum=checksum,
         )
-        return TestedGuardrailVersion(self.guardrail(guardrail_id), version, plan)
+        return TestedGuardrailVersion(
+            self.guardrail(guardrail_id), version, plan, nemo_config
+        )
 
     def versions(self, guardrail_id: str) -> tuple[GuardrailVersion, ...]:
         guardrail = self.guardrail(guardrail_id)
@@ -382,7 +443,8 @@ class ControlPlaneService:
             rows = connection.execute(
                 """
                 SELECT guardrail_id, version, source_draft_version, compiler_version,
-                    plan_checksum, created_at
+                    plan_checksum, created_at, runtime_engine, config_checksum,
+                    execution_mode
                 FROM guardrail_versions WHERE guardrail_id = ? ORDER BY version DESC
                 """,
                 (guardrail_id,),
@@ -396,8 +458,111 @@ class ControlPlaneService:
                 plan_checksum=str(row[4]),
                 created_at=str(row[5]),
                 active=int(row[1]) == guardrail.active_version,
+                runtime_engine=str(row[6] or "nemo"),
+                config_checksum=str(row[7] or row[4]),
+                execution_mode=str(row[8] or "nemo_only"),
             )
             for row in rows
+        )
+
+    def rollback_guardrail(
+        self,
+        guardrail_id: str,
+        version: int,
+    ) -> GuardrailVersion:
+        """Atomically route new calls to an already-tested immutable version."""
+        guardrail = self.guardrail(guardrail_id)
+        target = next(
+            (item for item in self.versions(guardrail_id) if item.version == version),
+            None,
+        )
+        if target is None:
+            raise NotFoundError("Guardrail Version was not found.")
+        plan = self.plan(guardrail_id, version)
+        config = self.nemo_config(guardrail_id, version)
+        if self._nemo_runtime_validator is not None:
+            self._nemo_runtime_validator(plan, config)
+        if guardrail.active_version == version:
+            return target
+        now = _now()
+        with self._write_lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "UPDATE guardrails SET active_version = ?, updated_at = ? WHERE id = ?",
+                (version, now, guardrail_id),
+            )
+            connection.execute(
+                "UPDATE assignments SET guardrail_version = ?, updated_at = ? "
+                "WHERE guardrail_id = ?",
+                (version, now, guardrail_id),
+            )
+            self._insert_activity(
+                connection,
+                kind="guardrail.version.rolled_back",
+                outcome="success",
+                guardrail_id=guardrail_id,
+                detail=f"Rolled {guardrail.name} back to immutable version {version}.",
+            )
+            connection.commit()
+        self._reload_runtime()
+        if self._nemo_runtime_reloader is not None:
+            self._nemo_runtime_reloader()
+        return next(
+            item for item in self.versions(guardrail_id) if item.version == version
+        )
+
+    def version_execution_mode(self, guardrail_id: str, version: int) -> str:
+        mode = self._execution_modes.get((guardrail_id, version))
+        if mode is None and (guardrail_id, version) in self._nemo_configs:
+            return "nemo_only"
+        if mode is None:
+            raise NotFoundError("Guardrail Version was not found.")
+        return mode
+
+    def set_version_execution_mode(
+        self,
+        guardrail_id: str,
+        version: int,
+        mode: str,
+    ) -> GuardrailVersion:
+        allowed = {
+            "legacy_only",
+            "shadow_nemo",
+            "compare",
+            "nemo_canary",
+            "nemo_primary_legacy_shadow",
+            "nemo_only",
+        }
+        if mode not in allowed:
+            raise ValidationError("Unsupported runtime migration mode.")
+        target = next(
+            (item for item in self.versions(guardrail_id) if item.version == version),
+            None,
+        )
+        if target is None:
+            raise NotFoundError("Guardrail Version was not found.")
+        if mode != "legacy_only":
+            plan = self.plan(guardrail_id, version)
+            config = self.nemo_config(guardrail_id, version)
+            if self._nemo_runtime_validator is not None:
+                self._nemo_runtime_validator(plan, config)
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE guardrail_versions SET execution_mode = ? "
+                "WHERE guardrail_id = ? AND version = ?",
+                (mode, guardrail_id, version),
+            )
+            self._insert_activity(
+                connection,
+                kind="guardrail.runtime_mode.changed",
+                outcome="success",
+                guardrail_id=guardrail_id,
+                detail=f"Set Guardrail version {version} runtime mode to {mode}.",
+            )
+            connection.commit()
+        self._reload_runtime()
+        return next(
+            item for item in self.versions(guardrail_id) if item.version == version
         )
 
     def plan(self, guardrail_id: str, version: int) -> GuardrailPlanSnapshot:
@@ -412,6 +577,29 @@ class ControlPlaneService:
         if row is None:
             raise NotFoundError("Guardrail Version was not found.")
         return _plan_from_payload(json.loads(str(row[0])))
+
+    def nemo_config(self, guardrail_id: str, version: int) -> NeMoConfigSnapshot:
+        config = self._nemo_configs.get((guardrail_id, version))
+        if config is not None:
+            return config
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT nemo_config_json FROM guardrail_versions "
+                "WHERE guardrail_id = ? AND version = ?",
+                (guardrail_id, version),
+            ).fetchone()
+        if row is None or row[0] is None:
+            raise NotFoundError("Guardrail Version NeMo configuration was not found.")
+        return _nemo_config_from_payload(json.loads(str(row[0])))
+
+    def active_plan_keys(self) -> tuple[tuple[str, int], ...]:
+        return tuple(
+            dict.fromkeys(
+                (item.guardrail_id, item.guardrail_version)
+                for item in self._assignments
+                if item.enabled
+            )
+        )
 
     # Test evidence
 
@@ -923,7 +1111,10 @@ class ControlPlaneService:
                 SELECT id, created_at, guardrail_id, guardrail_version,
                        assignment_id, integration_id, protocol, phase,
                        outcome, action, risk, latency_ms, timed_out,
-                       module_invocations, evaluator_invocations
+                       module_invocations, evaluator_invocations,
+                       rail_invocations, action_invocations, model_invocations,
+                       queue_latency_ms, cache_hits, cache_misses,
+                       runtime_engine, config_checksum, fail_closed
                 FROM runtime_metric_events
                 WHERE created_at >= ?
                 ORDER BY created_at DESC, id DESC
@@ -947,9 +1138,95 @@ class ControlPlaneService:
                 timed_out=bool(row[12]),
                 module_invocations=int(row[13]),
                 evaluator_invocations=int(row[14]),
+                rail_invocations=int(row[15]),
+                action_invocations=int(row[16]),
+                model_invocations=int(row[17]),
+                queue_latency_ms=int(row[18]),
+                cache_hits=int(row[19]),
+                cache_misses=int(row[20]),
+                runtime_engine=str(row[21]),
+                config_checksum=str(row[22]),
+                fail_closed=bool(row[23]),
             )
             for row in rows
         )
+
+    def runtime_comparisons(
+        self,
+        *,
+        since: str,
+    ) -> tuple[RuntimeComparisonEvent, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, created_at, guardrail_id, guardrail_version, "
+                "execution_mode, primary_engine, primary_decision, "
+                "legacy_decision, nemo_decision, decision_match, action_match, "
+                "finding_match, legacy_latency_ms, nemo_latency_ms "
+                "FROM runtime_comparison_events WHERE created_at >= ? "
+                "ORDER BY created_at DESC, id DESC",
+                (since,),
+            ).fetchall()
+        return tuple(
+            RuntimeComparisonEvent(
+                id=str(row[0]),
+                created_at=str(row[1]),
+                guardrail_id=str(row[2]),
+                guardrail_version=int(row[3]),
+                execution_mode=str(row[4]),
+                primary_engine=str(row[5]),
+                primary_decision=str(row[6]),
+                legacy_decision=str(row[7]),
+                nemo_decision=str(row[8]),
+                decision_match=bool(row[9]),
+                action_match=bool(row[10]),
+                finding_match=bool(row[11]),
+                legacy_latency_ms=int(row[12]),
+                nemo_latency_ms=int(row[13]),
+            )
+            for row in rows
+        )
+
+    def record_runtime_comparison(
+        self,
+        *,
+        guardrail_id: str,
+        guardrail_version: int,
+        execution_mode: str,
+        primary_engine: str,
+        primary_decision: str,
+        legacy_decision: str,
+        nemo_decision: str,
+        decision_match: bool,
+        action_match: bool,
+        finding_match: bool,
+        legacy_latency_ms: int,
+        nemo_latency_ms: int,
+    ) -> None:
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                "INSERT INTO runtime_comparison_events "
+                "(id, created_at, guardrail_id, guardrail_version, execution_mode, "
+                "primary_engine, primary_decision, legacy_decision, nemo_decision, "
+                "decision_match, action_match, finding_match, legacy_latency_ms, "
+                "nemo_latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"comparison-{uuid.uuid4().hex[:12]}",
+                    _now(),
+                    guardrail_id,
+                    guardrail_version,
+                    execution_mode,
+                    primary_engine,
+                    primary_decision,
+                    legacy_decision,
+                    nemo_decision,
+                    int(decision_match),
+                    int(action_match),
+                    int(finding_match),
+                    max(0, legacy_latency_ms),
+                    max(0, nemo_latency_ms),
+                ),
+            )
+            connection.commit()
 
     def record_decision(
         self,
@@ -968,6 +1245,15 @@ class ControlPlaneService:
         timed_out: bool = False,
         module_invocations: int = 0,
         evaluator_invocations: int = 0,
+        rail_invocations: int = 0,
+        action_invocations: int = 0,
+        model_invocations: int = 0,
+        queue_latency_ms: int = 0,
+        cache_hits: int = 0,
+        cache_misses: int = 0,
+        runtime_engine: str = "",
+        config_checksum: str = "",
+        fail_closed: bool = False,
     ) -> None:
         now = _now()
         with self._write_lock, self._connect() as connection:
@@ -986,8 +1272,11 @@ class ControlPlaneService:
                     (id, created_at, guardrail_id, guardrail_version,
                      assignment_id, integration_id, protocol, phase,
                      outcome, action, risk, latency_ms, timed_out,
-                     module_invocations, evaluator_invocations)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     module_invocations, evaluator_invocations,
+                     rail_invocations, action_invocations, model_invocations,
+                     queue_latency_ms, cache_hits, cache_misses,
+                     runtime_engine, config_checksum, fail_closed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"metric-{uuid.uuid4().hex[:12]}",
@@ -1005,6 +1294,15 @@ class ControlPlaneService:
                     int(timed_out),
                     max(0, module_invocations),
                     max(0, evaluator_invocations),
+                    max(0, rail_invocations),
+                    max(0, action_invocations),
+                    max(0, model_invocations),
+                    max(0, queue_latency_ms),
+                    max(0, cache_hits),
+                    max(0, cache_misses),
+                    runtime_engine,
+                    config_checksum,
+                    int(fail_closed),
                 ),
             )
             connection.commit()
@@ -1025,6 +1323,10 @@ class ControlPlaneService:
                 "fast_semantic": self._fast_semantic_configured,
                 "deep_judge": self._deep_judge_configured,
                 "automated_reasoning": self._automated_reasoning_configured,
+            },
+            "latency_budget": {
+                "p95_ms": self._runtime_p95_budget_ms,
+                "p99_ms": self._runtime_p99_budget_ms,
             },
         }
 
@@ -1056,8 +1358,10 @@ class ControlPlaneService:
                         "This database is incompatible with the current TaskLattice Guard schema; initialize a new database."
                     )
             self._ensure_guardrail_composition_schema(connection)
+            self._ensure_nemo_config_schema(connection)
             self._ensure_runtime_metrics_schema(connection)
             self._ensure_product_defaults(connection)
+            self._backfill_nemo_configs(connection)
             connection.commit()
         self._reload_runtime()
 
@@ -1089,8 +1393,12 @@ class ControlPlaneService:
                 source_draft_version INTEGER NOT NULL,
                 guardrail_json TEXT NOT NULL,
                 plan_json TEXT NOT NULL,
+                nemo_config_json TEXT,
                 compiler_version TEXT NOT NULL,
                 plan_checksum TEXT NOT NULL,
+                runtime_engine TEXT NOT NULL DEFAULT 'nemo',
+                config_checksum TEXT,
+                execution_mode TEXT NOT NULL DEFAULT 'nemo_only',
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (guardrail_id, version),
                 FOREIGN KEY (guardrail_id) REFERENCES guardrails(id) ON DELETE CASCADE
@@ -1180,12 +1488,39 @@ class ControlPlaneService:
                 latency_ms INTEGER NOT NULL,
                 timed_out INTEGER NOT NULL,
                 module_invocations INTEGER NOT NULL,
-                evaluator_invocations INTEGER NOT NULL
+                evaluator_invocations INTEGER NOT NULL,
+                rail_invocations INTEGER NOT NULL DEFAULT 0,
+                action_invocations INTEGER NOT NULL DEFAULT 0,
+                model_invocations INTEGER NOT NULL DEFAULT 0,
+                queue_latency_ms INTEGER NOT NULL DEFAULT 0,
+                cache_hits INTEGER NOT NULL DEFAULT 0,
+                cache_misses INTEGER NOT NULL DEFAULT 0,
+                runtime_engine TEXT NOT NULL DEFAULT '',
+                config_checksum TEXT NOT NULL DEFAULT '',
+                fail_closed INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX runtime_metric_events_created_at_idx
                 ON runtime_metric_events(created_at);
             CREATE INDEX runtime_metric_events_guardrail_created_at_idx
                 ON runtime_metric_events(guardrail_id, created_at);
+            CREATE TABLE runtime_comparison_events (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                guardrail_id TEXT NOT NULL,
+                guardrail_version INTEGER NOT NULL,
+                execution_mode TEXT NOT NULL,
+                primary_engine TEXT NOT NULL,
+                primary_decision TEXT NOT NULL,
+                legacy_decision TEXT NOT NULL,
+                nemo_decision TEXT NOT NULL,
+                decision_match INTEGER NOT NULL,
+                action_match INTEGER NOT NULL,
+                finding_match INTEGER NOT NULL,
+                legacy_latency_ms INTEGER NOT NULL,
+                nemo_latency_ms INTEGER NOT NULL
+            );
+            CREATE INDEX runtime_comparison_events_created_at_idx
+                ON runtime_comparison_events(created_at);
             CREATE TABLE users (
                 id TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL,
@@ -1226,6 +1561,57 @@ class ControlPlaneService:
             )
 
     @staticmethod
+    def _ensure_nemo_config_schema(connection: sqlite3.Connection) -> None:
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(guardrail_versions)"
+            ).fetchall()
+        }
+        if "nemo_config_json" not in columns:
+            connection.execute(
+                "ALTER TABLE guardrail_versions ADD COLUMN nemo_config_json TEXT"
+            )
+        if "runtime_engine" not in columns:
+            connection.execute(
+                "ALTER TABLE guardrail_versions ADD COLUMN runtime_engine "
+                "TEXT NOT NULL DEFAULT 'nemo'"
+            )
+        if "config_checksum" not in columns:
+            connection.execute(
+                "ALTER TABLE guardrail_versions ADD COLUMN config_checksum TEXT"
+            )
+        if "execution_mode" not in columns:
+            connection.execute(
+                "ALTER TABLE guardrail_versions ADD COLUMN execution_mode "
+                "TEXT NOT NULL DEFAULT 'nemo_only'"
+            )
+
+    def _backfill_nemo_configs(self, connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            "SELECT guardrail_id, version, plan_json FROM guardrail_versions "
+            "WHERE nemo_config_json IS NULL OR config_checksum IS NULL"
+        ).fetchall()
+        for row in rows:
+            plan = _plan_from_payload(json.loads(str(row[2])))
+            config = self._nemo_compiler.compile(plan)
+            checksum = self._nemo_compiler.checksum(config)
+            connection.execute(
+                "UPDATE guardrail_versions SET nemo_config_json = ?, "
+                "compiler_version = ?, plan_checksum = ?, runtime_engine = ?, "
+                "config_checksum = ? WHERE guardrail_id = ? AND version = ?",
+                (
+                    _json(asdict(config)),
+                    config.compiler_version,
+                    checksum,
+                    config.runtime_engine,
+                    checksum,
+                    str(row[0]),
+                    int(row[1]),
+                ),
+            )
+
+    @staticmethod
     def _ensure_runtime_metrics_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(
             """
@@ -1244,14 +1630,63 @@ class ControlPlaneService:
                 latency_ms INTEGER NOT NULL,
                 timed_out INTEGER NOT NULL,
                 module_invocations INTEGER NOT NULL,
-                evaluator_invocations INTEGER NOT NULL
+                evaluator_invocations INTEGER NOT NULL,
+                rail_invocations INTEGER NOT NULL DEFAULT 0,
+                action_invocations INTEGER NOT NULL DEFAULT 0,
+                model_invocations INTEGER NOT NULL DEFAULT 0,
+                queue_latency_ms INTEGER NOT NULL DEFAULT 0,
+                cache_hits INTEGER NOT NULL DEFAULT 0,
+                cache_misses INTEGER NOT NULL DEFAULT 0,
+                runtime_engine TEXT NOT NULL DEFAULT '',
+                config_checksum TEXT NOT NULL DEFAULT '',
+                fail_closed INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS runtime_metric_events_created_at_idx
                 ON runtime_metric_events(created_at);
             CREATE INDEX IF NOT EXISTS runtime_metric_events_guardrail_created_at_idx
                 ON runtime_metric_events(guardrail_id, created_at);
+            CREATE TABLE IF NOT EXISTS runtime_comparison_events (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                guardrail_id TEXT NOT NULL,
+                guardrail_version INTEGER NOT NULL,
+                execution_mode TEXT NOT NULL,
+                primary_engine TEXT NOT NULL,
+                primary_decision TEXT NOT NULL,
+                legacy_decision TEXT NOT NULL,
+                nemo_decision TEXT NOT NULL,
+                decision_match INTEGER NOT NULL,
+                action_match INTEGER NOT NULL,
+                finding_match INTEGER NOT NULL,
+                legacy_latency_ms INTEGER NOT NULL,
+                nemo_latency_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS runtime_comparison_events_created_at_idx
+                ON runtime_comparison_events(created_at);
             """
         )
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(runtime_metric_events)"
+            ).fetchall()
+        }
+        additions = {
+            "rail_invocations": "INTEGER NOT NULL DEFAULT 0",
+            "action_invocations": "INTEGER NOT NULL DEFAULT 0",
+            "model_invocations": "INTEGER NOT NULL DEFAULT 0",
+            "queue_latency_ms": "INTEGER NOT NULL DEFAULT 0",
+            "cache_hits": "INTEGER NOT NULL DEFAULT 0",
+            "cache_misses": "INTEGER NOT NULL DEFAULT 0",
+            "runtime_engine": "TEXT NOT NULL DEFAULT ''",
+            "config_checksum": "TEXT NOT NULL DEFAULT ''",
+            "fail_closed": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for name, definition in additions.items():
+            if name not in columns:
+                connection.execute(
+                    f"ALTER TABLE runtime_metric_events ADD COLUMN {name} {definition}"
+                )
 
     def _seed(self, connection: sqlite3.Connection) -> None:
         self._insert_activity(
@@ -1293,6 +1728,8 @@ class ControlPlaneService:
                 raise ControlPlaneError(
                     "The Default Guardrail must compile to local deterministic stages only."
                 )
+            nemo_config = self._nemo_compiler.compile(plan)
+            nemo_checksum = self._nemo_compiler.checksum(nemo_config)
             connection.execute(
                 """
                 INSERT INTO guardrails
@@ -1321,16 +1758,20 @@ class ControlPlaneService:
                 """
                 INSERT INTO guardrail_versions
                     (guardrail_id, version, source_draft_version, guardrail_json,
-                     plan_json, compiler_version, plan_checksum, created_at)
-                VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+                     plan_json, nemo_config_json, compiler_version, plan_checksum,
+                     runtime_engine, config_checksum, created_at)
+                VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     guardrail.id,
                     DEFAULT_GUARDRAIL_VERSION,
                     _json(asdict(guardrail)),
                     _json(asdict(plan)),
-                    plan.compiler_version,
-                    self._compiler.checksum(plan),
+                    _json(asdict(nemo_config)),
+                    nemo_config.compiler_version,
+                    nemo_checksum,
+                    nemo_config.runtime_engine,
+                    nemo_checksum,
                     now,
                 ),
             )
@@ -1425,19 +1866,31 @@ class ControlPlaneService:
 
     def _reload_runtime(self) -> None:
         plans: dict[tuple[str, int], GuardrailPlanSnapshot] = {}
+        nemo_configs: dict[tuple[str, int], NeMoConfigSnapshot] = {}
+        execution_modes: dict[tuple[str, int], str] = {}
         credentials: dict[str, str] = {}
         with self._connect() as connection:
             for row in connection.execute(
-                "SELECT guardrail_id, version, plan_json FROM guardrail_versions"
+                "SELECT guardrail_id, version, plan_json, nemo_config_json, "
+                "execution_mode "
+                "FROM guardrail_versions"
             ).fetchall():
-                plans[(str(row[0]), int(row[1]))] = _plan_from_payload(
+                key = (str(row[0]), int(row[1]))
+                plans[key] = _plan_from_payload(
                     json.loads(str(row[2]))
                 )
+                if row[3] is not None:
+                    nemo_configs[key] = _nemo_config_from_payload(
+                        json.loads(str(row[3]))
+                    )
+                execution_modes[key] = str(row[4] or "nemo_only")
             for row in connection.execute(
                 "SELECT secret_hash, integration_id FROM integration_credentials WHERE revoked_at IS NULL"
             ).fetchall():
                 credentials[str(row[0])] = str(row[1])
         self._plans = plans
+        self._nemo_configs = nemo_configs
+        self._execution_modes = execution_modes
         self._assignments = self.assignments()
         self._credential_index = credentials
 
@@ -1793,6 +2246,36 @@ def _plan_from_payload(payload: dict[str, object]) -> GuardrailPlanSnapshot:
             AutomatedReasoningPolicySnapshot(**item)
             for item in payload["reasoning_policies"]
         ),
+    )
+
+
+def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
+    return NeMoConfigSnapshot(
+        guardrail_id=str(payload["guardrail_id"]),
+        guardrail_version=int(payload["guardrail_version"]),
+        compiler_version=str(payload["compiler_version"]),
+        output_delivery=str(payload["output_delivery"]),
+        config_yaml=str(payload["config_yaml"]),
+        colang_content=str(payload["colang_content"]),
+        prompts_yaml=str(payload.get("prompts_yaml", "")),
+        action_bindings=tuple(
+            NeMoActionBinding(
+                id=str(item["id"]),
+                risk=str(item["risk"]),
+                stage=str(item["stage"]),
+                phases=tuple(item["phases"]),
+                on_unsafe=str(item["on_unsafe"]),
+                escalation=str(item.get("escalation", "never")),
+                timeout_ms=int(item.get("timeout_ms", 2_000)),
+                parameters=tuple(
+                    tuple(value) for value in item.get("parameters", ())
+                ),
+            )
+            for item in payload.get("action_bindings", ())
+        ),
+        required_models=tuple(payload.get("required_models", ())),
+        required_features=tuple(payload.get("required_features", ())),
+        runtime_engine=str(payload.get("runtime_engine", "llmrails")),
     )
 
 

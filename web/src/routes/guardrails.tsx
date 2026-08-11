@@ -50,6 +50,7 @@ import {
   getGuardrailTemplates,
   getAssignments,
   runQuickTest,
+  rollbackGuardrail,
   updateGuardrail,
   type GuardrailControl,
   type GuardrailControlConfig,
@@ -267,7 +268,7 @@ function GuardrailDetail({ guardrailId, onRefresh }: { guardrailId: string; onRe
         </TabsContent>
 
         <TabsContent value="versions" className="mt-5">
-          <GuardrailVersions versions={versions} loading={versionsQuery.isLoading} />
+          <GuardrailVersions guardrailId={guardrail.id} versions={versions} loading={versionsQuery.isLoading} onRolledBack={onRefresh} />
         </TabsContent>
 
         </Tabs>
@@ -293,22 +294,33 @@ function GuardrailBackLink() {
   return <Button asChild variant="ghost" className="-ml-3 min-h-10 px-3 text-muted-foreground"><Link to="/guardrails"><ArrowLeft />{t("guardrails.backToGuardrails")}</Link></Button>;
 }
 
-function GuardrailVersions({ versions, loading }: { versions: GuardrailVersion[]; loading: boolean }) {
+function GuardrailVersions({ guardrailId, versions, loading, onRolledBack }: { guardrailId: string; versions: GuardrailVersion[]; loading: boolean; onRolledBack: () => Promise<void> }) {
   const { t, i18n } = useTranslation();
+  const rollback = useMutation({
+    mutationFn: (version: number) => rollbackGuardrail(guardrailId, version),
+    onSuccess: async (version) => {
+      toast.success(t("guardrails.rollbackSucceeded", { version: version.version }));
+      await onRolledBack();
+    },
+    onError: (error) => notifyError(error, t("guardrails.operationFailed")),
+  });
   if (loading) return <Skeleton className="h-48 rounded-lg" />;
   if (!versions.length) return <EmptyState title={t("guardrails.noVersions")} description={t("guardrails.noVersionsDescription")} />;
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(130px,.5fr)] border-b bg-muted/40 px-4 py-3 text-xs font-medium text-muted-foreground sm:grid-cols-[110px_minmax(0,1fr)_180px_120px]">
-        <span>{t("guardrails.version")}</span><span className="hidden sm:block">{t("guardrails.compiler")}</span><span className="hidden sm:block">{t("guardrails.createdAt")}</span><span>{t("common.status")}</span>
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(130px,.5fr)] border-b bg-muted/40 px-4 py-3 text-xs font-medium text-muted-foreground sm:grid-cols-[90px_minmax(0,1fr)_110px_170px_120px]">
+        <span>{t("guardrails.version")}</span><span className="hidden sm:block">{t("guardrails.compiler")}</span><span className="hidden sm:block">{t("guardrails.runtimeEngine")}</span><span className="hidden sm:block">{t("guardrails.createdAt")}</span><span>{t("common.status")}</span>
       </div>
       <div className="divide-y divide-border">
         {versions.map((version) => (
-          <article key={version.version} className="grid grid-cols-[minmax(0,1fr)_minmax(130px,.5fr)] items-center gap-3 px-4 py-4 sm:grid-cols-[110px_minmax(0,1fr)_180px_120px]">
+          <article key={version.version} className="grid grid-cols-[minmax(0,1fr)_minmax(130px,.5fr)] items-center gap-3 px-4 py-4 sm:grid-cols-[90px_minmax(0,1fr)_110px_170px_120px]">
             <div className="flex items-center gap-2"><History className="size-4 text-primary" /><strong className="font-mono text-sm">v{version.version}</strong></div>
-            <div className="hidden min-w-0 sm:block"><p className="truncate text-xs font-medium">{version.compiler_version}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{version.plan_checksum}</p></div>
+            <div className="hidden min-w-0 sm:block"><p className="truncate text-xs font-medium">{version.compiler_version}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={version.config_checksum}>{version.config_checksum || version.plan_checksum}</p></div>
+            <div className="hidden sm:block"><p className="font-mono text-xs">{version.runtime_engine}</p><p className="mt-1 text-[10px] text-muted-foreground">{version.execution_mode}</p></div>
             <time className="hidden text-xs text-muted-foreground sm:block">{new Date(version.created_at).toLocaleString(i18n.language)}</time>
-            <StateBadge state={version.active ? "active" : "versioned"} />
+            <div className="flex min-h-11 items-center justify-end sm:justify-start">
+              {version.active ? <StateBadge state="active" /> : <Button size="sm" variant="outline" className="min-h-11" disabled={rollback.isPending} onClick={() => rollback.mutate(version.version)}>{rollback.isPending && rollback.variables === version.version ? <LoaderCircle className="animate-spin" /> : <History />}{t("guardrails.rollback")}</Button>}
+            </div>
           </article>
         ))}
       </div>

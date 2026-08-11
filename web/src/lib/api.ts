@@ -245,6 +245,9 @@ export type GuardrailVersion = {
   plan_checksum: string;
   created_at: string;
   active: boolean;
+  runtime_engine: "iorails" | "llmrails" | string;
+  config_checksum: string;
+  execution_mode: "legacy_only" | "shadow_nemo" | "compare" | "nemo_canary" | "nemo_primary_legacy_shadow" | "nemo_only";
 };
 
 export type GuardrailTemplate = {
@@ -374,9 +377,30 @@ export type Metrics = {
   intervention_rate: number;
   error_rate: number;
   timeout_count: number;
+  rail_invocations: number;
+  action_invocations: number;
+  model_invocations: number;
+  cache_hits: number;
+  cache_misses: number;
+  cache_hit_rate: number;
+  queue_p50_ms: number;
+  queue_p95_ms: number;
+  queue_p99_ms: number;
+  fail_closed_count: number;
+  runtime_engine_counts: Array<{ runtime_engine: string; count: number }>;
+  comparison_count: number;
+  decision_match_rate: number;
+  action_match_rate: number;
+  finding_match_rate: number;
   runtime_p50_ms: number;
   runtime_p95_ms: number;
   runtime_p99_ms: number;
+  latency_slo: {
+    p95_budget_ms: number;
+    p99_budget_ms: number;
+    p95_status: "healthy" | "breached";
+    p99_status: "healthy" | "breached";
+  };
   latest_test_p95_ms: number;
   active_assignments: number;
   total_assignments: number;
@@ -401,6 +425,15 @@ export type Metrics = {
     p95_latency_ms: number;
     p99_latency_ms: number;
     timeout_count: number;
+    rail_invocations: number;
+    action_invocations: number;
+    model_invocations: number;
+    cache_hits: number;
+    cache_misses: number;
+    queue_p95_ms: number;
+    fail_closed_count: number;
+    runtime_engines: string[];
+    config_checksums: string[];
     versions: number[];
   }>;
   unassigned_requests: number;
@@ -465,6 +498,7 @@ export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/
 export const createGuardrail = (input: { name: string; purpose?: string; template_id?: string; template_parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; control_configurations?: GuardrailControlConfig[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
 export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "controls" | "control_configurations" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
+export const rollbackGuardrail = (guardrailId: string, version: number) => mutate<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/rollback/${version}`, "POST");
 
 export const getGuardrailTemplates = () => read<Collection<GuardrailTemplate>>("/api/v1/guardrail-templates");
 export const getControlTemplates = () => read<Collection<ControlTemplate>>("/api/v1/control-templates");

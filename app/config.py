@@ -27,6 +27,14 @@ class Settings:
     control_plane_ai_api_key_env_var: str = (
         "MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY"
     )
+    runtime_p95_budget_ms: int = 2_500
+    runtime_p99_budget_ms: int = 5_000
+    jailbreak_detection_nim_base_url: str | None = None
+    jailbreak_detection_api_key_env_var: str = (
+        "MODEL_GUARDRAILS_JAILBREAK_API_KEY"
+    )
+    otel_enabled: bool = False
+    otel_exporter_endpoint: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -79,6 +87,29 @@ class Settings:
             "MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY_ENV_VAR",
             "MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY",
         ).strip() or "MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY"
+        jailbreak_detection_nim_base_url = os.environ.get(
+            "MODEL_GUARDRAILS_JAILBREAK_NIM_BASE_URL", ""
+        ).strip()
+        jailbreak_detection_api_key_env_var = os.environ.get(
+            "MODEL_GUARDRAILS_JAILBREAK_API_KEY_ENV_VAR",
+            "MODEL_GUARDRAILS_JAILBREAK_API_KEY",
+        ).strip() or "MODEL_GUARDRAILS_JAILBREAK_API_KEY"
+        otel_enabled = os.environ.get(
+            "MODEL_GUARDRAILS_OTEL_ENABLED", "false"
+        ).strip().casefold() in {"1", "true", "yes", "on"}
+        otel_exporter_endpoint = os.environ.get(
+            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
+        ).strip()
+        if otel_enabled and not otel_exporter_endpoint.startswith(("http://", "https://")):
+            raise ValueError(
+                "OTEL_EXPORTER_OTLP_ENDPOINT must be an HTTP(S) URL when OpenTelemetry is enabled."
+            )
+        if jailbreak_detection_nim_base_url and not jailbreak_detection_nim_base_url.startswith(
+            ("https://", "http://")
+        ):
+            raise ValueError(
+                "MODEL_GUARDRAILS_JAILBREAK_NIM_BASE_URL must be an HTTP(S) URL."
+            )
         if (content_safety_model or topic_control_model or grounding_model) and not nvidia_base_url:
             raise ValueError(
                 "MODEL_GUARDRAILS_NVIDIA_BASE_URL is required when an NVIDIA "
@@ -106,6 +137,16 @@ class Settings:
                     "MODEL_GUARDRAILS_AUTOMATED_REASONING_API_KEY is required when "
                     "an Automated Reasoning endpoint is configured."
                 )
+        runtime_p95_budget_ms = _positive_int(
+            "MODEL_GUARDRAILS_RUNTIME_P95_BUDGET_MS", 2_500
+        )
+        runtime_p99_budget_ms = _positive_int(
+            "MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS", 5_000
+        )
+        if runtime_p99_budget_ms < runtime_p95_budget_ms:
+            raise ValueError(
+                "MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS must be at least the P95 budget."
+            )
         return cls(
             nemo_config_path=Path(
                 os.environ.get(
@@ -139,4 +180,25 @@ class Settings:
             control_plane_ai_base_url=control_plane_ai_base_url.rstrip("/") or None,
             control_plane_ai_model=control_plane_ai_model or None,
             control_plane_ai_api_key_env_var=control_plane_ai_api_key_env_var,
+            runtime_p95_budget_ms=runtime_p95_budget_ms,
+            runtime_p99_budget_ms=runtime_p99_budget_ms,
+            jailbreak_detection_nim_base_url=(
+                jailbreak_detection_nim_base_url.rstrip("/") or None
+            ),
+            jailbreak_detection_api_key_env_var=(
+                jailbreak_detection_api_key_env_var
+            ),
+            otel_enabled=otel_enabled,
+            otel_exporter_endpoint=otel_exporter_endpoint.rstrip("/") or None,
         )
+
+
+def _positive_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise ValueError(f"{name} must be an integer.") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be positive.")
+    return value

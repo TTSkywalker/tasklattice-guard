@@ -44,7 +44,7 @@ export function OverviewPage() {
             <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={t("overview.allRecordedTraffic")} />
             <Kpi icon={ShieldAlert} label={t("overview.blockRate")} value={`${metrics.data.block_rate}%`} detail={t("overview.blockedCount", { count: metrics.data.blocked })} tone={metrics.data.block_rate > 10 ? "warning" : "default"} />
             <Kpi icon={Workflow} label={t("overview.activeAssignments")} value={`${metrics.data.active_assignments}/${metrics.data.total_assignments}`} detail={t("overview.protectedScope")} />
-            <Kpi icon={Clock3} label={t("overview.runtimeP95")} value={metrics.data.total_decisions ? `${metrics.data.runtime_p95_ms} ms` : "—"} detail={metrics.data.total_decisions ? t("overview.runtimeLatencyBand", { p50: metrics.data.runtime_p50_ms, p99: metrics.data.runtime_p99_ms }) : t("overview.runtimeLatencyEmpty")} />
+            <Kpi icon={Clock3} label={t("overview.runtimeP95")} value={metrics.data.total_decisions ? `${metrics.data.runtime_p95_ms} ms` : "—"} detail={metrics.data.total_decisions ? t("overview.runtimeSlo", { budget: metrics.data.latency_slo.p95_budget_ms, p99: metrics.data.runtime_p99_ms }) : t("overview.runtimeLatencyEmpty")} tone={metrics.data.latency_slo.p95_status === "breached" ? "warning" : "default"} />
           </div>
 
           <GuardrailDistribution metrics={metrics.data} />
@@ -100,11 +100,12 @@ function GuardrailDistribution({ metrics }: { metrics: Metrics }) {
       </CardHeader>
       <CardContent className="px-0">
         <div className="hidden overflow-x-auto md:block">
-          <Table className="min-w-[760px]">
+          <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">{t("overview.guardrail")}</TableHead>
                 <TableHead>{t("overview.requestShare")}</TableHead>
+                <TableHead>{t("overview.nemoRuntime")}</TableHead>
                 <TableHead>{t("overview.outcomeDistribution")}</TableHead>
                 <TableHead>{t("overview.latencyDistribution")}</TableHead>
                 <TableHead className="pr-4 text-right">{t("overview.timeouts")}</TableHead>
@@ -118,10 +119,12 @@ function GuardrailDistribution({ metrics }: { metrics: Metrics }) {
                     <p className="font-mono text-sm tabular-nums">{item.total.toLocaleString(i18n.language)}</p>
                     <p className="text-xs text-muted-foreground">{t("overview.trafficShare", { share: item.share })}</p>
                   </TableCell>
+                  <TableCell><RuntimeExecution item={item} /></TableCell>
                   <TableCell className="min-w-56"><OutcomeDistribution item={item} /></TableCell>
                   <TableCell><LatencyDistribution item={item} /></TableCell>
                   <TableCell className="pr-4 text-right font-mono text-sm tabular-nums">
                     <span className={item.timeout_count ? "text-destructive" : "text-muted-foreground"}>{item.timeout_count}</span>
+                    <p className="mt-1 font-sans text-[11px] text-muted-foreground">{t("overview.failClosed", { count: item.fail_closed_count })}</p>
                   </TableCell>
                 </TableRow>
               ))}
@@ -139,15 +142,18 @@ function GuardrailDistribution({ metrics }: { metrics: Metrics }) {
                 </div>
               </div>
               <div className="mt-4"><OutcomeDistribution item={item} /></div>
+              <div className="mt-4 border-y py-3"><RuntimeExecution item={item} /></div>
               <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
                 <div>
                   <p className="text-xs text-muted-foreground">{t("overview.runtimeP95")}</p>
                   <p className="mt-1 font-mono text-sm tabular-nums">{item.total ? `${item.p95_latency_ms} ms` : "—"}</p>
                   {item.total ? <p className="mt-0.5 text-xs text-muted-foreground">{t("overview.runtimeLatencyBand", { p50: item.p50_latency_ms, p99: item.p99_latency_ms })}</p> : null}
+                  {item.total ? <p className="mt-0.5 text-xs text-muted-foreground">{t("overview.queueP95", { value: item.queue_p95_ms })}</p> : null}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{t("overview.timeouts")}</p>
-                  <p className={`mt-1 font-mono text-sm tabular-nums ${item.timeout_count ? "text-destructive" : ""}`}>{item.timeout_count}</p>
+                  <p className={`mt-1 font-mono text-sm tabular-nums ${item.timeout_count || item.fail_closed_count ? "text-destructive" : ""}`}>{item.timeout_count}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t("overview.failClosed", { count: item.fail_closed_count })}</p>
                 </div>
               </div>
             </div>
@@ -156,6 +162,21 @@ function GuardrailDistribution({ metrics }: { metrics: Metrics }) {
         {metrics.unassigned_requests ? <p className="border-t px-4 py-3 text-xs text-amber-700">{t("overview.unassignedRequests", { count: metrics.unassigned_requests })}</p> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function RuntimeExecution({ item }: { item: GuardrailMetric }) {
+  const { t } = useTranslation();
+  if (!item.total) return <p className="text-xs text-muted-foreground">{t("overview.noRuntimeTraffic")}</p>;
+  const runtime = item.runtime_engines.length ? item.runtime_engines.join(" + ") : "NeMo";
+  const attempts = item.cache_hits + item.cache_misses;
+  const cacheRate = attempts ? Math.round(item.cache_hits / attempts * 100) : 0;
+  return (
+    <div className="min-w-44 text-xs">
+      <p className="font-medium">NeMo Guardrails · <span className="font-mono">{runtime}</span></p>
+      <p className="mt-1 text-muted-foreground">{t("overview.runtimeCalls", { rails: item.rail_invocations, actions: item.action_invocations, models: item.model_invocations })}</p>
+      <p className="mt-0.5 text-muted-foreground">{t("overview.cacheRate", { rate: cacheRate })}</p>
+    </div>
   );
 }
 
@@ -197,11 +218,10 @@ function OutcomeDistribution({ item }: { item: GuardrailMetric }) {
 function LatencyDistribution({ item }: { item: GuardrailMetric }) {
   if (!item.total) return <span className="text-muted-foreground">—</span>;
   return (
-    <p className="font-mono text-xs tabular-nums">
-      <span className="text-muted-foreground">P50</span> {item.p50_latency_ms} ms
-      <span className="ml-3 text-muted-foreground">P95</span> {item.p95_latency_ms} ms
-      <span className="ml-3 text-muted-foreground">P99</span> {item.p99_latency_ms} ms
-    </p>
+    <div className="font-mono text-xs tabular-nums">
+      <p><span className="text-muted-foreground">P50</span> {item.p50_latency_ms} ms <span className="ml-3 text-muted-foreground">P95</span> {item.p95_latency_ms} ms <span className="ml-3 text-muted-foreground">P99</span> {item.p99_latency_ms} ms</p>
+      <p className="mt-1 text-muted-foreground">Queue P95 <span className="text-foreground">{item.queue_p95_ms} ms</span></p>
+    </div>
   );
 }
 
@@ -238,7 +258,10 @@ function Attention({ metrics }: { metrics: Metrics }) {
     metrics.guardrails_needing_test ? { label: t("overview.guardrailsNeedTest", { count: metrics.guardrails_needing_test }), to: "/guardrails" as const, state: "needs_testing" } : null,
     metrics.total_assignments === 0 ? { label: t("overview.noAssignments"), to: "/deployments" as const, state: "waiting" } : null,
     metrics.degraded_integrations ? { label: t("overview.integrationsDegraded", { count: metrics.degraded_integrations }), to: "/integrations" as const, state: "degraded" } : null,
-  ].filter(Boolean) as Array<{ label: string; to: "/guardrails" | "/assignments" | "/integrations"; state: string }>;
+    metrics.latency_slo.p95_status === "breached" || metrics.latency_slo.p99_status === "breached" ? { label: t("overview.latencyBudgetBreached", { p95: metrics.runtime_p95_ms, p99: metrics.runtime_p99_ms }), to: "/evidence" as const, state: "degraded" } : null,
+    metrics.fail_closed_count ? { label: t("overview.failClosedAttention", { count: metrics.fail_closed_count }), to: "/evidence" as const, state: "degraded" } : null,
+    metrics.comparison_count && metrics.decision_match_rate < 100 ? { label: t("overview.shadowMismatch", { rate: metrics.decision_match_rate, count: metrics.comparison_count }), to: "/evidence" as const, state: "needs_testing" } : null,
+  ].filter(Boolean) as Array<{ label: string; to: "/guardrails" | "/assignments" | "/integrations" | "/evidence"; state: string }>;
   return (
     <Card>
       <CardHeader><CardTitle>{t("overview.attention")}</CardTitle><CardDescription>{t("overview.attentionDescription")}</CardDescription></CardHeader>

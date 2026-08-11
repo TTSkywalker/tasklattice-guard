@@ -57,6 +57,14 @@ OutputDeliveryMode = Literal["interruptible", "window_buffered", "full_buffered"
 EscalationMode = Literal["never", "on_uncertain", "always"]
 MatcherKind = Literal["header", "jwt_claim", "field"]
 NeMoRuntimeEngine = Literal["iorails", "llmrails"]
+RuntimeExecutionMode = Literal[
+    "legacy_only",
+    "shadow_nemo",
+    "compare",
+    "nemo_canary",
+    "nemo_primary_legacy_shadow",
+    "nemo_only",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +390,15 @@ class EvaluationUsage:
     module_invocations: int = 0
     evaluator_invocations: int = 0
     text_characters: int = 0
+    rail_invocations: int = 0
+    action_invocations: int = 0
+    model_invocations: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    queue_latency_ms: int = 0
+    runtime_engine: str = ""
+    config_checksum: str = ""
+    fail_closed: bool = False
 
 
 @dataclass(frozen=True, slots=True)

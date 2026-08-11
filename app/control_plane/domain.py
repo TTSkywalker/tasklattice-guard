@@ -9,6 +9,7 @@ from ..engine.contracts import (
     EvaluationTraceStep,
     GuardrailPhase,
     GuardrailPlanSnapshot,
+    NeMoConfigSnapshot,
     OutputDeliveryMode,
     ControlModule,
     SafetyLevel,
@@ -191,6 +192,9 @@ class GuardrailVersion:
     plan_checksum: str
     created_at: str
     active: bool
+    runtime_engine: str = "nemo"
+    config_checksum: str = ""
+    execution_mode: str = "nemo_only"
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,6 +358,35 @@ class RuntimeMetricEvent:
     timed_out: bool
     module_invocations: int
     evaluator_invocations: int
+    rail_invocations: int = 0
+    action_invocations: int = 0
+    model_invocations: int = 0
+    queue_latency_ms: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    runtime_engine: str = ""
+    config_checksum: str = ""
+    fail_closed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeComparisonEvent:
+    """Privacy-safe legacy/NeMo decision comparison for a migration run."""
+
+    id: str
+    created_at: str
+    guardrail_id: str
+    guardrail_version: int
+    execution_mode: str
+    primary_engine: str
+    primary_decision: str
+    legacy_decision: str
+    nemo_decision: str
+    decision_match: bool
+    action_match: bool
+    finding_match: bool
+    legacy_latency_ms: int
+    nemo_latency_ms: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,3 +429,4 @@ class TestedGuardrailVersion:
     guardrail: Guardrail
     version: GuardrailVersion
     plan: GuardrailPlanSnapshot
+    nemo_config: NeMoConfigSnapshot | None = None

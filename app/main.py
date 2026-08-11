@@ -3,15 +3,16 @@ from __future__ import annotations
 import os
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from .adapters.http import HTTPAdapter
 from .adapters.litellm import LiteLLMAdapter
 from .config import Settings
 from .control_plane.api import ControlPlaneAPI
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
+from .control_plane.nemo_compiler import NeMoConfigCompiler
 from .control_plane.service import ControlPlaneService
-from .engine.contracts import GuardrailEngine
+from .engine.contracts import GuardrailEngine, GuardrailStage
 from .engine.automated_reasoning import (
     AutomatedReasoningPolicyEngine,
     HTTPAutomatedReasoningProvider,
@@ -19,7 +20,12 @@ from .engine.automated_reasoning import (
 from .engine.contextual_grounding import ContextualGroundingJudgeEngine
 from .engine.dag import ModularGuardrailsEngine
 from .engine.fast_pass import FastPassEngine
+from .engine.migration import RuntimeRolloutCoordinator
 from .engine.nemo import NemoFastSemanticEngine
+from .engine.nemo_runtime import (
+    NeMoGuardrailsEngine,
+    NeMoRailsRegistry,
+)
 from .engine.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
 from .engine.risk_router import RiskAwareStageRouter
 from .engine.service import ModelGuardrailsEngineService
@@ -30,24 +36,20 @@ from .ui import ControlPlaneStaticFiles
 
 def create_engine(
     settings: Settings,
-) -> ModularGuardrailsEngine:
-    stages = [FastPassEngine()]
-    fast_semantic = [PromptSecurityFastEngine()]
-    if settings.content_safety_model and settings.nvidia_base_url:
-        fast_semantic.append(
-            NemoFastSemanticEngine(
-                settings.nemo_config_path,
-                base_url=settings.nvidia_base_url,
-                model=settings.content_safety_model,
-                api_key_env_var=settings.nvidia_api_key_env_var,
-            )
-        )
-    stages.append(RiskAwareStageRouter("fast_semantic", tuple(fast_semantic)))
+    control_plane: ControlPlaneService | None = None,
+) -> NeMoGuardrailsEngine:
+    store = control_plane or _create_control_plane(settings)
+    registry = NeMoRailsRegistry(store, create_action_stages(settings))
+    store.bind_nemo_runtime(validator=registry.validate, reloader=registry.reload)
+    return NeMoGuardrailsEngine(registry)
 
-    deep_judges = []
+
+def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
+    """Build detector/provider implementations registered only as NeMo Actions."""
+    stages: list[GuardrailStage] = [FastPassEngine(), PromptSecurityFastEngine()]
     generic_deep_judge = _deep_judge_configured(settings)
     if generic_deep_judge:
-        deep_judges.append(
+        stages.append(
             PromptSecurityJudgeEngine(
                 base_url=settings.deep_judge_base_url or "",
                 model=settings.deep_judge_model or "",
@@ -59,7 +61,7 @@ def create_engine(
             )
         )
     elif settings.content_safety_model and settings.nvidia_base_url:
-        deep_judges.append(
+        stages.append(
             PromptSecurityJudgeEngine(
                 base_url=settings.nvidia_base_url,
                 model=settings.content_safety_model,
@@ -67,7 +69,7 @@ def create_engine(
             )
         )
     if settings.topic_control_model and settings.nvidia_base_url:
-        deep_judges.append(
+        stages.append(
             PurposeAwareTopicJudgeEngine(
                 base_url=settings.nvidia_base_url,
                 model=settings.topic_control_model,
@@ -75,7 +77,7 @@ def create_engine(
             )
         )
     elif generic_deep_judge:
-        deep_judges.append(
+        stages.append(
             PurposeAwareTopicJudgeEngine(
                 base_url=settings.deep_judge_base_url or "",
                 model=settings.deep_judge_model or "",
@@ -86,7 +88,7 @@ def create_engine(
             )
         )
     if settings.grounding_model and settings.nvidia_base_url:
-        deep_judges.append(
+        stages.append(
             ContextualGroundingJudgeEngine(
                 base_url=settings.nvidia_base_url,
                 model=settings.grounding_model,
@@ -94,7 +96,7 @@ def create_engine(
             )
         )
     elif generic_deep_judge:
-        deep_judges.append(
+        stages.append(
             ContextualGroundingJudgeEngine(
                 base_url=settings.deep_judge_base_url or "",
                 model=settings.deep_judge_model or "",
@@ -105,7 +107,7 @@ def create_engine(
             )
         )
     if settings.automated_reasoning_endpoint_url:
-        deep_judges.append(
+        stages.append(
             AutomatedReasoningPolicyEngine(
                 HTTPAutomatedReasoningProvider(
                     endpoint_url=settings.automated_reasoning_endpoint_url,
@@ -113,8 +115,30 @@ def create_engine(
                 )
             )
         )
-    if deep_judges:
-        stages.append(RiskAwareStageRouter("deep_judge", tuple(deep_judges)))
+    return tuple(stages)
+
+
+def create_legacy_engine(settings: Settings) -> ModularGuardrailsEngine:
+    """Lazily construct the former runtime only for time-bounded migration modes."""
+    action_stages = create_action_stages(settings)
+    deterministic = next(item for item in action_stages if item.stage == "deterministic")
+    fast = [item for item in action_stages if item.stage == "fast_semantic"]
+    if settings.content_safety_model and settings.nvidia_base_url:
+        fast.append(
+            NemoFastSemanticEngine(
+                settings.nemo_config_path,
+                base_url=settings.nvidia_base_url,
+                model=settings.content_safety_model,
+                api_key_env_var=settings.nvidia_api_key_env_var,
+            )
+        )
+    stages: list[GuardrailStage] = [
+        deterministic,
+        RiskAwareStageRouter("fast_semantic", tuple(fast)),
+    ]
+    deep = tuple(item for item in action_stages if item.stage == "deep_judge")
+    if deep:
+        stages.append(RiskAwareStageRouter("deep_judge", deep))
     return ModularGuardrailsEngine(tuple(stages))
 
 
@@ -125,27 +149,19 @@ def create_app(
     intent_analyzer: IntentAnalyzer | None = None,
 ) -> FastAPI:
     configured = settings or Settings.from_env()
-    control_plane = ControlPlaneService(
-        configured.database_path,
-        fast_semantic_configured=bool(
-            configured.content_safety_model and configured.nvidia_base_url
-        ),
-        deep_judge_configured=bool(
-            _deep_judge_configured(configured)
-            or (
-                (
-                    configured.topic_control_model
-                    or configured.grounding_model
-                )
-                and configured.nvidia_base_url
-            )
-            or configured.automated_reasoning_endpoint_url
-        ),
-        automated_reasoning_configured=bool(
-            configured.automated_reasoning_endpoint_url
-        ),
-    )
-    runtime_engine = engine or create_engine(configured)
+    tracer_provider = _configure_telemetry(configured)
+    control_plane = _create_control_plane(configured)
+    if engine is None:
+        nemo_engine = create_engine(configured, control_plane)
+        runtime_engine: GuardrailEngine = RuntimeRolloutCoordinator(
+            nemo_engine,
+            lambda: create_legacy_engine(configured),
+            control_plane,
+        )
+    else:
+        # Explicit injection is reserved for tests/embedding; normal application
+        # construction always installs the NeMo rollout coordinator above.
+        runtime_engine = engine
     service = ModelGuardrailsEngineService(
         runtime_engine,
         control_plane,
@@ -173,6 +189,7 @@ def create_app(
     app.include_router(identity_api.router)
     app.include_router(control_plane_api.router)
     app.state.control_plane = control_plane
+    app.state.guardrail_engine = runtime_engine
 
     @app.get("/health/live")
     async def live() -> dict[str, str]:
@@ -180,7 +197,18 @@ def create_app(
 
     @app.get("/health/ready")
     async def ready() -> dict[str, str]:
+        runtime_ready = getattr(runtime_engine, "ready", None)
+        if runtime_ready is not None and not runtime_ready():
+            raise HTTPException(status_code=503, detail="NeMo runtime is not prewarmed.")
         return {"status": "ready"}
+
+    @app.on_event("shutdown")
+    async def shutdown_runtime() -> None:
+        shutdown = getattr(runtime_engine, "shutdown", None)
+        if shutdown is not None:
+            await shutdown()
+        if tracer_provider is not None:
+            tracer_provider.shutdown()
 
     if configured.ui_dist_path.is_dir():
         app.mount(
@@ -202,6 +230,94 @@ def _intent_analyzer(settings: Settings) -> IntentAnalyzer | None:
         model=settings.control_plane_ai_model,
         api_key_env_var=settings.control_plane_ai_api_key_env_var,
     )
+
+
+def _create_control_plane(settings: Settings) -> ControlPlaneService:
+    return ControlPlaneService(
+        settings.database_path,
+        fast_semantic_configured=bool(
+            settings.content_safety_model and settings.nvidia_base_url
+        ),
+        deep_judge_configured=bool(
+            _deep_judge_configured(settings)
+            or (
+                (settings.topic_control_model or settings.grounding_model)
+                and settings.nvidia_base_url
+            )
+            or settings.automated_reasoning_endpoint_url
+        ),
+        automated_reasoning_configured=bool(
+            settings.automated_reasoning_endpoint_url
+        ),
+        nemo_compiler=_nemo_compiler(settings),
+        runtime_p95_budget_ms=settings.runtime_p95_budget_ms,
+        runtime_p99_budget_ms=settings.runtime_p99_budget_ms,
+    )
+
+
+def _nemo_compiler(settings: Settings) -> NeMoConfigCompiler:
+    models: list[dict[str, object]] = []
+    if settings.content_safety_model and settings.nvidia_base_url:
+        models.append(
+            {
+                "type": "content_safety",
+                "engine": "nim",
+                "model": settings.content_safety_model,
+                "api_key_env_var": settings.nvidia_api_key_env_var,
+                "parameters": {"base_url": settings.nvidia_base_url},
+            }
+        )
+    if settings.topic_control_model and settings.nvidia_base_url:
+        models.append(
+            {
+                "type": "topic_control",
+                "engine": "nim",
+                "model": settings.topic_control_model,
+                "api_key_env_var": settings.nvidia_api_key_env_var,
+                "parameters": {"base_url": settings.nvidia_base_url},
+            }
+        )
+    prompts_path = settings.nemo_config_path / "prompts.yml"
+    prompts_yaml = prompts_path.read_text() if prompts_path.is_file() else ""
+    jailbreak_detection = None
+    if settings.jailbreak_detection_nim_base_url:
+        jailbreak_detection = {
+            "nim_base_url": settings.jailbreak_detection_nim_base_url,
+            "nim_server_endpoint": "classify",
+            "api_key_env_var": settings.jailbreak_detection_api_key_env_var,
+        }
+    return NeMoConfigCompiler(
+        models=tuple(models),
+        profile_prompts_yaml=prompts_yaml,
+        jailbreak_detection=jailbreak_detection,
+        otel_enabled=settings.otel_enabled,
+    )
+
+
+def _configure_telemetry(settings: Settings):
+    if not settings.otel_enabled or not settings.otel_exporter_endpoint:
+        return None
+    # NeMo's content-capture environment switch has precedence over RailsConfig.
+    # Force it off so prompts/responses cannot leave the process through tracing.
+    os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "false"
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    current = trace.get_tracer_provider()
+    if isinstance(current, TracerProvider):
+        return current
+    provider = TracerProvider(
+        resource=Resource.create({"service.name": "tasklattice-guard"})
+    )
+    exporter = OTLPSpanExporter(
+        endpoint=f"{settings.otel_exporter_endpoint}/v1/traces"
+    )
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    return provider
 
 
 def _deepseek_options(

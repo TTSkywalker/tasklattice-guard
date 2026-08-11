@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import asdict
 from typing import Any, Literal
 
@@ -64,6 +65,7 @@ class HTTPGuardrailRequest(BaseModel):
     a2a_operation: str | None = None
     a2a_context_id: str | None = None
     a2a_task_id: str | None = None
+    call_id: str | None = Field(default=None, min_length=1, max_length=256)
     messages: list[dict[str, Any]] = Field(default_factory=list)
     output_scope: Literal["interventions", "full"] = "interventions"
 
@@ -115,6 +117,7 @@ class HTTPGuardrailResponse(BaseModel):
     coverage: dict[str, Any] | None = None
     usage: dict[str, Any] | None = None
     content_results: list[dict[str, Any]] = Field(default_factory=list)
+    call_id: str | None = None
 
 
 class HTTPAdapter:
@@ -143,9 +146,24 @@ class HTTPAdapter:
             started = time.perf_counter()
             integration = self._authorize(x_api_key, payload.protocol)
             phase = "input" if payload.input_type == "request" else "output"
+            external_call_id = (
+                payload.call_id
+                or payload.a2a_task_id
+                or payload.a2a_context_id
+                or (
+                    f"http-{uuid.uuid4().hex}"
+                    if payload.input_type == "request"
+                    else None
+                )
+            )
             try:
                 decision = await self._service.evaluate(
-                    self._to_engine_request(payload, request, integration)
+                    self._to_engine_request(
+                        payload,
+                        request,
+                        integration,
+                        external_call_id,
+                    )
                 )
             except ControlPlaneError as error:
                 self._control_plane.record_integration_activity(integration.id, success=True)
@@ -163,6 +181,7 @@ class HTTPAdapter:
                     action="reject",
                     reason=str(error),
                     mode="enforce",
+                    call_id=external_call_id,
                 )
             except Exception as error:
                 self._control_plane.record_integration_activity(integration.id, success=False)
@@ -204,8 +223,17 @@ class HTTPAdapter:
                 ],
                 interventions=[asdict(item) for item in decision.interventions],
                 coverage=asdict(decision.coverage) if decision.coverage is not None else None,
-                usage=asdict(decision.usage) if decision.usage is not None else None,
+                usage=(
+                    {
+                        "module_invocations": decision.usage.module_invocations,
+                        "evaluator_invocations": decision.usage.evaluator_invocations,
+                        "text_characters": decision.usage.text_characters,
+                    }
+                    if decision.usage is not None
+                    else None
+                ),
                 content_results=[asdict(item) for item in decision.content_results],
+                call_id=external_call_id,
             )
 
     def _authorize(self, api_key: str | None, protocol: str) -> Integration:
@@ -219,6 +247,7 @@ class HTTPAdapter:
         payload: HTTPGuardrailRequest,
         request: Request,
         integration: Integration,
+        external_call_id: str | None = None,
     ) -> EvaluationRequest:
         headers = {
             key.lower(): value
@@ -261,6 +290,11 @@ class HTTPAdapter:
             ),
             messages=tuple(payload.messages),
             evidence_scope=payload.output_scope,
+            call_id=(
+                f"{integration.id}:{external_call_id}"
+                if external_call_id
+                else None
+            ),
         )
 
 

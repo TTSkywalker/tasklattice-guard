@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import time
+import threading
 from collections import OrderedDict
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -34,6 +35,10 @@ from .contracts import (
 
 _CURRENT_REQUEST: ContextVar[EngineRequest | None] = ContextVar(
     "tasklattice_nemo_request",
+    default=None,
+)
+_CURRENT_RESULTS: ContextVar[list["_RuntimeResult"] | None] = ContextVar(
+    "tasklattice_nemo_results",
     default=None,
 )
 _ACTION_PRIORITY = (
@@ -71,6 +76,25 @@ class NeMoRailsInstance:
     actions: "NeMoActionExecutor"
 
 
+@dataclass(frozen=True, slots=True)
+class _ActionStageGroup:
+    """Read-only diagnostics for configured Action providers."""
+
+    _children: tuple[GuardrailStage, ...]
+
+
+class _ActionStageCatalog:
+    """Compatibility-only introspection; this object never executes a policy DAG."""
+
+    def __init__(self, stages: tuple[GuardrailStage, ...]) -> None:
+        self._stages = {
+            stage_name: _ActionStageGroup(
+                tuple(item for item in stages if item.stage == stage_name)
+            )
+            for stage_name in ("deterministic", "fast_semantic", "deep_judge")
+        }
+
+
 class NeMoActionExecutor:
     """Expose version-pinned TaskLattice evaluators exclusively as NeMo actions."""
 
@@ -86,6 +110,10 @@ class NeMoActionExecutor:
         self._stages = stages
 
     def register(self, rails: Guardrails) -> None:
+        rails.register_action(
+            self.evaluate_phase,
+            name="tasklattice_evaluate_phase",
+        )
         rails.register_action(
             self.evaluate_step,
             name="tasklattice_evaluate_step",
@@ -105,6 +133,59 @@ class NeMoActionExecutor:
                 self.mask_sensitive_data,
                 name="mask_sensitive_data",
             )
+
+    async def evaluate_phase(
+        self,
+        text: str,
+        phase: str,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        request = self._request()
+        if phase != request.phase:
+            raise RuntimeError(
+                f"NeMo requested {phase!r} Actions during a {request.phase!r} evaluation."
+            )
+        groups: dict[str, list[NeMoActionBinding]] = {}
+        for binding in self._config.bindings_for(request.phase):
+            groups.setdefault(binding.risk, []).append(binding)
+        # Risk families are detection-only here and evaluate independently. Any
+        # content mutation is deferred to the deterministic resolver/NeMo rail.
+        await asyncio.gather(
+            *(
+                self._evaluate_risk(text, tuple(bindings), context)
+                for bindings in groups.values()
+            )
+        )
+        results = _runtime_results()
+        return {
+            "phase": phase,
+            "action_count": len(results),
+            "unsafe": any(item.result.verdict == "unsafe" for item in results),
+            "error": any(item.result.verdict == "error" for item in results),
+        }
+
+    async def _evaluate_risk(
+        self,
+        text: str,
+        bindings: tuple[NeMoActionBinding, ...],
+        context: dict[str, Any] | None,
+    ) -> None:
+        previous: str | None = None
+        for index, binding in enumerate(bindings):
+            should_run = (
+                index == 0
+                or binding.escalation == "always" and previous in {"safe", "uncertain"}
+                or binding.escalation == "on_uncertain" and previous == "uncertain"
+                or binding.escalation == "never" and previous is None
+            )
+            if not should_run:
+                continue
+            if self._stage(binding) is None and binding.escalation == "on_uncertain":
+                # A contextual judge is optional when a decisive local detector
+                # is already the first Action for this risk family.
+                continue
+            result = await self.evaluate_step(text, binding.id, context)
+            previous = str(result["verdict"])
 
     async def evaluate_step(
         self,
@@ -192,7 +273,7 @@ class NeMoActionExecutor:
         text: str,
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        runtime_results = _runtime_results(context)
+        runtime_results = _runtime_results()
         unsafe = tuple(item for item in runtime_results if item.result.verdict == "unsafe")
         errors = tuple(item for item in runtime_results if item.result.verdict == "error")
         uncertain = tuple(item for item in runtime_results if item.result.verdict == "uncertain")
@@ -221,8 +302,8 @@ class NeMoActionExecutor:
             action = "pass"
             reason = "All NeMo Actions passed."
 
-        resolved = _resolved_content(text, action, unsafe)
         request = self._request()
+        resolved = _resolved_content(request.text, action, unsafe)
         enforce = request.mode == "enforce"
         blocked = enforce and action == "reject"
         modified = enforce and action not in {"pass", "reject"}
@@ -234,7 +315,6 @@ class NeMoActionExecutor:
             "modified": modified,
             "content": resolved if modified else text,
             "reason": reason,
-            "runtime_results": runtime_results,
         }
         if context is not None:
             context["tasklattice_decision"] = payload
@@ -326,8 +406,20 @@ class NeMoActionExecutor:
         latency_ms: int,
     ) -> dict[str, Any]:
         runtime_result = _RuntimeResult(binding, result, latency_ms)
+        results = _CURRENT_RESULTS.get()
+        if results is not None:
+            results.append(runtime_result)
         if context is not None:
-            context.setdefault("tasklattice_runtime_results", []).append(runtime_result)
+            context.setdefault("tasklattice_action_results", []).append(
+                {
+                    "step_id": binding.id,
+                    "risk": binding.risk,
+                    "stage": binding.stage,
+                    "verdict": result.verdict,
+                    "action": binding.on_unsafe,
+                    "latency_ms": latency_ms,
+                }
+            )
         return {
             "step_id": binding.id,
             "risk": binding.risk,
@@ -354,20 +446,36 @@ class NeMoRailsRegistry:
         self._stages = stages
         self._max_entries = max(1, max_entries)
         self._items: OrderedDict[tuple[str, int, str], NeMoRailsInstance] = OrderedDict()
+        self._lock = threading.RLock()
         self._hits = 0
         self._misses = 0
         self.reload()
 
+    @property
+    def action_stages(self) -> tuple[GuardrailStage, ...]:
+        return self._stages
+
     def get(self, plan: GuardrailPlanSnapshot) -> NeMoRailsInstance:
+        return self.acquire(plan)[0]
+
+    def acquire(
+        self,
+        plan: GuardrailPlanSnapshot,
+    ) -> tuple[NeMoRailsInstance, bool, int]:
         config = self._store.nemo_config(plan.guardrail_id, plan.guardrail_version)
         key = (plan.guardrail_id, plan.guardrail_version, _config_checksum(config))
-        item = self._items.get(key)
-        if item is not None:
-            self._hits += 1
-            self._items.move_to_end(key)
-            return item
-        self._misses += 1
-        return self._build(plan, config, key)
+        waiting_started = time.perf_counter()
+        with self._lock:
+            queue_latency_ms = max(
+                0, round((time.perf_counter() - waiting_started) * 1_000)
+            )
+            item = self._items.get(key)
+            if item is not None:
+                self._hits += 1
+                self._items.move_to_end(key)
+                return item, True, queue_latency_ms
+            self._misses += 1
+            return self._build(plan, config, key), False, queue_latency_ms
 
     def validate(
         self,
@@ -375,21 +483,38 @@ class NeMoRailsRegistry:
         config: NeMoConfigSnapshot,
     ) -> None:
         key = (plan.guardrail_id, plan.guardrail_version, _config_checksum(config))
-        if key not in self._items:
-            self._build(plan, config, key)
+        with self._lock:
+            if key not in self._items:
+                self._build(plan, config, key)
 
     def reload(self) -> None:
         active = set(self._store.active_plan_keys())
-        for guardrail_id, version in active:
-            plan = self._store.plan(guardrail_id, version)
-            self.get(plan)
+        with self._lock:
+            for guardrail_id, version in active:
+                plan = self._store.plan(guardrail_id, version)
+                self.get(plan)
 
     def stats(self) -> dict[str, int]:
-        return {
-            "entries": len(self._items),
-            "hits": self._hits,
-            "misses": self._misses,
-        }
+        with self._lock:
+            return {
+                "entries": len(self._items),
+                "hits": self._hits,
+                "misses": self._misses,
+            }
+
+    def ready(self) -> bool:
+        with self._lock:
+            available = {key[:2] for key in self._items}
+            return set(self._store.active_plan_keys()) <= available
+
+    async def shutdown(self) -> None:
+        with self._lock:
+            rails = tuple(item.rails for item in self._items.values())
+            self._items.clear()
+        await asyncio.gather(
+            *(item.shutdown() for item in rails),
+            return_exceptions=True,
+        )
 
     def _build(
         self,
@@ -397,6 +522,7 @@ class NeMoRailsRegistry:
         config: NeMoConfigSnapshot,
         key: tuple[str, int, str],
     ) -> NeMoRailsInstance:
+        self._validate_bindings(config)
         rails_config = RailsConfig.from_content(
             yaml_content=config.config_yaml,
             colang_content=config.colang_content or None,
@@ -421,6 +547,51 @@ class NeMoRailsRegistry:
             self._items.pop(candidate)
         return item
 
+    def _validate_bindings(self, config: NeMoConfigSnapshot) -> None:
+        first_binding_ids = {
+            selected[0].id
+            for phase in ("input", "output")
+            for risk in {item.risk for item in config.bindings_for(phase)}
+            if (selected := config.bindings_for(phase, risk))
+        }
+        missing = tuple(
+            binding
+            for binding in config.action_bindings
+            if not any(
+                stage.stage == binding.stage
+                and all(phase in stage.supported_phases for phase in binding.phases)
+                and (
+                    not stage.supported_risks
+                    or binding.risk in stage.supported_risks
+                )
+                for stage in self._stages
+            )
+            and (
+                binding.id in first_binding_ids
+                or binding.escalation != "on_uncertain"
+            )
+        )
+        if "sensitive_data_detection" in config.required_features and not any(
+            stage.stage == "deterministic" and (
+                not stage.supported_risks or "pii" in stage.supported_risks
+            )
+            for stage in self._stages
+        ):
+            from ..control_plane.domain import PlanCompilationError
+
+            raise PlanCompilationError(
+                "NeMo sensitive-data rails require a configured PII Action provider."
+            )
+        if missing:
+            from ..control_plane.domain import PlanCompilationError
+
+            names = ", ".join(
+                f"{item.id} ({item.stage})" for item in missing
+            )
+            raise PlanCompilationError(
+                f"NeMo Action providers are unavailable for: {names}."
+            )
+
 
 class NeMoGuardrailsEngine:
     """Run every production Guardrail decision through a version-pinned NeMo runtime."""
@@ -430,25 +601,39 @@ class NeMoGuardrailsEngine:
 
     def __init__(self, registry: NeMoRailsRegistry) -> None:
         self._registry = registry
+        # Existing deployment diagnostics inspect configured provider groups.
+        # Policy orchestration itself remains exclusively inside NeMo.
+        self._runner = _ActionStageCatalog(registry.action_stages)
 
     async def evaluate(self, request: EngineRequest) -> EvaluationDecision:
-        instance = self._registry.get(request.plan)
+        instance, cache_hit, queue_latency_ms = self._registry.acquire(request.plan)
         messages = _messages(request)
         token = _CURRENT_REQUEST.set(request)
+        results: list[_RuntimeResult] = []
+        result_token = _CURRENT_RESULTS.set(results)
         started = time.perf_counter()
         try:
-            response = await instance.rails.generate_async(
-                messages=messages,
-                options={
-                    "rails": [request.phase],
-                    "output_vars": True,
-                    "log": {"activated_rails": True, "llm_calls": False},
-                },
-            )
+            async with asyncio.timeout(_request_timeout_ms(request) / 1_000):
+                response = await instance.rails.generate_async(
+                    messages=messages,
+                    options={
+                        "rails": [request.phase],
+                        "output_vars": True,
+                        "log": {"activated_rails": True, "llm_calls": True},
+                    },
+                )
         except Exception as error:
             duration = max(0, round((time.perf_counter() - started) * 1_000))
-            return _failed_decision(request, error, duration, instance.config)
+            return _failed_decision(
+                request,
+                error,
+                duration,
+                instance.config,
+                cache_hit=cache_hit,
+                queue_latency_ms=queue_latency_ms,
+            )
         finally:
+            _CURRENT_RESULTS.reset(result_token)
             _CURRENT_REQUEST.reset(token)
         if not isinstance(response, GenerationResponse):
             return _failed_decision(
@@ -456,8 +641,23 @@ class NeMoGuardrailsEngine:
                 RuntimeError(f"Unexpected NeMo response {type(response).__name__}."),
                 max(0, round((time.perf_counter() - started) * 1_000)),
                 instance.config,
+                cache_hit=cache_hit,
+                queue_latency_ms=queue_latency_ms,
             )
-        return _decision(request, response, instance.config)
+        return _decision(
+            request,
+            response,
+            instance.config,
+            tuple(results),
+            cache_hit=cache_hit,
+            queue_latency_ms=queue_latency_ms,
+        )
+
+    async def shutdown(self) -> None:
+        await self._registry.shutdown()
+
+    def ready(self) -> bool:
+        return self._registry.ready()
 
 
 def _step(binding: NeMoActionBinding) -> GuardrailPlanStep:
@@ -472,19 +672,13 @@ def _step(binding: NeMoActionBinding) -> GuardrailPlanStep:
     )
 
 
-def _runtime_results(context: dict[str, Any] | None) -> tuple[_RuntimeResult, ...]:
-    if context is None:
-        return ()
-    return tuple(
-        item
-        for item in context.get("tasklattice_runtime_results", ())
-        if isinstance(item, _RuntimeResult)
-    )
+def _runtime_results() -> tuple[_RuntimeResult, ...]:
+    return tuple(_CURRENT_RESULTS.get() or ())
 
 
 def _messages(request: EngineRequest) -> list[dict[str, Any]]:
     context = {
-        "tasklattice_runtime_results": [],
+        "tasklattice_action_results": [],
         "tasklattice_guardrail_id": request.plan.guardrail_id,
         "tasklattice_guardrail_version": request.plan.guardrail_version,
         "tasklattice_phase": request.phase,
@@ -511,13 +705,12 @@ def _decision(
     request: EngineRequest,
     response: GenerationResponse,
     config: NeMoConfigSnapshot,
+    runtime_results: tuple[_RuntimeResult, ...],
+    *,
+    cache_hit: bool,
+    queue_latency_ms: int,
 ) -> EvaluationDecision:
     output_data = response.output_data or {}
-    runtime_results = tuple(
-        item
-        for item in output_data.get("tasklattice_runtime_results", ())
-        if isinstance(item, _RuntimeResult)
-    )
     custom = output_data.get("tasklattice_decision")
     activated = tuple(response.log.activated_rails or ()) if response.log else ()
     stopping = next((rail for rail in activated if rail.stop), None)
@@ -530,7 +723,13 @@ def _decision(
         action = str(custom.get("action", "pass"))
         reason = str(custom.get("reason", "NeMo Guardrails completed."))
     elif stopping is not None:
-        decision = "allow" if request.mode == "detect" else "block"
+        decision = (
+            "allow"
+            if request.mode == "detect"
+            else "block"
+            if native_action == "reject"
+            else "transform"
+        )
         action = "pass" if request.mode == "detect" else native_action
         reason = f"NeMo rail {stopping.name} blocked the interaction."
     elif result_content != request.text and request.mode == "enforce":
@@ -559,7 +758,7 @@ def _decision(
             ),
         )
     trace = _trace(config, activated, runtime_results, request.active_block_id)
-    assessments = _assessments(request, runtime_results, trace)
+    assessments = _assessments(request, runtime_results, trace, findings)
     interventions = _interventions(request, decision, action, reason, findings)
     modules = request.plan.modules_for(request.phase)
     complete = not any(item.status == "error" for item in assessments)
@@ -589,6 +788,20 @@ def _decision(
             module_invocations=len(assessments),
             evaluator_invocations=len(assessments),
             text_characters=len(request.text),
+            rail_invocations=len(activated),
+            action_invocations=sum(
+                len(rail.executed_actions) for rail in activated
+            ),
+            model_invocations=(
+                int(response.log.stats.llm_calls_count or 0)
+                if response.log is not None
+                else 0
+            ),
+            cache_hits=int(cache_hit),
+            cache_misses=int(not cache_hit),
+            queue_latency_ms=queue_latency_ms,
+            runtime_engine=config.runtime_engine,
+            config_checksum=_config_checksum(config),
         ),
         mode=request.mode,
     )
@@ -603,7 +816,7 @@ def _trace(config, activated, results, content_block_id):
             status="active",
             detail=(
                 f"Executed immutable {config.compiler_version} configuration "
-                f"with {config.runtime_engine}."
+                f"with {config.runtime_engine}; checksum={_config_checksum(config)}."
             ),
             content_block_id=content_block_id,
         )
@@ -651,7 +864,7 @@ def _trace(config, activated, results, content_block_id):
     return tuple(trace)
 
 
-def _assessments(request, results, trace):
+def _assessments(request, results, trace, all_findings=(), *, force_error=False):
     assessments = []
     for module in request.plan.modules_for(request.phase):
         risks = {
@@ -660,16 +873,27 @@ def _assessments(request, results, trace):
             if step.id in module.step_ids
         }
         selected = tuple(item for item in results if item.binding.risk in risks)
+        native_unsafe = any(
+            item.kind == "rail" and item.risk in risks and item.verdict == "unsafe"
+            for item in trace
+        )
         status = (
             "error"
-            if any(item.result.verdict == "error" for item in selected)
+            if force_error or any(item.result.verdict == "error" for item in selected)
             else "intervene"
-            if any(item.result.verdict == "unsafe" for item in selected)
+            if native_unsafe or any(item.result.verdict == "unsafe" for item in selected)
             else "needs_context"
             if any(item.result.verdict == "uncertain" for item in selected)
             else "pass"
         )
-        findings = tuple(f for item in selected for f in item.result.findings)
+        findings = tuple(
+            dict.fromkeys(
+                (
+                    *(f for item in selected for f in item.result.findings),
+                    *(f for f in all_findings if f.risk in risks),
+                )
+            )
+        )
         reason = next(
             (item.result.reason for item in selected if item.result.reason),
             "NeMo rail completed.",
@@ -718,7 +942,15 @@ def _interventions(request, decision, action, reason, findings):
     )
 
 
-def _failed_decision(request, error, duration, config):
+def _failed_decision(
+    request,
+    error,
+    duration,
+    config,
+    *,
+    cache_hit=False,
+    queue_latency_ms=0,
+):
     reason = f"NeMo Guardrails failed closed with {type(error).__name__}."
     trace = (
         EvaluationTraceStep(
@@ -740,14 +972,22 @@ def _failed_decision(request, error, duration, config):
         guardrail_version=request.plan.guardrail_version,
         output_delivery=request.plan.output_delivery,
         trace=trace,
-        assessments=_assessments(request, (), trace),
+        assessments=_assessments(request, (), trace, force_error=True),
         coverage=RuntimeCoverage(
             status="none",
             total_items=1,
             total_characters=len(request.text),
             required_modules_total=len(request.plan.modules_for(request.phase)),
         ),
-        usage=EvaluationUsage(text_characters=len(request.text)),
+        usage=EvaluationUsage(
+            text_characters=len(request.text),
+            cache_hits=int(cache_hit),
+            cache_misses=int(not cache_hit),
+            queue_latency_ms=queue_latency_ms,
+            runtime_engine=config.runtime_engine,
+            config_checksum=_config_checksum(config),
+            fail_closed=True,
+        ),
         mode=request.mode,
     )
 
@@ -837,3 +1077,12 @@ def _config_checksum(config: NeMoConfigSnapshot) -> str:
     return hashlib.sha256(
         json.dumps(asdict(config), sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _request_timeout_ms(request: EngineRequest) -> int:
+    module_timeouts = tuple(
+        module.timeout_ms for module in request.plan.modules_for(request.phase)
+    )
+    # Module detections run concurrently. The small fixed allowance covers NeMo
+    # flow evaluation and deterministic resolution outside provider timeouts.
+    return max(module_timeouts, default=2_000) + 500

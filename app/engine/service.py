@@ -251,4 +251,18 @@ def _usage(items: list[EvaluationUsage]) -> EvaluationUsage | None:
         module_invocations=sum(item.module_invocations for item in items),
         evaluator_invocations=sum(item.evaluator_invocations for item in items),
         text_characters=sum(item.text_characters for item in items),
+        rail_invocations=sum(item.rail_invocations for item in items),
+        action_invocations=sum(item.action_invocations for item in items),
+        model_invocations=sum(item.model_invocations for item in items),
+        cache_hits=sum(item.cache_hits for item in items),
+        cache_misses=sum(item.cache_misses for item in items),
+        queue_latency_ms=sum(item.queue_latency_ms for item in items),
+        runtime_engine=_one_value(tuple(item.runtime_engine for item in items)),
+        config_checksum=_one_value(tuple(item.config_checksum for item in items)),
+        fail_closed=any(item.fail_closed for item in items),
     )
+
+
+def _one_value(values: tuple[str, ...]) -> str:
+    populated = tuple(dict.fromkeys(value for value in values if value))
+    return populated[0] if len(populated) == 1 else "mixed" if populated else ""

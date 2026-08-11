@@ -206,6 +206,19 @@ class QuickTestRequest(BaseModel):
     content: str = Field(min_length=1, max_length=8_000)
 
 
+class RuntimeModeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal[
+        "legacy_only",
+        "shadow_nemo",
+        "compare",
+        "nemo_canary",
+        "nemo_primary_legacy_shadow",
+        "nemo_only",
+    ]
+
+
 class ControlPlaneAPI:
     def __init__(
         self,
@@ -349,6 +362,28 @@ class ControlPlaneAPI:
                     for item in versions
                 ]
             )
+
+        @router.post("/guardrails/{guardrail_id}/rollback/{version}")
+        def rollback_guardrail(guardrail_id: str, version: int):
+            try:
+                item = self._service.rollback_guardrail(guardrail_id, version)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _guardrail_version_payload(item)
+
+        @router.patch("/guardrails/{guardrail_id}/versions/{version}/runtime-mode")
+        def set_runtime_mode(
+            guardrail_id: str,
+            version: int,
+            request: RuntimeModeRequest,
+        ):
+            try:
+                item = self._service.set_version_execution_mode(
+                    guardrail_id, version, request.mode
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return _guardrail_version_payload(item)
 
         @router.get("/test-cases")
         def test_cases(guardrail_id: str):
@@ -754,6 +789,7 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
     now = datetime.now(UTC)
     window_start = now - timedelta(days=7)
     events = service.runtime_metrics(since=window_start.isoformat())
+    comparisons = service.runtime_comparisons(since=window_start.isoformat())
     counts = {
         "allow": sum(item.outcome == "allow" for item in events),
         "block": sum(item.outcome == "block" for item in events),
@@ -816,6 +852,7 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         }
         item_total = len(matching)
         item_latency = _runtime_latency(matching)
+        item_queue_latency = _queue_latency(matching)
         guardrail_distribution.append(
             {
                 "guardrail_id": guardrail.id,
@@ -841,6 +878,19 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
                 "p95_latency_ms": item_latency["p95"],
                 "p99_latency_ms": item_latency["p99"],
                 "timeout_count": sum(item.timed_out for item in matching),
+                "rail_invocations": sum(item.rail_invocations for item in matching),
+                "action_invocations": sum(item.action_invocations for item in matching),
+                "model_invocations": sum(item.model_invocations for item in matching),
+                "cache_hits": sum(item.cache_hits for item in matching),
+                "cache_misses": sum(item.cache_misses for item in matching),
+                "queue_p95_ms": item_queue_latency["p95"],
+                "fail_closed_count": sum(item.fail_closed for item in matching),
+                "runtime_engines": sorted(
+                    {item.runtime_engine for item in matching if item.runtime_engine}
+                ),
+                "config_checksums": sorted(
+                    {item.config_checksum for item in matching if item.config_checksum}
+                ),
                 "versions": sorted(
                     {
                         item.guardrail_version
@@ -863,9 +913,66 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         "intervention_rate": round(counts["transform"] / total * 100, 1) if total else 0,
         "error_rate": round(counts["error"] / total * 100, 1) if total else 0,
         "timeout_count": sum(item.timed_out for item in events),
+        "rail_invocations": sum(item.rail_invocations for item in events),
+        "action_invocations": sum(item.action_invocations for item in events),
+        "model_invocations": sum(item.model_invocations for item in events),
+        "cache_hits": sum(item.cache_hits for item in events),
+        "cache_misses": sum(item.cache_misses for item in events),
+        "cache_hit_rate": round(
+            sum(item.cache_hits for item in events)
+            / max(1, sum(item.cache_hits + item.cache_misses for item in events))
+            * 100,
+            1,
+        ),
+        "queue_p50_ms": _queue_latency(events)["p50"],
+        "queue_p95_ms": _queue_latency(events)["p95"],
+        "queue_p99_ms": _queue_latency(events)["p99"],
+        "fail_closed_count": sum(item.fail_closed for item in events),
+        "runtime_engine_counts": [
+            {
+                "runtime_engine": runtime_engine,
+                "count": sum(item.runtime_engine == runtime_engine for item in events),
+            }
+            for runtime_engine in sorted(
+                {item.runtime_engine for item in events if item.runtime_engine}
+            )
+        ],
+        "comparison_count": len(comparisons),
+        "decision_match_rate": round(
+            sum(item.decision_match for item in comparisons)
+            / max(1, len(comparisons))
+            * 100,
+            1,
+        ),
+        "action_match_rate": round(
+            sum(item.action_match for item in comparisons)
+            / max(1, len(comparisons))
+            * 100,
+            1,
+        ),
+        "finding_match_rate": round(
+            sum(item.finding_match for item in comparisons)
+            / max(1, len(comparisons))
+            * 100,
+            1,
+        ),
         "runtime_p50_ms": latency["p50"],
         "runtime_p95_ms": latency["p95"],
         "runtime_p99_ms": latency["p99"],
+        "latency_slo": {
+            "p95_budget_ms": status["latency_budget"]["p95_ms"],
+            "p99_budget_ms": status["latency_budget"]["p99_ms"],
+            "p95_status": (
+                "breached"
+                if latency["p95"] > status["latency_budget"]["p95_ms"]
+                else "healthy"
+            ),
+            "p99_status": (
+                "breached"
+                if latency["p99"] > status["latency_budget"]["p99_ms"]
+                else "healthy"
+            ),
+        },
         "latest_test_p95_ms": latest_test_p95,
         "active_assignments": sum(item.enabled for item in assignments),
         "total_assignments": len(assignments),
@@ -890,6 +997,15 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
 
 def _runtime_latency(events) -> dict[str, int]:
     values = sorted(item.latency_ms for item in events)
+    return {
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+        "p99": _percentile(values, 0.99),
+    }
+
+
+def _queue_latency(events) -> dict[str, int]:
+    values = sorted(item.queue_latency_ms for item in events)
     return {
         "p50": _percentile(values, 0.50),
         "p95": _percentile(values, 0.95),
