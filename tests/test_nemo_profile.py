@@ -7,8 +7,8 @@ from app.engine.fast_pass import FastPassEngine
 
 
 PLAN = GuardrailPlanSnapshot(
-    profile_id="profile-test",
-    profile_revision=1,
+    guardrail_id="guardrail-test",
+    guardrail_version=1,
     compiler_version="test",
     safety_level="balanced",
     output_delivery="window_buffered",

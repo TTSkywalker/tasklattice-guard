@@ -31,6 +31,7 @@ class FastPassEngine:
     name = "deterministic"
     stage = "deterministic"
     supported_phases = frozenset({"input", "output"})
+    supported_risks: frozenset[str] = frozenset()
 
     def __init__(self, content_filter: BuiltinContentFilter | None = None) -> None:
         self._content_filter = content_filter or BuiltinContentFilter()
@@ -119,14 +120,14 @@ class FastPassEngine:
                 verdict="unsafe",
                 content=content,
                 findings=tuple(findings),
-                reason="Deterministic protection matched high-confidence sensitive content.",
+                reason="A deterministic Control matched high-confidence sensitive content.",
             )
         if topic_uncertainty is not None:
             return topic_uncertainty
         return StageResult(
             verdict="safe",
             content=request.text,
-            reason="No configured deterministic protection matched.",
+            reason="No configured deterministic Control matched.",
         )
 
     @staticmethod

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, Building2, Cable, ChevronsUpDown, Globe2, LogOut, MessageSquareText, ShieldCheck, UsersRound } from "lucide-react";
+import { Activity, Cable, ChevronsUpDown, Globe2, ListFilter, LockKeyhole, LogOut, ShieldCheck, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -33,26 +33,22 @@ import {
 import { queryKeys } from "@/features/query-keys";
 import type { SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/lib/auth";
-import { getIntegrations, getSafes, getWorkloads } from "@/lib/api";
+import { getAssignments, getGuardrails, getIntegrations } from "@/lib/api";
 
 const navigation = [
   {
-    label: null,
-    items: [{ label: "nav.playground", to: "/playground", icon: MessageSquareText }],
-  },
-  {
     label: "nav.governance",
     items: [
-      { label: "nav.safes", to: "/governance/safes", icon: ShieldCheck, count: "safes" },
-      { label: "nav.workloads", to: "/governance/workloads", icon: Building2, count: "workloads" },
-      { label: "nav.evidence", to: "/governance/evidence", icon: Activity },
+      { label: "nav.guardrails", to: "/guardrails", icon: ShieldCheck, count: "guardrails" },
+      { label: "nav.assignments", to: "/assignments", icon: ListFilter, count: "assignments" },
+      { label: "nav.enforcements", to: "/enforcements", icon: LockKeyhole },
     ],
   },
   {
-    label: "nav.system",
+    label: "nav.operations",
     items: [
-      { label: "nav.integrations", to: "/system/integrations", icon: Cable, count: "integrations" },
-      { label: "nav.access", to: "/system/access", icon: UsersRound, adminOnly: true },
+      { label: "nav.integrations", to: "/integrations", icon: Cable, count: "integrations" },
+      { label: "nav.evidence", to: "/evidence", icon: Activity },
     ],
   },
 ] as const;
@@ -62,12 +58,12 @@ export function ControlPlaneSidebar() {
   const { user, logout, logoutPending, setLanguage } = useAuth();
   const { setOpenMobile, state } = useSidebar();
   const pathname = useRouterState({ select: (routerState) => routerState.location.pathname });
-  const safes = useQuery({ queryKey: queryKeys.safes, queryFn: getSafes });
-  const workloads = useQuery({ queryKey: queryKeys.workloads, queryFn: getWorkloads });
+  const guardrails = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
+  const assignments = useQuery({ queryKey: queryKeys.assignments, queryFn: getAssignments });
   const integrations = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations });
   const counts: Record<string, number | undefined> = {
-    safes: safes.data?.count,
-    workloads: workloads.data?.count,
+    guardrails: guardrails.data?.count,
+    assignments: assignments.data?.count,
     integrations: integrations.data?.count,
   };
   const language: SupportedLanguage = i18n.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
@@ -116,7 +112,7 @@ export function ControlPlaneSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu className="gap-1">
                   {items.map((item) => {
-                    const active = pathname === item.to || (item.to === "/governance/safes" && pathname.startsWith("/governance/safes/"));
+                    const active = pathname === item.to || (item.to === "/guardrails" && pathname.startsWith("/guardrails/"));
                     const count = "count" in item ? counts[item.count] : undefined;
                     const label = t(item.label);
                     return (
@@ -168,7 +164,7 @@ export function ControlPlaneSidebar() {
               <DropdownMenuRadioItem value="zh-CN">简体中文</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
-            {user?.role === "admin" ? <DropdownMenuItem asChild><Link to="/system/access" onClick={() => setOpenMobile(false)}><UsersRound />{t("auth.manageUsers")}</Link></DropdownMenuItem> : null}
+            {user?.role === "admin" ? <DropdownMenuItem asChild><Link to="/access" onClick={() => setOpenMobile(false)}><UsersRound />{t("auth.manageUsers")}</Link></DropdownMenuItem> : null}
             <DropdownMenuItem variant="destructive" disabled={logoutPending} onSelect={() => void signOut()}><LogOut />{t(logoutPending ? "auth.signingOut" : "auth.signOut")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

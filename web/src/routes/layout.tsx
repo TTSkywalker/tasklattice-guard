@@ -20,19 +20,19 @@ import { LoginPage } from "@/routes/login";
 
 const names: Record<string, { group: string; page: string }> = {
   "/": { group: "nav.home", page: "nav.overview" },
-  "/playground": { group: "nav.playground", page: "nav.playground" },
-  "/governance/safes": { group: "nav.governance", page: "nav.safes" },
-  "/governance/workloads": { group: "nav.governance", page: "nav.workloads" },
-  "/governance/evidence": { group: "nav.governance", page: "nav.evidence" },
-  "/system/integrations": { group: "nav.system", page: "nav.integrations" },
-  "/system/access": { group: "nav.system", page: "nav.access" },
+  "/guardrails": { group: "nav.governance", page: "nav.guardrails" },
+  "/assignments": { group: "nav.governance", page: "nav.assignments" },
+  "/enforcements": { group: "nav.governance", page: "nav.enforcements" },
+  "/integrations": { group: "nav.operations", page: "nav.integrations" },
+  "/evidence": { group: "nav.operations", page: "nav.evidence" },
+  "/access": { group: "nav.system", page: "nav.access" },
 };
 
 export function ControlPlaneLayout() {
   const { t } = useTranslation();
   const auth = useAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const location = names[pathname] ?? (pathname.startsWith("/governance/safes/") ? names["/governance/safes"] : { group: "nav.home", page: "nav.overview" });
+  const location = names[pathname] ?? (pathname.startsWith("/guardrails/") ? names["/guardrails"] : { group: "nav.home", page: "nav.overview" });
 
   if (auth.isLoading) {
     return <div className="flex min-h-dvh items-center justify-center bg-background"><div className="flex items-center gap-3 text-sm text-muted-foreground"><ShieldCheck className="size-5 animate-pulse text-primary" />{t("auth.sessionLoading")}</div></div>;

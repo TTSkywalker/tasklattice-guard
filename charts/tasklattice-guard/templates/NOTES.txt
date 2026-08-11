@@ -1,7 +1,7 @@
 TaskLattice Guard is installed in namespace {{ .Release.Namespace }}.
 
-The standalone control plane and deterministic evaluator are ready without a
-Gateway Adapter or external model. Wait for the workload:
+The standalone control plane and deterministic evaluator are ready without an
+Integration or external model. Wait for the deployment:
 
   kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "tasklattice-guard.fullname" . }}
 
@@ -14,7 +14,7 @@ Open the UI through a local port-forward:
 
   kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "tasklattice-guard.fullname" . }} 8092:{{ .Values.service.port }}
 
-  http://127.0.0.1:8092/protect/profiles
+  http://127.0.0.1:8092/guardrails
 {{- end }}
 
 Run the Helm smoke test:

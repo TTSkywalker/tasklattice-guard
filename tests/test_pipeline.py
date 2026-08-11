@@ -4,22 +4,31 @@ import pytest
 
 from app.engine.contracts import (
     EngineRequest,
+    GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
     RiskFinding,
     StageResult,
 )
-from app.engine.pipeline import ProgressiveGuardrailsEngine
+from app.engine.dag import ModularGuardrailsEngine
 
 
 def plan(*steps: GuardrailPlanStep) -> GuardrailPlanSnapshot:
     return GuardrailPlanSnapshot(
-        profile_id="profile-test",
-        profile_revision=3,
+        guardrail_id="guardrail-test",
+        guardrail_version=3,
         compiler_version="test",
         safety_level="balanced",
         output_delivery="window_buffered",
         steps=steps,
+        modules=(
+            GuardrailPlanModule(
+                id="business-assurance:input",
+                module="business_assurance",
+                phase="input",
+                step_ids=tuple(step.id for step in steps),
+            ),
+        ),
     )
 
 
@@ -69,7 +78,7 @@ DEEP_STEP = GuardrailPlanStep(
 async def test_uncertain_fast_verdict_escalates_to_deep_judge():
     fast = Stage("fast_semantic", StageResult("uncertain", "request", (finding(),)))
     deep = Stage("deep_judge", StageResult("safe", "request"))
-    engine = ProgressiveGuardrailsEngine((fast, deep))
+    engine = ModularGuardrailsEngine((fast, deep))
 
     result = await engine.evaluate(
         EngineRequest("input", "request", plan(FAST_STEP, DEEP_STEP))
@@ -84,7 +93,7 @@ async def test_uncertain_fast_verdict_escalates_to_deep_judge():
 async def test_decisive_fast_verdict_skips_deep_judge():
     fast = Stage("fast_semantic", StageResult("safe", "request"))
     deep = Stage("deep_judge", StageResult("safe", "request"))
-    engine = ProgressiveGuardrailsEngine((fast, deep))
+    engine = ModularGuardrailsEngine((fast, deep))
 
     result = await engine.evaluate(
         EngineRequest("input", "request", plan(FAST_STEP, DEEP_STEP))
@@ -100,7 +109,7 @@ async def test_decisive_fast_verdict_skips_deep_judge():
 async def test_unsafe_fast_verdict_enforces_and_stops():
     fast = Stage("fast_semantic", StageResult("unsafe", "request", (finding("unsafe"),)))
     deep = Stage("deep_judge", StageResult("safe", "request"))
-    engine = ProgressiveGuardrailsEngine((fast, deep))
+    engine = ModularGuardrailsEngine((fast, deep))
 
     result = await engine.evaluate(
         EngineRequest("input", "request", plan(FAST_STEP, DEEP_STEP))
@@ -131,7 +140,7 @@ async def test_mandatory_deep_step_runs_after_safe_fast_verdict():
     )
     fast = Stage("fast_semantic", StageResult("safe", "request"))
     deep = Stage("deep_judge", StageResult("safe", "request"))
-    engine = ProgressiveGuardrailsEngine((fast, deep))
+    engine = ModularGuardrailsEngine((fast, deep))
 
     result = await engine.evaluate(
         EngineRequest("input", "request", plan(fast_step, deep_step))

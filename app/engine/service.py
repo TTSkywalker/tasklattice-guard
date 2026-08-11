@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+from .content_views import content_view, text_blocks
 from .context import CallContextStore
 from .contracts import (
+    AppliedIntervention,
+    ContentBlockResult,
+    EnforcementAction,
     EngineRequest,
     EvaluationDecision,
     EvaluationRequest,
+    EvaluationUsage,
     GuardrailEngine,
+    GuardContentBlock,
+    ModuleAssessment,
     PlanResolver,
+    RuntimeCoverage,
 )
 
 
@@ -30,86 +38,217 @@ class ModelGuardrailsEngineService:
             if request.phase == "output" and stored is not None
             else self._resolver.resolve(request.context)
         )
+        incoming_blocks = request.content_blocks or text_blocks(
+            request.phase,
+            request.texts,
+            request.context.value("field", "target_source") or "user_input",
+        )
         if request.phase == "input":
-            self._contexts.put(request.call_id, request.messages, resolution)
+            self._contexts.put(
+                request.call_id,
+                request.messages,
+                resolution,
+                incoming_blocks,
+            )
 
-        if not request.texts:
+        if not incoming_blocks:
             return EvaluationDecision(
                 decision="allow",
                 action="pass",
                 reason="No model content required evaluation.",
-                profile_id=resolution.plan.profile_id,
-                profile_revision=resolution.plan.profile_revision,
-                workload_id=resolution.workload_id,
-                gateway_id=resolution.gateway_id,
+                guardrail_id=resolution.plan.guardrail_id,
+                guardrail_version=resolution.plan.guardrail_version,
+                assignment_id=resolution.assignment_id,
+                integration_id=resolution.integration_id,
                 output_delivery=resolution.plan.output_delivery,
                 trace=resolution.trace,
+                mode=request.mode,
             )
 
-        output: list[str] = []
+        output_by_id: dict[str, str] = {}
         findings = []
         trace = list(resolution.trace)
+        assessments: list[ModuleAssessment] = []
+        interventions: list[AppliedIntervention] = []
+        coverages: list[RuntimeCoverage] = []
+        usages: list[EvaluationUsage] = []
         final_decision = "allow"
         final_action = "pass"
-        reason = "All model content passed the active Safety Profile."
-        context_messages = stored.messages if stored else request.messages
-        trusted_instruction = _trusted_instruction(context_messages)
-        target_source = request.context.value("field", "target_source") or "user_input"
+        reason = "All model content passed the active Guardrail."
+        pinned = stored if request.phase == "output" else None
+        context_messages = pinned.messages if pinned else request.messages
+        view_blocks = _context_blocks(
+            pinned.content_blocks if pinned else (),
+            incoming_blocks,
+        )
+        trusted_instruction = _trusted_instruction(context_messages, view_blocks)
+        content_results: dict[str, ContentBlockResult] = {
+            block.id: ContentBlockResult(
+                id=block.id,
+                role=block.role,
+                source=block.source,
+                decision="allow",
+                action="pass",
+                text=block.text,
+                evaluated=False,
+            )
+            for block in incoming_blocks
+            if not block.guard_content or block.trust == "trusted"
+        }
 
-        for text in request.texts:
+        for block in incoming_blocks:
+            if not block.guard_content or block.trust == "trusted":
+                continue
+            view = content_view(view_blocks, block.id)
             decision = await self._engine.evaluate(
                 EngineRequest(
                     phase=request.phase,
-                    text=text,
+                    text=block.text,
                     plan=resolution.plan,
                     context_messages=context_messages,
                     trusted_instruction=trusted_instruction,
-                    target_source=target_source,
+                    target_source=block.source,
+                    mode=request.mode,
+                    evidence_scope=request.evidence_scope,
+                    content_view=view,
+                    active_block_id=block.id,
                 )
             )
             findings.extend(decision.findings)
             trace.extend(decision.trace)
+            assessments.extend(decision.assessments)
+            interventions.extend(decision.interventions)
+            if decision.coverage is not None:
+                coverages.append(decision.coverage)
+            if decision.usage is not None:
+                usages.append(decision.usage)
+            resolved_text = (
+                None
+                if decision.decision == "block"
+                else decision.texts[0]
+                if decision.texts
+                else block.text
+            )
+            content_results[block.id] = ContentBlockResult(
+                id=block.id,
+                role=block.role,
+                source=block.source,
+                decision=decision.decision,
+                action=decision.action,
+                text=resolved_text,
+            )
+            if resolved_text is not None:
+                output_by_id[block.id] = resolved_text
             if decision.decision == "block":
-                return EvaluationDecision(
-                    decision="block",
-                    action="reject",
-                    reason=decision.reason,
-                    profile_id=resolution.plan.profile_id,
-                    profile_revision=resolution.plan.profile_revision,
-                    workload_id=resolution.workload_id,
-                    gateway_id=resolution.gateway_id,
-                    output_delivery=resolution.plan.output_delivery,
-                    findings=tuple(findings),
-                    trace=tuple(trace),
-                )
+                final_decision = "block"
+                final_action = "reject"
+                reason = decision.reason or "A content block was blocked by the active Guardrail."
+                continue
             if decision.decision == "transform":
-                final_decision = "transform"
-                final_action = decision.action
-                reason = decision.reason or "Safety Profile transformed model content."
-                output.extend(decision.texts or (text,))
-            else:
-                output.append(text)
+                if final_decision != "block":
+                    final_decision = "transform"
+                    final_action = _strongest_action((final_action, decision.action))
+                    reason = decision.reason or "The active Guardrail transformed model content."
+
+        ordered_results = tuple(content_results[block.id] for block in incoming_blocks)
+        output = tuple(output_by_id.get(block.id, block.text) for block in incoming_blocks)
 
         return EvaluationDecision(
             decision=final_decision,
             action=final_action,
             reason=reason,
-            texts=tuple(output) if final_decision == "transform" else (),
-            profile_id=resolution.plan.profile_id,
-            profile_revision=resolution.plan.profile_revision,
-            workload_id=resolution.workload_id,
-            gateway_id=resolution.gateway_id,
+            texts=(
+                output
+                if request.texts and final_decision == "transform"
+                else ()
+            ),
+            guardrail_id=resolution.plan.guardrail_id,
+            guardrail_version=resolution.plan.guardrail_version,
+            assignment_id=resolution.assignment_id,
+            integration_id=resolution.integration_id,
             output_delivery=resolution.plan.output_delivery,
             findings=tuple(findings),
             trace=tuple(trace),
+            assessments=tuple(assessments),
+            interventions=tuple(interventions),
+            coverage=_coverage(coverages),
+            usage=_usage(usages),
+            mode=request.mode,
+            content_results=ordered_results,
         )
 
 
-def _trusted_instruction(messages: tuple[dict, ...]) -> str:
-    return "\n\n".join(
+def _trusted_instruction(
+    messages: tuple[dict, ...],
+    blocks: tuple[GuardContentBlock, ...],
+) -> str:
+    messages_text = tuple(
         str(message.get("content", "")).strip()
         for message in messages
         if message.get("role") in {"system", "developer"}
         and isinstance(message.get("content"), str)
         and str(message.get("content", "")).strip()
+    )
+    block_text = tuple(
+        block.text.strip()
+        for block in blocks
+        if block.role == "trusted_instruction"
+        and block.trust == "trusted"
+        and block.text.strip()
+    )
+    return "\n\n".join((*messages_text, *block_text))
+
+
+def _context_blocks(
+    stored: tuple[GuardContentBlock, ...],
+    incoming: tuple[GuardContentBlock, ...],
+) -> tuple[GuardContentBlock, ...]:
+    incoming_ids = {block.id for block in incoming}
+    return (*tuple(block for block in stored if block.id not in incoming_ids), *incoming)
+
+
+def _strongest_action(
+    actions: tuple[EnforcementAction, ...],
+) -> EnforcementAction:
+    priority: tuple[EnforcementAction, ...] = (
+        "reject",
+        "clarify",
+        "fallback",
+        "regenerate",
+        "rewrite",
+        "redirect",
+        "redact",
+        "pass",
+    )
+    values = set(actions)
+    return next((action for action in priority if action in values), "pass")
+
+
+def _coverage(items: list[RuntimeCoverage]) -> RuntimeCoverage | None:
+    if not items:
+        return None
+    return RuntimeCoverage(
+        status=(
+            "complete"
+            if all(item.status == "complete" for item in items)
+            else "none"
+            if all(item.status == "none" for item in items)
+            else "partial"
+        ),
+        guarded_items=sum(item.guarded_items for item in items),
+        total_items=sum(item.total_items for item in items),
+        guarded_characters=sum(item.guarded_characters for item in items),
+        total_characters=sum(item.total_characters for item in items),
+        required_modules_completed=sum(item.required_modules_completed for item in items),
+        required_modules_total=sum(item.required_modules_total for item in items),
+    )
+
+
+def _usage(items: list[EvaluationUsage]) -> EvaluationUsage | None:
+    if not items:
+        return None
+    return EvaluationUsage(
+        module_invocations=sum(item.module_invocations for item in items),
+        evaluator_invocations=sum(item.evaluator_invocations for item in items),
+        text_characters=sum(item.text_characters for item in items),
     )

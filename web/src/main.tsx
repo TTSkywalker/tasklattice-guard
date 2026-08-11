@@ -5,12 +5,12 @@ import { createBrowserHistory, createRootRoute, createRoute, createRouter, Route
 import { ThemeProvider } from "next-themes";
 
 import { ControlPlaneLayout } from "@/routes/layout";
-import { SafeDetailPage, SafetyProfilesPage } from "@/routes/safety-profiles";
-import { ProtectedWorkloadsPage } from "@/routes/protected-workloads";
-import { ActivityPage } from "@/routes/activity";
-import { GatewaysPage } from "@/routes/gateways";
+import { GuardrailDetailPage, GuardrailsPage } from "@/routes/guardrails";
+import { AssignmentsPage } from "@/routes/assignments";
+import { EnforcementsPage } from "@/routes/enforcements";
+import { EvidencePage } from "@/routes/evidence";
+import { IntegrationsPage } from "@/routes/integrations";
 import { UsersPage } from "@/routes/users";
-import { ConversationPlaygroundPage } from "@/routes/conversation-playground";
 import { OverviewPage } from "@/routes/overview";
 import { AuthProvider } from "@/lib/auth";
 import "@/i18n";
@@ -19,21 +19,21 @@ import "@/styles.css";
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, retry: 1 } } });
 const rootRoute = createRootRoute({ component: ControlPlaneLayout });
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: OverviewPage });
-const profilesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/governance/safes", component: SafetyProfilesPage });
-const safeDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/governance/safes/$safeId", component: SafeDetailPage });
-const workloadsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/governance/workloads", component: ProtectedWorkloadsPage });
-const playgroundRoute = createRoute({ getParentRoute: () => rootRoute, path: "/playground", component: ConversationPlaygroundPage });
-const activityRoute = createRoute({ getParentRoute: () => rootRoute, path: "/governance/evidence", component: ActivityPage });
-const gatewaysRoute = createRoute({ getParentRoute: () => rootRoute, path: "/system/integrations", component: GatewaysPage });
-const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/system/access", component: UsersPage });
+const guardrailsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails", component: GuardrailsPage });
+const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails/$guardrailId", component: GuardrailDetailPage });
+const assignmentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/assignments", component: AssignmentsPage });
+const enforcementsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/enforcements", component: EnforcementsPage });
+const integrationsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/integrations", component: IntegrationsPage });
+const evidenceRoute = createRoute({ getParentRoute: () => rootRoute, path: "/evidence", component: EvidencePage });
+const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  profilesRoute,
-  safeDetailRoute,
-  workloadsRoute,
-  playgroundRoute,
-  activityRoute,
-  gatewaysRoute,
+  guardrailsRoute,
+  guardrailDetailRoute,
+  assignmentsRoute,
+  enforcementsRoute,
+  integrationsRoute,
+  evidenceRoute,
   usersRoute,
 ]);
 const router = createRouter({ routeTree, history: createBrowserHistory() });

@@ -4,6 +4,7 @@ HELM_RELEASE := tasklattice-guard
 HELM_CHART := charts/tasklattice-guard
 HELM_TIMEOUT ?= 180s
 PORT ?= 8091
+LOCAL_ENV_FILE := $(if $(wildcard .env),--env-file .env,)
 
 .PHONY: sync test web-dev web-build run image helm-lint helm-template helm-install helm-test helm-uninstall deploy-local
 
@@ -22,7 +23,7 @@ web-build:
 	cd web && npm run build
 
 run:
-	uv run python -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT)
+	uv run $(LOCAL_ENV_FILE) python -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT)
 
 image:
 	docker build --tag $(DEV_IMAGE) .

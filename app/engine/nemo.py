@@ -96,7 +96,7 @@ class NemoFastSemanticEngine(_NemoStage):
 
     def __init__(
         self,
-        profile_path: Path,
+        nemo_config_path: Path,
         *,
         base_url: str,
         model: str,
@@ -105,7 +105,7 @@ class NemoFastSemanticEngine(_NemoStage):
         from nemoguardrails import LLMRails, RailsConfig
         from nemoguardrails.rails.llm.config import Model
 
-        config = RailsConfig.from_path(str(profile_path))
+        config = RailsConfig.from_path(str(nemo_config_path))
         config.models = [
             Model(
                 type="content_safety",
@@ -117,35 +117,4 @@ class NemoFastSemanticEngine(_NemoStage):
         ]
         config.rails.input.flows = ["content safety check input $model=content_safety"]
         config.rails.output.flows = ["content safety check output $model=content_safety"]
-        super().__init__(LLMRails(config))
-
-
-class NemoDeepJudgeEngine(_NemoStage):
-    name = "Deep Judge"
-    stage = "deep_judge"
-    supported_phases = frozenset({"input", "output"})
-
-    def __init__(
-        self,
-        profile_path: Path,
-        *,
-        base_url: str,
-        model: str,
-        api_key_env_var: str,
-    ) -> None:
-        from nemoguardrails import LLMRails, RailsConfig
-        from nemoguardrails.rails.llm.config import Model
-
-        config = RailsConfig.from_path(str(profile_path))
-        config.models = [
-            Model(
-                type="topic_control",
-                engine="nim",
-                model=model,
-                api_key_env_var=api_key_env_var,
-                parameters={"base_url": base_url},
-            )
-        ]
-        config.rails.input.flows = ["topic safety check input $model=topic_control"]
-        config.rails.output.flows = []
         super().__init__(LLMRails(config))

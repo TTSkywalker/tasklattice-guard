@@ -1,19 +1,19 @@
 import { isRuleGroup, type RuleGroupType, type RuleType } from "react-querybuilder";
 
 import type {
-  TrafficFilterConflict,
-  TrafficFilterExpression,
-  TrafficFilterFieldDefinition,
-  TrafficFilterOperator,
-  TrafficFilterQuery,
-  TrafficFilterRule,
+  TrafficScopeConflict,
+  TrafficScopeExpression,
+  TrafficScopeFieldDefinition,
+  TrafficScopeOperator,
+  TrafficScopeQuery,
+  TrafficScopeRule,
 } from "./types";
 
 type CustomRuleValue = { key: string; value: string };
 
-export function createTrafficFilterQuery(
-  definitions: TrafficFilterFieldDefinition[],
-): TrafficFilterQuery {
+export function createTrafficScopeQuery(
+  definitions: TrafficScopeFieldDefinition[],
+): TrafficScopeQuery {
   const definition = definitions.find((item) => item.id === "protocol") ?? definitions[0];
   return {
     combinator: "and",
@@ -21,7 +21,7 @@ export function createTrafficFilterQuery(
   };
 }
 
-export function createTrafficRule(definition: TrafficFilterFieldDefinition): RuleType {
+export function createTrafficRule(definition: TrafficScopeFieldDefinition): RuleType {
   return {
     field: definition.id,
     operator: definition.operators[0],
@@ -29,51 +29,49 @@ export function createTrafficRule(definition: TrafficFilterFieldDefinition): Rul
   };
 }
 
-export function toWorkloadFilterExpression(
-  query: TrafficFilterQuery,
-  definitions: TrafficFilterFieldDefinition[],
-): TrafficFilterExpression {
+export function toTrafficScopeExpression(
+  query: TrafficScopeQuery,
+  definitions: TrafficScopeFieldDefinition[],
+): TrafficScopeExpression {
   return {
     combinator: query.combinator === "or" ? "or" : "and",
     rules: query.rules.map((item) => {
-      if (isRuleGroup(item)) return toWorkloadFilterExpression(item, definitions);
+      if (isRuleGroup(item)) return toTrafficScopeExpression(item, definitions);
       const definition = definitions.find((candidate) => candidate.id === item.field);
       const encoded = customRuleValue(item.value);
       return {
         field: item.field,
         ...(definition?.custom_key ? { key: encoded.key.trim() } : {}),
-        operator: item.operator as TrafficFilterOperator,
+        operator: item.operator as TrafficScopeOperator,
         value: (definition?.custom_key ? encoded.value : String(item.value ?? "")).trim(),
-      } satisfies TrafficFilterRule;
+      } satisfies TrafficScopeRule;
     }),
   };
 }
 
-export function isTrafficFilterValid(
-  query: TrafficFilterQuery,
-  definitions: TrafficFilterFieldDefinition[],
-  matchAll: boolean,
+export function isTrafficScopeValid(
+  query: TrafficScopeQuery,
+  definitions: TrafficScopeFieldDefinition[],
   maxRules = 16,
 ): boolean {
-  if (matchAll) return true;
   const count = countTrafficRules(query);
-  if (!count || count > maxRules || getTrafficFilterConflicts(query, definitions).length) return false;
+  if (!count || count > maxRules || getTrafficScopeConflicts(query, definitions).length) return false;
   return validGroup(query, definitions, 1);
 }
 
-export function countTrafficRules(query: RuleGroupType | TrafficFilterExpression): number {
+export function countTrafficRules(query: RuleGroupType | TrafficScopeExpression): number {
   return query.rules.reduce(
     (total, item) => total + (isExpressionGroup(item) ? countTrafficRules(item) : 1),
     0,
   );
 }
 
-export function getTrafficFilterConflicts(
-  query: TrafficFilterQuery,
-  definitions: TrafficFilterFieldDefinition[],
-): TrafficFilterConflict[] {
+export function getTrafficScopeConflicts(
+  query: TrafficScopeQuery,
+  definitions: TrafficScopeFieldDefinition[],
+): TrafficScopeConflict[] {
   const definitionById = new Map(definitions.map((item) => [item.id, item]));
-  const conflicts: TrafficFilterConflict[] = [];
+  const conflicts: TrafficScopeConflict[] = [];
 
   function visit(group: RuleGroupType, path: number[]) {
     if (group.combinator === "and") {
@@ -110,10 +108,10 @@ export function getTrafficFilterConflicts(
 }
 
 export function setTrafficGroupCombinator(
-  query: TrafficFilterQuery,
+  query: TrafficScopeQuery,
   path: number[],
   combinator: "and" | "or",
-): TrafficFilterQuery {
+): TrafficScopeQuery {
   if (!path.length) return { ...query, combinator };
   const [index, ...remaining] = path;
   return {
@@ -134,14 +132,14 @@ export function customRuleValue(value: unknown): CustomRuleValue {
 
 function validGroup(
   query: RuleGroupType,
-  definitions: TrafficFilterFieldDefinition[],
+  definitions: TrafficScopeFieldDefinition[],
   depth: number,
 ): boolean {
   if (depth > 3 || !query.rules.length) return false;
   return query.rules.every((item) => {
     if (isRuleGroup(item)) return validGroup(item, definitions, depth + 1);
     const definition = definitions.find((candidate) => candidate.id === item.field);
-    if (!definition || !definition.operators.includes(item.operator as TrafficFilterOperator)) return false;
+    if (!definition || !definition.operators.includes(item.operator as TrafficScopeOperator)) return false;
     const encoded = customRuleValue(item.value);
     return definition.custom_key
       ? Boolean(encoded.key.trim() && encoded.value.trim())
@@ -149,6 +147,6 @@ function validGroup(
   });
 }
 
-function isExpressionGroup(value: unknown): value is RuleGroupType | TrafficFilterExpression {
+function isExpressionGroup(value: unknown): value is RuleGroupType | TrafficScopeExpression {
   return Boolean(value && typeof value === "object" && "rules" in value);
 }

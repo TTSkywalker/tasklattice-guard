@@ -1,5 +1,5 @@
 from app.control_plane.compiler import GuardrailCompiler
-from app.control_plane.domain import ProfileRisk, SafetyProfile
+from app.control_plane.domain import GuardrailControl, Guardrail
 from app.engine.contracts import EngineRequest, GuardrailPlanSnapshot
 from app.engine.topic_judge import (
     _interaction_text,
@@ -9,26 +9,26 @@ from app.engine.topic_judge import (
 )
 
 
-def test_topic_judge_receives_profile_purpose_and_primary_intent_rule():
-    profile = SafetyProfile(
-        id="profile-finance",
+def test_topic_judge_receives_guardrail_purpose_and_primary_intent_rule():
+    guardrail = Guardrail(
+        id="guardrail-finance",
         name="Finance",
         purpose="Finance employees analyze approved company and market data.",
         allowed_topics=("Financial analysis", "Accounting and reporting"),
         restricted_topics=("Biomedical advice", "Chemical refining instructions"),
-        risks=(ProfileRisk("topic_control", "redirect"),),
+        controls=(GuardrailControl("topic_control", "redirect"),),
         safety_level="balanced",
         output_delivery="window_buffered",
         source_template_id=None,
         template_parameters=(),
         draft_version=1,
-        active_revision=None,
+        active_version=None,
         updated_at="2026-08-10T00:00:00Z",
     )
-    plan = GuardrailCompiler().compile(profile, 1)
+    plan = GuardrailCompiler().compile(guardrail, 1)
     prompt = topic_judge_prompt(plan.steps_for("input", "deep_judge"))
 
-    assert profile.purpose in prompt
+    assert guardrail.purpose in prompt
     assert "Financial analysis" in prompt
     assert "Chemical refining instructions" in prompt
     assert "primary requested task" in prompt
@@ -41,8 +41,8 @@ def test_topic_judge_keeps_input_turn_verbatim():
         phase="input",
         text="Analyze a chemical company's quarterly revenue.",
         plan=GuardrailPlanSnapshot(
-            profile_id="profile-finance",
-            profile_revision=1,
+            guardrail_id="guardrail-finance",
+            guardrail_version=1,
             compiler_version="test",
             safety_level="balanced",
             output_delivery="window_buffered",
@@ -54,22 +54,22 @@ def test_topic_judge_keeps_input_turn_verbatim():
 
 
 def test_topic_judge_preserves_prior_conversation_for_input():
-    profile = SafetyProfile(
-        id="profile-finance",
+    guardrail = Guardrail(
+        id="guardrail-finance",
         name="Finance",
         purpose="Support approved financial analysis.",
         allowed_topics=("Financial analysis",),
         restricted_topics=("Chemical process guidance",),
-        risks=(ProfileRisk("topic_control", "redirect"),),
+        controls=(GuardrailControl("topic_control", "redirect"),),
         safety_level="balanced",
         output_delivery="window_buffered",
         source_template_id=None,
         template_parameters=(),
         draft_version=1,
-        active_revision=None,
+        active_version=None,
         updated_at="2026-08-10T00:00:00Z",
     )
-    plan = GuardrailCompiler().compile(profile, 1)
+    plan = GuardrailCompiler().compile(guardrail, 1)
     request = EngineRequest(
         phase="input",
         text="Now compare that with last quarter.",

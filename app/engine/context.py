@@ -4,12 +4,13 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .contracts import PlanResolution
+from .contracts import GuardContentBlock, PlanResolution
 
 
 @dataclass(slots=True)
 class CallContext:
     messages: tuple[dict[str, Any], ...]
+    content_blocks: tuple[GuardContentBlock, ...]
     resolution: PlanResolution
     expires_at: float
 
@@ -27,6 +28,7 @@ class CallContextStore:
         call_id: str | None,
         messages: tuple[dict[str, Any], ...],
         resolution: PlanResolution,
+        content_blocks: tuple[GuardContentBlock, ...] = (),
     ) -> None:
         if not call_id:
             return
@@ -36,6 +38,7 @@ class CallContextStore:
             self._items.pop(oldest, None)
         self._items[call_id] = CallContext(
             messages=messages[-20:],
+            content_blocks=content_blocks,
             resolution=resolution,
             expires_at=time.monotonic() + self._ttl_seconds,
         )

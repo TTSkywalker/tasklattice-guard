@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from .contracts import (
     EngineRequest,
@@ -29,13 +30,16 @@ class RiskAwareStageRouter:
         steps: tuple[GuardrailPlanStep, ...],
     ) -> StageResult:
         content = request.text
+        content_block_id = request.active_block_id or (
+            request.content_view.active_block_id if request.content_view else None
+        )
         findings: list[RiskFinding] = []
         trace: list[EvaluationTraceStep] = []
         uncertain = False
         handled: set[str] = set()
 
         for child in self._children:
-            supported_risks = frozenset(getattr(child, "supported_risks", ()))
+            supported_risks = child.supported_risks
             selected = tuple(
                 step for step in steps if not supported_risks or step.risk in supported_risks
             )
@@ -50,6 +54,10 @@ class RiskAwareStageRouter:
                     context_messages=request.context_messages,
                     trusted_instruction=request.trusted_instruction,
                     target_source=request.target_source,
+                    mode=request.mode,
+                    evidence_scope=request.evidence_scope,
+                    content_view=request.content_view,
+                    active_block_id=content_block_id,
                 ),
                 selected,
             )
@@ -69,9 +77,15 @@ class RiskAwareStageRouter:
                         if result.findings
                         else None
                     ),
+                    content_block_id=content_block_id,
                 )
             )
-            trace.extend(result.trace)
+            trace.extend(
+                replace(step, content_block_id=content_block_id)
+                if step.content_block_id is None
+                else step
+                for step in result.trace
+            )
             content = result.content
             if result.verdict in {"error", "unsafe"}:
                 return StageResult(

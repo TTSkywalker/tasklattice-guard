@@ -53,13 +53,25 @@ persistence:
   mountPath: /var/lib/tasklattice/model-guardrails
 
 database:
-  path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-v8.db
+  path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v2.db
 
 evaluators:
   nvidia:
     baseUrl: ""
     contentSafetyModel: ""
     topicControlModel: ""
+    groundingModel: ""
+    apiKey: ""
+    existingSecret: ""
+    secretKey: api-key
+  deepJudge:
+    baseUrl: ""
+    model: ""
+    apiKey: ""
+    existingSecret: ""
+    secretKey: api-key
+  automatedReasoning:
+    endpointUrl: ""
     apiKey: ""
     existingSecret: ""
     secretKey: api-key

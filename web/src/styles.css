@@ -159,7 +159,7 @@
     stroke-width: 1.5;
   }
 
-  .traffic-query-builder {
+  .traffic-scope-query-builder {
     --rqb-background-color: color-mix(in srgb, var(--muted) 55%, transparent);
     --rqb-border-color: var(--border);
     --rqb-border-radius: var(--radius-control);
@@ -167,11 +167,11 @@
     --rqb-branch-indent: 0.75rem;
   }
 
-  .traffic-query-builder .ruleGroup .ruleGroup {
+  .traffic-scope-query-builder .ruleGroup .ruleGroup {
     --rqb-background-color: color-mix(in srgb, var(--card) 80%, var(--muted));
   }
 
-  .traffic-query-builder .rule {
+  .traffic-scope-query-builder .rule {
     border: 0;
     background: transparent;
   }

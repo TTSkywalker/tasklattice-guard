@@ -44,12 +44,12 @@ def test_every_vendored_template_compiles_without_external_resources(tmp_path):
             )
             for parameter in template.parameters
         }
-        profile = service.create_profile(
+        guardrail = service.create_guardrail(
             name=f"Test {template.display_name}",
             template_id=template.id,
             template_parameters=tuple(values.items()),
         )
-        plan = service.compile_draft(profile.id)
+        plan = service.compile_draft(guardrail.id)
 
         assert plan.steps
         assert all(step.parameter("policy_pack_version") == "1.95.0" for step in plan.steps)
@@ -97,13 +97,13 @@ def test_singapore_mas_template_blocks_discriminatory_financial_decision():
 
 
 @pytest.mark.asyncio
-async def test_profile_from_builtin_template_compiles_and_runs_in_fastpass(tmp_path):
+async def test_guardrail_from_builtin_template_compiles_and_runs_in_fastpass(tmp_path):
     service = ControlPlaneService(tmp_path / "control-plane.db")
-    profile = service.create_profile(
+    guardrail = service.create_guardrail(
         name="Local Topic Filter",
         template_id="topic-filtering",
     )
-    plan = service.compile_draft(profile.id)
+    plan = service.compile_draft(guardrail.id)
     step = plan.steps_for("input", "deterministic")[0]
 
     assert step.parameter("policy_pack_version") == "1.95.0"
@@ -123,12 +123,12 @@ async def test_profile_from_builtin_template_compiles_and_runs_in_fastpass(tmp_p
 async def test_parameterized_competitor_template_uses_reviewed_local_values(tmp_path):
     service = ControlPlaneService(tmp_path / "control-plane.db")
     with pytest.raises(ValidationError, match="Your Brand Name"):
-        service.create_profile(
+        service.create_guardrail(
             name="Brand Policy",
             template_id="competitor-mention-detection",
         )
 
-    profile = service.create_profile(
+    guardrail = service.create_guardrail(
         name="Brand Policy",
         template_id="competitor-mention-detection",
         template_parameters=(
@@ -136,7 +136,7 @@ async def test_parameterized_competitor_template_uses_reviewed_local_values(tmp_
             ("competitors", "Example Bank\nRival Finance"),
         ),
     )
-    plan = service.compile_draft(profile.id)
+    plan = service.compile_draft(guardrail.id)
     step = plan.steps_for("input", "deterministic")[0]
     result = await FastPassEngine().evaluate(
         EngineRequest("input", "You should switch to Example Bank", plan),
@@ -148,10 +148,10 @@ async def test_parameterized_competitor_template_uses_reviewed_local_values(tmp_
 
 
 @pytest.mark.asyncio
-async def test_builtin_template_profile_passes_local_api_tests(tmp_path):
+async def test_builtin_template_guardrail_passes_local_api_tests(tmp_path):
     app = create_app(
         settings=Settings(
-            profile_path=tmp_path / "unused-profile",
+            nemo_config_path=tmp_path / "unused-guardrail",
             database_path=tmp_path / "control-plane.db",
             ui_dist_path=tmp_path / "missing-ui",
         )
@@ -169,18 +169,18 @@ async def test_builtin_template_profile_passes_local_api_tests(tmp_path):
             },
         )
         created = await client.post(
-            "/api/v1/safes",
+            "/api/v1/guardrails",
             json={"name": "Topic Filter", "template_id": "topic-filtering"},
         )
         tested = await client.post(
-            "/api/v1/test-runs", json={"safe_id": created.json()["id"]}
+            "/api/v1/test-runs", json={"guardrail_id": created.json()["id"]}
         )
-        profile = await client.get(
-            f"/api/v1/safes/{created.json()['id']}"
+        guardrail = await client.get(
+            f"/api/v1/guardrails/{created.json()['id']}"
         )
 
     assert setup.status_code == 201
     assert created.status_code == 201
     assert tested.status_code == 201
     assert tested.json()["status"] == "passed"
-    assert profile.json()["status"] == "ready"
+    assert guardrail.json()["status"] == "ready"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 
@@ -11,9 +12,14 @@ from .control_plane.api import ControlPlaneAPI
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
 from .control_plane.service import ControlPlaneService
 from .engine.contracts import GuardrailEngine
+from .engine.automated_reasoning import (
+    AutomatedReasoningPolicyEngine,
+    HTTPAutomatedReasoningProvider,
+)
+from .engine.contextual_grounding import ContextualGroundingJudgeEngine
+from .engine.dag import ModularGuardrailsEngine
 from .engine.fast_pass import FastPassEngine
 from .engine.nemo import NemoFastSemanticEngine
-from .engine.pipeline import ProgressiveGuardrailsEngine
 from .engine.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
 from .engine.risk_router import RiskAwareStageRouter
 from .engine.service import ModelGuardrailsEngineService
@@ -24,13 +30,13 @@ from .ui import ControlPlaneStaticFiles
 
 def create_engine(
     settings: Settings,
-) -> ProgressiveGuardrailsEngine:
+) -> ModularGuardrailsEngine:
     stages = [FastPassEngine()]
     fast_semantic = [PromptSecurityFastEngine()]
     if settings.content_safety_model and settings.nvidia_base_url:
         fast_semantic.append(
             NemoFastSemanticEngine(
-                settings.profile_path,
+                settings.nemo_config_path,
                 base_url=settings.nvidia_base_url,
                 model=settings.content_safety_model,
                 api_key_env_var=settings.nvidia_api_key_env_var,
@@ -39,7 +45,20 @@ def create_engine(
     stages.append(RiskAwareStageRouter("fast_semantic", tuple(fast_semantic)))
 
     deep_judges = []
-    if settings.content_safety_model and settings.nvidia_base_url:
+    generic_deep_judge = _deep_judge_configured(settings)
+    if generic_deep_judge:
+        deep_judges.append(
+            PromptSecurityJudgeEngine(
+                base_url=settings.deep_judge_base_url or "",
+                model=settings.deep_judge_model or "",
+                api_key_env_var=settings.deep_judge_api_key_env_var,
+                request_options=_deepseek_options(
+                    settings.deep_judge_base_url or "",
+                    json_output=True,
+                ),
+            )
+        )
+    elif settings.content_safety_model and settings.nvidia_base_url:
         deep_judges.append(
             PromptSecurityJudgeEngine(
                 base_url=settings.nvidia_base_url,
@@ -55,9 +74,48 @@ def create_engine(
                 api_key_env_var=settings.nvidia_api_key_env_var,
             )
         )
+    elif generic_deep_judge:
+        deep_judges.append(
+            PurposeAwareTopicJudgeEngine(
+                base_url=settings.deep_judge_base_url or "",
+                model=settings.deep_judge_model or "",
+                api_key_env_var=settings.deep_judge_api_key_env_var,
+                request_options=_deepseek_options(
+                    settings.deep_judge_base_url or ""
+                ),
+            )
+        )
+    if settings.grounding_model and settings.nvidia_base_url:
+        deep_judges.append(
+            ContextualGroundingJudgeEngine(
+                base_url=settings.nvidia_base_url,
+                model=settings.grounding_model,
+                api_key_env_var=settings.nvidia_api_key_env_var,
+            )
+        )
+    elif generic_deep_judge:
+        deep_judges.append(
+            ContextualGroundingJudgeEngine(
+                base_url=settings.deep_judge_base_url or "",
+                model=settings.deep_judge_model or "",
+                api_key_env_var=settings.deep_judge_api_key_env_var,
+                request_options=_deepseek_options(
+                    settings.deep_judge_base_url or ""
+                ),
+            )
+        )
+    if settings.automated_reasoning_endpoint_url:
+        deep_judges.append(
+            AutomatedReasoningPolicyEngine(
+                HTTPAutomatedReasoningProvider(
+                    endpoint_url=settings.automated_reasoning_endpoint_url,
+                    api_key_env_var=settings.automated_reasoning_api_key_env_var,
+                )
+            )
+        )
     if deep_judges:
         stages.append(RiskAwareStageRouter("deep_judge", tuple(deep_judges)))
-    return ProgressiveGuardrailsEngine(tuple(stages))
+    return ModularGuardrailsEngine(tuple(stages))
 
 
 def create_app(
@@ -73,7 +131,18 @@ def create_app(
             configured.content_safety_model and configured.nvidia_base_url
         ),
         deep_judge_configured=bool(
-            configured.topic_control_model and configured.nvidia_base_url
+            _deep_judge_configured(configured)
+            or (
+                (
+                    configured.topic_control_model
+                    or configured.grounding_model
+                )
+                and configured.nvidia_base_url
+            )
+            or configured.automated_reasoning_endpoint_url
+        ),
+        automated_reasoning_configured=bool(
+            configured.automated_reasoning_endpoint_url
         ),
     )
     runtime_engine = engine or create_engine(configured)
@@ -95,7 +164,7 @@ def create_app(
 
     app = FastAPI(
         title="TaskLattice Model Guardrails",
-        version="0.2.0",
+        version="0.0.1",
         docs_url=None,
         redoc_url=None,
     )
@@ -133,6 +202,23 @@ def _intent_analyzer(settings: Settings) -> IntentAnalyzer | None:
         model=settings.control_plane_ai_model,
         api_key_env_var=settings.control_plane_ai_api_key_env_var,
     )
+
+
+def _deepseek_options(
+    base_url: str,
+    *,
+    json_output: bool = False,
+) -> dict[str, object]:
+    if urlsplit(base_url).hostname != "api.deepseek.com":
+        return {}
+    options: dict[str, object] = {"thinking": {"type": "disabled"}}
+    if json_output:
+        options["response_format"] = {"type": "json_object"}
+    return options
+
+
+def _deep_judge_configured(settings: Settings) -> bool:
+    return bool(settings.deep_judge_model and settings.deep_judge_base_url)
 
 
 app = create_app()

@@ -68,6 +68,7 @@ class DeepSeekIntentAnalyzer:
                         "temperature": 0,
                         "max_tokens": 1_200,
                         "response_format": {"type": "json_object"},
+                        "thinking": {"type": "disabled"},
                         "messages": [
                             {
                                 "role": "system",

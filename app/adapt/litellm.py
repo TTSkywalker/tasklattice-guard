@@ -6,8 +6,8 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..control_plane.domain import (
-    Gateway,
-    GatewayAuthenticationError,
+    Integration,
+    IntegrationAuthenticationError,
     ControlPlaneError,
 )
 from ..control_plane.service import ControlPlaneService
@@ -67,40 +67,40 @@ class LiteLLMAdapter:
             request: LiteLLMGuardrailRequest,
             x_api_key: str | None = Header(default=None),
         ) -> LiteLLMGuardrailResponse:
-            gateway = self._authorize(x_api_key)
+            integration = self._authorize(x_api_key)
             try:
                 decision = await self._service.evaluate(
-                    self._to_engine_request(request, gateway)
+                    self._to_engine_request(request, integration)
                 )
             except ControlPlaneError:
-                self._control_plane.record_gateway_activity(gateway.id, success=True)
+                self._control_plane.record_integration_activity(integration.id, success=True)
                 return LiteLLMGuardrailResponse(
                     action="BLOCKED",
-                    blocked_reason="No Protected Workload matches this request.",
+                    blocked_reason="No Assignment matches this request.",
                 )
             except Exception:
-                self._control_plane.record_gateway_activity(gateway.id, success=False)
+                self._control_plane.record_integration_activity(integration.id, success=False)
                 raise
-            self._control_plane.record_gateway_activity(gateway.id, success=True)
+            self._control_plane.record_integration_activity(integration.id, success=True)
             self._control_plane.record_decision(
                 outcome=decision.decision,
-                profile_id=decision.profile_id,
-                workload_id=decision.workload_id,
+                guardrail_id=decision.guardrail_id,
+                assignment_id=decision.assignment_id,
                 risk=decision.findings[0].risk if decision.findings else None,
                 detail=decision.reason or "Model interaction evaluated.",
             )
             return self._to_litellm_response(decision)
 
-    def _authorize(self, api_key: str | None) -> Gateway:
+    def _authorize(self, api_key: str | None) -> Integration:
         try:
-            return self._control_plane.authenticate_gateway(api_key, "litellm")
-        except GatewayAuthenticationError as error:
+            return self._control_plane.authenticate_integration(api_key, "litellm")
+        except IntegrationAuthenticationError as error:
             raise HTTPException(status_code=401, detail="Unauthorized.") from error
 
     @staticmethod
     def _to_engine_request(
         request: LiteLLMGuardrailRequest,
-        gateway: Gateway,
+        integration: Integration,
     ) -> EvaluationRequest:
         headers = {
             str(key).lower(): str(value)
@@ -132,12 +132,12 @@ class LiteLLMAdapter:
                 )
                 if fields.get(key)
             ),
-            gateway.id,
+            integration.id,
         )
         fields.update(
             {
                 "protocol": "litellm",
-                "integration.id": gateway.id,
+                "integration.id": integration.id,
                 "auth.principal": principal,
                 "model": str(request.model or request.request_data.get("model") or ""),
                 "litellm.operation": request.input_type,
@@ -153,13 +153,13 @@ class LiteLLMAdapter:
             phase="input" if request.input_type == "request" else "output",
             texts=tuple(request.texts or ()),
             context=RequestContext(
-                gateway="litellm",
-                gateway_id=gateway.id,
+                protocol="litellm",
+                integration_id=integration.id,
                 headers=tuple(sorted(headers.items())),
                 fields=tuple(sorted(fields.items())),
             ),
             call_id=(
-                f"{gateway.id}:{request.litellm_call_id}"
+                f"{integration.id}:{request.litellm_call_id}"
                 if request.litellm_call_id
                 else None
             ),

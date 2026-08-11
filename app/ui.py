@@ -17,7 +17,14 @@ class ControlPlaneStaticFiles(StaticFiles):
                 error.status_code != 404
                 or not _accepts_html(scope)
                 or path.split("/", 1)[0]
-                not in {"playground", "governance", "system"}
+                not in {
+                    "guardrails",
+                    "assignments",
+                    "enforcements",
+                    "integrations",
+                    "evidence",
+                    "access",
+                }
             ):
                 raise
             return await super().get_response("index.html", scope)

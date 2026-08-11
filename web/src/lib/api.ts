@@ -1,13 +1,47 @@
 export type SafetyLevel = "balanced" | "strict";
 export type OutputDelivery = "interruptible" | "window_buffered" | "full_buffered";
-export type Decision = "allow" | "transform" | "block";
-export type TargetSource = "user_input" | "retrieved_content" | "tool_output";
+export type TargetSource = "user_input" | "retrieved_content" | "tool_output" | "model_output";
+
+export type GroundingFilterAssessment = {
+  type: "grounding" | "relevance";
+  score: number;
+  threshold: number;
+  detected: boolean;
+};
+
+export type GroundingClaimEvidence = {
+  id: string;
+  claim: string;
+  support: "supported" | "unsupported" | "uncertain";
+  confidence: number;
+  source_block_ids: string[];
+  rationale: string;
+};
+
+export type AutomatedReasoningResult = "valid" | "invalid" | "satisfiable" | "impossible" | "translation_ambiguous" | "too_complex" | "no_translations";
+
+export type AutomatedReasoningFinding = {
+  id: string;
+  result: AutomatedReasoningResult;
+  confidence: number;
+  translation?: { premises: string[]; claims: string[]; untranslated: string[] } | null;
+  supporting_rules: Array<{ id: string; expression: string; description: string }>;
+  contradicting_rules: Array<{ id: string; expression: string; description: string }>;
+  claims_true_scenario?: { assignments: Array<[string, string]> } | null;
+  claims_false_scenario?: { assignments: Array<[string, string]> } | null;
+  message: string;
+};
 
 export type Collection<T> = { items: T[]; count: number };
 
-export type SafeProtection = {
+export type GuardrailControl = {
   risk: string;
   action: string;
+  reasoning_policy?: {
+    policy_id: string;
+    policy_version: string;
+    confidence_threshold: number;
+  } | null;
 };
 
 export type EvaluationMetrics = {
@@ -27,6 +61,9 @@ export type EvaluationFinding = {
   evidence: string;
   recommended_action: string;
   replacement?: string | null;
+  grounding?: GroundingFilterAssessment[];
+  claims?: GroundingClaimEvidence[];
+  reasoning?: AutomatedReasoningFinding[];
 };
 
 export type EvaluationTraceStep = {
@@ -61,11 +98,17 @@ export type EvaluationCaseResult = {
   trace: EvaluationTraceStep[];
   trusted_instruction: string;
   target_source: TargetSource;
+  query: string;
+  grounding_sources: string[];
+  expected_reasoning_result: AutomatedReasoningResult | null;
+  actual_reasoning_result: AutomatedReasoningResult | null;
 };
 
 export type TestRun = {
   id: string;
-  safe_id: string;
+  guardrail_id: string;
+  guardrail_version: number | null;
+  source_draft_version: number;
   status: "passed" | "failed" | "incomplete";
   metrics: EvaluationMetrics;
   results: EvaluationCaseResult[];
@@ -74,7 +117,7 @@ export type TestRun = {
 
 export type TestCase = {
   id: string;
-  safe_id: string;
+  guardrail_id: string;
   name: string;
   risk: string;
   phase: "input" | "output";
@@ -84,6 +127,9 @@ export type TestCase = {
   updated_at: string;
   trusted_instruction: string;
   target_source: TargetSource;
+  query: string;
+  grounding_sources: string[];
+  expected_reasoning_result: AutomatedReasoningResult | null;
 };
 
 export type RiskCoverage = {
@@ -93,57 +139,50 @@ export type RiskCoverage = {
   score: number | null;
 };
 
-export type Workload = {
+export type GuardrailAssignment = {
   id: string;
   name: string;
-  safe_id: string;
-  safe_revision: number;
-  filter: WorkloadFilterExpression;
+  guardrail_id: string;
+  guardrail_version: number;
+  traffic_scope: TrafficScopeExpression;
   enabled: boolean;
+  is_default: boolean;
+  system_managed: boolean;
   updated_at: string;
 };
 
-export type WorkloadFilterSource = "field" | "header" | "jwt_claim";
-export type WorkloadFilterOperator = "equals" | "contains" | "starts_with" | "glob";
+export type TrafficScopeSource = "field" | "header" | "jwt_claim";
+export type TrafficScopeOperator = "equals" | "contains" | "starts_with" | "glob";
 
-export type WorkloadFilterRule = {
+export type TrafficScopeRule = {
   field: string;
   key?: string;
-  operator: WorkloadFilterOperator;
+  operator: TrafficScopeOperator;
   value: string;
 };
 
-export type WorkloadFilterExpression = {
+export type TrafficScopeExpression = {
   combinator: "and" | "or";
-  rules: Array<WorkloadFilterRule | WorkloadFilterExpression>;
+  rules: Array<TrafficScopeRule | TrafficScopeExpression>;
 };
 
-export type WorkloadFilterField = {
+export type TrafficScopeField = {
   id: string;
   group: "request" | "authentication" | "http" | "model" | "litellm" | "a2a";
-  source: WorkloadFilterSource;
+  source: TrafficScopeSource;
   key: string;
-  operators: WorkloadFilterOperator[];
+  operators: TrafficScopeOperator[];
   values: string[];
   custom_key?: boolean;
 };
 
-export type WorkloadBinding = {
-  id: string;
-  workload_id: string;
-  safe_id: string;
-  safe_revision: number;
-  enabled: boolean;
-  updated_at: string;
-};
-
-export type Safe = {
+export type Guardrail = {
   id: string;
   name: string;
   purpose: string;
   allowed_topics: string[];
   restricted_topics: string[];
-  protections: SafeProtection[];
+  controls: GuardrailControl[];
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
   source_template_id: string | null;
@@ -151,20 +190,33 @@ export type Safe = {
   updated_at: string;
   status: "needs_testing" | "ready" | "protected";
   latest_test_run: TestRun | null;
-  workload_count: number;
+  assignment_count: number;
   test_case_count: number;
   tested_current: boolean;
+  is_default: boolean;
+  system_managed: boolean;
+  local_only: boolean;
   coverage: RiskCoverage[];
 };
 
-export type SafeTemplate = {
+export type GuardrailVersion = {
+  guardrail_id: string;
+  version: number;
+  source_draft_version: number;
+  compiler_version: string;
+  plan_checksum: string;
+  created_at: string;
+  active: boolean;
+};
+
+export type GuardrailTemplate = {
   id: string;
   name: string;
   description: string;
   purpose: string;
   allowed_topics: string[];
   restricted_topics: string[];
-  protections: SafeProtection[];
+  default_controls: GuardrailControl[];
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
   source?: string;
@@ -184,7 +236,7 @@ export type SafeTemplate = {
   }>;
 };
 
-export type ProtectionDefinition = {
+export type ControlDefinition = {
   id: string;
   display_name: string;
   description: string;
@@ -198,7 +250,7 @@ export type ProtectionDefinition = {
 
 export type Integration = {
   id: string;
-  type: "litellm" | "http" | "a2a";
+  protocol: "litellm" | "http" | "a2a";
   name: string;
   description: string;
   environment: string;
@@ -218,21 +270,22 @@ export type DecisionEvent = {
   created_at: string;
   kind: string;
   outcome: string;
-  safe_id: string | null;
-  workload_id: string | null;
+  guardrail_id: string | null;
+  assignment_id: string | null;
   risk: string | null;
   detail: string;
 };
 
 export type SystemStatus = {
   status: "healthy" | "degraded";
-  active_workloads: number;
-  online_gateways: number;
-  total_gateways: number;
+  active_assignments: number;
+  online_integrations: number;
+  total_integrations: number;
   capabilities: {
     deterministic: boolean;
     fast_semantic: boolean;
     deep_judge: boolean;
+    automated_reasoning: boolean;
   };
 };
 
@@ -245,10 +298,10 @@ export type Metrics = {
   block_rate: number;
   intervention_rate: number;
   latest_test_p95_ms: number;
-  active_workloads: number;
-  total_workloads: number;
-  safes_needing_test: number;
-  total_safes: number;
+  active_assignments: number;
+  total_assignments: number;
+  guardrails_needing_test: number;
+  total_guardrails: number;
   degraded_integrations: number;
   total_integrations: number;
   risk_counts: Array<{ risk: string; count: number }>;
@@ -271,24 +324,6 @@ export type IdentityUser = {
 export type AuthStatus = { setup_required: boolean; authenticated: boolean; user: IdentityUser | null };
 export type IntentAnalysisStatus = { available: boolean; provider: string | null; model: string | null };
 export type IntentAnalysis = { summary: string; allowed_topics: string[]; restricted_topics: string[]; review_notes: string[] };
-
-export type PlaygroundMessage = { role: "user" | "assistant"; content: string };
-export type PlaygroundEvaluation = {
-  id: string;
-  decision: Decision;
-  action: string;
-  reason: string | null;
-  content: string;
-  role: "user" | "assistant";
-  phase: "input" | "output";
-  safe_id: string;
-  safe_name: string;
-  safe_version: "current";
-  target_source: TargetSource;
-  evaluated_context_count: number;
-  findings: EvaluationFinding[];
-  trace: EvaluationTraceStep[];
-};
 
 async function read<T>(path: string): Promise<T> { return parse<T>(await fetch(path)); }
 async function mutate<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -326,32 +361,28 @@ export const getUsers = () => read<{ users: IdentityUser[] }>("/api/v1/users");
 export const createUser = (input: { display_name: string; email: string; password: string; role: IdentityRole; preferred_language: "en" | "zh-CN" }) => mutate<IdentityUser>("/api/v1/users", "POST", input);
 export const updateUser = (id: string, input: { display_name?: string; role?: IdentityRole; enabled?: boolean; password?: string }) => mutate<IdentityUser>(`/api/v1/users/${encodeURIComponent(id)}`, "PATCH", input);
 
-export const getSafes = () => read<Collection<Safe>>("/api/v1/safes");
-export const getSafe = (id: string) => read<Safe>(`/api/v1/safes/${encodeURIComponent(id)}`);
-export const createSafe = (input: { name: string; purpose?: string; template_id?: string; template_parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; protections?: SafeProtection[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Safe>("/api/v1/safes", "POST", input);
-export const updateSafe = (id: string, input: Partial<Pick<Safe, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "protections" | "safety_level" | "output_delivery">>) => mutate<Safe>(`/api/v1/safes/${encodeURIComponent(id)}`, "PATCH", input);
+export const getGuardrails = () => read<Collection<Guardrail>>("/api/v1/guardrails");
+export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
+export const createGuardrail = (input: { name: string; purpose?: string; template_id?: string; template_parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
+export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "controls" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
+export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
 
-export const getSafeTemplates = () => read<Collection<SafeTemplate>>("/api/v1/safe-templates");
-export const getProtectionDefinitions = () => read<Collection<ProtectionDefinition>>("/api/v1/protection-definitions");
+export const getGuardrailTemplates = () => read<Collection<GuardrailTemplate>>("/api/v1/guardrail-templates");
+export const getControlDefinitions = () => read<Collection<ControlDefinition>>("/api/v1/control-definitions");
 export const getIntentAnalysisStatus = () => read<IntentAnalysisStatus>("/api/v1/intent-analysis-status");
-export const analyzeSafeIntent = (input: { purpose: string; language: "en" | "zh-CN" }) => mutate<IntentAnalysis>("/api/v1/intent-analyses", "POST", input);
+export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" | "zh-CN" }) => mutate<IntentAnalysis>("/api/v1/intent-analyses", "POST", input);
 
-export const getTestRuns = (safeId?: string) => read<Collection<TestRun>>(`/api/v1/test-runs${query({ safe_id: safeId })}`);
-export const createTestRun = (safeId: string) => mutate<TestRun>("/api/v1/test-runs", "POST", { safe_id: safeId });
-export const getTestCases = (safeId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ safe_id: safeId })}`);
-export const createTestCase = (safeId: string, input: Pick<TestCase, "name" | "risk" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source">) => mutate<TestCase>("/api/v1/test-cases", "POST", { safe_id: safeId, ...input });
+export const createTestRun = (guardrailId: string) => mutate<TestRun>("/api/v1/test-runs", "POST", { guardrail_id: guardrailId });
+export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
+export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "risk" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
 export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");
 
-export const createEvaluation = (input: { safe_id: string; role: "user" | "assistant"; content: string; messages: PlaygroundMessage[]; target_source?: TargetSource }) => mutate<PlaygroundEvaluation>("/api/v1/evaluations", "POST", input);
-
-export const getWorkloads = () => read<Collection<Workload>>("/api/v1/workloads");
-export const getWorkloadFilterFields = () => read<Collection<WorkloadFilterField>>("/api/v1/workload-filter-fields");
-export const createWorkload = (input: { name: string; safe_id: string; filter: WorkloadFilterExpression; enabled: boolean }) => mutate<Workload>("/api/v1/workloads", "POST", input);
-export const setWorkloadEnabled = (id: string, enabled: boolean) => mutate<Workload>(`/api/v1/workloads/${encodeURIComponent(id)}`, "PATCH", { enabled });
-export const getWorkloadBindings = (filters: { safeId?: string; workloadId?: string } = {}) => read<Collection<WorkloadBinding>>(`/api/v1/workload-bindings${query({ safe_id: filters.safeId, workload_id: filters.workloadId })}`);
-
+export const getAssignments = () => read<Collection<GuardrailAssignment>>("/api/v1/assignments");
+export const getTrafficScopeFields = () => read<Collection<TrafficScopeField>>("/api/v1/traffic-scope-fields");
+export const createAssignment = (input: { name: string; guardrail_id: string; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<GuardrailAssignment>("/api/v1/assignments", "POST", input);
+export const setAssignmentEnabled = (id: string, enabled: boolean) => mutate<GuardrailAssignment>(`/api/v1/assignments/${encodeURIComponent(id)}`, "PATCH", { enabled });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
-export const createIntegration = (input: { name: string; description: string; environment: "production" | "staging" | "development" | "test"; protocol: "litellm" | "http" | "a2a" }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", input);
-export const getDecisions = (filters: { limit?: number; safeId?: string; workloadId?: string; outcome?: string; risk?: string } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, safe_id: filters.safeId, workload_id: filters.workloadId, outcome: filters.outcome, risk: filters.risk })}`);
+export const createIntegration = (input: { name: string; environment: "production" | "staging" | "development" | "test"; protocol: "litellm" | "http" | "a2a" }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", input);
+export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; outcome?: string; risk?: string } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, outcome: filters.outcome, risk: filters.risk })}`);
 export const getMetrics = () => read<Metrics>("/api/v1/metrics");
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

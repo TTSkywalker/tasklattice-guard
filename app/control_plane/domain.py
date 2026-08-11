@@ -4,23 +4,30 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ..engine.contracts import (
+    AutomatedReasoningResult,
     EnforcementAction,
     EvaluationTraceStep,
     GuardrailPhase,
     GuardrailPlanSnapshot,
     OutputDeliveryMode,
+    ControlModule,
     SafetyLevel,
 )
 
 
-ProfileStatus = Literal["needs_testing", "ready", "protected"]
+GuardrailStatus = Literal["needs_testing", "ready", "protected"]
 EvaluationRunStatus = Literal["passed", "failed", "incomplete"]
 TestCaseOrigin = Literal["generated", "custom"]
-TestTargetSource = Literal["user_input", "retrieved_content", "tool_output"]
+TestTargetSource = Literal[
+    "user_input",
+    "retrieved_content",
+    "tool_output",
+    "model_output",
+]
 
 
 @dataclass(frozen=True, slots=True)
-class ProtectionDefinition:
+class ControlDefinition:
     id: str
     display_name: str
     description: str
@@ -30,10 +37,11 @@ class ProtectionDefinition:
     allowed_actions: tuple[EnforcementAction, ...]
     available_stages: tuple[str, ...]
     limitations: tuple[str, ...]
+    module: ControlModule
 
 
 @dataclass(frozen=True, slots=True)
-class TemplateRisk:
+class TemplateControl:
     risk: str
     action: EnforcementAction
 
@@ -49,14 +57,14 @@ class TemplateParameterDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class SafetyTemplate:
+class GuardrailTemplate:
     id: str
     name: str
     description: str
     purpose: str
     allowed_topics: tuple[str, ...]
     restricted_topics: tuple[str, ...]
-    risks: tuple[TemplateRisk, ...]
+    default_controls: tuple[TemplateControl, ...]
     safety_level: SafetyLevel
     output_delivery: OutputDeliveryMode
     source: str = "TaskLattice"
@@ -70,31 +78,41 @@ class SafetyTemplate:
 
 
 @dataclass(frozen=True, slots=True)
-class ProfileRisk:
+class GuardrailControl:
     risk: str
     action: EnforcementAction
+    reasoning_policy: AutomatedReasoningPolicyBinding | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class SafetyProfile:
+class AutomatedReasoningPolicyBinding:
+    """Draft-time binding to an externally deployed immutable policy version."""
+
+    policy_id: str
+    policy_version: str
+    confidence_threshold: float = 0.8
+
+
+@dataclass(frozen=True, slots=True)
+class Guardrail:
     id: str
     name: str
     purpose: str
     allowed_topics: tuple[str, ...]
     restricted_topics: tuple[str, ...]
-    risks: tuple[ProfileRisk, ...]
+    controls: tuple[GuardrailControl, ...]
     safety_level: SafetyLevel
     output_delivery: OutputDeliveryMode
     source_template_id: str | None
     template_parameters: tuple[tuple[str, str], ...]
     draft_version: int
-    active_revision: int | None
+    active_version: int | None
     updated_at: str
 
 @dataclass(frozen=True, slots=True)
-class ProfileRevision:
-    profile_id: str
-    revision: int
+class GuardrailVersion:
+    guardrail_id: str
+    version: int
     source_draft_version: int
     compiler_version: str
     plan_checksum: str
@@ -103,7 +121,7 @@ class ProfileRevision:
 
 
 @dataclass(frozen=True, slots=True)
-class WorkloadFilterRule:
+class TrafficScopeRule:
     field: str
     operator: str
     value: str
@@ -111,24 +129,24 @@ class WorkloadFilterRule:
 
 
 @dataclass(frozen=True, slots=True)
-class WorkloadFilterExpression:
+class TrafficScopeExpression:
     combinator: str
-    rules: tuple[WorkloadFilterRule | WorkloadFilterExpression, ...]
+    rules: tuple[TrafficScopeRule | TrafficScopeExpression, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class ProtectedWorkload:
+class GuardrailAssignment:
     id: str
     name: str
-    profile_id: str
-    profile_revision: int
-    filter: WorkloadFilterExpression
+    guardrail_id: str
+    guardrail_version: int
+    traffic_scope: TrafficScopeExpression
     enabled: bool
     updated_at: str
 
 
 @dataclass(frozen=True, slots=True)
-class Gateway:
+class Integration:
     id: str
     protocol: str
     name: str
@@ -146,8 +164,8 @@ class Gateway:
 
 
 @dataclass(frozen=True, slots=True)
-class GatewayRegistration:
-    gateway: Gateway
+class IntegrationRegistration:
+    integration: Integration
     credential: str
 
 
@@ -161,12 +179,15 @@ class EvaluationCase:
     expected_decision: str
     trusted_instruction: str = ""
     target_source: TestTargetSource = "user_input"
+    query: str = ""
+    grounding_sources: tuple[str, ...] = ()
+    expected_reasoning_result: AutomatedReasoningResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class ProfileTestCase:
+class GuardrailTestCase:
     id: str
-    profile_id: str
+    guardrail_id: str
     name: str
     risk: str
     phase: GuardrailPhase
@@ -176,6 +197,9 @@ class ProfileTestCase:
     updated_at: str
     trusted_instruction: str = ""
     target_source: TestTargetSource = "user_input"
+    query: str = ""
+    grounding_sources: tuple[str, ...] = ()
+    expected_reasoning_result: AutomatedReasoningResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +221,10 @@ class EvaluationCaseResult:
     trace: tuple[dict[str, object], ...] = ()
     trusted_instruction: str = ""
     target_source: TestTargetSource = "user_input"
+    query: str = ""
+    grounding_sources: tuple[str, ...] = ()
+    expected_reasoning_result: AutomatedReasoningResult | None = None
+    actual_reasoning_result: AutomatedReasoningResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,8 +241,8 @@ class EvaluationMetrics:
 @dataclass(frozen=True, slots=True)
 class EvaluationRun:
     id: str
-    profile_id: str
-    profile_revision: int | None
+    guardrail_id: str
+    guardrail_version: int | None
     source_draft_version: int
     status: EvaluationRunStatus
     metrics: EvaluationMetrics
@@ -228,14 +256,14 @@ class DecisionEvent:
     created_at: str
     kind: str
     outcome: str
-    profile_id: str | None
-    workload_id: str | None
+    guardrail_id: str | None
+    assignment_id: str | None
     risk: str | None
     detail: str
 
 
 @dataclass(frozen=True, slots=True)
-class ProfileEvaluation:
+class GuardrailEvaluation:
     decision: str
     action: str
     content: str
@@ -265,12 +293,12 @@ class PlanResolutionError(ControlPlaneError):
     pass
 
 
-class GatewayAuthenticationError(ControlPlaneError):
+class IntegrationAuthenticationError(ControlPlaneError):
     pass
 
 
 @dataclass(frozen=True, slots=True)
-class TestedProfileVersion:
-    profile: SafetyProfile
-    revision: ProfileRevision
+class TestedGuardrailVersion:
+    guardrail: Guardrail
+    version: GuardrailVersion
     plan: GuardrailPlanSnapshot

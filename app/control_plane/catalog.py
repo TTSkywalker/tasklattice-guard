@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from ..policy_packs.litellm import policy_templates
 from .domain import (
-    ProtectionDefinition,
-    SafetyTemplate,
+    ControlDefinition,
+    GuardrailTemplate,
     TemplateParameterDefinition,
-    TemplateRisk,
+    TemplateControl,
 )
 
 
-PROTECTIONS: tuple[ProtectionDefinition, ...] = (
-    ProtectionDefinition(
+CONTROL_DEFINITIONS: tuple[ControlDefinition, ...] = (
+    ControlDefinition(
         id="secrets",
         display_name="Secrets & credentials",
         description="Detect API keys, bearer tokens, private keys, and credential-like values.",
@@ -20,8 +20,9 @@ PROTECTIONS: tuple[ProtectionDefinition, ...] = (
         allowed_actions=("reject", "redact"),
         available_stages=("deterministic",),
         limitations=("Only high-confidence structured credentials are detected locally.",),
+        module="data_protection",
     ),
-    ProtectionDefinition(
+    ControlDefinition(
         id="pii",
         display_name="Personal information",
         description="Prevent personal identifiers and customer data from entering or leaving the model boundary.",
@@ -31,8 +32,9 @@ PROTECTIONS: tuple[ProtectionDefinition, ...] = (
         allowed_actions=("redact", "reject", "rewrite"),
         available_stages=("deterministic", "fast_semantic"),
         limitations=("Semantic PII detection requires a configured Fast Semantic evaluator.",),
+        module="data_protection",
     ),
-    ProtectionDefinition(
+    ControlDefinition(
         id="prompt_injection",
         display_name="Prompt injection",
         description="Detect attempts to override instructions, extract prompts, or redirect model behavior.",
@@ -42,8 +44,9 @@ PROTECTIONS: tuple[ProtectionDefinition, ...] = (
         allowed_actions=("reject", "redirect"),
         available_stages=("fast_semantic", "deep_judge"),
         limitations=("Detection quality depends on evaluator configuration and language coverage.",),
+        module="interaction_safety",
     ),
-    ProtectionDefinition(
+    ControlDefinition(
         id="jailbreak",
         display_name="Jailbreak",
         description="Detect adversarial attempts to bypass safety and policy constraints.",
@@ -53,8 +56,9 @@ PROTECTIONS: tuple[ProtectionDefinition, ...] = (
         allowed_actions=("reject", "redirect"),
         available_stages=("fast_semantic", "deep_judge"),
         limitations=("Novel attacks may require contextual Deep Judge review.",),
+        module="interaction_safety",
     ),
-    ProtectionDefinition(
+    ControlDefinition(
         id="content_safety",
         display_name="Unsafe content",
         description="Classify harmful, violent, sexual, self-harm, and hateful model interactions.",
@@ -64,8 +68,9 @@ PROTECTIONS: tuple[ProtectionDefinition, ...] = (
         allowed_actions=("reject", "rewrite", "regenerate"),
         available_stages=("fast_semantic",),
         limitations=("Classification is evaluator- and locale-dependent.",),
+        module="interaction_safety",
     ),
-    ProtectionDefinition(
+    ControlDefinition(
         id="topic_control",
         display_name="Topic boundary",
         description="Keep interactions within the declared purpose, allowed topics, and restrictions.",
@@ -77,8 +82,9 @@ PROTECTIONS: tuple[ProtectionDefinition, ...] = (
         limitations=(
             "Explicit allowed and restricted topics are enforced locally; ambiguous intent requires an optional Deep Judge.",
         ),
+        module="business_assurance",
     ),
-    ProtectionDefinition(
+    ControlDefinition(
         id="company_policy",
         display_name="Organization policy",
         description="Judge interaction compliance against organization-specific safety intent.",
@@ -88,39 +94,71 @@ PROTECTIONS: tuple[ProtectionDefinition, ...] = (
         allowed_actions=("reject", "redact", "rewrite", "regenerate"),
         available_stages=("deep_judge",),
         limitations=("Requires a configured Deep Judge and reviewed policy language.",),
+        module="business_assurance",
     ),
-    ProtectionDefinition(
+    ControlDefinition(
+        id="contextual_grounding",
+        display_name="Contextual grounding",
+        description="Check that model output is supported by supplied sources and relevant to the user query.",
+        domain="Response assurance",
+        default_phases=("output",),
+        default_action="regenerate",
+        allowed_actions=("regenerate", "rewrite", "reject"),
+        available_stages=("deep_judge",),
+        limitations=(
+            "Requires query, grounding_source, and model_output Content Blocks plus a configured grounding evaluator.",
+            "Designed for source-grounded summarization and question answering, not open-domain truth verification.",
+        ),
+        module="business_assurance",
+    ),
+    ControlDefinition(
+        id="automated_reasoning",
+        display_name="Automated reasoning",
+        description="Validate complete model responses against a deployed formal policy and return proof-oriented findings.",
+        domain="Response assurance",
+        default_phases=("output",),
+        default_action="rewrite",
+        allowed_actions=("rewrite", "reject"),
+        available_stages=("deep_judge",),
+        limitations=(
+            "Requires a deployed immutable policy version and a configured Automated Reasoning provider.",
+            "Validation is detection-only, policy-scoped, and requires complete non-streaming output.",
+        ),
+        module="business_assurance",
+    ),
+    ControlDefinition(
         id="builtin_content_filter",
         display_name="Built-in content filter policy",
-        description="Run a locally bundled LiteLLM content-filter policy without Gateway-side templates.",
+        description="Run a locally bundled LiteLLM content-filter policy without Integration-side templates.",
         domain="Built-in policy",
         default_phases=("input", "output"),
         default_action="reject",
         allowed_actions=("reject",),
         available_stages=("deterministic",),
         limitations=("Coverage is limited to the patterns, keywords, and categories bundled with the selected template version.",),
+        module="interaction_safety",
     ),
 )
 
 
-def protection(risk: str) -> ProtectionDefinition:
-    return next(item for item in PROTECTIONS if item.id == risk)
+def control(risk: str) -> ControlDefinition:
+    return next(item for item in CONTROL_DEFINITIONS if item.id == risk)
 
 
-def safety_template(template_id: str) -> SafetyTemplate:
-    return next(item for item in safety_templates() if item.id == template_id)
+def guardrail_template(template_id: str) -> GuardrailTemplate:
+    return next(item for item in guardrail_templates() if item.id == template_id)
 
 
-def safety_templates() -> tuple[SafetyTemplate, ...]:
+def guardrail_templates() -> tuple[GuardrailTemplate, ...]:
     return tuple(
-        SafetyTemplate(
+        GuardrailTemplate(
             id=item.id,
             name=item.display_name,
             description=item.description,
             purpose=item.description,
             allowed_topics=(),
             restricted_topics=(),
-            risks=(TemplateRisk("builtin_content_filter", "reject"),),
+            default_controls=(TemplateControl("builtin_content_filter", "reject"),),
             safety_level="balanced",
             output_delivery="window_buffered",
             source=item.source,

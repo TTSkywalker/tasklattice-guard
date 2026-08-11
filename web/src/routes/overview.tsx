@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Activity, ArrowRight, Clock3, Gauge, MessageSquareText, ShieldAlert, ShieldCheck, Workflow } from "lucide-react";
+import { Activity, ArrowRight, Clock3, Gauge, ListFilter, ShieldAlert, ShieldCheck, Workflow } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useTranslation } from "react-i18next";
 
@@ -11,16 +11,16 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryKeys } from "@/features/query-keys";
-import { getDecisions, getIntegrations, getMetrics, getSafes, getWorkloads, type DecisionEvent, type Metrics } from "@/lib/api";
+import { getDecisions, getIntegrations, getMetrics, getGuardrails, getAssignments, type DecisionEvent, type Metrics } from "@/lib/api";
 
 export function OverviewPage() {
   const { t, i18n } = useTranslation();
   const metrics = useQuery({ queryKey: queryKeys.metrics, queryFn: getMetrics, refetchInterval: 15_000 });
   const decisions = useQuery({ queryKey: queryKeys.decisions, queryFn: () => getDecisions({ limit: 8 }), refetchInterval: 15_000 });
-  const safes = useQuery({ queryKey: queryKeys.safes, queryFn: getSafes });
-  const workloads = useQuery({ queryKey: queryKeys.workloads, queryFn: getWorkloads });
+  const guardrails = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
+  const assignments = useQuery({ queryKey: queryKeys.assignments, queryFn: getAssignments });
   const integrations = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations });
-  const error = metrics.error || decisions.error || safes.error || workloads.error || integrations.error;
+  const error = metrics.error || decisions.error || guardrails.error || assignments.error || integrations.error;
 
   return (
     <section className="py-6 sm:py-8">
@@ -30,8 +30,8 @@ export function OverviewPage() {
         description={t("overview.description")}
         action={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" asChild><Link to="/governance/safes"><ShieldCheck />{t("overview.manageSafes")}</Link></Button>
-            <Button asChild><Link to="/playground"><MessageSquareText />{t("overview.openPlayground")}</Link></Button>
+            <Button variant="outline" asChild><Link to="/guardrails"><ShieldCheck />{t("overview.manageGuardrails")}</Link></Button>
+            <Button asChild><Link to="/assignments"><ListFilter />{t("overview.manageAssignments")}</Link></Button>
           </div>
         }
       />
@@ -43,7 +43,7 @@ export function OverviewPage() {
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={t("overview.allRecordedTraffic")} />
             <Kpi icon={ShieldAlert} label={t("overview.blockRate")} value={`${metrics.data.block_rate}%`} detail={t("overview.blockedCount", { count: metrics.data.blocked })} tone={metrics.data.block_rate > 10 ? "warning" : "default"} />
-            <Kpi icon={Workflow} label={t("overview.activeWorkloads")} value={`${metrics.data.active_workloads}/${metrics.data.total_workloads}`} detail={t("overview.protectedScope")} />
+            <Kpi icon={Workflow} label={t("overview.activeAssignments")} value={`${metrics.data.active_assignments}/${metrics.data.total_assignments}`} detail={t("overview.protectedScope")} />
             <Kpi icon={Clock3} label={t("overview.testP95")} value={`${metrics.data.latest_test_p95_ms} ms`} detail={t("overview.latestFormalRun")} />
           </div>
 
@@ -57,16 +57,15 @@ export function OverviewPage() {
             <RecentEvidence items={decisions.data?.items ?? []} />
           </div>
 
-          {!metrics.data.total_safes || !metrics.data.total_workloads ? (
+          {!metrics.data.total_guardrails || !metrics.data.total_assignments ? (
             <Card className="mt-4 border-dashed shadow-none">
               <CardHeader>
                 <CardTitle>{t("overview.getStartedTitle")}</CardTitle>
                 <CardDescription>{t("overview.getStartedDescription")}</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-2">
-                {!metrics.data.total_safes ? <Button asChild><Link to="/governance/safes">{t("overview.createFirstSafe")}<ArrowRight /></Link></Button> : null}
-                {metrics.data.total_safes ? <Button asChild><Link to="/playground">{t("overview.testCurrentSafe")}<ArrowRight /></Link></Button> : null}
-                {!metrics.data.total_workloads && metrics.data.total_safes ? <Button variant="outline" asChild><Link to="/governance/workloads">{t("overview.protectFirstWorkload")}<ArrowRight /></Link></Button> : null}
+                {!metrics.data.total_guardrails ? <Button asChild><Link to="/guardrails">{t("overview.createFirstGuardrail")}<ArrowRight /></Link></Button> : null}
+                {!metrics.data.total_assignments && metrics.data.total_guardrails ? <Button variant="outline" asChild><Link to="/assignments">{t("overview.createFirstAssignment")}<ArrowRight /></Link></Button> : null}
               </CardContent>
             </Card>
           ) : null}
@@ -118,10 +117,10 @@ function TrafficTrend({ metrics }: { metrics: Metrics }) {
 function Attention({ metrics }: { metrics: Metrics }) {
   const { t } = useTranslation();
   const items = [
-    metrics.safes_needing_test ? { label: t("overview.safesNeedTest", { count: metrics.safes_needing_test }), to: "/governance/safes" as const, state: "needs_testing" } : null,
-    metrics.total_workloads === 0 ? { label: t("overview.noProtectedWorkloads"), to: "/governance/workloads" as const, state: "waiting" } : null,
-    metrics.degraded_integrations ? { label: t("overview.integrationsDegraded", { count: metrics.degraded_integrations }), to: "/system/integrations" as const, state: "degraded" } : null,
-  ].filter(Boolean) as Array<{ label: string; to: "/governance/safes" | "/governance/workloads" | "/system/integrations"; state: string }>;
+    metrics.guardrails_needing_test ? { label: t("overview.guardrailsNeedTest", { count: metrics.guardrails_needing_test }), to: "/guardrails" as const, state: "needs_testing" } : null,
+    metrics.total_assignments === 0 ? { label: t("overview.noAssignments"), to: "/assignments" as const, state: "waiting" } : null,
+    metrics.degraded_integrations ? { label: t("overview.integrationsDegraded", { count: metrics.degraded_integrations }), to: "/integrations" as const, state: "degraded" } : null,
+  ].filter(Boolean) as Array<{ label: string; to: "/guardrails" | "/assignments" | "/integrations"; state: string }>;
   return (
     <Card>
       <CardHeader><CardTitle>{t("overview.attention")}</CardTitle><CardDescription>{t("overview.attentionDescription")}</CardDescription></CardHeader>
@@ -153,7 +152,7 @@ function RecentEvidence({ items }: { items: DecisionEvent[] }) {
   const { t, i18n } = useTranslation();
   return (
     <Card>
-      <CardHeader><CardTitle>{t("overview.recentEvidence")}</CardTitle><CardDescription>{t("overview.recentEvidenceDescription")}</CardDescription><CardAction><Button size="sm" variant="ghost" asChild><Link to="/governance/evidence">{t("common.viewAll")}<ArrowRight /></Link></Button></CardAction></CardHeader>
+      <CardHeader><CardTitle>{t("overview.recentEvidence")}</CardTitle><CardDescription>{t("overview.recentEvidenceDescription")}</CardDescription><CardAction><Button size="sm" variant="ghost" asChild><Link to="/evidence">{t("common.viewAll")}<ArrowRight /></Link></Button></CardAction></CardHeader>
       <CardContent className="px-0">
         {items.length ? <Table><TableHeader><TableRow><TableHead className="pl-4">{t("overview.time")}</TableHead><TableHead>{t("overview.event")}</TableHead><TableHead>{t("overview.risk")}</TableHead><TableHead className="pr-4 text-right">{t("overview.outcome")}</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="pl-4 text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString(i18n.language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</TableCell><TableCell className="max-w-[420px] truncate text-xs">{item.detail}</TableCell><TableCell className="text-xs text-muted-foreground">{item.risk ? riskLabel(item.risk, t) : "—"}</TableCell><TableCell className="pr-4 text-right"><StateBadge state={item.outcome} /></TableCell></TableRow>)}</TableBody></Table> : <div className="flex min-h-52 flex-col items-center justify-center px-6 text-center"><Activity className="size-6 text-muted-foreground" /><p className="mt-3 text-sm font-medium">{t("overview.noEvidenceTitle")}</p><p className="mt-1 text-xs text-muted-foreground">{t("overview.noEvidenceDescription")}</p></div>}
       </CardContent>
@@ -164,6 +163,6 @@ function RecentEvidence({ items }: { items: DecisionEvent[] }) {
 function OverviewSkeleton() { return <div className="mt-6 space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-32 rounded-xl" />)}</div><div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]"><Skeleton className="h-96 rounded-xl" /><Skeleton className="h-96 rounded-xl" /></div></div>; }
 
 function riskLabel(risk: string, t: ReturnType<typeof useTranslation>["t"]) {
-  const key = ({ topic_control: "profiles.riskTopic", pii: "profiles.riskPii", secrets: "profiles.riskSecrets", prompt_injection: "profiles.riskInjection", jailbreak: "profiles.riskJailbreak", content_safety: "profiles.riskUnsafe", company_policy: "profiles.riskCompany", builtin_content_filter: "profiles.riskBuiltin" } as Record<string, string>)[risk];
+  const key = ({ topic_control: "guardrails.riskTopic", pii: "guardrails.riskPii", secrets: "guardrails.riskSecrets", prompt_injection: "guardrails.riskInjection", jailbreak: "guardrails.riskJailbreak", content_safety: "guardrails.riskUnsafe", company_policy: "guardrails.riskCompany", builtin_content_filter: "guardrails.riskBuiltin" } as Record<string, string>)[risk];
   return key ? t(key) : risk.replaceAll("_", " ");
 }

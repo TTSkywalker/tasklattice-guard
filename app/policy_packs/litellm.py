@@ -26,7 +26,7 @@ LITELLM_POLICY_PACK_COMMIT = "ead62528e607b9d8e61273def638799c9c3a69ba"
 
 _FASTPASS_LIMITATIONS = (
     "Keyword and pattern rules may not detect every semantic paraphrase.",
-    "Adjacent gateway and application security controls remain independently required.",
+    "Adjacent integration and application security controls remain independently required.",
 )
 
 
@@ -120,10 +120,10 @@ _CATALOG_METADATA: dict[str, CatalogMetadata] = {
         domain="Agent & Tool Security",
         owasp_risks=("LLM06:2025",),
         stages=("Execution",),
-        engine_tiers=("Gateway Adapter",),
-        coverage="Gateway-assisted",
+        engine_tiers=("Integration Adapter",),
+        coverage="Integration-assisted",
         limitations=(
-            "Requires trusted MCP registration metadata from the AI Gateway.",
+            "Requires trusted MCP registration metadata from the AI Integration.",
             "Tool authorization must still be enforced by the target service.",
         ),
         tags=("MCP", "Tool Calling"),
@@ -353,7 +353,7 @@ def policy_pack() -> PolicyPack:
                         name=raw_control["guardrail_name"],
                         display_name=_display_name(raw_control["guardrail_name"]),
                         description=raw_control.get("guardrail_info", {}).get(
-                            "description", "Gateway metadata policy."
+                            "description", "Integration metadata policy."
                         ),
                         default_enabled=True,
                         default_action="BLOCK",
@@ -431,7 +431,7 @@ def policy_pack() -> PolicyPack:
                 unavailable_reason=(
                     None
                     if provider_supported
-                    else "Requires an MCP gateway-metadata Adapter; model text is insufficient."
+                    else "Requires an MCP integration-metadata Adapter; model text is insufficient."
                 ),
             )
         )

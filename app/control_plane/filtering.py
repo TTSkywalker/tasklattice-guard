@@ -7,18 +7,18 @@ from typing import Any
 from ..engine.contracts import RequestContext
 from .domain import (
     ValidationError,
-    WorkloadFilterExpression,
-    WorkloadFilterRule,
+    TrafficScopeExpression,
+    TrafficScopeRule,
 )
 
 
-MAX_FILTER_DEPTH = 3
-MAX_FILTER_RULES = 16
-FILTER_COMBINATORS = frozenset({"and", "or"})
+MAX_TRAFFIC_SCOPE_DEPTH = 3
+MAX_TRAFFIC_SCOPE_RULES = 16
+TRAFFIC_SCOPE_COMBINATORS = frozenset({"and", "or"})
 
 
 @dataclass(frozen=True, slots=True)
-class WorkloadFilterFieldDefinition:
+class TrafficScopeFieldDefinition:
     id: str
     group: str
     source: str
@@ -28,92 +28,92 @@ class WorkloadFilterFieldDefinition:
     custom_key: bool = False
 
 
-WORKLOAD_FILTER_FIELDS = (
-    WorkloadFilterFieldDefinition("protocol", "request", "field", "protocol", ("equals",), ("http", "litellm", "a2a")),
-    WorkloadFilterFieldDefinition("auth.principal", "authentication", "field", "auth.principal", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("integration.id", "authentication", "field", "integration.id", ("equals",)),
-    WorkloadFilterFieldDefinition("http.method", "http", "field", "http.method", ("equals",), ("GET", "POST", "PUT", "PATCH", "DELETE")),
-    WorkloadFilterFieldDefinition("http.host", "http", "field", "http.host", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("http.path", "http", "field", "http.path", ("equals", "starts_with", "glob")),
-    WorkloadFilterFieldDefinition("http.header", "http", "header", "", ("equals", "contains", "starts_with", "glob"), custom_key=True),
-    WorkloadFilterFieldDefinition("auth.jwt_claim", "authentication", "jwt_claim", "", ("equals", "contains", "glob"), custom_key=True),
-    WorkloadFilterFieldDefinition("model", "model", "field", "model", ("equals", "starts_with", "glob")),
-    WorkloadFilterFieldDefinition("litellm.api_key_alias", "litellm", "field", "litellm.api_key_alias", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("litellm.team_id", "litellm", "field", "litellm.team_id", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("litellm.user_id", "litellm", "field", "litellm.user_id", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("a2a.version", "a2a", "field", "a2a.version", ("equals",), ("0.3", "1.0")),
-    WorkloadFilterFieldDefinition("a2a.extensions", "a2a", "field", "a2a.extensions", ("contains", "glob")),
-    WorkloadFilterFieldDefinition("a2a.operation", "a2a", "field", "a2a.operation", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("a2a.context_id", "a2a", "field", "a2a.context_id", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("a2a.task_id", "a2a", "field", "a2a.task_id", ("equals", "glob")),
-    WorkloadFilterFieldDefinition("adapter.field", "request", "field", "", ("equals", "contains", "starts_with", "glob"), custom_key=True),
+TRAFFIC_SCOPE_FIELDS = (
+    TrafficScopeFieldDefinition("protocol", "request", "field", "protocol", ("equals",), ("http", "litellm", "a2a")),
+    TrafficScopeFieldDefinition("auth.principal", "authentication", "field", "auth.principal", ("equals", "glob")),
+    TrafficScopeFieldDefinition("integration.id", "authentication", "field", "integration.id", ("equals",)),
+    TrafficScopeFieldDefinition("http.method", "http", "field", "http.method", ("equals",), ("GET", "POST", "PUT", "PATCH", "DELETE")),
+    TrafficScopeFieldDefinition("http.host", "http", "field", "http.host", ("equals", "glob")),
+    TrafficScopeFieldDefinition("http.path", "http", "field", "http.path", ("equals", "starts_with", "glob")),
+    TrafficScopeFieldDefinition("http.header", "http", "header", "", ("equals", "contains", "starts_with", "glob"), custom_key=True),
+    TrafficScopeFieldDefinition("auth.jwt_claim", "authentication", "jwt_claim", "", ("equals", "contains", "glob"), custom_key=True),
+    TrafficScopeFieldDefinition("model", "model", "field", "model", ("equals", "starts_with", "glob")),
+    TrafficScopeFieldDefinition("litellm.api_key_alias", "litellm", "field", "litellm.api_key_alias", ("equals", "glob")),
+    TrafficScopeFieldDefinition("litellm.team_id", "litellm", "field", "litellm.team_id", ("equals", "glob")),
+    TrafficScopeFieldDefinition("litellm.user_id", "litellm", "field", "litellm.user_id", ("equals", "glob")),
+    TrafficScopeFieldDefinition("a2a.version", "a2a", "field", "a2a.version", ("equals",), ("0.3", "1.0")),
+    TrafficScopeFieldDefinition("a2a.extensions", "a2a", "field", "a2a.extensions", ("contains", "glob")),
+    TrafficScopeFieldDefinition("a2a.operation", "a2a", "field", "a2a.operation", ("equals", "glob")),
+    TrafficScopeFieldDefinition("a2a.context_id", "a2a", "field", "a2a.context_id", ("equals", "glob")),
+    TrafficScopeFieldDefinition("a2a.task_id", "a2a", "field", "a2a.task_id", ("equals", "glob")),
+    TrafficScopeFieldDefinition("adapter.field", "request", "field", "", ("equals", "contains", "starts_with", "glob"), custom_key=True),
 )
 
-_FIELD_BY_ID = {item.id: item for item in WORKLOAD_FILTER_FIELDS}
+_FIELD_BY_ID = {item.id: item for item in TRAFFIC_SCOPE_FIELDS}
 _OPERATOR_WEIGHT = {"equals": 4, "starts_with": 3, "contains": 2, "glob": 1}
 
 
-def workload_filter_field_payloads() -> list[dict[str, object]]:
-    return [asdict(item) for item in WORKLOAD_FILTER_FIELDS]
+def traffic_scope_field_payloads() -> list[dict[str, object]]:
+    return [asdict(item) for item in TRAFFIC_SCOPE_FIELDS]
 
 
-def normalize_filter_expression(
-    expression: WorkloadFilterExpression,
-) -> WorkloadFilterExpression:
+def normalize_traffic_scope(
+    expression: TrafficScopeExpression,
+) -> TrafficScopeExpression:
     counter = [0]
     return _normalize_group(expression, depth=1, root=True, counter=counter)
 
 
-def filter_expression_from_payload(payload: dict[str, Any]) -> WorkloadFilterExpression:
-    return WorkloadFilterExpression(
+def traffic_scope_from_payload(payload: dict[str, Any]) -> TrafficScopeExpression:
+    return TrafficScopeExpression(
         combinator=str(payload["combinator"]),
         rules=tuple(
-            filter_expression_from_payload(item)
+            traffic_scope_from_payload(item)
             if "rules" in item
-            else WorkloadFilterRule(
+            else TrafficScopeRule(
                 field=str(item["field"]),
                 operator=str(item["operator"]),
                 value=str(item["value"]),
-                key=str(item.get("key", "")),
+                key=str(item["key"]),
             )
             for item in payload["rules"]
         ),
     )
 
 
-def filter_expression_signature(expression: WorkloadFilterExpression) -> tuple[object, ...]:
+def traffic_scope_signature(expression: TrafficScopeExpression) -> tuple[object, ...]:
     children = []
     for item in expression.rules:
-        if isinstance(item, WorkloadFilterExpression):
-            children.append(filter_expression_signature(item))
+        if isinstance(item, TrafficScopeExpression):
+            children.append(traffic_scope_signature(item))
         else:
             children.append(("rule", item.field, item.key, item.operator, item.value))
     return ("group", expression.combinator, *sorted(children, key=repr))
 
 
-def filter_expression_matches(
-    expression: WorkloadFilterExpression,
+def traffic_scope_matches(
+    expression: TrafficScopeExpression,
     context: RequestContext,
 ) -> bool:
     if not expression.rules:
         return True
     matches = (
-        filter_expression_matches(item, context)
-        if isinstance(item, WorkloadFilterExpression)
+        traffic_scope_matches(item, context)
+        if isinstance(item, TrafficScopeExpression)
         else _rule_matches(item, context)
         for item in expression.rules
     )
     return all(matches) if expression.combinator == "and" else any(matches)
 
 
-def filter_expression_specificity(
-    expression: WorkloadFilterExpression,
+def traffic_scope_specificity(
+    expression: TrafficScopeExpression,
 ) -> tuple[int, int]:
     if not expression.rules:
         return (0, 0)
     children = [
-        filter_expression_specificity(item)
-        if isinstance(item, WorkloadFilterExpression)
+        traffic_scope_specificity(item)
+        if isinstance(item, TrafficScopeExpression)
         else (1, _OPERATOR_WEIGHT[item.operator])
         for item in expression.rules
     ]
@@ -122,50 +122,50 @@ def filter_expression_specificity(
     return min(children)
 
 
-def filter_rule_count(expression: WorkloadFilterExpression) -> int:
+def traffic_scope_rule_count(expression: TrafficScopeExpression) -> int:
     return sum(
-        filter_rule_count(item) if isinstance(item, WorkloadFilterExpression) else 1
+        traffic_scope_rule_count(item) if isinstance(item, TrafficScopeExpression) else 1
         for item in expression.rules
     )
 
 
 def _normalize_group(
-    expression: WorkloadFilterExpression,
+    expression: TrafficScopeExpression,
     *,
     depth: int,
     root: bool,
     counter: list[int],
-) -> WorkloadFilterExpression:
-    if depth > MAX_FILTER_DEPTH:
+) -> TrafficScopeExpression:
+    if depth > MAX_TRAFFIC_SCOPE_DEPTH:
         raise ValidationError(
-            f"Workload filters support at most {MAX_FILTER_DEPTH} nested levels."
+            f"Traffic Scopes support at most {MAX_TRAFFIC_SCOPE_DEPTH} nested levels."
         )
     combinator = expression.combinator.strip().lower()
-    if combinator not in FILTER_COMBINATORS:
-        raise ValidationError("Workload filter groups must use AND or OR.")
+    if combinator not in TRAFFIC_SCOPE_COMBINATORS:
+        raise ValidationError("Traffic Scope groups must use AND or OR.")
     if not expression.rules:
         if not root:
-            raise ValidationError("Nested Workload filter groups cannot be empty.")
-        return WorkloadFilterExpression(combinator="and", rules=())
+            raise ValidationError("Nested Traffic Scope groups cannot be empty.")
+        return TrafficScopeExpression(combinator="and", rules=())
 
-    rules: list[WorkloadFilterRule | WorkloadFilterExpression] = []
+    rules: list[TrafficScopeRule | TrafficScopeExpression] = []
     for item in expression.rules:
-        if isinstance(item, WorkloadFilterExpression):
+        if isinstance(item, TrafficScopeExpression):
             rules.append(
                 _normalize_group(item, depth=depth + 1, root=False, counter=counter)
             )
             continue
         counter[0] += 1
-        if counter[0] > MAX_FILTER_RULES:
+        if counter[0] > MAX_TRAFFIC_SCOPE_RULES:
             raise ValidationError(
-                f"A Workload can contain at most {MAX_FILTER_RULES} traffic rules."
+                f"An Assignment can contain at most {MAX_TRAFFIC_SCOPE_RULES} Traffic Scope rules."
             )
         rules.append(_normalize_rule(item))
 
     if combinator == "and":
         equalities: dict[tuple[str, str], set[str]] = {}
         for item in rules:
-            if isinstance(item, WorkloadFilterExpression) or item.operator != "equals":
+            if isinstance(item, TrafficScopeExpression) or item.operator != "equals":
                 continue
             equalities.setdefault((item.field, item.key), set()).add(item.value)
         conflict = next(
@@ -185,42 +185,42 @@ def _normalize_group(
             )
 
     signatures = [
-        filter_expression_signature(item)
-        if isinstance(item, WorkloadFilterExpression)
+        traffic_scope_signature(item)
+        if isinstance(item, TrafficScopeExpression)
         else ("rule", item.field, item.key, item.operator, item.value)
         for item in rules
     ]
     if len(signatures) != len(set(signatures)):
-        raise ValidationError("A Workload filter group cannot contain duplicate rules.")
-    return WorkloadFilterExpression(combinator=combinator, rules=tuple(rules))
+        raise ValidationError("A Traffic Scope group cannot contain duplicate rules.")
+    return TrafficScopeExpression(combinator=combinator, rules=tuple(rules))
 
 
-def _normalize_rule(rule: WorkloadFilterRule) -> WorkloadFilterRule:
+def _normalize_rule(rule: TrafficScopeRule) -> TrafficScopeRule:
     field = rule.field.strip()
     definition = _FIELD_BY_ID.get(field)
     if definition is None:
-        raise ValidationError("Unsupported Workload filter field.")
+        raise ValidationError("Unsupported Traffic Scope field.")
     operator = rule.operator.strip()
     if operator not in definition.operators:
-        raise ValidationError("Unsupported operator for this Workload filter field.")
+        raise ValidationError("Unsupported operator for this Traffic Scope field.")
     value = rule.value.strip()
     if not value or len(value) > 500:
         raise ValidationError(
-            "Workload filter values are required and limited to 500 characters."
+            "Traffic Scope values are required and limited to 500 characters."
         )
     key = rule.key.strip() if definition.custom_key else ""
     if definition.custom_key and (
         not key or len(key) > 120 or any(character.isspace() for character in key)
     ):
         raise ValidationError(
-            "Custom Workload filter fields require a compact attribute name."
+            "Custom Traffic Scope fields require a compact attribute name."
         )
     if definition.source == "header":
         key = key.lower()
-    return WorkloadFilterRule(field=field, key=key, operator=operator, value=value)
+    return TrafficScopeRule(field=field, key=key, operator=operator, value=value)
 
 
-def _rule_matches(rule: WorkloadFilterRule, context: RequestContext) -> bool:
+def _rule_matches(rule: TrafficScopeRule, context: RequestContext) -> bool:
     definition = _FIELD_BY_ID[rule.field]
     actual = context.value(
         definition.source,

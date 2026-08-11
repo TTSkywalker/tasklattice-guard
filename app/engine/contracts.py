@@ -9,6 +9,39 @@ EvaluationStage = Literal["deterministic", "fast_semantic", "deep_judge"]
 EvaluatorVerdict = Literal["safe", "unsafe", "uncertain", "error"]
 RouteDecision = Literal["complete", "enforce", "escalate", "fail_open", "fail_closed"]
 PolicyDecision = Literal["allow", "transform", "block"]
+ControlModule = Literal[
+    "data_protection",
+    "interaction_safety",
+    "business_assurance",
+]
+ContentView = Literal["original", "masked", "previous_output", "complete_output"]
+ContentRole = Literal[
+    "trusted_instruction",
+    "user_input",
+    "query",
+    "retrieved_content",
+    "grounding_source",
+    "tool_output",
+    "model_output",
+]
+ContentTrust = Literal["trusted", "untrusted"]
+ContentQualifier = Literal["guard_content", "query", "grounding_source"]
+GroundingFilterType = Literal["grounding", "relevance"]
+ClaimSupport = Literal["supported", "unsupported", "uncertain"]
+AutomatedReasoningResult = Literal[
+    "valid",
+    "invalid",
+    "satisfiable",
+    "impossible",
+    "translation_ambiguous",
+    "too_complex",
+    "no_translations",
+]
+FailureMode = Literal["fail_open", "fail_closed"]
+FragmentStatus = Literal["pass", "intervene", "needs_context", "uncovered", "error"]
+CoverageStatus = Literal["complete", "partial", "none"]
+EvaluationMode = Literal["enforce", "detect"]
+EvidenceScope = Literal["interventions", "full"]
 EnforcementAction = Literal[
     "pass",
     "redact",
@@ -17,6 +50,7 @@ EnforcementAction = Literal[
     "redirect",
     "reject",
     "fallback",
+    "clarify",
 ]
 SafetyLevel = Literal["balanced", "strict"]
 OutputDeliveryMode = Literal["interruptible", "window_buffered", "full_buffered"]
@@ -39,14 +73,15 @@ class EvaluationTraceStep:
     route: RouteDecision | None = None
     risk: str | None = None
     confidence: float | None = None
+    content_block_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RequestContext:
-    """Gateway-normalized, trusted attributes used for Workload resolution."""
+    """Integration-normalized, trusted attributes used for Assignment resolution."""
 
-    gateway: str
-    gateway_id: str | None = None
+    protocol: str
+    integration_id: str | None = None
     headers: tuple[tuple[str, str], ...] = ()
     jwt_claims: tuple[tuple[str, str], ...] = ()
     fields: tuple[tuple[str, str], ...] = ()
@@ -69,12 +104,68 @@ class RequestContext:
 
 
 @dataclass(frozen=True, slots=True)
+class GuardContentBlock:
+    """One immutable content unit crossing a guardrail trust boundary."""
+
+    id: str
+    text: str
+    role: ContentRole
+    trust: ContentTrust
+    source: str
+    qualifiers: tuple[ContentQualifier, ...] = ("guard_content",)
+
+    def __post_init__(self) -> None:
+        if not self.id.strip():
+            raise ValueError("Content block identifiers cannot be empty.")
+        if not self.source.strip():
+            raise ValueError("Content block sources cannot be empty.")
+        if len(set(self.qualifiers)) != len(self.qualifiers):
+            raise ValueError("Content block qualifiers must be unique.")
+        if self.trust == "trusted" and self.role != "trusted_instruction":
+            raise ValueError("Only trusted-instruction blocks may cross as trusted content.")
+        if self.role == "trusted_instruction" and (
+            self.trust != "trusted" or "guard_content" in self.qualifiers
+        ):
+            raise ValueError(
+                "Trusted instructions must be trusted context, not guard targets."
+            )
+
+    @property
+    def guard_content(self) -> bool:
+        return "guard_content" in self.qualifiers
+
+
+@dataclass(frozen=True, slots=True)
+class ContentViewSnapshot:
+    """An immutable projection over content blocks with one active evaluation target."""
+
+    kind: ContentView
+    blocks: tuple[GuardContentBlock, ...]
+    active_block_id: str
+    source_digest: str
+
+    def __post_init__(self) -> None:
+        ids = tuple(block.id for block in self.blocks)
+        if len(set(ids)) != len(ids):
+            raise ValueError("Content block identifiers must be unique within a view.")
+        if self.active_block_id not in ids:
+            raise ValueError("The active content block is unavailable in the content view.")
+
+    @property
+    def active_block(self) -> GuardContentBlock:
+        return next(block for block in self.blocks if block.id == self.active_block_id)
+
+
+@dataclass(frozen=True, slots=True)
 class EvaluationRequest:
     phase: GuardrailPhase
     texts: tuple[str, ...]
     context: RequestContext
+    content_blocks: tuple[GuardContentBlock, ...] = ()
     call_id: str | None = None
     messages: tuple[dict[str, Any], ...] = ()
+    mode: EvaluationMode = "enforce"
+    evidence_scope: EvidenceScope = "interventions"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,13 +184,46 @@ class GuardrailPlanStep:
 
 
 @dataclass(frozen=True, slots=True)
+class GuardrailPlanModule:
+    """One independently schedulable control module in a compiled plan."""
+
+    id: str
+    module: ControlModule
+    phase: GuardrailPhase
+    step_ids: tuple[str, ...]
+    depends_on: tuple[str, ...] = ()
+    input_view: ContentView = "original"
+    required_for_release: bool = True
+    timeout_ms: int = 2_000
+    failure_mode: FailureMode = "fail_closed"
+
+
+@dataclass(frozen=True, slots=True)
+class AutomatedReasoningPolicySnapshot:
+    """Immutable reference to one deployed formal policy version."""
+
+    id: str
+    policy_id: str
+    policy_version: str
+    confidence_threshold: float = 0.8
+
+    def __post_init__(self) -> None:
+        if not self.id.strip() or not self.policy_id.strip() or not self.policy_version.strip():
+            raise ValueError("Automated Reasoning policy identifiers cannot be empty.")
+        if not 0 <= self.confidence_threshold <= 1:
+            raise ValueError("Automated Reasoning confidence threshold must be between 0 and 1.")
+
+
+@dataclass(frozen=True, slots=True)
 class GuardrailPlanSnapshot:
-    profile_id: str
-    profile_revision: int
+    guardrail_id: str
+    guardrail_version: int
     compiler_version: str
     safety_level: SafetyLevel
     output_delivery: OutputDeliveryMode
     steps: tuple[GuardrailPlanStep, ...]
+    modules: tuple[GuardrailPlanModule, ...] = ()
+    reasoning_policies: tuple[AutomatedReasoningPolicySnapshot, ...] = ()
 
     def steps_for(
         self,
@@ -112,6 +236,67 @@ class GuardrailPlanSnapshot:
             if phase in step.phases and (stage is None or step.stage == stage)
         )
 
+    def modules_for(self, phase: GuardrailPhase) -> tuple[GuardrailPlanModule, ...]:
+        return tuple(module for module in self.modules if module.phase == phase)
+
+    def reasoning_policy(self, snapshot_id: str) -> AutomatedReasoningPolicySnapshot:
+        try:
+            return next(item for item in self.reasoning_policies if item.id == snapshot_id)
+        except StopIteration as error:
+            raise KeyError(f"Unknown Automated Reasoning policy snapshot {snapshot_id!r}.") from error
+
+
+@dataclass(frozen=True, slots=True)
+class GroundingFilterAssessment:
+    type: GroundingFilterType
+    score: float
+    threshold: float
+    detected: bool
+
+
+@dataclass(frozen=True, slots=True)
+class GroundingClaimEvidence:
+    id: str
+    claim: str
+    support: ClaimSupport
+    confidence: float
+    source_block_ids: tuple[str, ...] = ()
+    rationale: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AutomatedReasoningRuleEvidence:
+    id: str
+    expression: str
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AutomatedReasoningScenario:
+    assignments: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AutomatedReasoningTranslation:
+    premises: tuple[str, ...] = ()
+    claims: tuple[str, ...] = ()
+    untranslated: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AutomatedReasoningFinding:
+    """Detection-only proof result returned by a formal reasoning provider."""
+
+    id: str
+    result: AutomatedReasoningResult
+    confidence: float
+    translation: AutomatedReasoningTranslation | None = None
+    supporting_rules: tuple[AutomatedReasoningRuleEvidence, ...] = ()
+    contradicting_rules: tuple[AutomatedReasoningRuleEvidence, ...] = ()
+    claims_true_scenario: AutomatedReasoningScenario | None = None
+    claims_false_scenario: AutomatedReasoningScenario | None = None
+    message: str = ""
+
 
 @dataclass(frozen=True, slots=True)
 class RiskFinding:
@@ -121,6 +306,88 @@ class RiskFinding:
     evidence: str
     recommended_action: EnforcementAction
     replacement: str | None = None
+    grounding: tuple[GroundingFilterAssessment, ...] = ()
+    claims: tuple[GroundingClaimEvidence, ...] = ()
+    reasoning: tuple[AutomatedReasoningFinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ContentPatch:
+    """A proposed edit whose offsets always refer to the immutable source text."""
+
+    start: int
+    end: int
+    replacement: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCoverage:
+    status: CoverageStatus = "complete"
+    guarded_items: int = 0
+    total_items: int = 0
+    guarded_characters: int = 0
+    total_characters: int = 0
+    required_modules_completed: int = 0
+    required_modules_total: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationUsage:
+    module_invocations: int = 0
+    evaluator_invocations: int = 0
+    text_characters: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionFragment:
+    """An immutable module proposal; fragments never mutate shared content."""
+
+    id: str
+    module_id: str
+    module: ControlModule
+    status: FragmentStatus
+    action: EnforcementAction = "pass"
+    findings: tuple[RiskFinding, ...] = ()
+    patches: tuple[ContentPatch, ...] = ()
+    replacement: str | None = None
+    coverage: CoverageStatus = "complete"
+    reason: str | None = None
+    trace: tuple[EvaluationTraceStep, ...] = ()
+    content_block_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleAssessment:
+    module_id: str
+    module: ControlModule
+    status: FragmentStatus
+    fragments: tuple[DecisionFragment, ...]
+    coverage: RuntimeCoverage
+    latency_ms: int = 0
+    trace: tuple[EvaluationTraceStep, ...] = ()
+    content_block_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedIntervention:
+    kind: EnforcementAction
+    module_id: str
+    fragment_id: str
+    reason: str | None = None
+    patches: tuple[ContentPatch, ...] = ()
+    replacement: str | None = None
+    content_block_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ContentBlockResult:
+    id: str
+    role: ContentRole
+    source: str
+    decision: PolicyDecision
+    action: EnforcementAction
+    text: str | None = None
+    evaluated: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,20 +405,26 @@ class EvaluationDecision:
     action: EnforcementAction
     reason: str | None = None
     texts: tuple[str, ...] = ()
-    profile_id: str | None = None
-    profile_revision: int | None = None
-    workload_id: str | None = None
-    gateway_id: str | None = None
+    guardrail_id: str | None = None
+    guardrail_version: int | None = None
+    assignment_id: str | None = None
+    integration_id: str | None = None
     output_delivery: OutputDeliveryMode | None = None
     findings: tuple[RiskFinding, ...] = ()
     trace: tuple[EvaluationTraceStep, ...] = ()
+    assessments: tuple[ModuleAssessment, ...] = ()
+    interventions: tuple[AppliedIntervention, ...] = ()
+    coverage: RuntimeCoverage | None = None
+    usage: EvaluationUsage | None = None
+    mode: EvaluationMode = "enforce"
+    content_results: tuple[ContentBlockResult, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class PlanResolution:
     plan: GuardrailPlanSnapshot
-    workload_id: str
-    gateway_id: str | None = None
+    assignment_id: str
+    integration_id: str | None = None
     trace: tuple[EvaluationTraceStep, ...] = ()
 
 
@@ -163,12 +436,17 @@ class EngineRequest:
     context_messages: tuple[dict[str, Any], ...] = ()
     trusted_instruction: str = ""
     target_source: str = "user_input"
+    mode: EvaluationMode = "enforce"
+    evidence_scope: EvidenceScope = "interventions"
+    content_view: ContentViewSnapshot | None = None
+    active_block_id: str | None = None
 
 
 class GuardrailStage(Protocol):
     name: str
     stage: EvaluationStage
     supported_phases: frozenset[GuardrailPhase]
+    supported_risks: frozenset[str]
 
     async def evaluate(
         self,

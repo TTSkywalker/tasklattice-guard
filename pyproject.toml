@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tasklattice-model-guardrails"
-version = "0.2.0"
-description = "Enterprise safety control plane for protected internal AI workloads."
+version = "0.0.1"
+description = "Enterprise Guardrail control plane and modular enforcement runtime."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [

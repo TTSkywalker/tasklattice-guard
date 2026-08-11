@@ -1,3 +1,3 @@
 export * from "./model";
-export * from "./traffic-filter-builder";
+export * from "./traffic-scope-builder";
 export * from "./types";

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  getTrafficFilterConflicts,
-  isTrafficFilterValid,
+  getTrafficScopeConflicts,
+  isTrafficScopeValid,
   setTrafficGroupCombinator,
-  toWorkloadFilterExpression,
+  toTrafficScopeExpression,
 } from "./model";
-import type { TrafficFilterFieldDefinition, TrafficFilterQuery } from "./types";
+import type { TrafficScopeFieldDefinition, TrafficScopeQuery } from "./types";
 
-const definitions: TrafficFilterFieldDefinition[] = [
+const definitions: TrafficScopeFieldDefinition[] = [
   {
     id: "protocol",
     group: "request",
@@ -28,9 +28,13 @@ const definitions: TrafficFilterFieldDefinition[] = [
   },
 ];
 
-describe("traffic filter model", () => {
+describe("traffic scope model", () => {
+  it("reserves an empty expression for the product default GuardrailAssignment", () => {
+    expect(isTrafficScopeValid({ combinator: "and", rules: [] }, definitions)).toBe(false);
+  });
+
   it("detects mutually exclusive equals rules inside an AND group", () => {
-    const query: TrafficFilterQuery = {
+    const query: TrafficScopeQuery = {
       combinator: "and",
       rules: [
         { field: "protocol", operator: "equals", value: "http" },
@@ -38,14 +42,14 @@ describe("traffic filter model", () => {
       ],
     };
 
-    expect(getTrafficFilterConflicts(query, definitions)).toEqual([
+    expect(getTrafficScopeConflicts(query, definitions)).toEqual([
       { path: [], field: "protocol", key: "", values: ["http", "a2a"] },
     ]);
-    expect(isTrafficFilterValid(query, definitions, false)).toBe(false);
+    expect(isTrafficScopeValid(query, definitions)).toBe(false);
   });
 
   it("allows the same alternatives inside an OR group", () => {
-    const query: TrafficFilterQuery = {
+    const query: TrafficScopeQuery = {
       combinator: "or",
       rules: [
         { field: "protocol", operator: "equals", value: "http" },
@@ -53,12 +57,12 @@ describe("traffic filter model", () => {
       ],
     };
 
-    expect(getTrafficFilterConflicts(query, definitions)).toEqual([]);
-    expect(isTrafficFilterValid(query, definitions, false)).toBe(true);
+    expect(getTrafficScopeConflicts(query, definitions)).toEqual([]);
+    expect(isTrafficScopeValid(query, definitions)).toBe(true);
   });
 
   it("updates only the conflicting nested group", () => {
-    const query: TrafficFilterQuery = {
+    const query: TrafficScopeQuery = {
       combinator: "and",
       rules: [
         { field: "protocol", operator: "equals", value: "http" },
@@ -79,7 +83,7 @@ describe("traffic filter model", () => {
   });
 
   it("converts custom request attributes into the backend expression", () => {
-    const query: TrafficFilterQuery = {
+    const query: TrafficScopeQuery = {
       combinator: "and",
       rules: [
         { field: "protocol", operator: "equals", value: "http" },
@@ -96,7 +100,7 @@ describe("traffic filter model", () => {
       ],
     };
 
-    expect(toWorkloadFilterExpression(query, definitions)).toEqual({
+    expect(toTrafficScopeExpression(query, definitions)).toEqual({
       combinator: "and",
       rules: [
         { field: "protocol", operator: "equals", value: "http" },

@@ -1,1 +1,1 @@
-"""AI Gateway integrations for the Adapt Layer."""
+"""AI Integration integrations for the Adapt Layer."""

@@ -56,6 +56,26 @@
             "baseUrl": {"type": "string"},
             "contentSafetyModel": {"type": "string"},
             "topicControlModel": {"type": "string"},
+            "groundingModel": {"type": "string"},
+            "apiKey": {"type": "string"},
+            "existingSecret": {"type": "string"},
+            "secretKey": {"type": "string", "minLength": 1}
+          }
+        },
+        "deepJudge": {
+          "type": "object",
+          "properties": {
+            "baseUrl": {"type": "string"},
+            "model": {"type": "string"},
+            "apiKey": {"type": "string"},
+            "existingSecret": {"type": "string"},
+            "secretKey": {"type": "string", "minLength": 1}
+          }
+        },
+        "automatedReasoning": {
+          "type": "object",
+          "properties": {
+            "endpointUrl": {"type": "string"},
             "apiKey": {"type": "string"},
             "existingSecret": {"type": "string"},
             "secretKey": {"type": "string", "minLength": 1}

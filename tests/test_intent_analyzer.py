@@ -60,6 +60,7 @@ async def test_deepseek_intent_analyzer_requests_json_and_validates_rules(monkey
     )
 
     assert request_payload["response_format"] == {"type": "json_object"}
+    assert request_payload["thinking"] == {"type": "disabled"}
     assert request_payload["temperature"] == 0
     assert result.allowed_topics[0] == "Financial data analysis"
     assert result.restricted_topics[-1] == "Chemical refining instructions"

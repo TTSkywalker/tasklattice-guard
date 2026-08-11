@@ -17,6 +17,7 @@ spec:
     metadata:
       annotations:
         checksum/evaluator-secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/automated-reasoning-secret: {{ include (print $.Template.BasePath "/automated-reasoning-secret.yaml") . | sha256sum }}
         checksum/control-plane-agent-secret: {{ include (print $.Template.BasePath "/control-plane-agent-secret.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -61,12 +62,42 @@ spec:
             - name: MODEL_GUARDRAILS_TOPIC_CONTROL_MODEL
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.evaluators.nvidia.groundingModel }}
+            - name: MODEL_GUARDRAILS_GROUNDING_MODEL
+              value: {{ . | quote }}
+            {{- end }}
             {{- if or .Values.evaluators.nvidia.apiKey .Values.evaluators.nvidia.existingSecret }}
             - name: MODEL_GUARDRAILS_NVIDIA_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "tasklattice-guard.nvidiaSecretName" . }}
                   key: {{ .Values.evaluators.nvidia.secretKey }}
+            {{- end }}
+            {{- with .Values.evaluators.deepJudge.baseUrl }}
+            - name: MODEL_GUARDRAILS_DEEP_JUDGE_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.evaluators.deepJudge.model }}
+            - name: MODEL_GUARDRAILS_DEEP_JUDGE_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret }}
+            - name: MODEL_GUARDRAILS_DEEP_JUDGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tasklattice-guard.deepJudgeSecretName" . }}
+                  key: {{ .Values.evaluators.deepJudge.secretKey }}
+            {{- end }}
+            {{- with .Values.evaluators.automatedReasoning.endpointUrl }}
+            - name: MODEL_GUARDRAILS_AUTOMATED_REASONING_ENDPOINT_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if or .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret }}
+            - name: MODEL_GUARDRAILS_AUTOMATED_REASONING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tasklattice-guard.automatedReasoningSecretName" . }}
+                  key: {{ .Values.evaluators.automatedReasoning.secretKey }}
             {{- end }}
             {{- with .Values.controlPlaneAgent.deepseek.baseUrl }}
             - name: MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL

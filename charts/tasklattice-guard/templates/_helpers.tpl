@@ -48,6 +48,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (printf "%s-deepseek" (include "tasklattice-guard.fullname" .)) .Values.controlPlaneAgent.deepseek.existingSecret }}
 {{- end }}
 
+{{- define "tasklattice-guard.deepJudgeSecretName" -}}
+{{- default (printf "%s-deep-judge" (include "tasklattice-guard.fullname" .)) .Values.evaluators.deepJudge.existingSecret }}
+{{- end }}
+
+{{- define "tasklattice-guard.automatedReasoningSecretName" -}}
+{{- default (printf "%s-automated-reasoning" (include "tasklattice-guard.fullname" .)) .Values.evaluators.automatedReasoning.existingSecret }}
+{{- end }}
+
 {{- define "tasklattice-guard.persistenceClaimName" -}}
 {{- default (include "tasklattice-guard.fullname" .) .Values.persistence.existingClaim }}
 {{- end }}
@@ -59,6 +67,27 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and .Values.evaluators.nvidia.apiKey .Values.evaluators.nvidia.existingSecret }}
 {{- fail "set either evaluators.nvidia.apiKey or evaluators.nvidia.existingSecret, not both" }}
 {{- end }}
+{{- if and .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret }}
+{{- fail "set either evaluators.deepJudge.apiKey or evaluators.deepJudge.existingSecret, not both" }}
+{{- end }}
+{{- if ne (empty .Values.evaluators.deepJudge.baseUrl) (empty .Values.evaluators.deepJudge.model) }}
+{{- fail "evaluators.deepJudge.baseUrl and evaluators.deepJudge.model must be configured together" }}
+{{- end }}
+{{- if and (or .Values.evaluators.deepJudge.baseUrl .Values.evaluators.deepJudge.model) (not (or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret)) }}
+{{- fail "a Deep Judge credential is required when evaluators.deepJudge is configured" }}
+{{- end }}
+{{- if and (or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret) (not (and .Values.evaluators.deepJudge.baseUrl .Values.evaluators.deepJudge.model)) }}
+{{- fail "evaluators.deepJudge.baseUrl and evaluators.deepJudge.model are required when a Deep Judge credential is configured" }}
+{{- end }}
+{{- if and .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret }}
+{{- fail "set either evaluators.automatedReasoning.apiKey or evaluators.automatedReasoning.existingSecret, not both" }}
+{{- end }}
+{{- if and (or .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret) (not .Values.evaluators.automatedReasoning.endpointUrl) }}
+{{- fail "evaluators.automatedReasoning.endpointUrl is required when an Automated Reasoning credential is configured" }}
+{{- end }}
+{{- if and .Values.evaluators.automatedReasoning.endpointUrl (not (or .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret)) }}
+{{- fail "an Automated Reasoning credential is required when evaluators.automatedReasoning.endpointUrl is configured" }}
+{{- end }}
 {{- if and .Values.controlPlaneAgent.deepseek.apiKey .Values.controlPlaneAgent.deepseek.existingSecret }}
 {{- fail "set either controlPlaneAgent.deepseek.apiKey or controlPlaneAgent.deepseek.existingSecret, not both" }}
 {{- end }}
@@ -68,7 +97,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and (or .Values.controlPlaneAgent.deepseek.apiKey .Values.controlPlaneAgent.deepseek.existingSecret) (not .Values.controlPlaneAgent.deepseek.model) }}
 {{- fail "controlPlaneAgent.deepseek.model is required when a DeepSeek credential is configured" }}
 {{- end }}
-{{- if and (or .Values.evaluators.nvidia.contentSafetyModel .Values.evaluators.nvidia.topicControlModel) (not .Values.evaluators.nvidia.baseUrl) }}
+{{- if and (or .Values.evaluators.nvidia.contentSafetyModel .Values.evaluators.nvidia.topicControlModel .Values.evaluators.nvidia.groundingModel) (not .Values.evaluators.nvidia.baseUrl) }}
 {{- fail "evaluators.nvidia.baseUrl is required when an NVIDIA evaluator model is configured" }}
 {{- end }}
 {{- end }}

@@ -10,7 +10,7 @@ from .contracts import EngineRequest, GuardrailPlanStep, RiskFinding, StageResul
 
 
 class PurposeAwareTopicJudgeEngine:
-    """Judge organization-specific topic intent with the compiled Profile context."""
+    """Judge organization-specific topic intent with the compiled Guardrail context."""
 
     name = "Purpose-Aware Topic Judge"
     stage = "deep_judge"
@@ -24,11 +24,13 @@ class PurposeAwareTopicJudgeEngine:
         model: str,
         api_key_env_var: str,
         timeout_seconds: float = 20.0,
+        request_options: dict[str, object] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key_env_var = api_key_env_var
         self._timeout_seconds = timeout_seconds
+        self._request_options = dict(request_options or {})
 
     async def evaluate(
         self,
@@ -58,6 +60,7 @@ class PurposeAwareTopicJudgeEngine:
                         "temperature": 0.01,
                         "max_tokens": 16,
                         "messages": _topic_messages(request, configured),
+                        **self._request_options,
                     },
                 )
                 response.raise_for_status()
@@ -166,13 +169,13 @@ def _response_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "verdict": "safe",
             "confidence": 0.95,
-            "reason": "The request is within the Profile's allowed business purpose.",
+            "reason": "The request is within the Guardrail's allowed business purpose.",
         }
     if normalized == "off-topic":
         return {
             "verdict": "unsafe",
             "confidence": 0.95,
-            "reason": "The request is outside the Profile's allowed business purpose or enters a restricted domain.",
+            "reason": "The request is outside the Guardrail's allowed business purpose or enters a restricted domain.",
         }
     if cleaned.startswith("```"):
         cleaned = cleaned.removeprefix("```json").removeprefix("```")

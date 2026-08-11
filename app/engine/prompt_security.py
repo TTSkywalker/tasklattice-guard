@@ -107,11 +107,13 @@ class PromptSecurityJudgeEngine:
         model: str,
         api_key_env_var: str,
         timeout_seconds: float = 20.0,
+        request_options: dict[str, object] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key_env_var = api_key_env_var
         self._timeout_seconds = timeout_seconds
+        self._request_options = dict(request_options or {})
 
     async def evaluate(
         self,
@@ -148,6 +150,7 @@ class PromptSecurityJudgeEngine:
                             {"role": "system", "content": _JUDGE_PROMPT},
                             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
                         ],
+                        **self._request_options,
                     },
                 )
                 response.raise_for_status()

@@ -1,1 +1,1 @@
-"""Policy packs translated into TaskLattice's gateway-neutral runtime model."""
+"""Policy packs translated into TaskLattice's integration-neutral runtime model."""
