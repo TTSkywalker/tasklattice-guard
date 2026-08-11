@@ -789,6 +789,7 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
     now = datetime.now(UTC)
     window_start = now - timedelta(days=7)
     events = service.runtime_metrics(since=window_start.isoformat())
+    step_events = service.runtime_step_metrics(since=window_start.isoformat())
     comparisons = service.runtime_comparisons(since=window_start.isoformat())
     counts = {
         "allow": sum(item.outcome == "allow" for item in events),
@@ -844,6 +845,9 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
     guardrail_distribution = []
     for guardrail in guardrails:
         matching = tuple(item for item in events if item.guardrail_id == guardrail.id)
+        matching_steps = tuple(
+            item for item in step_events if item.guardrail_id == guardrail.id
+        )
         item_counts = {
             "allow": sum(item.outcome == "allow" for item in matching),
             "block": sum(item.outcome == "block" for item in matching),
@@ -884,6 +888,8 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
                 "cache_hits": sum(item.cache_hits for item in matching),
                 "cache_misses": sum(item.cache_misses for item in matching),
                 "queue_p95_ms": item_queue_latency["p95"],
+                "rail_p95_ms": _step_latency(matching_steps, "rail")["p95"],
+                "action_p95_ms": _step_latency(matching_steps, "action")["p95"],
                 "fail_closed_count": sum(item.fail_closed for item in matching),
                 "runtime_engines": sorted(
                     {item.runtime_engine for item in matching if item.runtime_engine}
@@ -937,6 +943,8 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
                 {item.runtime_engine for item in events if item.runtime_engine}
             )
         ],
+        "rail_metrics": _component_metrics(step_events, "rail"),
+        "action_metrics": _component_metrics(step_events, "action"),
         "comparison_count": len(comparisons),
         "decision_match_rate": round(
             sum(item.decision_match for item in comparisons)
@@ -1011,6 +1019,49 @@ def _queue_latency(events) -> dict[str, int]:
         "p95": _percentile(values, 0.95),
         "p99": _percentile(values, 0.99),
     }
+
+
+def _step_latency(events, kind: str) -> dict[str, int]:
+    values = sorted(item.latency_ms for item in events if item.kind == kind)
+    return {
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+        "p99": _percentile(values, 0.99),
+    }
+
+
+def _component_metrics(events, kind: str) -> list[dict[str, object]]:
+    groups: dict[tuple[str, str | None], list] = {}
+    for item in events:
+        if item.kind == kind:
+            groups.setdefault((item.name, item.risk), []).append(item)
+    metrics: list[dict[str, object]] = []
+    for (name, risk), items in groups.items():
+        latency = _step_latency(items, kind)
+        metrics.append(
+            {
+                "name": name,
+                "risk": risk,
+                "invocations": len(items),
+                "passed": sum(
+                    item.outcome in {"passed", "safe", "pass"} for item in items
+                ),
+                "intervened": sum(
+                    item.outcome in {"blocked", "unsafe", "intervene"}
+                    for item in items
+                ),
+                "uncertain": sum(
+                    item.outcome in {"uncertain", "needs_context"} for item in items
+                ),
+                "errors": sum(item.outcome == "error" for item in items),
+                "timeouts": sum(item.timed_out for item in items),
+                "p50_latency_ms": latency["p50"],
+                "p95_latency_ms": latency["p95"],
+                "p99_latency_ms": latency["p99"],
+            }
+        )
+    metrics.sort(key=lambda item: (-int(item["invocations"]), str(item["name"])))
+    return metrics
 
 
 def _percentile(values: list[int], quantile: float) -> int:

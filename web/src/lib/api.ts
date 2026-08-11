@@ -388,6 +388,8 @@ export type Metrics = {
   queue_p99_ms: number;
   fail_closed_count: number;
   runtime_engine_counts: Array<{ runtime_engine: string; count: number }>;
+  rail_metrics: RuntimeComponentMetric[];
+  action_metrics: RuntimeComponentMetric[];
   comparison_count: number;
   decision_match_rate: number;
   action_match_rate: number;
@@ -431,6 +433,8 @@ export type Metrics = {
     cache_hits: number;
     cache_misses: number;
     queue_p95_ms: number;
+    rail_p95_ms: number;
+    action_p95_ms: number;
     fail_closed_count: number;
     runtime_engines: string[];
     config_checksums: string[];
@@ -439,6 +443,20 @@ export type Metrics = {
   unassigned_requests: number;
   trend: Array<{ date: string; total: number; blocked: number; intervened: number; errored: number }>;
   system_status: "healthy" | "degraded";
+};
+
+export type RuntimeComponentMetric = {
+  name: string;
+  risk: string | null;
+  invocations: number;
+  passed: number;
+  intervened: number;
+  uncertain: number;
+  errors: number;
+  timeouts: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
 };
 
 export type IdentityRole = "admin" | "member";

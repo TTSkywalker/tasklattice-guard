@@ -29,12 +29,14 @@ class Settings:
     )
     runtime_p95_budget_ms: int = 2_500
     runtime_p99_budget_ms: int = 5_000
+    runtime_max_concurrency_per_guardrail: int = 64
     jailbreak_detection_nim_base_url: str | None = None
     jailbreak_detection_api_key_env_var: str = (
         "MODEL_GUARDRAILS_JAILBREAK_API_KEY"
     )
     otel_enabled: bool = False
     otel_exporter_endpoint: str | None = None
+    legacy_migration_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -97,12 +99,17 @@ class Settings:
         otel_enabled = os.environ.get(
             "MODEL_GUARDRAILS_OTEL_ENABLED", "false"
         ).strip().casefold() in {"1", "true", "yes", "on"}
+        legacy_migration_enabled = os.environ.get(
+            "MODEL_GUARDRAILS_LEGACY_MIGRATION_ENABLED", "false"
+        ).strip().casefold() in {"1", "true", "yes", "on"}
         otel_exporter_endpoint = os.environ.get(
-            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         ).strip()
         if otel_enabled and not otel_exporter_endpoint.startswith(("http://", "https://")):
             raise ValueError(
-                "OTEL_EXPORTER_OTLP_ENDPOINT must be an HTTP(S) URL when OpenTelemetry is enabled."
+                "OTEL_EXPORTER_OTLP_ENDPOINT or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT "
+                "must be an HTTP(S) URL when OpenTelemetry is enabled."
             )
         if jailbreak_detection_nim_base_url and not jailbreak_detection_nim_base_url.startswith(
             ("https://", "http://")
@@ -143,6 +150,9 @@ class Settings:
         runtime_p99_budget_ms = _positive_int(
             "MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS", 5_000
         )
+        runtime_max_concurrency_per_guardrail = _positive_int(
+            "MODEL_GUARDRAILS_RUNTIME_MAX_CONCURRENCY_PER_GUARDRAIL", 64
+        )
         if runtime_p99_budget_ms < runtime_p95_budget_ms:
             raise ValueError(
                 "MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS must be at least the P95 budget."
@@ -182,6 +192,9 @@ class Settings:
             control_plane_ai_api_key_env_var=control_plane_ai_api_key_env_var,
             runtime_p95_budget_ms=runtime_p95_budget_ms,
             runtime_p99_budget_ms=runtime_p99_budget_ms,
+            runtime_max_concurrency_per_guardrail=(
+                runtime_max_concurrency_per_guardrail
+            ),
             jailbreak_detection_nim_base_url=(
                 jailbreak_detection_nim_base_url.rstrip("/") or None
             ),
@@ -190,6 +203,7 @@ class Settings:
             ),
             otel_enabled=otel_enabled,
             otel_exporter_endpoint=otel_exporter_endpoint.rstrip("/") or None,
+            legacy_migration_enabled=legacy_migration_enabled,
         )
 
 

@@ -6,8 +6,9 @@ TaskLattice Guard is a guardrail management and enforcement platform for enterpr
 
 Rather than embedding disconnected safety rules in every application, TaskLattice Guard creates one governed lifecycle for AI protection—from business intent to runtime decisions and audit-ready evidence. It works across AI applications, agents, gateways, and models, so teams can evolve their AI stack without rebuilding their governance model.
 
-## Why TaskLattice Guard
+## Core Advantages
 
+- **NeMo-native protection** — Every released policy is enforced through NVIDIA NeMo Guardrails, with TaskLattice adding the product lifecycle needed to operate it safely.
 - **Business-first policies** — Describe purpose, allowed behavior, and boundaries in language that product, risk, and security teams can review together.
 - **Reusable protection** — Manage guardrails independently from individual applications and models, then apply them wherever they are needed.
 - **Validate before release** — Evaluate changes before creating a deployable version, reducing the risk of unreviewed policies reaching production.
@@ -21,28 +22,24 @@ Rather than embedding disconnected safety rules in every application, TaskLattic
  Security · Business · AI Teams
                 │
                 ▼
- ┌─────────────────────────────────────────────────────┐
- │                  TaskLattice Guard                  │
- │                                                     │
- │  Define Guardrails → Evaluate → Version → Deploy   │
- │          │                              │           │
- │       Controls                    Traffic Scope     │
- └──────────────────────────────────────┬──────────────┘
-                                        │
- AI Applications · Agents · Gateways ──▶ Integration
-                                        │
-                                        ▼
-                            Matched Guardrail Version
-                                        │
-                         ┌──────────────┼──────────────┐
-                         ▼              ▼              ▼
-                       Allow      Guide / Transform   Block
-                         └──────────────┼──────────────┘
-                                        ▼
-                                     Evidence
+ ┌───────────────────────────────────────────────────┐
+ │                 TaskLattice Guard                 │
+ │  Define → Evaluate → Version → Deploy → Observe  │
+ └─────────────────────────┬─────────────────────────┘
+                           │ reviewed, immutable policy
+ AI Apps · Agents · Gateways
+              │            ▼
+              └──────▶ NeMo Guardrails Runtime
+                           │
+                 ┌─────────┼─────────┐
+                 ▼         ▼         ▼
+               Allow    Transform   Block
+                 └─────────┼─────────┘
+                           ▼
+                    Metrics & Evidence
 ```
 
-Teams manage the protection lifecycle in one place. At runtime, TaskLattice Guard uses trusted traffic context to select a reviewed Guardrail Version, produce a consistent decision, and record the evidence needed for oversight and continuous improvement.
+Teams manage the protection lifecycle in one place. At runtime, TaskLattice selects the reviewed Guardrail Version for each trusted traffic scope and NeMo Guardrails executes it. The result is a consistent decision with the operational metrics and evidence needed for oversight and continuous improvement.
 
 ## Core Product Concepts
 
@@ -55,6 +52,7 @@ Teams manage the protection lifecycle in one place. At runtime, TaskLattice Guar
 | **Deployment** | A binding between a Guardrail Version and the traffic it should protect. |
 | **Traffic Scope** | The trusted business and request context that determines which Deployment applies. |
 | **Integration** | The connection between TaskLattice Guard and an AI application, agent, or gateway. |
+| **Runtime** | The NeMo Guardrails engine that executes each selected, immutable Guardrail Version. |
 | **Evidence** | A record of evaluations, policy changes, deployments, and protection decisions for review and audit. |
 
 ## How It Works

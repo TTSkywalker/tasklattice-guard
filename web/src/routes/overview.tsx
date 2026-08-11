@@ -11,7 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryKeys } from "@/features/query-keys";
-import { getDecisions, getIntegrations, getMetrics, getGuardrails, getAssignments, type DecisionEvent, type Metrics } from "@/lib/api";
+import { getDecisions, getIntegrations, getMetrics, getGuardrails, getAssignments, type DecisionEvent, type Metrics, type RuntimeComponentMetric } from "@/lib/api";
 
 export function OverviewPage() {
   const { t, i18n } = useTranslation();
@@ -48,6 +48,19 @@ export function OverviewPage() {
           </div>
 
           <GuardrailDistribution metrics={metrics.data} />
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <RuntimeComponents
+              title={t("overview.railPerformance")}
+              description={t("overview.railPerformanceDescription")}
+              items={metrics.data.rail_metrics}
+            />
+            <RuntimeComponents
+              title={t("overview.actionPerformance")}
+              description={t("overview.actionPerformanceDescription")}
+              items={metrics.data.action_metrics}
+            />
+          </div>
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
             <TrafficTrend metrics={metrics.data} />
@@ -221,7 +234,53 @@ function LatencyDistribution({ item }: { item: GuardrailMetric }) {
     <div className="font-mono text-xs tabular-nums">
       <p><span className="text-muted-foreground">P50</span> {item.p50_latency_ms} ms <span className="ml-3 text-muted-foreground">P95</span> {item.p95_latency_ms} ms <span className="ml-3 text-muted-foreground">P99</span> {item.p99_latency_ms} ms</p>
       <p className="mt-1 text-muted-foreground">Queue P95 <span className="text-foreground">{item.queue_p95_ms} ms</span></p>
+      <p className="mt-1 text-muted-foreground">Rail P95 <span className="text-foreground">{item.rail_p95_ms} ms</span> · Action P95 <span className="text-foreground">{item.action_p95_ms} ms</span></p>
     </div>
+  );
+}
+
+function RuntimeComponents({ title, description, items }: { title: string; description: string; items: RuntimeComponentMetric[] }) {
+  const { t, i18n } = useTranslation();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+      </CardHeader>
+      <CardContent className="px-0">
+        {items.length ? (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[560px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">{t("overview.component")}</TableHead>
+                  <TableHead>{t("overview.invocations")}</TableHead>
+                  <TableHead>{t("overview.componentOutcomes")}</TableHead>
+                  <TableHead className="pr-4 text-right">P50 / P95 / P99</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.slice(0, 8).map((item) => (
+                  <TableRow key={`${item.name}:${item.risk ?? "none"}`}>
+                    <TableCell className="max-w-64 pl-4">
+                      <p className="break-words font-mono text-xs">{item.name}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{item.risk ? riskLabel(item.risk, t) : t("overview.runtimeCore")}</p>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm tabular-nums">{item.invocations.toLocaleString(i18n.language)}</TableCell>
+                    <TableCell>
+                      <p className="text-xs">{t("overview.componentOutcomeSummary", { passed: item.passed, intervened: item.intervened, errors: item.errors })}</p>
+                      {item.uncertain || item.timeouts ? <p className="mt-0.5 text-xs text-amber-700">{t("overview.componentExceptions", { uncertain: item.uncertain, timeouts: item.timeouts })}</p> : null}
+                    </TableCell>
+                    <TableCell className="pr-4 text-right font-mono text-xs tabular-nums">{item.p50_latency_ms} / {item.p95_latency_ms} / {item.p99_latency_ms} ms</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : <p className="px-4 py-12 text-center text-sm text-muted-foreground">{t("overview.noComponentMetrics")}</p>}
+      </CardContent>
+    </Card>
   );
 }
 

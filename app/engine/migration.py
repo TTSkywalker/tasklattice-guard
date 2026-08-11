@@ -38,12 +38,14 @@ class RuntimeRolloutCoordinator:
         store: RuntimeModeStore,
         *,
         canary_percent: int = 10,
+        transition_enabled: bool = False,
     ) -> None:
         self._nemo = nemo
         self._legacy_factory = legacy_factory
         self._legacy_instance: GuardrailEngine | None = None
         self._store = store
         self._canary_percent = max(0, min(canary_percent, 100))
+        self._transition_enabled = transition_enabled
         self._background: set[asyncio.Task] = set()
 
     @property
@@ -53,6 +55,8 @@ class RuntimeRolloutCoordinator:
         return self._legacy_instance
 
     async def evaluate(self, request: EngineRequest) -> EvaluationDecision:
+        if not self._transition_enabled:
+            return await self._nemo.evaluate(request)
         mode = self._store.version_execution_mode(
             request.plan.guardrail_id,
             request.plan.guardrail_version,

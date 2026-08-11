@@ -42,6 +42,17 @@ def record_runtime_decision(
         fail_closed=usage.fail_closed if usage else False,
         detail=detail,
     )
+    control_plane.record_runtime_steps(
+        guardrail_id=decision.guardrail_id,
+        guardrail_version=decision.guardrail_version,
+        assignment_id=decision.assignment_id,
+        integration_id=integration_id,
+        protocol=protocol,
+        phase=phase,
+        trace=decision.trace,
+        runtime_engine=usage.runtime_engine if usage else "",
+        config_checksum=usage.config_checksum if usage else "",
+    )
 
 
 def record_runtime_failure(

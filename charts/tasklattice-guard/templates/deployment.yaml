@@ -18,6 +18,7 @@ spec:
       annotations:
         checksum/evaluator-secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         checksum/automated-reasoning-secret: {{ include (print $.Template.BasePath "/automated-reasoning-secret.yaml") . | sha256sum }}
+        checksum/jailbreak-detection-secret: {{ include (print $.Template.BasePath "/jailbreak-detection-secret.yaml") . | sha256sum }}
         checksum/control-plane-agent-secret: {{ include (print $.Template.BasePath "/control-plane-agent-secret.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -50,6 +51,20 @@ spec:
           env:
             - name: MODEL_GUARDRAILS_DATABASE_PATH
               value: {{ .Values.database.path | quote }}
+            - name: MODEL_GUARDRAILS_RUNTIME_P95_BUDGET_MS
+              value: {{ .Values.observability.runtimeP95BudgetMs | quote }}
+            - name: MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS
+              value: {{ .Values.observability.runtimeP99BudgetMs | quote }}
+            - name: MODEL_GUARDRAILS_RUNTIME_MAX_CONCURRENCY_PER_GUARDRAIL
+              value: {{ .Values.observability.maxConcurrencyPerGuardrail | quote }}
+            - name: MODEL_GUARDRAILS_OTEL_ENABLED
+              value: {{ .Values.observability.openTelemetry.enabled | quote }}
+            - name: MODEL_GUARDRAILS_LEGACY_MIGRATION_ENABLED
+              value: {{ .Values.migration.legacyModesEnabled | quote }}
+            {{- with .Values.observability.openTelemetry.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.evaluators.nvidia.baseUrl }}
             - name: MODEL_GUARDRAILS_NVIDIA_BASE_URL
               value: {{ . | quote }}
@@ -98,6 +113,17 @@ spec:
                 secretKeyRef:
                   name: {{ include "tasklattice-guard.automatedReasoningSecretName" . }}
                   key: {{ .Values.evaluators.automatedReasoning.secretKey }}
+            {{- end }}
+            {{- with .Values.evaluators.jailbreakDetection.nimBaseUrl }}
+            - name: MODEL_GUARDRAILS_JAILBREAK_NIM_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if or .Values.evaluators.jailbreakDetection.apiKey .Values.evaluators.jailbreakDetection.existingSecret }}
+            - name: MODEL_GUARDRAILS_JAILBREAK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tasklattice-guard.jailbreakDetectionSecretName" . }}
+                  key: {{ .Values.evaluators.jailbreakDetection.secretKey }}
             {{- end }}
             {{- with .Values.controlPlaneAgent.deepseek.baseUrl }}
             - name: MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL

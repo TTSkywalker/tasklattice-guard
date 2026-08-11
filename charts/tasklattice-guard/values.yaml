@@ -75,6 +75,22 @@ evaluators:
     apiKey: ""
     existingSecret: ""
     secretKey: api-key
+  jailbreakDetection:
+    nimBaseUrl: ""
+    apiKey: ""
+    existingSecret: ""
+    secretKey: api-key
+
+observability:
+  runtimeP95BudgetMs: 2500
+  runtimeP99BudgetMs: 5000
+  maxConcurrencyPerGuardrail: 64
+  openTelemetry:
+    enabled: false
+    endpoint: ""
+
+migration:
+  legacyModesEnabled: false
 
 controlPlaneAgent:
   deepseek:

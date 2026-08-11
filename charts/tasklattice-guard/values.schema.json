@@ -80,7 +80,40 @@
             "existingSecret": {"type": "string"},
             "secretKey": {"type": "string", "minLength": 1}
           }
+        },
+        "jailbreakDetection": {
+          "type": "object",
+          "properties": {
+            "nimBaseUrl": {"type": "string"},
+            "apiKey": {"type": "string"},
+            "existingSecret": {"type": "string"},
+            "secretKey": {"type": "string", "minLength": 1}
+          }
         }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "required": ["runtimeP95BudgetMs", "runtimeP99BudgetMs", "maxConcurrencyPerGuardrail", "openTelemetry"],
+      "properties": {
+        "runtimeP95BudgetMs": {"type": "integer", "minimum": 1},
+        "runtimeP99BudgetMs": {"type": "integer", "minimum": 1},
+        "maxConcurrencyPerGuardrail": {"type": "integer", "minimum": 1},
+        "openTelemetry": {
+          "type": "object",
+          "required": ["enabled", "endpoint"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "endpoint": {"type": "string"}
+          }
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "required": ["legacyModesEnabled"],
+      "properties": {
+        "legacyModesEnabled": {"type": "boolean"}
       }
     }
   }

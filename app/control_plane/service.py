@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..engine.contracts import (
     AutomatedReasoningPolicySnapshot,
+    EvaluationTraceStep,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
@@ -53,6 +54,7 @@ from .domain import (
     IntegrationRegistration,
     NotFoundError,
     RuntimeMetricEvent,
+    RuntimeStepMetricEvent,
     RuntimeComparisonEvent,
     GuardrailVersion,
     GuardrailControl,
@@ -92,6 +94,7 @@ class ControlPlaneService:
         nemo_compiler: NeMoConfigCompiler | None = None,
         runtime_p95_budget_ms: int = 2_500,
         runtime_p99_budget_ms: int = 5_000,
+        legacy_migration_enabled: bool = False,
     ) -> None:
         self._database_path = database_path
         self._fast_semantic_configured = fast_semantic_configured
@@ -101,6 +104,7 @@ class ControlPlaneService:
         self._nemo_compiler = nemo_compiler or NeMoConfigCompiler()
         self._runtime_p95_budget_ms = runtime_p95_budget_ms
         self._runtime_p99_budget_ms = runtime_p99_budget_ms
+        self._legacy_migration_enabled = legacy_migration_enabled
         self._nemo_runtime_validator: (
             Callable[[GuardrailPlanSnapshot, NeMoConfigSnapshot], None] | None
         ) = None
@@ -535,6 +539,10 @@ class ControlPlaneService:
         }
         if mode not in allowed:
             raise ValidationError("Unsupported runtime migration mode.")
+        if mode != "nemo_only" and not self._legacy_migration_enabled:
+            raise ValidationError(
+                "Legacy runtime migration modes are disabled; this deployment is NeMo-only."
+            )
         target = next(
             (item for item in self.versions(guardrail_id) if item.version == version),
             None,
@@ -1186,6 +1194,104 @@ class ControlPlaneService:
             for row in rows
         )
 
+    def runtime_step_metrics(
+        self,
+        *,
+        since: str,
+    ) -> tuple[RuntimeStepMetricEvent, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, created_at, guardrail_id, guardrail_version, "
+                "assignment_id, integration_id, protocol, phase, kind, name, "
+                "risk, stage, outcome, latency_ms, timed_out, runtime_engine, "
+                "config_checksum FROM runtime_step_metric_events "
+                "WHERE created_at >= ? ORDER BY created_at DESC, id DESC",
+                (since,),
+            ).fetchall()
+        return tuple(
+            RuntimeStepMetricEvent(
+                id=str(row[0]),
+                created_at=str(row[1]),
+                guardrail_id=str(row[2]),
+                guardrail_version=int(row[3]),
+                assignment_id=str(row[4]) if row[4] else None,
+                integration_id=str(row[5]) if row[5] else None,
+                protocol=str(row[6]),
+                phase=str(row[7]),
+                kind=str(row[8]),
+                name=str(row[9]),
+                risk=str(row[10]) if row[10] else None,
+                stage=str(row[11]) if row[11] else None,
+                outcome=str(row[12]),
+                latency_ms=int(row[13]),
+                timed_out=bool(row[14]),
+                runtime_engine=str(row[15]),
+                config_checksum=str(row[16]),
+            )
+            for row in rows
+        )
+
+    def record_runtime_steps(
+        self,
+        *,
+        guardrail_id: str | None,
+        guardrail_version: int | None,
+        assignment_id: str | None,
+        integration_id: str | None,
+        protocol: str,
+        phase: str,
+        trace: tuple[EvaluationTraceStep, ...],
+        runtime_engine: str,
+        config_checksum: str,
+    ) -> None:
+        if guardrail_id is None or guardrail_version is None:
+            return
+        rows: list[tuple[object, ...]] = []
+        now = _now()
+        for step in trace:
+            kind = (
+                "rail"
+                if step.kind == "rail" and step.id.startswith("nemo:rail:")
+                else "action"
+                if step.id.startswith("nemo:action:")
+                else None
+            )
+            if kind is None:
+                continue
+            rows.append(
+                (
+                    f"step-metric-{uuid.uuid4().hex[:12]}",
+                    now,
+                    guardrail_id,
+                    guardrail_version,
+                    assignment_id,
+                    integration_id,
+                    protocol,
+                    phase,
+                    kind,
+                    step.name[:256],
+                    step.risk,
+                    step.stage,
+                    step.status,
+                    max(0, step.duration_ms),
+                    int("timeout" in step.detail.casefold()),
+                    runtime_engine,
+                    config_checksum,
+                )
+            )
+        if not rows:
+            return
+        with self._write_lock, self._connect() as connection:
+            connection.executemany(
+                "INSERT INTO runtime_step_metric_events "
+                "(id, created_at, guardrail_id, guardrail_version, assignment_id, "
+                "integration_id, protocol, phase, kind, name, risk, stage, outcome, "
+                "latency_ms, timed_out, runtime_engine, config_checksum) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            connection.commit()
+
     def record_runtime_comparison(
         self,
         *,
@@ -1645,6 +1751,29 @@ class ControlPlaneService:
                 ON runtime_metric_events(created_at);
             CREATE INDEX IF NOT EXISTS runtime_metric_events_guardrail_created_at_idx
                 ON runtime_metric_events(guardrail_id, created_at);
+            CREATE TABLE IF NOT EXISTS runtime_step_metric_events (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                guardrail_id TEXT NOT NULL,
+                guardrail_version INTEGER NOT NULL,
+                assignment_id TEXT,
+                integration_id TEXT,
+                protocol TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                risk TEXT,
+                stage TEXT,
+                outcome TEXT NOT NULL,
+                latency_ms INTEGER NOT NULL,
+                timed_out INTEGER NOT NULL,
+                runtime_engine TEXT NOT NULL,
+                config_checksum TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS runtime_step_metric_events_created_at_idx
+                ON runtime_step_metric_events(created_at);
+            CREATE INDEX IF NOT EXISTS runtime_step_metric_events_guardrail_created_at_idx
+                ON runtime_step_metric_events(guardrail_id, created_at);
             CREATE TABLE IF NOT EXISTS runtime_comparison_events (
                 id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,

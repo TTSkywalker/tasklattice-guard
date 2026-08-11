@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
@@ -18,16 +19,13 @@ from .engine.automated_reasoning import (
     HTTPAutomatedReasoningProvider,
 )
 from .engine.contextual_grounding import ContextualGroundingJudgeEngine
-from .engine.dag import ModularGuardrailsEngine
 from .engine.fast_pass import FastPassEngine
 from .engine.migration import RuntimeRolloutCoordinator
-from .engine.nemo import NemoFastSemanticEngine
 from .engine.nemo_runtime import (
     NeMoGuardrailsEngine,
     NeMoRailsRegistry,
 )
 from .engine.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
-from .engine.risk_router import RiskAwareStageRouter
 from .engine.service import ModelGuardrailsEngineService
 from .engine.topic_judge import PurposeAwareTopicJudgeEngine
 from .identity import IdentityAPI, IdentityService
@@ -39,7 +37,13 @@ def create_engine(
     control_plane: ControlPlaneService | None = None,
 ) -> NeMoGuardrailsEngine:
     store = control_plane or _create_control_plane(settings)
-    registry = NeMoRailsRegistry(store, create_action_stages(settings))
+    registry = NeMoRailsRegistry(
+        store,
+        create_action_stages(settings),
+        max_concurrency_per_guardrail=(
+            settings.runtime_max_concurrency_per_guardrail
+        ),
+    )
     store.bind_nemo_runtime(validator=registry.validate, reloader=registry.reload)
     return NeMoGuardrailsEngine(registry)
 
@@ -118,8 +122,12 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
     return tuple(stages)
 
 
-def create_legacy_engine(settings: Settings) -> ModularGuardrailsEngine:
+def create_legacy_engine(settings: Settings) -> GuardrailEngine:
     """Lazily construct the former runtime only for time-bounded migration modes."""
+    from .engine.dag import ModularGuardrailsEngine
+    from .engine.nemo import NemoFastSemanticEngine
+    from .engine.risk_router import RiskAwareStageRouter
+
     action_stages = create_action_stages(settings)
     deterministic = next(item for item in action_stages if item.stage == "deterministic")
     fast = [item for item in action_stages if item.stage == "fast_semantic"]
@@ -157,6 +165,7 @@ def create_app(
             nemo_engine,
             lambda: create_legacy_engine(configured),
             control_plane,
+            transition_enabled=configured.legacy_migration_enabled,
         )
     else:
         # Explicit injection is reserved for tests/embedding; normal application
@@ -178,11 +187,23 @@ def create_app(
         intent_analyzer=configured_intent_analyzer,
     )
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            shutdown = getattr(runtime_engine, "shutdown", None)
+            if shutdown is not None:
+                await shutdown()
+            if tracer_provider is not None:
+                tracer_provider.shutdown()
+
     app = FastAPI(
         title="TaskLattice Model Guardrails",
         version="0.0.1",
         docs_url=None,
         redoc_url=None,
+        lifespan=lifespan,
     )
     app.include_router(litellm.router)
     app.include_router(http_adapter.router)
@@ -201,14 +222,6 @@ def create_app(
         if runtime_ready is not None and not runtime_ready():
             raise HTTPException(status_code=503, detail="NeMo runtime is not prewarmed.")
         return {"status": "ready"}
-
-    @app.on_event("shutdown")
-    async def shutdown_runtime() -> None:
-        shutdown = getattr(runtime_engine, "shutdown", None)
-        if shutdown is not None:
-            await shutdown()
-        if tracer_provider is not None:
-            tracer_provider.shutdown()
 
     if configured.ui_dist_path.is_dir():
         app.mount(
@@ -252,6 +265,7 @@ def _create_control_plane(settings: Settings) -> ControlPlaneService:
         nemo_compiler=_nemo_compiler(settings),
         runtime_p95_budget_ms=settings.runtime_p95_budget_ms,
         runtime_p99_budget_ms=settings.runtime_p99_budget_ms,
+        legacy_migration_enabled=settings.legacy_migration_enabled,
     )
 
 
@@ -308,16 +322,23 @@ def _configure_telemetry(settings: Settings):
 
     current = trace.get_tracer_provider()
     if isinstance(current, TracerProvider):
-        return current
+        # An existing SDK provider is owned by the embedding process. Reuse it
+        # without registering another exporter or shutting it down ourselves.
+        return None
     provider = TracerProvider(
         resource=Resource.create({"service.name": "tasklattice-guard"})
     )
     exporter = OTLPSpanExporter(
-        endpoint=f"{settings.otel_exporter_endpoint}/v1/traces"
+        endpoint=_otlp_trace_endpoint(settings.otel_exporter_endpoint)
     )
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
     return provider
+
+
+def _otlp_trace_endpoint(endpoint: str) -> str:
+    normalized = endpoint.rstrip("/")
+    return normalized if normalized.endswith("/v1/traces") else f"{normalized}/v1/traces"
 
 
 def _deepseek_options(

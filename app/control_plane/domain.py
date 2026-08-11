@@ -370,6 +370,29 @@ class RuntimeMetricEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeStepMetricEvent:
+    """Privacy-safe timing and outcome for one activated NeMo rail or Action."""
+
+    id: str
+    created_at: str
+    guardrail_id: str
+    guardrail_version: int
+    assignment_id: str | None
+    integration_id: str | None
+    protocol: str
+    phase: str
+    kind: str
+    name: str
+    risk: str | None
+    stage: str | None
+    outcome: str
+    latency_ms: int
+    timed_out: bool
+    runtime_engine: str
+    config_checksum: str
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeComparisonEvent:
     """Privacy-safe legacy/NeMo decision comparison for a migration run."""
 

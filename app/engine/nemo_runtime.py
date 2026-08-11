@@ -74,6 +74,7 @@ class NeMoRailsInstance:
     plan: GuardrailPlanSnapshot
     rails: Guardrails
     actions: "NeMoActionExecutor"
+    admission: asyncio.BoundedSemaphore
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,10 +442,14 @@ class NeMoRailsRegistry:
         stages: tuple[GuardrailStage, ...],
         *,
         max_entries: int = 128,
+        max_concurrency_per_guardrail: int = 64,
     ) -> None:
         self._store = store
         self._stages = stages
         self._max_entries = max(1, max_entries)
+        self._max_concurrency_per_guardrail = max(
+            1, max_concurrency_per_guardrail
+        )
         self._items: OrderedDict[tuple[str, int, str], NeMoRailsInstance] = OrderedDict()
         self._lock = threading.RLock()
         self._hits = 0
@@ -534,7 +539,13 @@ class NeMoRailsRegistry:
         )
         actions = NeMoActionExecutor(plan, config, self._stages)
         actions.register(rails)
-        item = NeMoRailsInstance(config, plan, rails, actions)
+        item = NeMoRailsInstance(
+            config,
+            plan,
+            rails,
+            actions,
+            asyncio.BoundedSemaphore(self._max_concurrency_per_guardrail),
+        )
         self._items[key] = item
         self._items.move_to_end(key)
         while len(self._items) > self._max_entries:
@@ -606,24 +617,38 @@ class NeMoGuardrailsEngine:
         self._runner = _ActionStageCatalog(registry.action_stages)
 
     async def evaluate(self, request: EngineRequest) -> EvaluationDecision:
-        instance, cache_hit, queue_latency_ms = self._registry.acquire(request.plan)
+        instance, cache_hit, registry_queue_latency_ms = self._registry.acquire(
+            request.plan
+        )
         messages = _messages(request)
         token = _CURRENT_REQUEST.set(request)
         results: list[_RuntimeResult] = []
         result_token = _CURRENT_RESULTS.set(results)
         started = time.perf_counter()
+        queue_started = started
+        queue_latency_ms = registry_queue_latency_ms
+        admitted = False
         try:
             async with asyncio.timeout(_request_timeout_ms(request) / 1_000):
+                await instance.admission.acquire()
+                admitted = True
+                queue_latency_ms += max(
+                    0, round((time.perf_counter() - queue_started) * 1_000)
+                )
                 response = await instance.rails.generate_async(
                     messages=messages,
                     options={
                         "rails": [request.phase],
-                        "output_vars": True,
-                        "log": {"activated_rails": True, "llm_calls": True},
+                        "output_vars": ["tasklattice_decision"],
+                        # Aggregate call counts remain available in log.stats;
+                        # do not request raw LLM prompts/completions.
+                        "log": {"activated_rails": True, "llm_calls": False},
                     },
                 )
         except Exception as error:
             duration = max(0, round((time.perf_counter() - started) * 1_000))
+            if not admitted:
+                queue_latency_ms += duration
             return _failed_decision(
                 request,
                 error,
@@ -633,6 +658,8 @@ class NeMoGuardrailsEngine:
                 queue_latency_ms=queue_latency_ms,
             )
         finally:
+            if admitted:
+                instance.admission.release()
             _CURRENT_RESULTS.reset(result_token)
             _CURRENT_REQUEST.reset(token)
         if not isinstance(response, GenerationResponse):
@@ -802,6 +829,9 @@ def _decision(
             queue_latency_ms=queue_latency_ms,
             runtime_engine=config.runtime_engine,
             config_checksum=_config_checksum(config),
+            fail_closed=any(
+                item.result.verdict == "error" for item in runtime_results
+            ),
         ),
         mode=request.mode,
     )

@@ -56,6 +56,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (printf "%s-automated-reasoning" (include "tasklattice-guard.fullname" .)) .Values.evaluators.automatedReasoning.existingSecret }}
 {{- end }}
 
+{{- define "tasklattice-guard.jailbreakDetectionSecretName" -}}
+{{- default (printf "%s-jailbreak-detection" (include "tasklattice-guard.fullname" .)) .Values.evaluators.jailbreakDetection.existingSecret }}
+{{- end }}
+
 {{- define "tasklattice-guard.persistenceClaimName" -}}
 {{- default (include "tasklattice-guard.fullname" .) .Values.persistence.existingClaim }}
 {{- end }}
@@ -87,6 +91,30 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- if and .Values.evaluators.automatedReasoning.endpointUrl (not (or .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret)) }}
 {{- fail "an Automated Reasoning credential is required when evaluators.automatedReasoning.endpointUrl is configured" }}
+{{- end }}
+{{- if and .Values.evaluators.jailbreakDetection.apiKey .Values.evaluators.jailbreakDetection.existingSecret }}
+{{- fail "set either evaluators.jailbreakDetection.apiKey or evaluators.jailbreakDetection.existingSecret, not both" }}
+{{- end }}
+{{- if and (or .Values.evaluators.jailbreakDetection.apiKey .Values.evaluators.jailbreakDetection.existingSecret) (not .Values.evaluators.jailbreakDetection.nimBaseUrl) }}
+{{- fail "evaluators.jailbreakDetection.nimBaseUrl is required when a Jailbreak Detection credential is configured" }}
+{{- end }}
+{{- if and .Values.evaluators.jailbreakDetection.nimBaseUrl (not (regexMatch "^https?://" .Values.evaluators.jailbreakDetection.nimBaseUrl)) }}
+{{- fail "evaluators.jailbreakDetection.nimBaseUrl must be an HTTP(S) URL" }}
+{{- end }}
+{{- if lt (int .Values.observability.runtimeP95BudgetMs) 1 }}
+{{- fail "observability.runtimeP95BudgetMs must be positive" }}
+{{- end }}
+{{- if lt (int .Values.observability.runtimeP99BudgetMs) (int .Values.observability.runtimeP95BudgetMs) }}
+{{- fail "observability.runtimeP99BudgetMs must be at least runtimeP95BudgetMs" }}
+{{- end }}
+{{- if lt (int .Values.observability.maxConcurrencyPerGuardrail) 1 }}
+{{- fail "observability.maxConcurrencyPerGuardrail must be positive" }}
+{{- end }}
+{{- if and .Values.observability.openTelemetry.enabled (not .Values.observability.openTelemetry.endpoint) }}
+{{- fail "observability.openTelemetry.endpoint is required when OpenTelemetry is enabled" }}
+{{- end }}
+{{- if and .Values.observability.openTelemetry.endpoint (not (regexMatch "^https?://" .Values.observability.openTelemetry.endpoint)) }}
+{{- fail "observability.openTelemetry.endpoint must be an HTTP(S) URL" }}
 {{- end }}
 {{- if and .Values.controlPlaneAgent.deepseek.apiKey .Values.controlPlaneAgent.deepseek.existingSecret }}
 {{- fail "set either controlPlaneAgent.deepseek.apiKey or controlPlaneAgent.deepseek.existingSecret, not both" }}
