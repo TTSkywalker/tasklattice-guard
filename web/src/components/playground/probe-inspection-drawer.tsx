@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowDown, CheckCircle2, ChevronDown, ExternalLink, ShieldCheck, SkipForward } from "lucide-react";
+import { ArrowDown, ArrowDownLeft, ArrowUpRight, CheckCircle2, ChevronDown, CircleDashed, CircleX, ExternalLink, RefreshCw, ShieldCheck, SkipForward } from "lucide-react";
 import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -44,6 +44,12 @@ export function ProbeInspectionDrawer({ result, open, onOpenChange }: { result: 
 
 export function StageTabs({ result }: { result: PlaygroundInteraction }) {
   const { t } = useTranslation();
+  const inputDescription = result.input_check.decision === "block"
+    ? t("playground.requestStoppedBeforeModel")
+    : t("playground.requestSentToModel");
+  const outputDescription = result.output_check
+    ? t("playground.responseReceivedFromModel")
+    : t("playground.noModelResponse");
   return (
     <Tabs
       key={result.interaction_id}
@@ -52,26 +58,29 @@ export function StageTabs({ result }: { result: PlaygroundInteraction }) {
     >
       <TabsList
         aria-label={t("playground.inspectionStages")}
-        className="grid h-auto! w-full grid-cols-2 rounded-none border-b bg-muted/30 p-0"
+        className="grid h-auto! w-full grid-cols-2 rounded-none border-b bg-muted/40 p-1.5 pb-0"
       >
-        <TabsTrigger value="input" className="group/stage min-h-[4.25rem] min-w-0 justify-start gap-1.5 overflow-hidden rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-2 py-3 text-left shadow-none first:border-r first:border-r-border hover:bg-muted/40 hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset sm:gap-3 sm:px-4">
-          <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground ring-1 ring-border transition-colors group-data-[state=active]/stage:bg-primary/[0.08] group-data-[state=active]/stage:text-primary group-data-[state=active]/stage:ring-primary/15 sm:size-8"><ShieldCheck className="size-3.5 sm:size-4" /></span>
-          <span className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-foreground/70 group-data-[state=active]/stage:text-foreground">{t("playground.inputRail")}</span><span className="hidden truncate text-[11px] font-normal text-muted-foreground sm:block">{t("playground.beforeModel")}</span></span>
-          <StageStateMarker state={result.input_check.decision} label={t(`playground.decisions.${result.input_check.decision}`)} />
-        </TabsTrigger>
-        <TabsTrigger value="output" className="group/stage min-h-[4.25rem] min-w-0 justify-start gap-1.5 overflow-hidden rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-2 py-3 text-left shadow-none hover:bg-muted/40 hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset sm:gap-3 sm:px-4">
-          <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground ring-1 ring-border transition-colors group-data-[state=active]/stage:bg-primary/[0.08] group-data-[state=active]/stage:text-primary group-data-[state=active]/stage:ring-primary/15 sm:size-8"><ShieldCheck className="size-3.5 sm:size-4" /></span>
-          <span className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-foreground/70 group-data-[state=active]/stage:text-foreground">{t("playground.outputRail")}</span><span className="hidden truncate text-[11px] font-normal text-muted-foreground sm:block">{t("playground.afterModel")}</span></span>
-          <StageStateMarker
-            state={result.output_check?.decision ?? "skipped"}
-            label={result.output_check ? t(`playground.decisions.${result.output_check.decision}`) : t("playground.notRun")}
-          />
-        </TabsTrigger>
+        <StageTabTrigger
+          value="input"
+          icon={<ArrowUpRight aria-hidden="true" />}
+          title={t("playground.inputRail")}
+          description={inputDescription}
+          state={result.input_check.decision}
+          stateLabel={t(`playground.decisions.${result.input_check.decision}`)}
+        />
+        <StageTabTrigger
+          value="output"
+          icon={<ArrowDownLeft aria-hidden="true" />}
+          title={t("playground.outputRail")}
+          description={outputDescription}
+          state={result.output_check?.decision ?? "skipped"}
+          stateLabel={result.output_check ? t(`playground.decisions.${result.output_check.decision}`) : t("playground.notRun")}
+        />
       </TabsList>
-      <TabsContent value="input" className="m-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none">
+      <TabsContent value="input" className="m-0 bg-card focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none motion-safe:data-[state=active]:animate-in motion-safe:data-[state=active]:fade-in-0 motion-safe:duration-150">
         <CheckpointPanel title={t("playground.requestCheck")} description={t("playground.requestCheckDescription")} result={result.input_check} embedded />
       </TabsContent>
-      <TabsContent value="output" className="m-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none">
+      <TabsContent value="output" className="m-0 bg-card focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none motion-safe:data-[state=active]:animate-in motion-safe:data-[state=active]:fade-in-0 motion-safe:duration-150">
         {result.output_check ? (
           <CheckpointPanel title={t("playground.responseCheck")} description={t("playground.responseCheckDescription")} result={result.output_check} embedded />
         ) : (
@@ -86,19 +95,39 @@ export function StageTabs({ result }: { result: PlaygroundInteraction }) {
   );
 }
 
-function StageStateMarker({ state, label }: { state: string; label: string }) {
+function StageTabTrigger({ value, icon, title, description, state, stateLabel }: { value: string; icon: ReactNode; title: string; description: string; state: string; stateLabel: string }) {
   return (
-    <span className="ml-auto flex size-4 shrink-0 items-center justify-center sm:size-6" title={label}>
-      <span
-        aria-hidden="true"
-        className={cn(
-          "size-2 rounded-full bg-muted-foreground/40 ring-4 ring-muted-foreground/[0.06]",
-          state === "allow" && "bg-emerald-500 ring-emerald-500/10",
-          state === "block" && "bg-destructive ring-destructive/10",
-          state === "transform" && "bg-amber-500 ring-amber-500/10",
-        )}
-      />
-      <span className="sr-only">{label}</span>
+    <TabsTrigger
+      value={value}
+      className="group/stage relative -mb-px min-h-[4.25rem] min-w-0 justify-start gap-1.5 overflow-hidden rounded-t-lg rounded-b-none border border-transparent bg-transparent px-2 py-2.5 text-left shadow-none hover:bg-card/60 hover:text-foreground data-[state=active]:border-border data-[state=active]:border-b-card data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset sm:gap-3 sm:px-4"
+    >
+      <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground ring-1 ring-border transition-colors group-data-[state=active]/stage:bg-primary group-data-[state=active]/stage:text-primary-foreground group-data-[state=active]/stage:ring-primary/20 sm:size-9 [&_svg]:size-4 sm:[&_svg]:size-[1.125rem]">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block truncate text-sm font-semibold text-foreground/65 group-data-[state=active]/stage:text-foreground">{title}</span>
+        <span className="hidden truncate text-[11px] font-normal text-muted-foreground sm:block">{description}</span>
+      </span>
+      <StageStateMarker state={state} label={stateLabel} />
+    </TabsTrigger>
+  );
+}
+
+function StageStateMarker({ state, label }: { state: string; label: string }) {
+  const Icon = state === "allow" ? CheckCircle2 : state === "block" ? CircleX : state === "transform" ? RefreshCw : CircleDashed;
+  return (
+    <span
+      className={cn(
+        "ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] font-medium opacity-55 transition-opacity group-data-[state=active]/stage:opacity-100",
+        state === "allow" && "text-emerald-700",
+        state === "block" && "text-destructive",
+        state === "transform" && "text-amber-700",
+        !["allow", "block", "transform"].includes(state) && "text-muted-foreground",
+      )}
+      title={label}
+    >
+      <Icon aria-hidden="true" className="size-4" />
+      <span className="sr-only sm:not-sr-only">{label}</span>
     </span>
   );
 }

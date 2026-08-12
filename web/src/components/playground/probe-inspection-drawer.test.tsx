@@ -11,10 +11,13 @@ vi.mock("react-i18next", () => ({
       "playground.inspectionStages": "Guardrail checkpoints",
       "playground.inputRail": "Input Rail",
       "playground.outputRail": "Output Rail",
-      "playground.beforeModel": "Before the model",
-      "playground.afterModel": "After the model",
+      "playground.requestSentToModel": "Request sent to model",
+      "playground.requestStoppedBeforeModel": "Request stopped before model",
+      "playground.responseReceivedFromModel": "Response received from model",
+      "playground.noModelResponse": "No model response",
       "playground.decisions.allow": "Allowed",
       "playground.decisions.block": "Blocked",
+      "playground.decisions.transform": "Transformed",
       "playground.notRun": "Not run",
       "playground.requestCheck": "Request check",
       "playground.requestCheckDescription": "Request checkpoint description",
@@ -167,10 +170,17 @@ describe("StageTabs", () => {
   it("exposes the input checkpoint as the default accessible tab and panel", () => {
     render(<StageTabs result={interaction()} />);
 
-    expect(screen.getByRole("tablist")).toBeTruthy();
+    expect(screen.getByRole("tablist", { name: "Guardrail checkpoints" })).toBeTruthy();
     const { input, output } = tabs();
     const panel = screen.getByRole("tabpanel");
 
+    expect(input.getAttribute("aria-label")).toBeNull();
+    expect(input.textContent).toContain("Request sent to model");
+    expect(input.textContent).toContain("Allowed");
+    expect(output.textContent).toContain("Response received from model");
+    expect(output.textContent).toContain("Allowed");
+    expect(input.querySelector(".lucide-arrow-up-right")?.getAttribute("aria-hidden")).toBe("true");
+    expect(output.querySelector(".lucide-arrow-down-left")?.getAttribute("aria-hidden")).toBe("true");
     expect(input.getAttribute("aria-selected")).toBe("true");
     expect(output.getAttribute("aria-selected")).toBe("false");
     expect(input.getAttribute("aria-controls")).toBe(panel.id);
@@ -255,6 +265,10 @@ describe("StageTabs", () => {
       />,
     );
 
+    expect(tabs().input.textContent).toContain("Request stopped before model");
+    expect(tabs().input.textContent).toContain("Blocked");
+    expect(tabs().output.textContent).toContain("No model response");
+    expect(tabs().output.textContent).toContain("Not run");
     clickTab(tabs().output);
 
     expect(screen.getByRole("heading", { name: "Response check was not run" })).toBeTruthy();
@@ -263,6 +277,22 @@ describe("StageTabs", () => {
         "The request was blocked before the model, so there was no model response to inspect.",
       ),
     ).toBeTruthy();
+  });
+
+  it("exposes a transformed stage with text instead of relying on color", () => {
+    render(
+      <StageTabs
+        result={interaction({
+          input_check: checkResult("input", {
+            decision: "transform",
+            action: "redact",
+          }),
+        })}
+      />,
+    );
+
+    expect(tabs().input.textContent).toContain("Transformed");
+    expect(tabs().input.querySelector(".lucide-refresh-cw")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("resets to the correct default tab when a new interaction is rendered", () => {
