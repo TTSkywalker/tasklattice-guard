@@ -1,147 +1,181 @@
 # Connect LiteLLM to TaskLattice Guard
 
-TaskLattice Guard implements LiteLLM's [Generic Guardrail API](https://docs.litellm.ai/docs/adding_provider/generic_guardrail_api). Each Integration represents one concrete LiteLLM Gateway and receives its own stable API base URL and credential.
+The TaskLattice LiteLLM image includes **TaskLattice Guard** as a Guardrail
+Provider. Connect one LiteLLM Gateway by entering only two values in the
+LiteLLM Admin UI:
+
+- **Endpoint** — the stable URL for one TaskLattice Integration;
+- **Secret** — the matching one-time Integration credential.
+
+The Provider owns the callback path, input/output modes, always-on behavior,
+and fail-closed defaults. You do not need to edit `config.yaml`, select a
+generic provider, or restart LiteLLM after connecting it.
 
 ## Before you begin
 
 You need:
 
-- a reachable public or private TaskLattice Guard URL;
-- a LiteLLM Gateway that can reach that URL;
+- a TaskLattice LiteLLM image version that contains the **TaskLattice Guard**
+  Provider;
+- network access from LiteLLM to the TaskLattice Guard service;
 - permission to create an Integration in TaskLattice Guard; and
-- a secret manager or another safe place to store the one-time credential.
+- a secure place to store the one-time Secret.
 
-TaskLattice shows a new credential only once. Treat it as a secret. The Integration UUID in the URL identifies the Gateway instance, but it is not authentication; TaskLattice also requires the matching credential.
+If **TaskLattice Guard** does not appear in LiteLLM's Provider list, verify that
+the Gateway is running the packaged TaskLattice LiteLLM image. Do not choose
+**Custom** or another vendor's Provider as a substitute.
 
-## 1. Create a LiteLLM Integration
+## 1. Create the Integration
 
-In **Integrations**, choose **Add integration**, select the LiteLLM Generic Guardrail adapter, and give the Gateway a recognizable name.
+In TaskLattice Guard:
 
-The result contains two values:
+1. Open **Integrations**.
+2. Choose **Add integration**.
+3. Select **TaskLattice Guard for LiteLLM**.
+4. Give this Gateway a recognizable name and create the Integration.
+
+TaskLattice displays the connection pair:
 
 ```text
-API base URL: https://guard.example.com/runtime/v1/integrations/<integration-uuid>
-API key:      tali_integration_<one-time-secret>
+Endpoint: https://guard.example.com/runtime/v1/integrations/<integration-uuid>
+Secret:   tali_integration_<one-time-secret>
 ```
 
-Copy both values before leaving the setup screen. Do not copy the callback suffix into `api_base`. LiteLLM automatically appends:
+Copy the Secret and store it securely before leaving the setup screen. The
+complete value is shown only once; after you confirm that it is stored,
+TaskLattice collapses it to a non-secret key hint.
+
+The Endpoint and Secret are a pair. The Integration UUID identifies the
+Gateway instance, but it is not authentication. A Secret issued for another
+Integration is rejected.
+
+## 2. Add TaskLattice Guard in LiteLLM
+
+In the LiteLLM Admin UI:
+
+1. Open **Guardrails** and choose **Add Guardrail**.
+2. Under **Provider**, select **TaskLattice Guard**.
+3. Paste the TaskLattice **Endpoint**.
+4. Paste the matching **Secret**.
+5. Choose **Verify & connect**.
+
+That is the complete Provider configuration. LiteLLM validates the Endpoint and
+Secret against TaskLattice's side-effect-free verification endpoint, saves the
+Provider, and activates it in the running instance. Verification does not count
+as Guardrail traffic and does not advance the Integration's callback status.
+There is no `config.yaml` change and no LiteLLM restart or redeploy after this
+step.
+
+Use the Endpoint exactly as TaskLattice displays it. It must end with the
+Integration UUID:
+
+```text
+https://guard.example.com/runtime/v1/integrations/<integration-uuid>
+```
+
+Do not append the callback suffix. The Provider adds the protocol path
+internally:
 
 ```text
 /beta/litellm_basic_guardrail_api
 ```
 
-The resulting callback is therefore:
+The Provider also fixes these security behaviors internally, so they are not
+configuration fields:
 
-```text
-POST https://guard.example.com/runtime/v1/integrations/<integration-uuid>/beta/litellm_basic_guardrail_api
-X-API-Key: tali_integration_<one-time-secret>
-```
+- inspect both model input and model output;
+- apply TaskLattice Guard by default;
+- block when the Guard service is unreachable; and
+- block on invalid or failed Guard responses.
 
-This behavior is part of LiteLLM's Generic Guardrail implementation: it appends the callback path when `api_base` does not already end with it. TaskLattice deliberately generates the shorter instance API base.
+## 3. Verify real traffic
 
-## 2. Store the credential
+Send one normal model request through the connected LiteLLM Gateway. Use a
+request that reaches the model so LiteLLM emits both callback phases.
+TaskLattice reports setup progress per Integration:
 
-Put the values in the LiteLLM Gateway's secret configuration. The names below are examples; keep separate values for every Gateway.
+1. **Awaiting input** — no input callback has arrived;
+2. **Awaiting output** — input was received, but output has not arrived;
+3. **Verified** — both input and output callbacks were observed.
 
-```bash
-TASKLATTICE_GUARD_API_BASE='https://guard.example.com/runtime/v1/integrations/<integration-uuid>'
-TASKLATTICE_GUARD_API_KEY='tali_integration_<one-time-secret>'
-```
+A request blocked by the Input Rail proves that input inspection is connected,
+but it cannot produce an output callback. Send an allowed request to complete
+both directions.
 
-Do not commit the key to `config.yaml`, a container image, or source control.
-
-## 3. Configure LiteLLM
-
-The generated `config.yaml` snippet is the canonical setup path. TaskLattice is
-not a vendor name in LiteLLM's provider list:
-
-- If the LiteLLM Admin UI offers **Provider → Generic Guardrail API**, that is
-  the matching provider type.
-- Do not select **Custom**. That creates a custom-code guardrail inside LiteLLM;
-  it does not configure this remote API integration.
-- Do not substitute another vendor provider. If **Generic Guardrail API** is not
-  available in the installed LiteLLM version, use `config.yaml` as shown below.
-
-Add this guardrail to the Gateway's `config.yaml`:
-
-```yaml
-litellm_settings:
-  guardrails:
-    - guardrail_name: tasklattice-guard
-      litellm_params:
-        guardrail: generic_guardrail_api
-        mode: [pre_call, post_call]
-        api_base: os.environ/TASKLATTICE_GUARD_API_BASE
-        api_key: os.environ/TASKLATTICE_GUARD_API_KEY
-        default_on: true
-        unreachable_fallback: fail_closed
-        fail_on_error: true
-```
-
-The important settings are:
-
-- `pre_call` sends model input through the TaskLattice Input Rail.
-- `post_call` sends model output through the TaskLattice Output Rail.
-- `default_on: true` applies the guardrail even when a caller does not name it explicitly.
-- `unreachable_fallback: fail_closed` blocks when the endpoint is unreachable, times out, or an upstream proxy returns 502, 503, or 504.
-- `fail_on_error: true` blocks on every guardrail error, including non-2xx or malformed responses.
-
-LiteLLM documents `fail_on_error: false` as a complete guardrail bypass on errors. Do not use fail-open behavior when TaskLattice is a security boundary unless that availability tradeoff has been explicitly accepted.
-
-Restart or reload LiteLLM after changing its configuration.
-
-## 4. Verify both callback phases
-
-Send a real model request through that LiteLLM Gateway. TaskLattice reports setup progress per Integration:
-
-1. `Awaiting input` — no pre-call callback has arrived yet.
-2. `Awaiting output` — an input callback arrived, but no post-call callback has arrived.
-3. `Verified` — both input and output callbacks have been observed.
-
-Use a request that reaches the model so LiteLLM can emit both phases. A blocked input correctly proves the Input Rail is connected, but there will be no model response and therefore no Output Rail callback.
-
-If setup remains at `Awaiting input`, check Gateway networking, the API base, and the key. If it remains at `Awaiting output`, confirm that `post_call` is present and that the test request was not stopped before model execution.
+The TaskLattice setup screen refreshes this status automatically. No LiteLLM
+restart is required while waiting for verification.
 
 ## Multiple LiteLLM Gateways
 
-Create one Integration for each Gateway. Every Gateway uses the same TaskLattice public service, but has a different Integration UUID and credential:
+Create one TaskLattice Integration for each LiteLLM Gateway. Each Gateway gets
+an independent Endpoint and Secret:
 
 ```text
-Gateway A -> /runtime/v1/integrations/11111111-1111-4111-8111-111111111111 + Key A
-Gateway B -> /runtime/v1/integrations/22222222-2222-4222-8222-222222222222 + Key B
+Gateway A -> /runtime/v1/integrations/11111111-1111-4111-8111-111111111111 + Secret A
+Gateway B -> /runtime/v1/integrations/22222222-2222-4222-8222-222222222222 + Secret B
 ```
 
-TaskLattice rejects mixed pairs such as Gateway A's URL with Key B. This prevents a copied or misrouted credential from silently attributing traffic to the wrong Gateway. The Integration ID is also available as `integration.id` in Traffic Scope, so Assignments can select different Guardrails for different Gateways.
+TaskLattice rejects mixed pairs such as Gateway A's Endpoint with Secret B.
+The Integration ID is also available as `integration.id` in Traffic Scope, so
+Assignments can select different Guardrails for different Gateways.
 
-Reusing a LiteLLM `litellm_call_id` in two Gateways is safe: TaskLattice namespaces the call context by Integration, so input/output state does not cross between Gateways.
+Reusing a LiteLLM `litellm_call_id` in two Gateways is safe. TaskLattice
+namespaces call context by Integration, so input/output state does not cross
+between Gateways.
 
-## Rotate or revoke a credential
+## Rotate a Secret without restarting LiteLLM
 
-Rotate without downtime:
+1. In the TaskLattice Integration details, generate a new credential.
+2. Save the new one-time Secret.
+3. Edit **TaskLattice Guard** in the LiteLLM Guardrails page.
+4. Keep the same Endpoint, enter the new Secret, and choose **Verify & connect**.
+5. Send one normal model request and wait for TaskLattice to report **Verified**.
+6. Revoke the old credential in TaskLattice.
 
-1. Create a new credential from the Integration details.
-2. Store the new value in the Gateway's secret manager.
-3. restart or reload the Gateway and verify a real request;
-4. revoke the old credential.
+TaskLattice permits overlapping credentials during rotation and refuses to
+revoke the last active credential. The update takes effect immediately in
+LiteLLM; no Gateway restart is needed.
 
-TaskLattice allows more than one active credential during rotation, but refuses to revoke the last active credential. Revoked credentials cannot call the runtime URL. The Integration API and UI expose only credential IDs and non-secret key hints; the original value cannot be retrieved later.
+## Troubleshooting
 
-## Disable an Integration
+### TaskLattice Guard is missing from the Provider list
 
-Disabling an Integration immediately rejects its runtime calls, even when the caller supplies a previously valid key. Re-enable it only after confirming that the Gateway should resume enforcement traffic.
+Confirm that LiteLLM is running the TaskLattice-packaged image version. The
+Provider is not supplied by an unmodified upstream LiteLLM image. Do not use
+**Custom** as a fallback; it creates inline code rather than this remote
+Guardrail connection.
 
-## Stable URL and future high availability
+### Verify & connect rejects the connection
 
-Configure a stable service or ingress URL, never a TaskLattice node, Pod, or host address. TaskLattice Guard can later add replicas and load balancing behind that same public domain. LiteLLM holds only the stable Integration API base and key, so it does not need to know or change when the TaskLattice high-availability topology changes.
+- confirm that LiteLLM can reach the Endpoint over the network;
+- copy the Endpoint without the callback suffix;
+- use the complete Secret, not the masked key hint;
+- confirm that the Endpoint and Secret belong to the same Integration; and
+- confirm that the Integration is enabled.
+
+### Setup remains at Awaiting input
+
+Check Gateway networking, the Endpoint, and the Secret. Then send a model
+request through the LiteLLM instance where the Provider was added.
+
+### Setup remains at Awaiting output
+
+Send an allowed request that reaches the model. A request stopped by the Input
+Rail has no model output to inspect.
 
 ## Security checklist
 
-- Keep the Integration credential in a secret manager.
+- Keep the one-time Secret in a secret manager.
 - Use HTTPS outside an isolated development environment.
-- Leave both pre-call and post-call modes enabled.
-- Keep `default_on: true` for an always-on security boundary.
-- Keep fail-closed behavior unless a documented risk decision says otherwise.
-- Use a separate Integration and key for every Gateway.
-- Rotate a key if it appears in a screenshot, log, support bundle, or source control.
+- Use one Integration and Secret pair per Gateway.
+- Keep the stable TaskLattice service or ingress URL as the Endpoint; never use
+  a Pod or node address.
+- Rotate the Secret if it appears in a screenshot, log, support bundle, or
+  source repository.
+- Disable the Integration to reject all callbacks immediately when a Gateway
+  must stop sending enforcement traffic.
 
-For the underlying payload and response shapes, see the [LiteLLM Generic Guardrail API contract](https://docs.litellm.ai/docs/adding_provider/generic_guardrail_api#api-contract).
+TaskLattice Guard uses LiteLLM's Generic Guardrail API as its wire protocol,
+while the packaged Provider removes protocol-level settings from the human
+configuration path. For payload and response details, see the
+[LiteLLM Generic Guardrail API contract](https://docs.litellm.ai/docs/adding_provider/generic_guardrail_api#api-contract).

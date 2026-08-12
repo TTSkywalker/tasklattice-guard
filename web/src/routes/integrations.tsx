@@ -434,7 +434,10 @@ export function CreateIntegrationSheet({
   }
 
   const adapter = adapterDefinition(adapterId);
-  const setupComplete = [credentialSaved, configurationCopied, integration?.setup_status === "verified"].filter(Boolean).length;
+  const providerConnected = integration?.protocol === "litellm"
+    ? Boolean(integration.input_seen_at || integration.output_seen_at)
+    : configurationCopied;
+  const setupComplete = [credentialSaved, providerConnected, integration?.setup_status === "verified"].filter(Boolean).length;
   const footer = registration ? closeWarning ? (
     <>
       <Button variant="outline" onClick={() => setCloseWarning(false)}>{t("integrations.keepSettingUp")}</Button>
@@ -531,7 +534,9 @@ export function SetupChecklist({
       <SetupStep
         number={1}
         title={t("integrations.saveCredential")}
-        description={t("integrations.saveCredentialDescription", { env: integration.setup.credential_env_var })}
+        description={integration.protocol === "litellm"
+          ? t("integrations.saveIntegrationSecretDescription")
+          : t("integrations.saveCredentialDescription", { env: integration.setup.credential_env_var })}
         complete={credentialSaved}
       >
         <OneTimeCredentialCard
@@ -545,24 +550,26 @@ export function SetupChecklist({
       <SetupStep
         number={2}
         title={integration.protocol === "litellm"
-          ? t("integrations.configureLiteLLMYaml")
+          ? t("integrations.configureTaskLatticeProvider")
           : t("integrations.configureAdapter", { adapter: t(`integrations.protocolShort.${integration.protocol}`) })}
         description={integration.protocol === "litellm"
-          ? t("integrations.configureLiteLLMYamlDescription")
+          ? t("integrations.configureTaskLatticeProviderDescription")
           : t("integrations.configureAdapterDescription")}
-        complete={configurationCopied}
+        complete={integration.protocol === "litellm"
+          ? Boolean(integration.input_seen_at || integration.output_seen_at)
+          : configurationCopied}
       >
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
-          {integration.protocol === "litellm" ? <LiteLLMConfigurationMethodNotice /> : null}
-          <CopyField label={t("integrations.apiBaseUrl")} value={integration.setup.api_base_url} />
-          <EnvironmentAssignment label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
-          <CodeBlock
-            label={integration.protocol === "litellm" ? t("integrations.litellmConfigSnippet") : t("integrations.configurationTemplate")}
-            value={integration.setup.yaml_template}
-            onCopied={onConfigurationCopied}
-          />
-          {integration.protocol === "litellm" ? <LiteLLMBaseUrlNotice /> : null}
-          <SetupFacts integration={integration} />
+          {integration.protocol === "litellm" ? (
+            <LiteLLMProviderSetup endpoint={integration.setup.api_base_url} />
+          ) : (
+            <>
+              <CopyField label={t("integrations.apiBaseUrl")} value={integration.setup.api_base_url} />
+              <EnvironmentAssignment label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
+              <CodeBlock label={t("integrations.configurationTemplate")} value={integration.setup.yaml_template} onCopied={onConfigurationCopied} />
+              <SetupFacts integration={integration} />
+            </>
+          )}
         </div>
       </SetupStep>
       <SetupStep
@@ -617,6 +624,19 @@ function SetupStep({
 
 function SetupConfiguration({ integration }: { integration: Integration }) {
   const { t } = useTranslation();
+  if (integration.protocol === "litellm") {
+    return (
+      <section className="overflow-hidden rounded-lg border bg-card">
+        <div className="border-b bg-muted/30 px-4 py-3">
+          <h3 className="text-sm font-semibold">{t("integrations.litellmProviderSetup")}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{t("integrations.litellmProviderSetupDescription")}</p>
+        </div>
+        <div className="p-4">
+          <LiteLLMProviderSetup endpoint={integration.setup.api_base_url} detail />
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
       <div className="border-b bg-muted/30 px-4 py-3">
@@ -650,23 +670,43 @@ function SetupFacts({ integration }: { integration: Integration }) {
   );
 }
 
-function LiteLLMBaseUrlNotice() {
+function LiteLLMProviderSetup({ endpoint, detail = false }: { endpoint: string; detail?: boolean }) {
   const { t } = useTranslation();
+  const confirmationId = `litellm-provider-configured-${endpoint}`;
   return (
-    <InfoNotice title={t("integrations.litellmBaseUrlTitle")}>
-      <span>{t("integrations.litellmBaseUrlDescription")}</span>{" "}
-      <a className="font-medium text-primary underline underline-offset-4" href="https://docs.litellm.ai/docs/adding_provider/generic_guardrail_api" target="_blank" rel="noreferrer">{t("integrations.litellmDocumentation")}</a>
-    </InfoNotice>
-  );
-}
+    <div className="grid min-w-0 gap-4">
+      <section className="overflow-hidden rounded-lg border bg-card" aria-labelledby={`${confirmationId}-title`}>
+        <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-primary shadow-xs">
+            <ShieldCheck className="size-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h4 id={`${confirmationId}-title`} className="text-sm font-semibold">{t("integrations.taskLatticeGuardProvider")}</h4>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t("integrations.taskLatticeGuardProviderDescription")}</p>
+          </div>
+        </div>
+        <ol className="divide-y divide-border text-sm">
+          {[t("integrations.litellmProviderStepOpen"), t("integrations.litellmProviderStepSelect"), t("integrations.litellmProviderStepConnect")].map((instruction, index) => (
+            <li key={instruction} className="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-3 px-4 py-3">
+              <span className="flex size-7 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground" aria-hidden="true">{index + 1}</span>
+              <span className="min-w-0 pt-1 leading-5">{instruction}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-function LiteLLMConfigurationMethodNotice() {
-  const { t } = useTranslation();
-  return (
-    <InfoNotice title={t("integrations.litellmConfigurationMethodTitle")}>
-      <p className="font-medium text-foreground">{t("integrations.litellmConfigurationMethodDescription")}</p>
-      <p className="mt-2">{t("integrations.litellmAdminUiNote")}</p>
-    </InfoNotice>
+      <CopyField label={t("integrations.integrationEndpoint")} value={endpoint} />
+
+      <div className="rounded-lg border bg-muted/20 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-xs font-medium text-foreground"><KeyRound className="size-4 text-muted-foreground" aria-hidden="true" />{t("integrations.integrationSecret")}</p>
+          {detail ? <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700"><CheckCircle2 />{t("integrations.integrationSecretAvailable")}</Badge> : null}
+        </div>
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">{t(detail ? "integrations.integrationSecretDetailsDescription" : "integrations.integrationSecretDescription")}</p>
+      </div>
+
+      <InfoNotice title={t("integrations.noLiteLLMRestartTitle")}>{t("integrations.noLiteLLMRestartDescription")}</InfoNotice>
+    </div>
   );
 }
 

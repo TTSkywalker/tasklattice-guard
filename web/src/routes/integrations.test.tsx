@@ -23,8 +23,8 @@ vi.mock("react-i18next", () => ({
         "integrations.name": "Integration name",
         "integrations.namePlaceholder": "Corporate AI Gateway",
         "integrations.integrationProtocol": "Adapter protocol",
-        "integrations.adapters.litellm-generic-guardrail": "LiteLLM Generic Guardrail API",
-        "integrations.adapterDescriptions.litellm-generic-guardrail": "Native callbacks from LiteLLM Proxy.",
+        "integrations.adapters.litellm-generic-guardrail": "TaskLattice Guard for LiteLLM",
+        "integrations.adapterDescriptions.litellm-generic-guardrail": "Connect with an Endpoint and Secret.",
         "integrations.credential": "Credential",
         "integrations.setupChecklist": "Gateway setup checklist",
         "integrations.stepsComplete": "{{count}} / 3 complete",
@@ -32,6 +32,7 @@ vi.mock("react-i18next", () => ({
         "integrations.setupStatuses.verified": "Verified",
         "integrations.saveCredential": "Save the credential",
         "integrations.saveCredentialDescription": "Store this value as {{env}}.",
+        "integrations.saveIntegrationSecretDescription": "Save this Secret, then paste it into LiteLLM.",
         "integrations.oneTimeCredential": "One-time credential",
         "integrations.oneTimeCredentialDescription": "Shown once.",
         "integrations.copyCredential": "Copy credential",
@@ -42,16 +43,24 @@ vi.mock("react-i18next", () => ({
         "integrations.hideCredential": "Hide credential",
         "integrations.configureAdapter": "Configure {{adapter}}",
         "integrations.configureAdapterDescription": "Deploy the generated configuration.",
-        "integrations.configureLiteLLMYaml": "Configure LiteLLM config.yaml",
-        "integrations.configureLiteLLMYamlDescription": "Set the generated environment variables, paste the YAML into the Gateway config, then restart or redeploy.",
+        "integrations.configureTaskLatticeProvider": "Connect the TaskLattice Guard Provider",
+        "integrations.configureTaskLatticeProviderDescription": "Select TaskLattice Guard and provide only the Endpoint and Secret.",
         "integrations.protocolShort.litellm": "LiteLLM",
-        "integrations.litellmConfigurationMethodTitle": "Use config.yaml (recommended)",
-        "integrations.litellmConfigurationMethodDescription": "You do not need to select a Provider in the LiteLLM Admin UI.",
-        "integrations.litellmAdminUiNote": "Custom creates inline code and is not this HTTP adapter.",
+        "integrations.taskLatticeGuardProvider": "TaskLattice Guard",
+        "integrations.taskLatticeGuardProviderDescription": "Built into the TaskLattice LiteLLM image",
+        "integrations.litellmProviderStepOpen": "Open Guardrails and choose Add Guardrail.",
+        "integrations.litellmProviderStepSelect": "Under Provider, select TaskLattice Guard.",
+        "integrations.litellmProviderStepConnect": "Paste the Endpoint and Secret, then choose Verify & connect.",
+        "integrations.integrationEndpoint": "Endpoint",
+        "integrations.integrationSecret": "Secret",
+        "integrations.integrationSecretDescription": "Use the complete one-time Secret saved in step 1.",
+        "integrations.integrationSecretDetailsDescription": "Use any active Secret.",
+        "integrations.integrationSecretAvailable": "Active Secret available",
+        "integrations.noLiteLLMRestartTitle": "No LiteLLM restart required",
+        "integrations.noLiteLLMRestartDescription": "Verify & connect saves and activates this Provider immediately.",
         "integrations.apiBaseUrl": "TaskLattice API base URL",
         "integrations.apiBaseEnvironmentVariable": "API base environment assignment",
         "integrations.configurationTemplate": "Adapter configuration",
-        "integrations.litellmConfigSnippet": "LiteLLM config.yaml snippet",
         "integrations.copyTemplate": "Copy configuration",
         "integrations.copyItem": "Copy {{item}}",
         "integrations.modes": "Recommended modes",
@@ -60,9 +69,6 @@ vi.mock("react-i18next", () => ({
         "integrations.failureBehavior": "Failure behavior",
         "integrations.failClosed": "Fail closed",
         "integrations.blockOnError": "block on error",
-        "integrations.litellmBaseUrlTitle": "Use the Integration base URL",
-        "integrations.litellmBaseUrlDescription": "LiteLLM appends the callback path automatically.",
-        "integrations.litellmDocumentation": "Open LiteLLM Generic Guardrail documentation",
         "integrations.verifyCallbacks": "Verify real callbacks",
         "integrations.verifyCallbacksDescription": "Send a real model request.",
         "integrations.inputCallback": "Input callback",
@@ -157,13 +163,12 @@ describe("Integration onboarding", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows every deployable LiteLLM value and real callback verification state", () => {
+  it("guides the packaged TaskLattice Guard Provider with only Endpoint and Secret", () => {
     const item = integration({
-      setup_status: "verified",
-      runtime_status: "healthy",
+      setup_status: "awaiting_output",
+      runtime_status: "waiting",
       input_seen_at: "2026-08-12T08:05:00Z",
-      output_seen_at: "2026-08-12T08:05:01Z",
-      last_seen_at: "2026-08-12T08:05:01Z",
+      last_seen_at: "2026-08-12T08:05:00Z",
     });
 
     renderWithProviders(
@@ -171,7 +176,7 @@ describe("Integration onboarding", () => {
         integration={item}
         credential={registration().credential}
         credentialSaved
-        configurationCopied
+        configurationCopied={false}
         onCredentialSavedChange={vi.fn()}
         onConfigurationCopied={vi.fn()}
       />,
@@ -181,14 +186,18 @@ describe("Integration onboarding", () => {
     expect(screen.queryByText("tali_integration_one_time_value")).toBeNull();
     expect(screen.getByText("tali_••••8NzQ")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reveal credential" })).toBeTruthy();
-    expect(screen.getByText("Configure LiteLLM config.yaml")).toBeTruthy();
-    expect(screen.getByText("You do not need to select a Provider in the LiteLLM Admin UI.")).toBeTruthy();
-    expect(screen.getByText("Custom creates inline code and is not this HTTP adapter.")).toBeTruthy();
-    expect(screen.getByText("LiteLLM config.yaml snippet")).toBeTruthy();
-    expect(screen.getByText(`TASKLATTICE_GUARD_API_BASE=${item.setup.api_base_url}`)).toBeTruthy();
-    expect(screen.getByText(/guardrail_name: tasklattice-guard/)).toBeTruthy();
-    expect(screen.getByText("Both callback directions have been received. This Gateway connection is verified.")).toBeTruthy();
-    expect(screen.getAllByText("Complete").length).toBe(3);
+    expect(screen.getByText("Connect the TaskLattice Guard Provider")).toBeTruthy();
+    expect(screen.getByText("Under Provider, select TaskLattice Guard.")).toBeTruthy();
+    expect(screen.getByText("Paste the Endpoint and Secret, then choose Verify & connect.")).toBeTruthy();
+    expect(screen.getByText("Endpoint")).toBeTruthy();
+    expect(screen.getByText(item.setup.api_base_url)).toBeTruthy();
+    expect(screen.getByText("Secret")).toBeTruthy();
+    expect(screen.getByText("No LiteLLM restart required")).toBeTruthy();
+    expect(screen.getAllByText("Complete").length).toBe(2);
+    expect(screen.queryByText(/config\.yaml/i)).toBeNull();
+    expect(screen.queryByText(/guardrail_name: tasklattice-guard/)).toBeNull();
+    expect(screen.queryByText(`TASKLATTICE_GUARD_API_BASE=${item.setup.api_base_url}`)).toBeNull();
+    expect(screen.queryByText("Both callback directions have been received. This Gateway connection is verified.")).toBeNull();
   });
 
   it("hides a saved credential and supports explicit reveal and hide without clearing the saved state", async () => {

@@ -67,6 +67,10 @@ def litellm_path(integration_id: str) -> str:
     return runtime_path(integration_id, "beta/litellm_basic_guardrail_api")
 
 
+def litellm_verify_path(integration_id: str) -> str:
+    return runtime_path(integration_id, "verify")
+
+
 def http_path(integration_id: str) -> str:
     return runtime_path(integration_id, "guardrails/evaluate")
 
@@ -217,7 +221,7 @@ async def test_create_uses_adapter_uuid_and_returns_litellm_setup(tmp_path):
     config = yaml.safe_load(setup["yaml_template"])
     params = config["litellm_settings"]["guardrails"][0]["litellm_params"]
     assert params == {
-        "guardrail": "generic_guardrail_api",
+        "guardrail": "tasklattice_guard",
         "mode": ["pre_call", "post_call"],
         "api_base": "os.environ/TASKLATTICE_GUARD_API_BASE",
         "api_key": "os.environ/TASKLATTICE_GUARD_API_KEY",
@@ -225,7 +229,87 @@ async def test_create_uses_adapter_uuid_and_returns_litellm_setup(tmp_path):
         "unreachable_fallback": "fail_closed",
         "fail_on_error": True,
     }
+    assert "environment" not in setup
+    assert "environment" not in integration
     assert "/beta/litellm_basic_guardrail_api" not in setup["api_base_url"]
+
+
+@pytest.mark.asyncio
+async def test_litellm_verify_authenticates_without_recording_activity_or_setup(tmp_path):
+    app = create_app(settings=integration_settings(tmp_path), engine=RecordingEngine())
+    control_plane = app.state.control_plane
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login(client)
+        gateway = await create_integration(client, name="Gateway verify")
+        integration_id = gateway["integration"]["id"]
+        credential = gateway["credential"]["value"]
+        before = control_plane.integration(integration_id)
+        activities_before = control_plane.activities()
+
+        verified = await client.post(
+            litellm_verify_path(integration_id), headers={"x-api-key": credential}
+        )
+
+        after = control_plane.integration(integration_id)
+        activities_after = control_plane.activities()
+
+    assert verified.status_code == 200
+    assert verified.json() == {
+        "ready": True,
+        "adapter_id": LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+        "protocol": "litellm",
+        "integration_id": integration_id,
+    }
+    assert after == before
+    assert after.setup_status == "awaiting_input"
+    assert after.request_count == 0
+    assert after.first_seen_at is None
+    assert after.input_seen_at is None
+    assert after.output_seen_at is None
+    assert activities_after == activities_before
+
+
+@pytest.mark.asyncio
+async def test_litellm_verify_rejects_wrong_secret_adapter_and_disabled_integration(
+    tmp_path,
+):
+    app = create_app(settings=integration_settings(tmp_path), engine=RecordingEngine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login(client)
+        litellm = await create_integration(client, name="LiteLLM")
+        http = await create_integration(
+            client,
+            name="HTTP",
+            adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
+        )
+        integration_id = litellm["integration"]["id"]
+        credential = litellm["credential"]["value"]
+
+        missing = await client.post(litellm_verify_path(integration_id))
+        wrong_secret = await client.post(
+            litellm_verify_path(integration_id),
+            headers={"x-api-key": http["credential"]["value"]},
+        )
+        wrong_adapter = await client.post(
+            litellm_verify_path(http["integration"]["id"]),
+            headers={"x-api-key": http["credential"]["value"]},
+        )
+        disabled = await client.patch(
+            f"/api/v1/integrations/{integration_id}", json={"enabled": False}
+        )
+        disabled_verify = await client.post(
+            litellm_verify_path(integration_id), headers={"x-api-key": credential}
+        )
+
+    assert missing.status_code == 401
+    assert wrong_secret.status_code == 401
+    assert wrong_adapter.status_code == 401
+    assert disabled.status_code == 200
+    assert disabled_verify.status_code == 401
 
 
 @pytest.mark.asyncio

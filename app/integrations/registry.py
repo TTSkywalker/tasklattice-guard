@@ -52,7 +52,7 @@ class IntegrationAdapterDefinition:
                 "  guardrails:\n"
                 "    - guardrail_name: tasklattice-guard\n"
                 "      litellm_params:\n"
-                "        guardrail: generic_guardrail_api\n"
+                "        guardrail: tasklattice_guard\n"
                 "        mode: [pre_call, post_call]\n"
                 f"        api_base: os.environ/{INTEGRATION_API_BASE_ENV_VAR}\n"
                 f"        api_key: os.environ/{INTEGRATION_API_KEY_ENV_VAR}\n"
@@ -75,7 +75,7 @@ _ADAPTERS = (
     IntegrationAdapterDefinition(
         id=LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
         protocol="litellm",
-        name="LiteLLM Generic Guardrail API",
+        name="TaskLattice Guard for LiteLLM",
         modes=("pre_call", "post_call"),
         callback_suffix="beta/litellm_basic_guardrail_api",
     ),

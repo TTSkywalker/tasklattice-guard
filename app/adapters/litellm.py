@@ -47,6 +47,15 @@ class LiteLLMGuardrailResponse(BaseModel):
     tools: list[dict[str, Any]] | None = None
 
 
+class LiteLLMVerificationResponse(BaseModel):
+    ready: Literal[True] = True
+    adapter_id: Literal["litellm-generic-guardrail"] = (
+        LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID
+    )
+    protocol: Literal["litellm"] = "litellm"
+    integration_id: str
+
+
 class LiteLLMAdapter:
     """Translate LiteLLM's API contract into the engine contract."""
 
@@ -61,6 +70,19 @@ class LiteLLMAdapter:
         self._register_routes()
 
     def _register_routes(self) -> None:
+        @self.router.post(
+            "/runtime/v1/integrations/{integration_id}/verify",
+            response_model=LiteLLMVerificationResponse,
+        )
+        async def verify_connection(
+            integration_id: str,
+            x_api_key: str | None = Header(default=None),
+        ) -> LiteLLMVerificationResponse:
+            """Authenticate a LiteLLM Integration without recording runtime traffic."""
+
+            self._authorize(integration_id, x_api_key)
+            return LiteLLMVerificationResponse(integration_id=integration_id)
+
         @self.router.post(
             "/runtime/v1/integrations/{integration_id}/beta/litellm_basic_guardrail_api",
             response_model=LiteLLMGuardrailResponse,
