@@ -7,7 +7,6 @@ from pathlib import Path
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    nemo_config_path: Path
     database_path: Path
     ui_dist_path: Path
     nvidia_base_url: str | None = None
@@ -154,12 +153,6 @@ class Settings:
                 "MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS must be at least the P95 budget."
             )
         return cls(
-            nemo_config_path=Path(
-                os.environ.get(
-                    "MODEL_GUARDRAILS_NEMO_CONFIG_PATH",
-                    str(root / "profiles" / "model-io-default-v1"),
-                )
-            ),
             database_path=Path(
                 os.environ.get(
                     "MODEL_GUARDRAILS_DATABASE_PATH",

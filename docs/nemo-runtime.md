@@ -54,6 +54,12 @@ Native-only compatible configurations are constructed with `IORails` and
 constructed explicitly with `LLMRails`; they cannot silently fall back between
 engines.
 
+Built-in Prompt assets live with their owning Control under
+`app/nemo/builtin_controls/<control>/v<version>`. They are loaded as package
+resources and copied into the immutable NeMo snapshot at compile time. The
+runtime does not read a process-wide `profiles/` directory, so changing a source
+asset cannot change an already released Guardrail Version.
+
 ## Version lifecycle and rollback
 
 Activation compiles and validates an immutable `NeMoConfigSnapshot`, computes its

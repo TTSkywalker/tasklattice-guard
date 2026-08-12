@@ -5,7 +5,6 @@ import json
 import sqlite3
 import time
 from dataclasses import asdict
-from pathlib import Path
 
 import pytest
 import yaml
@@ -40,6 +39,7 @@ from app.runtime.contracts import (
 )
 from app.nemo.actions.deterministic import FastPassEngine
 from app.nemo.action_registry import runtime_action_registry
+from app.nemo.builtin_controls.content_safety import prompts_yaml
 from app.nemo.runtime import NeMoGuardrailsEngine
 from app.nemo.registry import NeMoRailsRegistry
 from app.runtime.service import ModelGuardrailsEngineService
@@ -217,7 +217,7 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
         updated_at="2026-08-12T00:00:00+00:00",
     )
     plan = GuardrailCompiler().compile(guardrail, 1)
-    prompts = Path("profiles/model-io-default-v1/prompts.yml").read_text()
+    prompts = prompts_yaml()
     compiler = NeMoConfigCompiler(
         models=(
             {
@@ -233,7 +233,7 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
                 "parameters": {"base_url": "https://nvidia.example/v1"},
             },
         ),
-        profile_prompts_yaml=prompts,
+        builtin_prompts_yaml=prompts,
         jailbreak_detection={
             "nim_base_url": "https://jailbreak.example/v1",
             "nim_server_endpoint": "classify",
@@ -314,9 +314,7 @@ async def test_iorails_registry_builds_without_dynamic_action_registration():
                 "parameters": {"base_url": "https://nvidia.example/v1"},
             },
         ),
-        profile_prompts_yaml=Path(
-            "profiles/model-io-default-v1/prompts.yml"
-        ).read_text(),
+        builtin_prompts_yaml=prompts_yaml(),
     )
     config = compiler.compile(plan)
 

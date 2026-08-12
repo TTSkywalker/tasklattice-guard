@@ -241,7 +241,6 @@ async def test_parameterized_competitor_template_uses_reviewed_local_values(tmp_
 async def test_builtin_template_guardrail_passes_local_api_tests(tmp_path):
     app = create_app(
         settings=Settings(
-            nemo_config_path=tmp_path / "unused-guardrail",
             database_path=tmp_path / "control-plane.db",
             ui_dist_path=tmp_path / "missing-ui",
         )

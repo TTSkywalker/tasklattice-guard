@@ -21,7 +21,6 @@ WORKDIR /opt/tasklattice/model-guardrails
 
 COPY pyproject.toml README.md THIRD_PARTY_NOTICES.md ./
 COPY app ./app
-COPY profiles ./profiles
 
 RUN pip install . \
     && useradd --system --uid 65532 --no-create-home tasklattice \

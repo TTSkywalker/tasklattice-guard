@@ -26,6 +26,7 @@ from .nemo.registry import NeMoRailsRegistry
 from .nemo.actions.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
 from .runtime.gateway import ModelGuardrailsEngineService
 from .nemo.actions.topic import PurposeAwareTopicJudgeEngine
+from .nemo.builtin_controls import prompt_catalog_yaml
 from .identity import IdentityAPI, IdentityService
 from .ui import ControlPlaneStaticFiles
 
@@ -254,8 +255,6 @@ def _nemo_compiler(settings: Settings) -> NeMoConfigCompiler:
                 "parameters": {"base_url": settings.nvidia_base_url},
             }
         )
-    prompts_path = settings.nemo_config_path / "prompts.yml"
-    prompts_yaml = prompts_path.read_text() if prompts_path.is_file() else ""
     jailbreak_detection = None
     if settings.jailbreak_detection_nim_base_url:
         jailbreak_detection = {
@@ -265,7 +264,7 @@ def _nemo_compiler(settings: Settings) -> NeMoConfigCompiler:
         }
     return NeMoConfigCompiler(
         models=tuple(models),
-        profile_prompts_yaml=prompts_yaml,
+        builtin_prompts_yaml=prompt_catalog_yaml(),
         jailbreak_detection=jailbreak_detection,
         otel_enabled=settings.otel_enabled,
     )

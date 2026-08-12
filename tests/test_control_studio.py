@@ -20,7 +20,6 @@ flow allow_input $text
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
-        nemo_config_path=tmp_path / "no-profile",
         database_path=tmp_path / "studio.db",
         ui_dist_path=tmp_path / "no-ui",
     )

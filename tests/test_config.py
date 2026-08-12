@@ -38,7 +38,6 @@ def test_settings_reuses_existing_provider_key_variables(monkeypatch):
 
 def test_deepseek_fallback_registers_all_deep_judges():
     settings = Settings(
-        nemo_config_path=Path("unused"),
         database_path=Path("unused.db"),
         ui_dist_path=Path("missing-ui"),
         deep_judge_base_url="https://api.deepseek.com",

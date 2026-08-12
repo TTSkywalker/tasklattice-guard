@@ -71,7 +71,6 @@ class StubIntentAnalyzer:
 
 def settings(tmp_path: Path) -> Settings:
     return Settings(
-        nemo_config_path=Path("unused"),
         database_path=tmp_path / "v2.db",
         ui_dist_path=tmp_path / "missing-ui",
     )

@@ -37,15 +37,15 @@ class NeMoConfigCompiler:
         self,
         *,
         models: tuple[dict[str, Any], ...] = (),
-        profile_prompts_yaml: str = "",
+        builtin_prompts_yaml: str = "",
         jailbreak_detection: dict[str, Any] | None = None,
         otel_enabled: bool = False,
     ) -> None:
         self._models = tuple(dict(item) for item in models)
         self._model_types = frozenset(str(item.get("type", "")) for item in models)
-        self._profile_prompts = _prompts(profile_prompts_yaml)
+        self._builtin_prompts = _prompts(builtin_prompts_yaml)
         self._prompt_tasks = frozenset(
-            str(item.get("task", "")) for item in self._profile_prompts
+            str(item.get("task", "")) for item in self._builtin_prompts
         )
         self._jailbreak_detection = (
             dict(jailbreak_detection) if jailbreak_detection else None
@@ -335,7 +335,7 @@ class NeMoConfigCompiler:
     ) -> list[dict[str, Any]]:
         prompts = [
             dict(item)
-            for item in self._profile_prompts
+            for item in self._builtin_prompts
             if str(item.get("task", "")).startswith("content_safety_check_")
             and "content_safety" in required_models
         ]
