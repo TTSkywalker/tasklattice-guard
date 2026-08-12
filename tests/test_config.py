@@ -47,8 +47,15 @@ def test_deepseek_fallback_registers_all_deep_judges():
     )
 
     engine = create_engine(settings)
-    deep_stage = engine._runner._stages["deep_judge"]
-    children = deep_stage._children
+    children = tuple(
+        item.evaluator
+        for item in engine._registry._actions.providers()
+        if item.name in {
+            "TaskLatticePromptSecurityJudgeAction",
+            "TaskLatticeTopicJudgeAction",
+            "TaskLatticeGroundingAction",
+        }
+    )
 
     assert {child.name for child in children} == {
         "Prompt Security Judge",

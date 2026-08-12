@@ -6,7 +6,6 @@ from typing import Any, Literal, Protocol
 
 GuardrailPhase = Literal["input", "output"]
 RailType = Literal["input", "output", "retrieval", "dialog", "execution"]
-EvaluationStage = Literal["deterministic", "fast_semantic", "deep_judge"]
 EvaluatorVerdict = Literal["safe", "unsafe", "uncertain", "error"]
 RouteDecision = Literal["complete", "enforce", "escalate", "fail_open", "fail_closed"]
 PolicyDecision = Literal["allow", "transform", "block"]
@@ -72,7 +71,7 @@ class EvaluationTraceStep:
     duration_ms: int = 0
     parent_id: str | None = None
     evidence: str | None = None
-    stage: EvaluationStage | None = None
+    stage: str | None = None
     verdict: EvaluatorVerdict | None = None
     route: RouteDecision | None = None
     risk: str | None = None
@@ -176,7 +175,7 @@ class EvaluationRequest:
 class GuardrailPlanStep:
     id: str
     risk: str
-    stage: EvaluationStage
+    stage: str
     phases: tuple[GuardrailPhase, ...]
     on_unsafe: EnforcementAction
     escalation: EscalationMode = "never"
@@ -292,7 +291,7 @@ class GuardrailPlanSnapshot:
     def steps_for(
         self,
         phase: GuardrailPhase,
-        stage: EvaluationStage | None = None,
+        stage: str | None = None,
     ) -> tuple[GuardrailPlanStep, ...]:
         return tuple(
             step
@@ -316,7 +315,7 @@ class NeMoActionBinding:
 
     id: str
     risk: str
-    stage: EvaluationStage
+    stage: str
     phases: tuple[GuardrailPhase, ...]
     on_unsafe: EnforcementAction
     escalation: EscalationMode = "never"
@@ -571,19 +570,6 @@ class EngineRequest:
     evidence_scope: EvidenceScope = "interventions"
     content_view: ContentViewSnapshot | None = None
     active_block_id: str | None = None
-
-
-class GuardrailStage(Protocol):
-    name: str
-    stage: EvaluationStage
-    supported_phases: frozenset[GuardrailPhase]
-    supported_risks: frozenset[str]
-
-    async def evaluate(
-        self,
-        request: EngineRequest,
-        steps: tuple[GuardrailPlanStep, ...],
-    ) -> StageResult: ...
 
 
 class GuardrailEngine(Protocol):

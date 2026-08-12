@@ -13,7 +13,8 @@ from .control_plane.api import ControlPlaneAPI
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
 from .control_plane.nemo_compiler import NeMoConfigCompiler
 from .control_plane.service import ControlPlaneService
-from .runtime.contracts import GuardrailEngine, GuardrailStage
+from .runtime.contracts import GuardrailEngine
+from .nemo.action_registry import RuntimeActionRegistry, runtime_action_registry
 from .nemo.actions.automated_reasoning import (
     AutomatedReasoningPolicyEngine,
     HTTPAutomatedReasoningProvider,
@@ -38,7 +39,7 @@ def create_engine(
     store = control_plane or _create_control_plane(settings)
     registry = NeMoRailsRegistry(
         store,
-        create_action_stages(settings),
+        create_action_registry(settings),
         max_concurrency_per_guardrail=(
             settings.runtime_max_concurrency_per_guardrail
         ),
@@ -47,12 +48,12 @@ def create_engine(
     return NeMoGuardrailsEngine(registry)
 
 
-def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
-    """Build detector/provider implementations registered only as NeMo Actions."""
-    stages: list[GuardrailStage] = [FastPassEngine(), PromptSecurityFastEngine()]
+def create_action_registry(settings: Settings) -> RuntimeActionRegistry:
+    """Build direct, versioned providers registered as NeMo Actions."""
+    evaluators: list[object] = [FastPassEngine(), PromptSecurityFastEngine()]
     generic_deep_judge = _deep_judge_configured(settings)
     if generic_deep_judge:
-        stages.append(
+        evaluators.append(
             PromptSecurityJudgeEngine(
                 base_url=settings.deep_judge_base_url or "",
                 model=settings.deep_judge_model or "",
@@ -64,7 +65,7 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
             )
         )
     elif settings.content_safety_model and settings.nvidia_base_url:
-        stages.append(
+        evaluators.append(
             PromptSecurityJudgeEngine(
                 base_url=settings.nvidia_base_url,
                 model=settings.content_safety_model,
@@ -72,7 +73,7 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
             )
         )
     if settings.topic_control_model and settings.nvidia_base_url:
-        stages.append(
+        evaluators.append(
             PurposeAwareTopicJudgeEngine(
                 base_url=settings.nvidia_base_url,
                 model=settings.topic_control_model,
@@ -80,7 +81,7 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
             )
         )
     elif generic_deep_judge:
-        stages.append(
+        evaluators.append(
             PurposeAwareTopicJudgeEngine(
                 base_url=settings.deep_judge_base_url or "",
                 model=settings.deep_judge_model or "",
@@ -91,7 +92,7 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
             )
         )
     if settings.grounding_model and settings.nvidia_base_url:
-        stages.append(
+        evaluators.append(
             ContextualGroundingJudgeEngine(
                 base_url=settings.nvidia_base_url,
                 model=settings.grounding_model,
@@ -99,7 +100,7 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
             )
         )
     elif generic_deep_judge:
-        stages.append(
+        evaluators.append(
             ContextualGroundingJudgeEngine(
                 base_url=settings.deep_judge_base_url or "",
                 model=settings.deep_judge_model or "",
@@ -110,7 +111,7 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
             )
         )
     if settings.automated_reasoning_endpoint_url:
-        stages.append(
+        evaluators.append(
             AutomatedReasoningPolicyEngine(
                 HTTPAutomatedReasoningProvider(
                     endpoint_url=settings.automated_reasoning_endpoint_url,
@@ -118,7 +119,7 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
                 )
             )
         )
-    return tuple(stages)
+    return runtime_action_registry(*evaluators)
 
 
 def create_app(

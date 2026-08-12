@@ -19,7 +19,7 @@ from ..runtime.contracts import (
 from .domain import ControlDraft, PlanCompilationError, RailBinding
 
 
-NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v4"
+NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v5"
 
 _NATIVE_IORAILS_FLOWS = {
     "content safety check input $model=content_safety",
@@ -110,6 +110,8 @@ class NeMoConfigCompiler:
                     _timeout_for(plan, step_id, phase) for phase in phases
                 ),
                 parameters=binding_steps[step_id].parameters,
+                action_name=_builtin_action_name(binding_steps[step_id]),
+                action_version="1.0.0",
             )
             for step_id, phases in binding_phases.items()
         )
@@ -573,9 +575,13 @@ def _binding_flow_lines(bindings: tuple[NeMoActionBinding, ...]) -> list[str]:
     lines: list[str] = []
     previous = "$result"
     for index, binding in enumerate(bindings):
+        if not binding.action_name:
+            raise PlanCompilationError(
+                f"NeMo Action binding {binding.id!r} has no fixed Action name."
+            )
         call = (
-            "$result = await TaskLatticeEvaluateStepAction("
-            f'text=$text, step_id="{binding.id}")'
+            f"$result = await {binding.action_name}("
+            f'text=$text, binding_id="{binding.id}")'
         )
         if index == 0:
             lines.append(f"  {call}")
@@ -590,6 +596,36 @@ def _binding_flow_lines(bindings: tuple[NeMoActionBinding, ...]) -> list[str]:
         }[binding.escalation]
         lines.extend((f"  if {condition}", f"    {call}"))
     return lines
+
+
+def _builtin_action_name(step) -> str:
+    if step.stage == "deterministic":
+        return {
+            "secrets": "TaskLatticeSecretsAction",
+            "pii": "TaskLatticePiiAction",
+            "builtin_content_filter": "TaskLatticeBuiltinContentFilterAction",
+            "topic_control": "TaskLatticeTopicDeterministicAction",
+        }.get(step.risk, _dynamic_action_name(step.risk))
+    if step.stage == "fast_semantic":
+        return (
+            "TaskLatticePromptSecurityFastAction"
+            if step.risk in {"prompt_injection", "jailbreak"}
+            else _dynamic_action_name(step.risk)
+        )
+    return {
+        "prompt_injection": "TaskLatticePromptSecurityJudgeAction",
+        "jailbreak": "TaskLatticePromptSecurityJudgeAction",
+        "topic_control": "TaskLatticeTopicJudgeAction",
+        "company_policy": "TaskLatticeTopicJudgeAction",
+        "contextual_grounding": "TaskLatticeGroundingAction",
+        "automated_reasoning": "TaskLatticeAutomatedReasoningAction",
+    }.get(step.risk, _dynamic_action_name(step.risk))
+
+
+def _dynamic_action_name(risk: str) -> str:
+    return "TaskLattice" + "".join(
+        item.capitalize() for item in re.split(r"[^A-Za-z0-9]+", risk) if item
+    ) + "Action"
 
 
 def _native_flow_lines(flow: str, phase: GuardrailPhase) -> list[str]:

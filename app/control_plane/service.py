@@ -2966,12 +2966,14 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
                     str(item["flow_name"]) if item.get("flow_name") else None
                 ),
                 action_name=(
-                    str(item["action_name"]) if item.get("action_name") else None
+                    str(item["action_name"])
+                    if item.get("action_name")
+                    else _legacy_action_name(str(item["risk"]), str(item["stage"]))
                 ),
                 action_version=(
                     str(item["action_version"])
                     if item.get("action_version")
-                    else None
+                    else "1.0.0"
                 ),
                 parallel_group=(
                     str(item["parallel_group"])
@@ -2998,6 +3000,26 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
             payload.get("estimated_critical_path_ms", 0)
         ),
     )
+
+
+def _legacy_action_name(risk: str, stage: str) -> str:
+    if stage == "deterministic":
+        return {
+            "secrets": "TaskLatticeSecretsAction",
+            "pii": "TaskLatticePiiAction",
+            "builtin_content_filter": "TaskLatticeBuiltinContentFilterAction",
+            "topic_control": "TaskLatticeTopicDeterministicAction",
+        }.get(risk, "TaskLatticeBuiltinContentFilterAction")
+    if stage == "fast_semantic":
+        return "TaskLatticePromptSecurityFastAction"
+    return {
+        "prompt_injection": "TaskLatticePromptSecurityJudgeAction",
+        "jailbreak": "TaskLatticePromptSecurityJudgeAction",
+        "topic_control": "TaskLatticeTopicJudgeAction",
+        "company_policy": "TaskLatticeTopicJudgeAction",
+        "contextual_grounding": "TaskLatticeGroundingAction",
+        "automated_reasoning": "TaskLatticeAutomatedReasoningAction",
+    }.get(risk, "TaskLatticePromptSecurityJudgeAction")
 
 
 def _reasoning_binding(value: object) -> AutomatedReasoningPolicyBinding | None:

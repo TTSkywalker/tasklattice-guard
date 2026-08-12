@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from app.control_plane.nemo_compiler import NeMoConfigCompiler
 from app.nemo.runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
+from app.nemo.action_registry import runtime_action_registry
 from app.runtime.contracts import (
     GuardrailPlanSnapshot,
-    GuardrailStage,
     NeMoConfigSnapshot,
 )
 
@@ -34,14 +34,25 @@ class StaticNeMoStore:
 
 def nemo_engine(
     plan: GuardrailPlanSnapshot,
-    *stages: GuardrailStage,
+    *actions: object,
     max_concurrency_per_guardrail: int = 64,
 ) -> NeMoGuardrailsEngine:
     config = NeMoConfigCompiler().compile(plan)
+    for action in actions:
+        if not getattr(action, "supported_risks", frozenset()):
+            setattr(
+                action,
+                "supported_risks",
+                frozenset(
+                    step.risk
+                    for step in plan.steps
+                    if step.stage == getattr(action, "stage", "")
+                ),
+            )
     return NeMoGuardrailsEngine(
         NeMoRailsRegistry(
             StaticNeMoStore((plan,), (config,)),
-            tuple(stages),
+            runtime_action_registry(*actions),
             max_concurrency_per_guardrail=max_concurrency_per_guardrail,
         )
     )

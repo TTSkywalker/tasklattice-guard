@@ -37,6 +37,7 @@ from app.runtime.contracts import (
     StageResult,
 )
 from app.nemo.actions.deterministic import FastPassEngine
+from app.nemo.action_registry import runtime_action_registry
 from app.nemo.runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
 from app.runtime.service import ModelGuardrailsEngineService
 from app.main import _otlp_trace_endpoint
@@ -150,7 +151,7 @@ class _SlowStage:
 @pytest.mark.asyncio
 async def test_default_deterministic_golden_corpus_runs_through_nemo(tmp_path):
     service = ControlPlaneService(tmp_path / "golden.db")
-    registry = NeMoRailsRegistry(service, (FastPassEngine(),))
+    registry = NeMoRailsRegistry(service, runtime_action_registry(FastPassEngine()))
     engine = NeMoGuardrailsEngine(registry)
     plan = service.resolve(RequestContext("test")).plan
 
@@ -258,7 +259,9 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
     } <= action_risks
     assert config.runtime_engine == "llmrails"
     assert payload["colang_version"] == "2.x"
-    assert "TaskLatticeEvaluateStepAction" in config.colang_content
+    assert "TaskLatticeEvaluateStepAction" not in config.colang_content
+    assert "TaskLatticePromptSecurityFastAction" in config.colang_content
+    assert "TaskLatticeAutomatedReasoningAction" in config.colang_content
     assert "TaskLatticeResolveAction" in config.colang_content
     assert "start tasklattice_module_input" in config.colang_content
     assert "match $parallel_0.Finished()" in config.colang_content
@@ -308,7 +311,9 @@ async def test_iorails_registry_builds_without_dynamic_action_registration():
     )
     config = compiler.compile(plan)
 
-    registry = NeMoRailsRegistry(_StaticStore((plan,), (config,)), ())
+    registry = NeMoRailsRegistry(
+        _StaticStore((plan,), (config,)), runtime_action_registry()
+    )
 
     assert config.runtime_engine == "iorails"
     assert registry.ready() is True
@@ -318,7 +323,7 @@ async def test_iorails_registry_builds_without_dynamic_action_registration():
 @pytest.mark.asyncio
 async def test_registry_prewarms_and_never_builds_on_the_active_hot_path(tmp_path):
     service = ControlPlaneService(tmp_path / "prewarm.db")
-    registry = NeMoRailsRegistry(service, (FastPassEngine(),))
+    registry = NeMoRailsRegistry(service, runtime_action_registry(FastPassEngine()))
     engine = NeMoGuardrailsEngine(registry)
     before = registry.stats()
     plan = service.resolve(RequestContext("test")).plan
@@ -355,7 +360,7 @@ async def test_independent_nemo_action_risks_run_in_parallel():
     config = NeMoConfigCompiler().compile(plan)
     registry = NeMoRailsRegistry(
         _StaticStore((plan,), (config,)),
-        (
+        runtime_action_registry(
             _SlowStage("deterministic", "secrets", tracker, 0.1),
             _SlowStage("deep_judge", "company_policy", tracker, 0.1),
         ),
@@ -384,7 +389,9 @@ async def test_per_guardrail_admission_limit_reports_real_queue_latency():
     config = NeMoConfigCompiler().compile(plan)
     registry = NeMoRailsRegistry(
         _StaticStore((plan,), (config,)),
-        (_SlowStage("deterministic", "secrets", tracker, 0.1),),
+        runtime_action_registry(
+            _SlowStage("deterministic", "secrets", tracker, 0.1)
+        ),
         max_concurrency_per_guardrail=1,
     )
     engine = NeMoGuardrailsEngine(registry)
@@ -422,7 +429,9 @@ async def test_many_guardrail_entities_are_concurrent_and_request_results_are_is
     )
     compiler = NeMoConfigCompiler()
     configs = tuple(compiler.compile(plan) for plan in plans)
-    registry = NeMoRailsRegistry(_StaticStore(plans, configs), (FastPassEngine(),))
+    registry = NeMoRailsRegistry(
+        _StaticStore(plans, configs), runtime_action_registry(FastPassEngine())
+    )
     engine = NeMoGuardrailsEngine(registry)
 
     requests = tuple(
@@ -460,7 +469,9 @@ async def test_required_action_timeout_fails_closed_and_is_observable():
     config = NeMoConfigCompiler().compile(plan)
     registry = NeMoRailsRegistry(
         _StaticStore((plan,), (config,)),
-        (_SlowStage("deterministic", "secrets", tracker, 0.1),),
+        runtime_action_registry(
+            _SlowStage("deterministic", "secrets", tracker, 0.1)
+        ),
     )
     engine = NeMoGuardrailsEngine(registry)
 
@@ -480,7 +491,9 @@ async def test_required_action_timeout_fails_closed_and_is_observable():
 async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path):
     database = tmp_path / "versions.db"
     control_plane = ControlPlaneService(database)
-    registry = NeMoRailsRegistry(control_plane, (FastPassEngine(),))
+    registry = NeMoRailsRegistry(
+        control_plane, runtime_action_registry(FastPassEngine())
+    )
     control_plane.bind_nemo_runtime(validator=registry.validate, reloader=registry.reload)
     engine = NeMoGuardrailsEngine(registry)
     service = ModelGuardrailsEngineService(engine, control_plane)
@@ -562,7 +575,7 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
 @pytest.mark.asyncio
 async def test_activation_rejects_a_missing_required_nemo_action_provider(tmp_path):
     service = ControlPlaneService(tmp_path / "missing-provider.db")
-    registry = NeMoRailsRegistry(service, (FastPassEngine(),))
+    registry = NeMoRailsRegistry(service, runtime_action_registry(FastPassEngine()))
     service.bind_nemo_runtime(validator=registry.validate, reloader=registry.reload)
     guardrail = service.create_guardrail(
         name="Organization policy",
