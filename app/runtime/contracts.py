@@ -239,6 +239,7 @@ class ControlRailBindingSnapshot:
     timeout_ms: int = 2_000
     failure_mode: FailureMode = "fail_closed"
     required: bool = True
+    depends_on: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +330,7 @@ class NeMoActionBinding:
     parallel_group: str | None = None
     execution_mode: ControlExecutionMode = "detect"
     failure_mode: FailureMode = "fail_closed"
+    depends_on: tuple[str, ...] = ()
 
     def parameter(self, name: str) -> str | None:
         return next((value for key, value in self.parameters if key == name), None)
@@ -349,6 +351,10 @@ class NeMoConfigSnapshot:
     required_models: tuple[str, ...] = ()
     required_features: tuple[str, ...] = ()
     runtime_engine: NeMoRuntimeEngine = "llmrails"
+    colang_version: str = "2.x"
+    rail_flows: tuple[tuple[str, str], ...] = ()
+    dependency_manifest: tuple[tuple[str, str, str], ...] = ()
+    estimated_critical_path_ms: int = 0
 
     def bindings_for(
         self,

@@ -121,6 +121,7 @@ class RailBindingInput(BaseModel):
     timeout_ms: int = Field(default=2_000, ge=1, le=120_000)
     failure_mode: Literal["fail_open", "fail_closed"] = "fail_closed"
     required: bool = True
+    depends_on: list[str] = Field(default_factory=list, max_length=32)
 
 
 class ActionReferenceInput(BaseModel):
@@ -446,6 +447,48 @@ class ControlPlaneAPI:
         @router.get("/guardrails/{guardrail_id}")
         def guardrail(guardrail_id: str):
             return self._guardrail_payload(guardrail_id)
+
+        @router.get("/guardrails/{guardrail_id}/compile-preview")
+        def compile_preview(guardrail_id: str):
+            try:
+                plan, config, checksum = self._service.compile_preview(guardrail_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return {
+                "guardrail_id": plan.guardrail_id,
+                "candidate_version": plan.guardrail_version,
+                "engine": config.runtime_engine,
+                "colang_version": config.colang_version,
+                "compiler_version": config.compiler_version,
+                "checksum": checksum,
+                "rails": [
+                    {"rail_type": rail, "flow": flow}
+                    for rail, flow in config.rail_flows
+                ],
+                "parallel_groups": sorted(
+                    {
+                        item.parallel_group
+                        for item in config.action_bindings
+                        if item.parallel_group
+                    }
+                ),
+                "actions": [
+                    {
+                        "name": item.action_name or item.id,
+                        "version": item.action_version,
+                        "flow": item.flow_name,
+                        "timeout_ms": item.timeout_ms,
+                        "failure_mode": item.failure_mode,
+                    }
+                    for item in config.action_bindings
+                ],
+                "models": list(config.required_models),
+                "dependency_manifest": [
+                    {"kind": kind, "name": name, "version": version}
+                    for kind, name, version in config.dependency_manifest
+                ],
+                "estimated_critical_path_ms": config.estimated_critical_path_ms,
+            }
 
         @router.post("/guardrails", status_code=201)
         def create_guardrail(request: CreateGuardrailRequest):
@@ -1274,6 +1317,7 @@ def _control_draft(item: ControlDraftInput) -> ControlDraft:
                 timeout_ms=binding.timeout_ms,
                 failure_mode=binding.failure_mode,
                 required=binding.required,
+                depends_on=tuple(binding.depends_on),
             )
             for binding in item.rail_bindings
         ),

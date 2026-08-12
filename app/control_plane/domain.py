@@ -56,6 +56,7 @@ class RailBinding:
     timeout_ms: int = 2_000
     failure_mode: Literal["fail_open", "fail_closed"] = "fail_closed"
     required: bool = True
+    depends_on: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

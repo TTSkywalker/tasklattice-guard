@@ -130,6 +130,14 @@ async def test_customer_data_control_runs_create_to_real_http_on_one_version(tmp
         assert guardrail_response.status_code == 201, guardrail_response.text
         guardrail_id = guardrail_response.json()["id"]
 
+        preview = await client.get(
+            f"/api/v1/guardrails/{guardrail_id}/compile-preview"
+        )
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["engine"] == "llmrails"
+        assert preview.json()["colang_version"] == "2.x"
+        assert preview.json()["dependency_manifest"]
+
         evaluation = await client.post(
             "/api/v1/test-runs", json={"guardrail_id": guardrail_id}
         )

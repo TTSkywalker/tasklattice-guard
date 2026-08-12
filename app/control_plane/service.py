@@ -551,11 +551,17 @@ class ControlPlaneService:
                         "reject",
                     )
                     legacy_controls.append(GuardrailControl(legacy_risk, action))
+            resolved_parameters = {
+                item.name: item.default
+                for item in control_version.parameter_schema
+                if item.default is not None
+            }
+            resolved_parameters.update(dict(binding.parameter_values))
             resolved_bindings.append(
                 GuardrailControlBindingSnapshot(
                     control_id=binding.control_id,
                     control_version=binding.control_version,
-                    parameter_values=binding.parameter_values,
+                    parameter_values=tuple(sorted(resolved_parameters.items())),
                     enabled_rails=binding.enabled_rails,
                 )
             )
@@ -577,6 +583,13 @@ class ControlPlaneService:
             self._nemo_compiler.compile(plan)
         )
         return plan
+
+    def compile_preview(
+        self, guardrail_id: str
+    ) -> tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot, str]:
+        plan = self.compile_draft(guardrail_id)
+        config = self.nemo_config(plan.guardrail_id, plan.guardrail_version)
+        return plan, config, self._nemo_compiler.checksum(config)
 
     def bind_nemo_runtime(
         self,
@@ -2337,6 +2350,10 @@ class ControlPlaneService:
             raise ValidationError("Control source paths must be unique.")
         if not draft.rail_bindings:
             raise ValidationError("A Control requires at least one Rail binding.")
+        if len({(item.rail_type, item.flow_name) for item in draft.rail_bindings}) != len(
+            draft.rail_bindings
+        ):
+            raise ValidationError("Control Rail bindings must be unique.")
         for binding in draft.rail_bindings:
             if binding.rail_type not in {
                 "input", "output", "retrieval", "dialog", "execution"
@@ -2358,6 +2375,16 @@ class ControlPlaneService:
             if group is not None and len(bindings) > 1:
                 raise ValidationError(
                     f"Mutating {rail} flows cannot share parallel group {group!r}."
+                )
+        for rail in {item.rail_type for item in draft.rail_bindings}:
+            priorities = tuple(
+                item.priority
+                for item in draft.rail_bindings
+                if item.rail_type == rail and item.execution_mode == "mutate"
+            )
+            if len(set(priorities)) != len(priorities):
+                raise ValidationError(
+                    f"Mutating {rail} flows require distinct priorities."
                 )
         if not validate_dependencies:
             return
@@ -2953,12 +2980,23 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
                 ),
                 execution_mode=str(item.get("execution_mode", "detect")),
                 failure_mode=str(item.get("failure_mode", "fail_closed")),
+                depends_on=tuple(item.get("depends_on", ())),
             )
             for item in payload.get("action_bindings", ())
         ),
         required_models=tuple(payload.get("required_models", ())),
         required_features=tuple(payload.get("required_features", ())),
         runtime_engine=str(payload.get("runtime_engine", "llmrails")),
+        colang_version=str(payload.get("colang_version", "2.x")),
+        rail_flows=tuple(
+            tuple(item) for item in payload.get("rail_flows", ())
+        ),
+        dependency_manifest=tuple(
+            tuple(item) for item in payload.get("dependency_manifest", ())
+        ),
+        estimated_critical_path_ms=int(
+            payload.get("estimated_critical_path_ms", 0)
+        ),
     )
 
 

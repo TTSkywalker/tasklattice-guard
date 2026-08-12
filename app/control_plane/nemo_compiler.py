@@ -16,10 +16,10 @@ from ..runtime.contracts import (
     NeMoActionBinding,
     NeMoConfigSnapshot,
 )
-from .domain import ControlDraft, PlanCompilationError
+from .domain import ControlDraft, PlanCompilationError, RailBinding
 
 
-NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v3"
+NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v4"
 
 _NATIVE_IORAILS_FLOWS = {
     "content safety check input $model=content_safety",
@@ -153,6 +153,17 @@ class NeMoConfigCompiler:
             if runtime_engine == "iorails"
             else _colang_v2(plan, flows, builtin_bindings, custom_bindings)
         )
+        colang_version = "1.0" if runtime_engine == "iorails" else "2.x"
+        rail_flows = tuple(
+            (phase, flow)
+            for phase, phase_flows in flows.items()
+            for flow in phase_flows
+        ) + tuple(
+            (binding.phases[0], binding.id) for binding in custom_bindings
+        )
+        dependency_manifest = _dependency_manifest(
+            plan, bindings, required_models, prompts
+        )
         snapshot = NeMoConfigSnapshot(
             guardrail_id=plan.guardrail_id,
             guardrail_version=plan.guardrail_version,
@@ -167,19 +178,39 @@ class NeMoConfigCompiler:
             required_models=tuple(sorted(required_models)),
             required_features=tuple(sorted(required_features)),
             runtime_engine=runtime_engine,
+            colang_version=colang_version,
+            rail_flows=rail_flows,
+            dependency_manifest=dependency_manifest,
+            estimated_critical_path_ms=_estimated_critical_path_ms(
+                plan, custom_bindings
+            ),
         )
         self.validate(snapshot)
         return snapshot
 
     @staticmethod
     def validate_control(control_id: str, draft: ControlDraft) -> None:
-        declared = {
-            match.group(1)
-            for source in draft.sources
+        if draft.colang_version != "2.x":
+            raise PlanCompilationError(
+                f"Custom Control {control_id!r} must use Colang 2.x; "
+                "Colang 1.0 is reserved for the IORails native lane."
+            )
+        declarations: dict[str, tuple[str, int]] = {}
+        for source in draft.sources:
             for match in re.finditer(
                 r"(?m)^flow\s+([A-Za-z_][A-Za-z0-9_]*)\b", source.content
-            )
-        }
+            ):
+                flow_name = match.group(1)
+                line = source.content.count("\n", 0, match.start()) + 1
+                if flow_name in declarations:
+                    previous_path, previous_line = declarations[flow_name]
+                    raise PlanCompilationError(
+                        f"Control {control_id!r} declares duplicate Flow "
+                        f"{flow_name!r} at {source.path}:{line}; first declared at "
+                        f"{previous_path}:{previous_line}."
+                    )
+                declarations[flow_name] = (source.path, line)
+        declared = set(declarations)
         if "main" in declared:
             raise PlanCompilationError(
                 f"Control {control_id!r} must not declare the process-wide main flow."
@@ -195,6 +226,51 @@ class NeMoConfigCompiler:
                 + ", ".join(missing)
                 + "."
             )
+        allowed_imports = {"core"}
+        for source in draft.sources:
+            for match in re.finditer(r"(?m)^\s*import\s+([^\s#]+)", source.content):
+                imported = match.group(1)
+                if imported not in allowed_imports:
+                    line = source.content.count("\n", 0, match.start()) + 1
+                    raise PlanCompilationError(
+                        f"Control {control_id!r} uses forbidden import {imported!r} "
+                        f"at {source.path}:{line}."
+                    )
+            for match in re.finditer(
+                r"\b(?:await|start)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                source.content,
+            ):
+                called = match.group(1)
+                line = source.content.count("\n", 0, match.start()) + 1
+                if called[0].islower() and called not in declared:
+                    raise PlanCompilationError(
+                        f"Control {control_id!r} calls undefined Flow {called!r} "
+                        f"at {source.path}:{line}."
+                    )
+        referenced_actions = {item.name for item in draft.action_references}
+        for source in draft.sources:
+            for match in re.finditer(
+                r"\b(?:await|start)\s+([A-Z][A-Za-z0-9_]*Action)\s*\(",
+                source.content,
+            ):
+                action_name = match.group(1)
+                if action_name not in referenced_actions:
+                    line = source.content.count("\n", 0, match.start()) + 1
+                    raise PlanCompilationError(
+                        f"Control {control_id!r} calls unreferenced Action "
+                        f"{action_name!r} at {source.path}:{line}."
+                    )
+        binding_names = {item.flow_name for item in draft.rail_bindings}
+        for binding in draft.rail_bindings:
+            missing_dependencies = set(binding.depends_on) - binding_names
+            if missing_dependencies:
+                raise PlanCompilationError(
+                    f"Control {control_id!r} Flow {binding.flow_name!r} depends on "
+                    "undefined Rail Flows: "
+                    + ", ".join(sorted(missing_dependencies))
+                    + "."
+                )
+        _validate_binding_graph(control_id, draft.rail_bindings)
         colang = "\n".join(
             (
                 "import core" if draft.colang_version == "2.x" else "",
@@ -443,18 +519,19 @@ def _colang_v2(
                 key=lambda item: int(item.parameter("priority") or 0),
             )
         )
-        first_wave = tuple(
-            _module_flow_name(phase, module.id)
-            for module in (_module_waves(modules)[0] if modules else ())
-        ) + tuple(_compiled_flow_name(item) for item in detection_custom)
-        if first_wave:
-            lines.extend(_await_parallel(first_wave, "$text", indent="  "))
-        if modules:
-            for wave in _module_waves(modules)[1:]:
-                flow_names = tuple(
-                    _module_flow_name(phase, module.id) for module in wave
+        module_waves = _module_waves(modules) if modules else ()
+        control_waves = _custom_binding_waves(detection_custom)
+        for index in range(max(len(module_waves), len(control_waves))):
+            flow_names = tuple(
+                _module_flow_name(phase, module.id)
+                for module in (module_waves[index] if index < len(module_waves) else ())
+            ) + tuple(
+                _compiled_flow_name(item)
+                for item in (
+                    control_waves[index] if index < len(control_waves) else ()
                 )
-                lines.extend(_await_parallel(flow_names, "$text", indent="  "))
+            )
+            lines.extend(_await_parallel(flow_names, "$text", indent="  "))
         for binding in mutation_custom:
             lines.append(
                 f"  await {_compiled_flow_name(binding)}(text=$text)"
@@ -692,6 +769,12 @@ def _custom_action_bindings(
                 f"Custom Control {version.control_id}@{version.version} must use "
                 "Colang 2.x in an LLMRails Guardrail."
             )
+        delivery = dict(version.execution_contract).get("output_delivery")
+        if delivery == "full_buffered" and plan.output_delivery != "full_buffered":
+            raise PlanCompilationError(
+                f"Control {version.control_id}@{version.version} requires "
+                "full-buffered output delivery."
+            )
         action = next(
             (
                 item
@@ -730,6 +813,7 @@ def _custom_action_bindings(
                     parallel_group=rail.parallel_group,
                     execution_mode=rail.execution_mode,
                     failure_mode=rail.failure_mode,
+                    depends_on=rail.depends_on,
                 )
             )
     return tuple(bindings)
@@ -797,3 +881,132 @@ def _namespaced_flow_name(control_id: str, version: int, flow_name: str) -> str:
             _flow_identifier(flow_name),
         )
     )
+
+
+def _validate_binding_graph(
+    control_id: str,
+    bindings: tuple[RailBinding, ...],
+) -> None:
+    by_name = {item.flow_name: item for item in bindings}
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(flow_name: str) -> None:
+        if flow_name in visiting:
+            raise PlanCompilationError(
+                f"Control {control_id!r} Rail Flow dependencies contain a cycle "
+                f"at {flow_name!r}."
+            )
+        if flow_name in visited:
+            return
+        visiting.add(flow_name)
+        for dependency in by_name[flow_name].depends_on:
+            visit(dependency)
+        visiting.remove(flow_name)
+        visited.add(flow_name)
+
+    for name in by_name:
+        visit(name)
+    for binding in bindings:
+        for dependency_name in binding.depends_on:
+            dependency = by_name[dependency_name]
+            if binding.execution_mode == "detect" and dependency.execution_mode == "mutate":
+                raise PlanCompilationError(
+                    f"Control {control_id!r} detection Flow {binding.flow_name!r} "
+                    f"cannot depend on mutating Flow {dependency_name!r}."
+                )
+            if (
+                binding.execution_mode == "mutate"
+                and dependency.execution_mode == "mutate"
+                and int(binding.priority or 0) <= int(dependency.priority or 0)
+            ):
+                raise PlanCompilationError(
+                    f"Control {control_id!r} mutation Flow {binding.flow_name!r} "
+                    f"must have a higher priority than dependency {dependency_name!r}."
+                )
+
+
+def _custom_binding_waves(
+    bindings: tuple[NeMoActionBinding, ...],
+) -> tuple[tuple[NeMoActionBinding, ...], ...]:
+    pending = list(bindings)
+    completed: set[tuple[str, int, str]] = set()
+    waves: list[tuple[NeMoActionBinding, ...]] = []
+
+    def key(item: NeMoActionBinding, flow_name: str | None = None):
+        return (
+            item.control_id or "",
+            item.control_version or 0,
+            flow_name or item.flow_name or "",
+        )
+
+    while pending:
+        wave = tuple(
+            item
+            for item in pending
+            if all(key(item, dependency) in completed for dependency in item.depends_on)
+        )
+        if not wave:
+            raise PlanCompilationError(
+                "Custom Control detection dependencies contain a cycle or "
+                "reference a non-detection Flow."
+            )
+        waves.append(wave)
+        completed.update(key(item) for item in wave)
+        pending = [item for item in pending if item not in wave]
+    return tuple(waves)
+
+
+def _dependency_manifest(
+    plan: GuardrailPlanSnapshot,
+    bindings: tuple[NeMoActionBinding, ...],
+    required_models: set[str],
+    prompts: list[dict[str, Any]],
+) -> tuple[tuple[str, str, str], ...]:
+    entries: set[tuple[str, str, str]] = set()
+    for version in plan.control_versions:
+        entries.add(("control", version.control_id, f"v{version.version}:{version.checksum}"))
+        for source in version.sources:
+            digest = hashlib.sha256(source.content.encode()).hexdigest()
+            entries.add(("source", f"{version.control_id}/{source.path}", digest))
+        for action in version.action_references:
+            entries.add(("action", action.name, action.version))
+        entries.update(("model", item, "pinned") for item in version.model_dependencies)
+        entries.update(("prompt", item, "pinned") for item in version.prompt_dependencies)
+    for binding in bindings:
+        if binding.action_name and binding.action_version:
+            entries.add(("action", binding.action_name, binding.action_version))
+    entries.update(("model", item, "profile") for item in required_models)
+    for prompt in prompts:
+        task = str(prompt.get("task", ""))
+        digest = hashlib.sha256(
+            json.dumps(prompt, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        entries.add(("prompt", task, digest))
+    return tuple(sorted(entries))
+
+
+def _estimated_critical_path_ms(
+    plan: GuardrailPlanSnapshot,
+    custom_bindings: tuple[NeMoActionBinding, ...],
+) -> int:
+    estimates: list[int] = []
+    for phase in ("input", "output"):
+        module_waves = _module_waves(plan.modules_for(phase)) if plan.modules_for(phase) else ()
+        module_total = sum(max(item.timeout_ms for item in wave) for wave in module_waves)
+        detections = tuple(
+            item
+            for item in custom_bindings
+            if phase in item.phases and item.execution_mode == "detect"
+        )
+        detection_total = sum(
+            max(item.timeout_ms for item in wave)
+            for wave in _custom_binding_waves(detections)
+        ) if detections else 0
+        mutation_total = sum(
+            item.timeout_ms
+            for item in custom_bindings
+            if phase in item.phases and item.execution_mode == "mutate"
+        )
+        estimates.append(max(module_total, detection_total) + mutation_total)
+    return max(estimates, default=0)
