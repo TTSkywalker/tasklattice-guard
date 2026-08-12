@@ -43,10 +43,19 @@ class NeMoConfigCompiler:
         self._models = tuple(dict(item) for item in models)
         self._model_types = frozenset(str(item.get("type", "")) for item in models)
         self._profile_prompts = _prompts(profile_prompts_yaml)
+        self._prompt_tasks = frozenset(
+            str(item.get("task", "")) for item in self._profile_prompts
+        )
         self._jailbreak_detection = (
             dict(jailbreak_detection) if jailbreak_detection else None
         )
         self._otel_enabled = otel_enabled
+
+    def has_model_dependency(self, name: str) -> bool:
+        return name in self._model_types
+
+    def has_prompt_dependency(self, name: str) -> bool:
+        return name in self._prompt_tasks
 
     def compile(self, plan: GuardrailPlanSnapshot) -> NeMoConfigSnapshot:
         flows: dict[GuardrailPhase, list[str]] = {"input": [], "output": []}
@@ -676,6 +685,8 @@ def _custom_action_bindings(
                 f"Guardrail references missing Control Version "
                 f"{selected.control_id}@{selected.control_version}."
             )
+        if version.source == "built-in":
+            continue
         if version.colang_version != "2.x":
             raise PlanCompilationError(
                 f"Custom Control {version.control_id}@{version.version} must use "
@@ -733,6 +744,8 @@ def _compiled_control_sources(plan: GuardrailPlanSnapshot) -> str:
     for version in plan.control_versions:
         binding = selected.get((version.control_id, version.version))
         if binding is None:
+            continue
+        if version.source == "built-in":
             continue
         declared = tuple(
             dict.fromkeys(

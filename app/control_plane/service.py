@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -182,7 +182,7 @@ class ControlPlaneService:
             raise ValidationError("Control source must be built-in or custom.")
         control_id = f"control-{uuid.uuid4().hex[:12]}"
         now = _now()
-        self._validate_control_draft(control_id, draft)
+        self._validate_control_draft(control_id, draft, validate_dependencies=False)
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
@@ -221,7 +221,11 @@ class ControlPlaneService:
     ) -> ControlPackage:
         current = self.control_package(control_id)
         next_draft = current.draft if draft is None else draft
-        self._validate_control_draft(control_id, next_draft)
+        if current.source == "built-in":
+            raise ValidationError("Built-in Controls are system managed.")
+        self._validate_control_draft(
+            control_id, next_draft, validate_dependencies=False
+        )
         next_name = current.name if name is None else name.strip()
         if not next_name:
             raise ValidationError("Control name is required.")
@@ -247,7 +251,9 @@ class ControlPlaneService:
 
     def validate_control(self, control_id: str) -> dict[str, object]:
         package = self.control_package(control_id)
-        self._validate_control_draft(control_id, package.draft)
+        self._validate_control_draft(
+            control_id, package.draft, validate_dependencies=True
+        )
         self._nemo_compiler.validate_control(control_id, package.draft)
         return {
             "valid": True,
@@ -523,11 +529,28 @@ class ControlPlaneService:
     ) -> GuardrailPlanSnapshot:
         resolved_versions: list[ControlVersionSnapshot] = []
         resolved_bindings: list[GuardrailControlBindingSnapshot] = []
+        legacy_controls = list(guardrail.controls)
         for binding in guardrail.control_bindings:
             control_version = self.control_version(
                 binding.control_id, binding.control_version
             )
             resolved_versions.append(_control_version_snapshot(control_version))
+            if control_version.source == "built-in":
+                legacy_risk = dict(control_version.execution_contract).get(
+                    "legacy_risk"
+                )
+                if legacy_risk and legacy_risk not in {
+                    item.risk for item in legacy_controls
+                }:
+                    action = next(
+                        (
+                            item.on_unsafe
+                            for item in control_version.rail_bindings
+                            if item.rail_type in binding.enabled_rails
+                        ),
+                        "reject",
+                    )
+                    legacy_controls.append(GuardrailControl(legacy_risk, action))
             resolved_bindings.append(
                 GuardrailControlBindingSnapshot(
                     control_id=binding.control_id,
@@ -537,7 +560,7 @@ class ControlPlaneService:
                 )
             )
         return self._compiler.compile(
-            guardrail,
+            replace(guardrail, controls=tuple(legacy_controls)),
             version,
             control_versions=tuple(resolved_versions),
             control_bindings=tuple(resolved_bindings),
@@ -1611,6 +1634,7 @@ class ControlPlaneService:
             self._ensure_guardrail_composition_schema(connection)
             self._ensure_nemo_config_schema(connection)
             self._ensure_runtime_metrics_schema(connection)
+            self._ensure_builtin_controls(connection)
             self._ensure_product_defaults(connection)
             self._backfill_nemo_configs(connection)
             connection.commit()
@@ -1982,6 +2006,90 @@ class ControlPlaneService:
             detail="Initialized the standalone TaskLattice control plane.",
         )
 
+    def _ensure_builtin_controls(self, connection: sqlite3.Connection) -> None:
+        """Expose every existing built-in detector as an immutable Control Version."""
+        published_at = "2000-01-01T00:00:00+00:00"
+        for definition in CONTROL_DEFINITIONS:
+            control_id = f"builtin-{definition.id.replace('_', '-')}"
+            if connection.execute(
+                "SELECT 1 FROM control_packages WHERE id = ?", (control_id,)
+            ).fetchone():
+                continue
+            rails = tuple(
+                RailBinding(
+                    rail_type=phase,
+                    flow_name=f"builtin_{definition.id}_{phase}",
+                    execution_mode=(
+                        "mutate"
+                        if definition.default_action in {"redact", "rewrite"}
+                        else "detect"
+                    ),
+                    on_unsafe=definition.default_action,
+                    priority=(
+                        100
+                        if definition.default_action in {"redact", "rewrite"}
+                        else None
+                    ),
+                )
+                for phase in definition.default_phases
+            )
+            sources = tuple(
+                ControlSourceFile(
+                    path=f"{definition.id}.co",
+                    content="\n\n".join(
+                        f"flow {item.flow_name} $text\n  pass" for item in rails
+                    ),
+                )
+                for _ in (0,)
+            )
+            draft = ControlDraft(
+                colang_version="2.x",
+                sources=sources,
+                parameter_schema=(),
+                rail_bindings=rails,
+                action_references=(),
+                execution_contract=(("legacy_risk", definition.id),),
+            )
+            package_payload = _json(asdict(draft))
+            version_payload = {
+                "control_id": control_id,
+                "version": 1,
+                "name": definition.display_name,
+                "description": definition.description,
+                "source": "built-in",
+                "owner": "TaskLattice",
+                **asdict(draft),
+                "published_at": published_at,
+            }
+            checksum = hashlib.sha256(
+                json.dumps(
+                    version_payload, sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest()
+            connection.execute(
+                """
+                INSERT INTO control_packages
+                    (id, name, description, source, owner, draft_json,
+                     draft_revision, updated_at)
+                VALUES (?, ?, ?, 'built-in', 'TaskLattice', ?, 1, ?)
+                """,
+                (
+                    control_id,
+                    definition.display_name,
+                    definition.description,
+                    package_payload,
+                    published_at,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO control_versions
+                    (control_id, version, version_json, checksum, published_at)
+                VALUES (?, 1, ?, ?, ?)
+                """,
+                (control_id, _json(version_payload), checksum, published_at),
+            )
+
     def _ensure_product_defaults(self, connection: sqlite3.Connection) -> None:
         guardrail_row = connection.execute(
             "SELECT id FROM guardrails WHERE id = ?", (DEFAULT_GUARDRAIL_ID,)
@@ -2212,7 +2320,13 @@ class ControlPlaneService:
             updated_at=str(row["updated_at"]),
         )
 
-    def _validate_control_draft(self, control_id: str, draft: ControlDraft) -> None:
+    def _validate_control_draft(
+        self,
+        control_id: str,
+        draft: ControlDraft,
+        *,
+        validate_dependencies: bool,
+    ) -> None:
         if draft.colang_version not in {"1.0", "2.x"}:
             raise ValidationError("Control Colang version must be 1.0 or 2.x.")
         if not draft.sources or any(
@@ -2245,6 +2359,8 @@ class ControlPlaneService:
                 raise ValidationError(
                     f"Mutating {rail} flows cannot share parallel group {group!r}."
                 )
+        if not validate_dependencies:
+            return
         for reference in draft.action_references:
             if not self._action_catalog.contains(reference.name, reference.version):
                 raise ValidationError(
@@ -2256,6 +2372,28 @@ class ControlPlaneService:
                 raise ValidationError(
                     f"Action provider {reference.name}@{reference.version} is not ready."
                 )
+        missing_models = tuple(
+            item
+            for item in draft.model_dependencies
+            if not self._nemo_compiler.has_model_dependency(item)
+        )
+        if missing_models:
+            raise ValidationError(
+                f"Control {control_id!r} references unregistered Models: "
+                + ", ".join(missing_models)
+                + "."
+            )
+        missing_prompts = tuple(
+            item
+            for item in draft.prompt_dependencies
+            if not self._nemo_compiler.has_prompt_dependency(item)
+        )
+        if missing_prompts:
+            raise ValidationError(
+                f"Control {control_id!r} references unregistered Prompts: "
+                + ", ".join(missing_prompts)
+                + "."
+            )
 
     def _validate_guardrail_control_bindings(
         self,
