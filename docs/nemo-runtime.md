@@ -101,8 +101,9 @@ Latency cannot be guaranteed by configuration alone. Operate it as an SLO:
 
 ## Observability and privacy
 
-The local metrics store records request outcome and latency plus rail/Action
-name, outcome, duration, timeout, NeMo engine, cache result, model-call count, and
+The local metrics store records request outcome and latency plus Guardrail and
+Control Version, Rail/Flow/Action identity, Queue/Rail/Action/Provider latency,
+parallel group, active concurrency, SLO breach, timeout, cache result, and
 configuration checksum. It never uses prompt, response, user ID, credential, or
 raw URL as a metric label.
 
@@ -112,8 +113,8 @@ telemetry. TaskLattice always sets NeMo's message-content capture switch to
 
 ## NeMo-only invariant
 
-Every released version uses `nemo_only`. Legacy, shadow, comparison, and canary
-runtime modes are rejected by the control plane, and no legacy engine is built or
-available in the production request path. The persisted `execution_mode` column
-is retained only for database compatibility and is normalized to `nemo_only`
-when versions are read.
+Every released version uses `nemo_only`, and the control plane exposes no runtime
+mode switch. No retired engine is built or available in the production request
+path. The persisted `execution_mode` column exists only for in-place database
+upgrades; startup normalizes it while atomically recompiling retired snapshots
+before runtime prewarming.

@@ -57,7 +57,6 @@ OutputDeliveryMode = Literal["interruptible", "window_buffered", "full_buffered"
 EscalationMode = Literal["never", "on_uncertain", "always"]
 MatcherKind = Literal["header", "jwt_claim", "field"]
 NeMoRuntimeEngine = Literal["iorails", "llmrails"]
-RuntimeExecutionMode = Literal["nemo_only"]
 ControlExecutionMode = Literal["detect", "mutate"]
 
 
@@ -589,7 +588,7 @@ class EngineRequest:
     active_block_id: str | None = None
 
 
-class GuardrailEngine(Protocol):
+class NeMoPolicyRuntime(Protocol):
     name: str
     supported_phases: frozenset[GuardrailPhase]
 

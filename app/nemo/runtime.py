@@ -86,13 +86,6 @@ class NeMoActionExecutor:
 
     def register(self, rails: Guardrails) -> None:
         if _is_colang_v2(self._config):
-            if "TaskLatticeEvaluateStepAction" in self._config.colang_content:
-                # Compatibility for already-released compiler-v3 snapshots.
-                # New artifacts call the fixed, versioned Action name directly.
-                rails.register_action(
-                    self.evaluate_step,
-                    name="TaskLatticeEvaluateStepAction",
-                )
             rails.register_action(
                 self.record_native,
                 name="TaskLatticeRecordNativeAction",
@@ -114,18 +107,6 @@ class NeMoActionExecutor:
                     self._action_handler(provider.name, provider.version),
                     name=provider.name,
                 )
-        else:
-            # Released v1 snapshots remain executable while versions are
-            # deliberately recompiled and activated through the control plane.
-            rails.register_action(
-                self.evaluate_phase,
-                name="tasklattice_evaluate_phase",
-            )
-            rails.register_action(self.evaluate_step, name="tasklattice_evaluate_step")
-            rails.register_action(
-                self.resolve,
-                name="tasklattice_resolve",
-            )
         if "sensitive_data_detection" in self._config.required_features:
             # Keep NeMo's native sensitive-data flows while providing a small,
             # dependency-free detector with the product's existing semantics.
@@ -162,109 +143,6 @@ class NeMoActionExecutor:
 
         return execute_provider
 
-    async def evaluate_phase(
-        self,
-        text: str,
-        phase: str,
-        context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        request = self._request()
-        if phase != request.phase:
-            raise RuntimeError(
-                f"NeMo requested {phase!r} Actions during a {request.phase!r} evaluation."
-            )
-        groups: dict[str, list[NeMoActionBinding]] = {}
-        for binding in self._config.bindings_for(request.phase):
-            groups.setdefault(binding.risk, []).append(binding)
-        # Risk families are detection-only here and evaluate independently. Any
-        # content mutation is deferred to the deterministic resolver/NeMo rail.
-        await asyncio.gather(
-            *(
-                self._evaluate_risk(text, tuple(bindings), context)
-                for bindings in groups.values()
-            )
-        )
-        results = _runtime_results()
-        return {
-            "phase": phase,
-            "action_count": len(results),
-            "unsafe": any(item.result.verdict == "unsafe" for item in results),
-            "error": any(item.result.verdict == "error" for item in results),
-        }
-
-    async def _evaluate_risk(
-        self,
-        text: str,
-        bindings: tuple[NeMoActionBinding, ...],
-        context: dict[str, Any] | None,
-    ) -> None:
-        previous: str | None = None
-        for index, binding in enumerate(bindings):
-            should_run = (
-                index == 0
-                or binding.escalation == "always" and previous in {"safe", "uncertain"}
-                or binding.escalation == "on_uncertain" and previous == "uncertain"
-                or binding.escalation == "never" and previous is None
-            )
-            if not should_run:
-                continue
-            if (
-                binding.action_name
-                and binding.action_version
-                and not self._registry.contains(
-                    binding.action_name, binding.action_version
-                )
-                and binding.escalation == "on_uncertain"
-            ):
-                # A contextual judge is optional when a decisive local detector
-                # is already the first Action for this risk family.
-                continue
-            result = await self.evaluate_step(text, binding.id, context)
-            previous = str(result["verdict"])
-
-    async def evaluate_step(
-        self,
-        text: str,
-        step_id: str,
-        context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        binding = self._bindings.get(step_id)
-        if binding is None:
-            return self._record(
-                context,
-                NeMoActionBinding(
-                    id=step_id,
-                    risk="unknown",
-                    stage="deterministic",
-                    phases=(self._request().phase,),
-                    on_unsafe="reject",
-                ),
-                StageResult(
-                    "error",
-                    text,
-                    reason=f"NeMo action binding {step_id!r} is unavailable.",
-                ),
-                0,
-            )
-        if not binding.action_name or not binding.action_version:
-            return self._record(
-                context,
-                binding,
-                StageResult(
-                    "error",
-                    text,
-                    reason=f"NeMo Action binding {binding.id!r} is not version pinned.",
-                ),
-                0,
-            )
-        return await self.execute_action(
-            binding.action_name,
-            binding.action_version,
-            text,
-            step_id,
-            context,
-        )
-
     async def execute_action(
         self,
         action_name: str,
@@ -275,7 +153,25 @@ class NeMoActionExecutor:
     ) -> dict[str, Any]:
         binding = self._bindings.get(binding_id)
         if binding is None:
-            return await self.evaluate_step(text, binding_id, context)
+            missing = NeMoActionBinding(
+                id=binding_id,
+                risk="unknown",
+                stage="deterministic",
+                phases=(self._request().phase,),
+                on_unsafe="reject",
+                action_name=action_name,
+                action_version=action_version,
+            )
+            return self._record(
+                context,
+                missing,
+                StageResult(
+                    "error",
+                    text,
+                    reason=f"NeMo action binding {binding_id!r} is unavailable.",
+                ),
+                0,
+            )
         started = time.perf_counter()
         provider_latency_ms = 0
         try:
@@ -1099,9 +995,11 @@ def _trace(
     ]
     for index, rail in enumerate(activated):
         rail_type = str(rail.type or request.phase)
+        risk = _native_risk(rail.name)
+        rail_id = f"nemo:rail:native:{index}"
         trace.append(
             EvaluationTraceStep(
-                id=f"nemo:rail:native:{index}",
+                id=rail_id,
                 kind="rail",
                 name=rail.name,
                 status="blocked" if rail.stop else "passed",
@@ -1111,11 +1009,43 @@ def _trace(
                 parent_id=root_id,
                 verdict="unsafe" if rail.stop else "safe",
                 route="enforce" if rail.stop else "complete",
-                risk=_native_risk(rail.name),
+                risk=risk,
                 rail_type=rail_type,
                 **common(),
             )
         )
+        native_control = _native_control_rail(
+            request.plan,
+            risk,
+            request.phase,
+        )
+        if native_control is not None:
+            selected, version, control_rail = native_control
+            trace.append(
+                EvaluationTraceStep(
+                    id=(
+                        f"nemo:control:{selected.control_id}:"
+                        f"{selected.control_version}:{control_rail.flow_name}"
+                    ),
+                    kind="control",
+                    name=f"{version.name}@{selected.control_version}",
+                    status="blocked" if rail.stop else "passed",
+                    outcome="blocked" if rail.stop else "passed",
+                    detail="Executed the immutable native NeMo Control binding.",
+                    duration_ms=max(0, round((rail.duration or 0) * 1_000)),
+                    parent_id=rail_id,
+                    verdict="unsafe" if rail.stop else "safe",
+                    route="enforce" if rail.stop else "complete",
+                    risk=risk,
+                    control_id=selected.control_id,
+                    control_version=selected.control_version,
+                    rail_type=request.phase,
+                    flow_name=control_rail.flow_name,
+                    parallel_group=control_rail.parallel_group,
+                    timeout_ms=control_rail.timeout_ms,
+                    **common(),
+                )
+            )
     rail_ids: dict[str, str] = {}
     control_ids: dict[str, str] = {}
     if _is_colang_v2(config):
@@ -1124,6 +1054,17 @@ def _trace(
             selected = tuple(item for item in results if item.binding.risk == risk)
             terminal = selected[-1]
             binding = terminal.binding
+            control_rail = _control_rail_binding(
+                request.plan,
+                binding,
+                request.phase,
+            )
+            flow_name = binding.flow_name or (
+                control_rail.flow_name if control_rail is not None else None
+            )
+            parallel_group = binding.parallel_group or (
+                control_rail.parallel_group if control_rail is not None else None
+            )
             error = terminal.result.verdict == "error"
             unsafe = terminal.result.verdict == "unsafe"
             uncertain = terminal.result.verdict == "uncertain"
@@ -1153,8 +1094,8 @@ def _trace(
                     ),
                     risk=risk,
                     rail_type=request.phase,
-                    flow_name=binding.flow_name,
-                    parallel_group=binding.parallel_group,
+                    flow_name=flow_name,
+                    parallel_group=parallel_group,
                     timeout_ms=binding.timeout_ms,
                     timed_out=error and "timeout" in (terminal.result.reason or "").casefold(),
                     **common(),
@@ -1163,7 +1104,7 @@ def _trace(
             if binding.control_id is not None:
                 control_id = (
                     f"nemo:control:{binding.control_id}:"
-                    f"{binding.control_version}:{binding.flow_name or risk}"
+                            f"{binding.control_version}:{flow_name or risk}"
                 )
                 control_ids[risk] = control_id
                 trace.append(
@@ -1180,8 +1121,8 @@ def _trace(
                         control_id=binding.control_id,
                         control_version=binding.control_version,
                         rail_type=request.phase,
-                        flow_name=binding.flow_name,
-                        parallel_group=binding.parallel_group,
+                        flow_name=flow_name,
+                        parallel_group=parallel_group,
                         timeout_ms=binding.timeout_ms,
                         timed_out=error and "timeout" in (terminal.result.reason or "").casefold(),
                         **common(),
@@ -1190,6 +1131,17 @@ def _trace(
     for item in results:
         trace.extend(item.result.trace)
         binding = item.binding
+        control_rail = _control_rail_binding(
+            request.plan,
+            binding,
+            request.phase,
+        )
+        flow_name = binding.flow_name or (
+            control_rail.flow_name if control_rail is not None else None
+        )
+        parallel_group = binding.parallel_group or (
+            control_rail.parallel_group if control_rail is not None else None
+        )
         timed_out = (
             item.result.verdict == "error"
             and "timeout" in (item.result.reason or "").casefold()
@@ -1220,12 +1172,12 @@ def _trace(
                 control_id=binding.control_id,
                 control_version=binding.control_version,
                 rail_type=request.phase,
-                flow_name=binding.flow_name,
+                flow_name=flow_name,
                 action_name=binding.action_name,
                 action_version=binding.action_version,
                 timeout_ms=binding.timeout_ms,
                 timed_out=timed_out,
-                parallel_group=binding.parallel_group,
+                parallel_group=parallel_group,
                 provider_latency_ms=item.provider_latency_ms,
                 **common(),
             )
@@ -1248,6 +1200,68 @@ def _trace(
         )
     )
     return tuple(trace)
+
+
+def _control_rail_binding(plan, binding, phase):
+    if binding.control_id is None or binding.control_version is None:
+        return None
+    selected = next(
+        (
+            item
+            for item in plan.control_bindings
+            if item.control_id == binding.control_id
+            and item.control_version == binding.control_version
+            and phase in item.enabled_rails
+        ),
+        None,
+    )
+    if selected is None:
+        return None
+    version = next(
+        (
+            item
+            for item in plan.control_versions
+            if item.control_id == binding.control_id
+            and item.version == binding.control_version
+        ),
+        None,
+    )
+    if version is None:
+        return None
+    return next(
+        (
+            item
+            for item in version.rail_bindings
+            if item.rail_type == phase
+            and (binding.flow_name is None or item.flow_name == binding.flow_name)
+        ),
+        None,
+    )
+
+
+def _native_control_rail(plan, risk, phase):
+    if risk is None:
+        return None
+    versions = {
+        (item.control_id, item.version): item for item in plan.control_versions
+    }
+    for selected in plan.control_bindings:
+        if phase not in selected.enabled_rails:
+            continue
+        version = versions.get((selected.control_id, selected.control_version))
+        if (
+            version is None
+            or version.source != "built-in"
+            or dict(version.execution_contract).get("native_risk") != risk
+        ):
+            continue
+        rail = next(
+            (item for item in version.rail_bindings if item.rail_type == phase),
+            None,
+        )
+        if rail is not None:
+            return selected, version, rail
+    return None
 
 
 def _assessments(request, results, trace, all_findings=(), *, force_error=False):

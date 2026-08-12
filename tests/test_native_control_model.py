@@ -15,6 +15,7 @@ from app.control_plane.domain import (
     ValidationError,
 )
 from app.control_plane.service import ControlPlaneService
+from app.control_plane.nemo_compiler import NeMoConfigCompiler
 
 
 SOURCE_V1 = """\
@@ -114,6 +115,17 @@ def test_builtins_are_published_control_versions_and_compile_when_bound(tmp_path
     plan = service.compile_draft(guardrail.id)
     assert {item.risk for item in plan.steps} == {"secrets"}
     assert plan.control_versions[0].source == "built-in"
+    assert dict(plan.control_versions[0].execution_contract) == {
+        "native_risk": "secrets"
+    }
+    assert plan.control_versions[0].action_references[0].name == (
+        "TaskLatticeSecretsAction"
+    )
+    config = NeMoConfigCompiler().compile(plan)
+    binding = next(item for item in config.action_bindings if item.risk == "secrets")
+    assert binding.control_id == secrets.id
+    assert binding.control_version == 1
+    assert binding.action_name == "TaskLatticeSecretsAction"
 
 
 def test_guardrail_binding_requires_an_existing_fixed_control_version(tmp_path):

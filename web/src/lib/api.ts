@@ -255,7 +255,7 @@ export type GuardrailVersion = {
   active: boolean;
   runtime_engine: "iorails" | "llmrails" | string;
   config_checksum: string;
-  execution_mode: "legacy_only" | "shadow_nemo" | "compare" | "nemo_canary" | "nemo_primary_legacy_shadow" | "nemo_only";
+  execution_mode: "nemo_only";
 };
 
 export type GuardrailTemplate = {

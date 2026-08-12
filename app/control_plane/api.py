@@ -17,7 +17,7 @@ from ..runtime.contracts import (
     ContentViewSnapshot,
     EngineRequest,
     GuardContentBlock,
-    GuardrailEngine,
+    NeMoPolicyRuntime,
 )
 from ..policy_packs.litellm import control_definition, policy_template
 from .catalog import control
@@ -317,17 +317,11 @@ class QuickTestRequest(BaseModel):
     content: str = Field(min_length=1, max_length=8_000)
 
 
-class RuntimeModeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: Literal["nemo_only"]
-
-
 class ControlPlaneAPI:
     def __init__(
         self,
         service: ControlPlaneService,
-        engine: GuardrailEngine,
+        engine: NeMoPolicyRuntime,
         require_user: Callable | None = None,
         intent_analyzer: IntentAnalyzer | None = None,
     ) -> None:
@@ -708,20 +702,6 @@ class ControlPlaneAPI:
         def rollback_guardrail(guardrail_id: str, version: int):
             try:
                 item = self._service.rollback_guardrail(guardrail_id, version)
-            except ControlPlaneError as error:
-                _raise(error)
-            return _guardrail_version_payload(item)
-
-        @router.patch("/guardrails/{guardrail_id}/versions/{version}/runtime-mode")
-        def set_runtime_mode(
-            guardrail_id: str,
-            version: int,
-            request: RuntimeModeRequest,
-        ):
-            try:
-                item = self._service.set_version_execution_mode(
-                    guardrail_id, version, request.mode
-                )
             except ControlPlaneError as error:
                 _raise(error)
             return _guardrail_version_payload(item)

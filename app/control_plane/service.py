@@ -28,15 +28,20 @@ from ..runtime.contracts import (
     ControlVersionSnapshot,
     GuardrailControlBindingSnapshot,
 )
-from ..nemo.action_registry import ActionCatalog, BUILTIN_ACTION_CATALOG
+from ..nemo.action_registry import (
+    ActionCatalog,
+    BUILTIN_ACTION_CATALOG,
+    action_name_for,
+)
 from .catalog import (
     CONTROL_DEFINITIONS,
+    control,
     control_templates,
     guardrail_template,
     guardrail_templates,
 )
 from .compiler import GuardrailCompiler
-from .nemo_compiler import NeMoConfigCompiler
+from .nemo_compiler import NEMO_COMPILER_VERSION, NeMoConfigCompiler
 from .defaults import (
     DEFAULT_GUARDRAIL_ID,
     DEFAULT_GUARDRAIL_NAME,
@@ -128,7 +133,6 @@ class ControlPlaneService:
         self._integration_runtime: dict[str, dict[str, object]] = {}
         self._plans: dict[tuple[str, int], GuardrailPlanSnapshot] = {}
         self._nemo_configs: dict[tuple[str, int], NeMoConfigSnapshot] = {}
-        self._execution_modes: dict[tuple[str, int], str] = {}
         self._assignments: tuple[GuardrailAssignment, ...] = ()
         self._credential_index: dict[str, str] = {}
         self._initialize()
@@ -543,6 +547,7 @@ class ControlPlaneService:
             ]
             if missing:
                 raise ValidationError(f"Template requires: {', '.join(missing)}.")
+        control_bindings = _native_control_bindings(controls, control_bindings)
         self._validate_guardrail_fields(
             purpose or "",
             controls,
@@ -619,6 +624,10 @@ class ControlPlaneService:
         next_control_bindings = (
             current.control_bindings if control_bindings is None else control_bindings
         )
+        next_control_bindings = _native_control_bindings(
+            next_controls,
+            next_control_bindings,
+        )
         next_level = current.safety_level if safety_level is None else safety_level
         next_delivery = current.output_delivery if output_delivery is None else output_delivery
         if not next_name:
@@ -679,18 +688,18 @@ class ControlPlaneService:
     ) -> GuardrailPlanSnapshot:
         resolved_versions: list[ControlVersionSnapshot] = []
         resolved_bindings: list[GuardrailControlBindingSnapshot] = []
-        legacy_controls = list(guardrail.controls)
+        native_controls = list(guardrail.controls)
         for binding in guardrail.control_bindings:
             control_version = self.control_version(
                 binding.control_id, binding.control_version
             )
             resolved_versions.append(_control_version_snapshot(control_version))
             if control_version.source == "built-in":
-                legacy_risk = dict(control_version.execution_contract).get(
-                    "legacy_risk"
+                native_risk = dict(control_version.execution_contract).get(
+                    "native_risk"
                 )
-                if legacy_risk and legacy_risk not in {
-                    item.risk for item in legacy_controls
+                if native_risk and native_risk not in {
+                    item.risk for item in native_controls
                 }:
                     action = next(
                         (
@@ -700,7 +709,7 @@ class ControlPlaneService:
                         ),
                         "reject",
                     )
-                    legacy_controls.append(GuardrailControl(legacy_risk, action))
+                    native_controls.append(GuardrailControl(native_risk, action))
             resolved_parameters = {
                 item.name: item.default
                 for item in control_version.parameter_schema
@@ -716,7 +725,7 @@ class ControlPlaneService:
                 )
             )
         return self._compiler.compile(
-            replace(guardrail, controls=tuple(legacy_controls)),
+            replace(guardrail, controls=tuple(native_controls)),
             version,
             control_versions=tuple(resolved_versions),
             control_bindings=tuple(resolved_bindings),
@@ -974,53 +983,6 @@ class ControlPlaneService:
         self._reload_runtime()
         if self._nemo_runtime_reloader is not None:
             self._nemo_runtime_reloader()
-        return next(
-            item for item in self.versions(guardrail_id) if item.version == version
-        )
-
-    def version_execution_mode(self, guardrail_id: str, version: int) -> str:
-        mode = self._execution_modes.get((guardrail_id, version))
-        if mode is None and (guardrail_id, version) in self._nemo_configs:
-            return "nemo_only"
-        if mode is None:
-            raise NotFoundError("Guardrail Version was not found.")
-        return mode
-
-    def set_version_execution_mode(
-        self,
-        guardrail_id: str,
-        version: int,
-        mode: str,
-    ) -> GuardrailVersion:
-        if mode != "nemo_only":
-            raise ValidationError(
-                "Legacy runtime modes were removed; this deployment is NeMo-only."
-            )
-        target = next(
-            (item for item in self.versions(guardrail_id) if item.version == version),
-            None,
-        )
-        if target is None:
-            raise NotFoundError("Guardrail Version was not found.")
-        plan = self.plan(guardrail_id, version)
-        config = self.nemo_config(guardrail_id, version)
-        if self._nemo_runtime_validator is not None:
-            self._nemo_runtime_validator(plan, config)
-        with self._write_lock, self._connect() as connection:
-            connection.execute(
-                "UPDATE guardrail_versions SET execution_mode = ? "
-                "WHERE guardrail_id = ? AND version = ?",
-                (mode, guardrail_id, version),
-            )
-            self._insert_activity(
-                connection,
-                kind="guardrail.runtime_mode.changed",
-                outcome="success",
-                guardrail_id=guardrail_id,
-                detail=f"Set Guardrail version {version} runtime mode to {mode}.",
-            )
-            connection.commit()
-        self._reload_runtime()
         return next(
             item for item in self.versions(guardrail_id) if item.version == version
         )
@@ -1880,8 +1842,13 @@ class ControlPlaneService:
             self._ensure_nemo_config_schema(connection)
             self._ensure_runtime_metrics_schema(connection)
             self._ensure_builtin_controls(connection)
+            # Released system Controls must be visible to the snapshot compiler,
+            # which resolves them through the same read path as normal requests.
+            connection.commit()
             self._ensure_product_defaults(connection)
-            self._backfill_nemo_configs(connection)
+            self._migrate_guardrail_bindings(connection)
+            connection.commit()
+            self._migrate_released_snapshots(connection)
             connection.commit()
         self._reload_runtime()
 
@@ -2177,20 +2144,76 @@ class ControlPlaneService:
                 "TEXT NOT NULL DEFAULT 'nemo_only'"
             )
 
-    def _backfill_nemo_configs(self, connection: sqlite3.Connection) -> None:
+    def _migrate_guardrail_bindings(self, connection: sqlite3.Connection) -> None:
+        """Add immutable built-in Control bindings without changing policy intent."""
+        for row in connection.execute("SELECT * FROM guardrails").fetchall():
+            guardrail = _guardrail_from_row(row)
+            bindings = _native_control_bindings(
+                guardrail.controls,
+                guardrail.control_bindings,
+            )
+            if bindings == guardrail.control_bindings:
+                continue
+            connection.execute(
+                "UPDATE guardrails SET control_bindings_json = ? WHERE id = ?",
+                (
+                    _json([asdict(item) for item in bindings]),
+                    guardrail.id,
+                ),
+            )
+
+    def _migrate_released_snapshots(self, connection: sqlite3.Connection) -> None:
+        """Atomically replace retired artifacts with auditable native snapshots."""
         rows = connection.execute(
-            "SELECT guardrail_id, version, plan_json FROM guardrail_versions "
-            "WHERE nemo_config_json IS NULL OR config_checksum IS NULL"
+            "SELECT guardrail_id, version, guardrail_json, plan_json, "
+            "nemo_config_json, compiler_version, config_checksum, execution_mode "
+            "FROM guardrail_versions"
         ).fetchall()
+        migrated = 0
         for row in rows:
-            plan = _plan_from_payload(json.loads(str(row[2])))
+            guardrail = _guardrail_from_payload(json.loads(str(row[2])))
+            bindings = _native_control_bindings(
+                guardrail.controls,
+                guardrail.control_bindings,
+            )
+            native_guardrail = replace(guardrail, control_bindings=bindings)
+            stored_plan = _plan_from_payload(json.loads(str(row[3])))
+            stored_config = (
+                json.loads(str(row[4])) if row[4] is not None else None
+            )
+            stored_config_version = (
+                str(stored_config.get("compiler_version", ""))
+                if isinstance(stored_config, dict)
+                else ""
+            )
+            expected_bindings = {
+                (item.control_id, item.control_version) for item in bindings
+            }
+            stored_bindings = {
+                (item.control_id, item.control_version)
+                for item in stored_plan.control_bindings
+            }
+            if (
+                row[4] is not None
+                and row[6] is not None
+                and str(row[5]) == NEMO_COMPILER_VERSION
+                and stored_config_version == NEMO_COMPILER_VERSION
+                and str(row[7]) == "nemo_only"
+                and stored_bindings == expected_bindings
+            ):
+                continue
+            plan = self._compile_guardrail(native_guardrail, int(row[1]))
             config = self._nemo_compiler.compile(plan)
             checksum = self._nemo_compiler.checksum(config)
             connection.execute(
-                "UPDATE guardrail_versions SET nemo_config_json = ?, "
+                "UPDATE guardrail_versions SET guardrail_json = ?, plan_json = ?, "
+                "nemo_config_json = ?, "
                 "compiler_version = ?, plan_checksum = ?, runtime_engine = ?, "
-                "config_checksum = ? WHERE guardrail_id = ? AND version = ?",
+                "config_checksum = ?, execution_mode = 'nemo_only' "
+                "WHERE guardrail_id = ? AND version = ?",
                 (
+                    _json(asdict(native_guardrail)),
+                    _json(asdict(plan)),
                     _json(asdict(config)),
                     config.compiler_version,
                     checksum,
@@ -2198,6 +2221,17 @@ class ControlPlaneService:
                     checksum,
                     str(row[0]),
                     int(row[1]),
+                ),
+            )
+            migrated += 1
+        if migrated:
+            self._insert_activity(
+                connection,
+                kind="system.nemo_snapshots.migrated",
+                outcome="success",
+                detail=(
+                    f"Migrated {migrated} released Guardrail Version(s) to "
+                    f"{NEMO_COMPILER_VERSION} and nemo_only execution."
                 ),
             )
 
@@ -2330,10 +2364,6 @@ class ControlPlaneService:
         published_at = "2000-01-01T00:00:00+00:00"
         for definition in CONTROL_DEFINITIONS:
             control_id = f"builtin-{definition.id.replace('_', '-')}"
-            if connection.execute(
-                "SELECT 1 FROM control_packages WHERE id = ?", (control_id,)
-            ).fetchone():
-                continue
             rails = tuple(
                 RailBinding(
                     rail_type=phase,
@@ -2366,8 +2396,15 @@ class ControlPlaneService:
                 sources=sources,
                 parameter_schema=(),
                 rail_bindings=rails,
-                action_references=(),
-                execution_contract=(("legacy_risk", definition.id),),
+                action_references=tuple(
+                    ActionReference(name=name, version="1.0.0")
+                    for name in dict.fromkeys(
+                        action_name_for(definition.id, stage)
+                        for stage in definition.available_stages
+                    )
+                    if self._action_catalog.contains(name, "1.0.0")
+                ),
+                execution_contract=(("native_risk", definition.id),),
             )
             package_payload = _json(asdict(draft))
             version_payload = {
@@ -2391,6 +2428,13 @@ class ControlPlaneService:
                     (id, name, description, source, owner, draft_json,
                      draft_revision, updated_at)
                 VALUES (?, ?, ?, 'built-in', 'TaskLattice', ?, 1, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    source = 'built-in',
+                    owner = 'TaskLattice',
+                    draft_json = excluded.draft_json,
+                    updated_at = excluded.updated_at
                 """,
                 (
                     control_id,
@@ -2405,6 +2449,10 @@ class ControlPlaneService:
                 INSERT INTO control_versions
                     (control_id, version, version_json, checksum, published_at)
                 VALUES (?, 1, ?, ?, ?)
+                ON CONFLICT(control_id, version) DO UPDATE SET
+                    version_json = excluded.version_json,
+                    checksum = excluded.checksum,
+                    published_at = excluded.published_at
                 """,
                 (control_id, _json(version_payload), checksum, published_at),
             )
@@ -2421,6 +2469,7 @@ class ControlPlaneService:
                 GuardrailControl("pii", "redact"),
                 GuardrailControl("builtin_content_filter", "reject"),
             )
+            control_bindings = _native_control_bindings(controls, ())
             guardrail = Guardrail(
                 id=DEFAULT_GUARDRAIL_ID,
                 name=DEFAULT_GUARDRAIL_NAME,
@@ -2435,8 +2484,12 @@ class ControlPlaneService:
                 draft_version=1,
                 active_version=DEFAULT_GUARDRAIL_VERSION,
                 updated_at=now,
+                control_bindings=control_bindings,
             )
-            plan = self._compiler.compile(guardrail, DEFAULT_GUARDRAIL_VERSION)
+            plan = self._compile_guardrail(
+                guardrail,
+                DEFAULT_GUARDRAIL_VERSION,
+            )
             if not plan.steps or any(step.stage != "deterministic" for step in plan.steps):
                 raise ControlPlaneError(
                     "The Default Guardrail must compile to local deterministic stages only."
@@ -2449,8 +2502,8 @@ class ControlPlaneService:
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
                      controls_json, safety_level, output_delivery, source_template_id,
                      template_parameters_json, control_configurations_json,
-                     draft_version, active_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 1, ?, ?)
+                     control_bindings_json, draft_version, active_version, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, 1, ?, ?)
                 """,
                 (
                     guardrail.id,
@@ -2463,6 +2516,7 @@ class ControlPlaneService:
                     guardrail.output_delivery,
                     guardrail.source_template_id,
                     _json({}),
+                    _json([asdict(item) for item in control_bindings]),
                     DEFAULT_GUARDRAIL_VERSION,
                     now,
                 ),
@@ -2580,12 +2634,10 @@ class ControlPlaneService:
     def _reload_runtime(self) -> None:
         plans: dict[tuple[str, int], GuardrailPlanSnapshot] = {}
         nemo_configs: dict[tuple[str, int], NeMoConfigSnapshot] = {}
-        execution_modes: dict[tuple[str, int], str] = {}
         credentials: dict[str, str] = {}
         with self._connect() as connection:
             for row in connection.execute(
-                "SELECT guardrail_id, version, plan_json, nemo_config_json, "
-                "execution_mode "
+                "SELECT guardrail_id, version, plan_json, nemo_config_json "
                 "FROM guardrail_versions"
             ).fetchall():
                 key = (str(row[0]), int(row[1]))
@@ -2596,14 +2648,12 @@ class ControlPlaneService:
                     nemo_configs[key] = _nemo_config_from_payload(
                         json.loads(str(row[3]))
                     )
-                execution_modes[key] = "nemo_only"
             for row in connection.execute(
                 "SELECT secret_hash, integration_id FROM integration_credentials WHERE revoked_at IS NULL"
             ).fetchall():
                 credentials[str(row[0])] = str(row[1])
         self._plans = plans
         self._nemo_configs = nemo_configs
-        self._execution_modes = execution_modes
         self._assignments = self.assignments()
         self._credential_index = credentials
 
@@ -3158,6 +3208,91 @@ def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
     )
 
 
+def _guardrail_from_payload(payload: dict[str, object]) -> Guardrail:
+    return Guardrail(
+        id=str(payload["id"]),
+        name=str(payload["name"]),
+        purpose=str(payload["purpose"]),
+        allowed_topics=tuple(payload.get("allowed_topics", ())),
+        restricted_topics=tuple(payload.get("restricted_topics", ())),
+        controls=tuple(
+            GuardrailControl(
+                risk=str(item["risk"]),
+                action=str(item["action"]),
+                reasoning_policy=_reasoning_binding(item.get("reasoning_policy")),
+            )
+            for item in payload.get("controls", ())
+        ),
+        safety_level=str(payload["safety_level"]),
+        output_delivery=str(payload["output_delivery"]),
+        source_template_id=(
+            str(payload["source_template_id"])
+            if payload.get("source_template_id") is not None
+            else None
+        ),
+        template_parameters=tuple(
+            tuple(item) for item in payload.get("template_parameters", ())
+        ),
+        draft_version=int(payload["draft_version"]),
+        active_version=(
+            int(payload["active_version"])
+            if payload.get("active_version") is not None
+            else None
+        ),
+        updated_at=str(payload["updated_at"]),
+        control_configurations=tuple(
+            GuardrailControlConfig(
+                id=str(item["id"]),
+                name=str(item["name"]),
+                kind=str(item["kind"]),
+                runtime_risk=str(item["runtime_risk"]),
+                template_id=(
+                    str(item["template_id"])
+                    if item.get("template_id") is not None
+                    else None
+                ),
+                template_version=(
+                    str(item["template_version"])
+                    if item.get("template_version") is not None
+                    else None
+                ),
+                rules=tuple(
+                    GuardrailRuleConfig(
+                        id=str(rule["id"]),
+                        name=str(rule["name"]),
+                        detector=str(rule["detector"]),
+                        action=str(rule["action"]),
+                        phases=tuple(rule["phases"]),
+                        enabled=bool(rule.get("enabled", True)),
+                        description=str(rule.get("description", "")),
+                        expression=(
+                            str(rule["expression"])
+                            if rule.get("expression") is not None
+                            else None
+                        ),
+                        keywords=tuple(rule.get("keywords", ())),
+                    )
+                    for rule in item.get("rules", ())
+                ),
+            )
+            for item in payload.get("control_configurations", ())
+        ),
+        control_bindings=tuple(
+            GuardrailControlBinding(
+                control_id=str(item["control_id"]),
+                control_version=int(item["control_version"]),
+                parameter_values=tuple(
+                    tuple(value) for value in item.get("parameter_values", ())
+                ),
+                enabled_rails=tuple(
+                    item.get("enabled_rails", ("input", "output"))
+                ),
+            )
+            for item in payload.get("control_bindings", ())
+        ),
+    )
+
+
 def _plan_from_payload(payload: dict[str, object]) -> GuardrailPlanSnapshot:
     modules = tuple(
         GuardrailPlanModule(
@@ -3431,6 +3566,39 @@ def _control_configurations_json(
     configurations: tuple[GuardrailControlConfig, ...],
 ) -> str:
     return _json([asdict(item) for item in configurations])
+
+
+def _native_control_bindings(
+    controls: tuple[GuardrailControl, ...],
+    existing: tuple[GuardrailControlBinding, ...],
+) -> tuple[GuardrailControlBinding, ...]:
+    """Attach every built-in policy choice to its immutable Control Version."""
+    expected_builtin_ids = {
+        f"builtin-{item.risk.replace('_', '-')}" for item in controls
+    }
+    bindings = [
+        item
+        for item in existing
+        if not controls
+        or not item.control_id.startswith("builtin-")
+        or item.control_id in expected_builtin_ids
+    ]
+    selected = {(item.control_id, item.control_version) for item in bindings}
+    for configured in controls:
+        control_id = f"builtin-{configured.risk.replace('_', '-')}"
+        key = (control_id, 1)
+        if key in selected:
+            continue
+        definition = control(configured.risk)
+        bindings.append(
+            GuardrailControlBinding(
+                control_id=control_id,
+                control_version=1,
+                enabled_rails=definition.default_phases,
+            )
+        )
+        selected.add(key)
+    return tuple(bindings)
 
 
 def _json(value: object) -> str:

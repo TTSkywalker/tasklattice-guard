@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 from nemoguardrails import RailsConfig
 
+from ..nemo.action_registry import action_name_for
 from ..runtime.contracts import (
     GuardrailPhase,
     GuardrailPlanModule,
@@ -99,19 +100,11 @@ class NeMoConfigCompiler:
             flows[phase].extend(native_mutation)
 
         builtin_bindings = tuple(
-            NeMoActionBinding(
-                id=step_id,
-                risk=binding_steps[step_id].risk,
-                stage=binding_steps[step_id].stage,
-                phases=tuple(dict.fromkeys(phases)),
-                on_unsafe=binding_steps[step_id].on_unsafe,
-                escalation=binding_steps[step_id].escalation,
-                timeout_ms=max(
-                    _timeout_for(plan, step_id, phase) for phase in phases
-                ),
-                parameters=binding_steps[step_id].parameters,
-                action_name=_builtin_action_name(binding_steps[step_id]),
-                action_version="1.0.0",
+            _builtin_action_binding(
+                plan,
+                step_id,
+                binding_steps[step_id],
+                tuple(dict.fromkeys(phases)),
             )
             for step_id, phases in binding_phases.items()
         )
@@ -598,36 +591,6 @@ def _binding_flow_lines(bindings: tuple[NeMoActionBinding, ...]) -> list[str]:
     return lines
 
 
-def _builtin_action_name(step) -> str:
-    if step.stage == "deterministic":
-        return {
-            "secrets": "TaskLatticeSecretsAction",
-            "pii": "TaskLatticePiiAction",
-            "builtin_content_filter": "TaskLatticeBuiltinContentFilterAction",
-            "topic_control": "TaskLatticeTopicDeterministicAction",
-        }.get(step.risk, _dynamic_action_name(step.risk))
-    if step.stage == "fast_semantic":
-        return (
-            "TaskLatticePromptSecurityFastAction"
-            if step.risk in {"prompt_injection", "jailbreak"}
-            else _dynamic_action_name(step.risk)
-        )
-    return {
-        "prompt_injection": "TaskLatticePromptSecurityJudgeAction",
-        "jailbreak": "TaskLatticePromptSecurityJudgeAction",
-        "topic_control": "TaskLatticeTopicJudgeAction",
-        "company_policy": "TaskLatticeTopicJudgeAction",
-        "contextual_grounding": "TaskLatticeGroundingAction",
-        "automated_reasoning": "TaskLatticeAutomatedReasoningAction",
-    }.get(step.risk, _dynamic_action_name(step.risk))
-
-
-def _dynamic_action_name(risk: str) -> str:
-    return "TaskLattice" + "".join(
-        item.capitalize() for item in re.split(r"[^A-Za-z0-9]+", risk) if item
-    ) + "Action"
-
-
 def _native_flow_lines(flow: str, phase: GuardrailPhase) -> list[str]:
     if flow.startswith("content safety check"):
         action = (
@@ -782,6 +745,43 @@ def _native_risk(flow: str) -> str | None:
     if "sensitive data" in flow:
         return "pii"
     return None
+
+
+def _builtin_action_binding(
+    plan: GuardrailPlanSnapshot,
+    step_id: str,
+    step,
+    phases: tuple[GuardrailPhase, ...],
+) -> NeMoActionBinding:
+    control_id = None
+    control_version = None
+    versions = {
+        (item.control_id, item.version): item for item in plan.control_versions
+    }
+    for selected in plan.control_bindings:
+        version = versions.get((selected.control_id, selected.control_version))
+        if (
+            version is not None
+            and version.source == "built-in"
+            and dict(version.execution_contract).get("native_risk") == step.risk
+        ):
+            control_id = selected.control_id
+            control_version = selected.control_version
+            break
+    return NeMoActionBinding(
+        id=step_id,
+        risk=step.risk,
+        stage=step.stage,
+        phases=phases,
+        on_unsafe=step.on_unsafe,
+        escalation=step.escalation,
+        timeout_ms=max(_timeout_for(plan, step_id, phase) for phase in phases),
+        parameters=step.parameters,
+        control_id=control_id,
+        control_version=control_version,
+        action_name=action_name_for(step.risk, step.stage),
+        action_version="1.0.0",
+    )
 
 
 def _custom_action_bindings(

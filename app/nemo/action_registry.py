@@ -128,7 +128,7 @@ def runtime_action_registry(*evaluators: object) -> RuntimeActionRegistry:
             )
         grouped: dict[str, set[str]] = {}
         for risk in risks:
-            grouped.setdefault(_runtime_action_name(risk, stage), set()).add(risk)
+            grouped.setdefault(action_name_for(risk, stage), set()).add(risk)
         if not risks:
             for name in {
                 "fast_semantic": ("TaskLatticePromptSecurityFastAction",),
@@ -160,7 +160,8 @@ def _dynamic_action_name(risk: str) -> str:
     ) + "Action"
 
 
-def _runtime_action_name(risk: str, stage: str) -> str:
+def action_name_for(risk: str, stage: str) -> str:
+    """Return the stable NeMo Action name for one native Control stage."""
     if stage == "deterministic":
         return {
             "secrets": "TaskLatticeSecretsAction",

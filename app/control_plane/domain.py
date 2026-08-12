@@ -299,7 +299,7 @@ class GuardrailVersion:
     active: bool
     runtime_engine: str = "nemo"
     config_checksum: str = ""
-    execution_mode: str = "nemo_only"
+    execution_mode: Literal["nemo_only"] = "nemo_only"
 
 
 @dataclass(frozen=True, slots=True)

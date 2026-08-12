@@ -1,22 +1,23 @@
 # Native Control migration
 
-The legacy Guardrail shape embeds built-in risks and custom regex/keyword Rules.
-Migration is versioned and never rewrites an active Guardrail in place.
+Status: Complete
+
+Built-in policy choices are represented by immutable, system-managed Control
+Version 1 packages. Existing installations are upgraded before runtime
+prewarming, preserving the Guardrail Version number while replacing its compiled
+artifact with the current auditable NeMo snapshot.
 
 ```text
-Legacy Guardrail draft
+Existing Guardrail policy intent
 ├── controls[] risk
 │   └── bind the matching source=built-in Control Version 1
 └── control_configurations[] custom/template Rules
-    └── generate a source=custom Control Package
-        ├── translate deterministic Rules into a Colang flow
-        ├── preserve parameters and tests
-        ├── validate dependencies
-        └── publish Version 1 and pin a Guardrail ControlBinding
+    └── compile into version-pinned native Actions
 ```
 
-The migration command will create a new Guardrail draft revision, run the same
-Evaluation corpus against legacy and native snapshots, and require an explicit
-release. Existing Guardrail Versions and Assignments remain unchanged until the
-new version passes evaluation and is activated. Phase 7 removes the legacy
-fields only after every active version has an equivalent native snapshot.
+Custom Colang Controls continue through the explicit validate, evaluate, and
+publish lifecycle. For released versions, startup performs an idempotent
+transaction that adds missing built-in Control bindings, recompiles retired
+artifacts with the current compiler, recomputes checksums, and normalizes the
+historical execution-mode field to `nemo_only`. Deployments remain pinned to the
+same Guardrail Version and rollback stays entirely within the NeMo registry.

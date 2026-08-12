@@ -159,6 +159,12 @@ class NeMoRailsRegistry:
         return item
 
     def _validate_bindings(self, config: NeMoConfigSnapshot) -> None:
+        executor_actions = {
+            "TaskLatticeCustomerIdentifierAction",
+            "TaskLatticeRecordControlAction",
+            "TaskLatticeRecordNativeAction",
+            "TaskLatticeResolveAction",
+        }
         first_binding_ids = {
             selected[0].id
             for phase in ("input", "output")
@@ -168,12 +174,22 @@ class NeMoRailsRegistry:
         missing = tuple(
             binding
             for binding in config.action_bindings
-            if binding.control_id is None
-            and (
-                not binding.action_name
-                or not binding.action_version
-                or not self._actions.contains(
-                    binding.action_name, binding.action_version
+            if (
+                (
+                    not binding.action_name
+                    and not binding.flow_name
+                )
+                or (
+                    binding.action_name
+                    and not binding.action_version
+                )
+                or (
+                    binding.action_name
+                    and binding.action_name not in executor_actions
+                    and not self._actions.contains(
+                        binding.action_name,
+                        binding.action_version,
+                    )
                 )
             )
             and (

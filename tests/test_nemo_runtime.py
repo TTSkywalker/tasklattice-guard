@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -169,6 +171,13 @@ async def test_default_deterministic_golden_corpus_runs_through_nemo(tmp_path):
             expected_action,
         )
         assert decision.trace[0].name == "NeMo Guardrails"
+        assert any(
+            step.kind == "control"
+            and step.control_id
+            and step.control_version == 1
+            and step.flow_name
+            for step in decision.trace
+        )
         assert decision.usage is not None
         assert decision.usage.config_checksum
 
@@ -260,7 +269,6 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
     } <= action_risks
     assert config.runtime_engine == "llmrails"
     assert payload["colang_version"] == "2.x"
-    assert "TaskLatticeEvaluateStepAction" not in config.colang_content
     assert "TaskLatticePromptSecurityFastAction" in config.colang_content
     assert "TaskLatticeAutomatedReasoningAction" in config.colang_content
     assert "TaskLatticeResolveAction" in config.colang_content
@@ -616,6 +624,50 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
     await engine.shutdown()
 
 
+def test_startup_atomically_migrates_every_released_snapshot_to_current_nemo(
+    tmp_path,
+):
+    database = tmp_path / "snapshot-migration.db"
+    service = ControlPlaneService(database)
+    plan = service.resolve(RequestContext("test")).plan
+    current = service.nemo_config(plan.guardrail_id, plan.guardrail_version)
+    retired_payload = asdict(current)
+    retired_payload["compiler_version"] = "tasklattice-nemo-config-v3"
+    retired_payload["colang_content"] = (
+        "flow retired_compatibility\n"
+        "  $result = await TaskLatticeEvaluateStepAction(text=$text)\n"
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE guardrail_versions SET nemo_config_json = ?, "
+            "compiler_version = ?, config_checksum = ?, execution_mode = ? "
+            "WHERE guardrail_id = ? AND version = ?",
+            (
+                json.dumps(retired_payload),
+                "tasklattice-nemo-config-v3",
+                "retired-checksum",
+                "compare",
+                plan.guardrail_id,
+                plan.guardrail_version,
+            ),
+        )
+        connection.commit()
+
+    restarted = ControlPlaneService(database)
+    migrated = restarted.nemo_config(plan.guardrail_id, plan.guardrail_version)
+    version = restarted.versions(plan.guardrail_id)[0]
+
+    assert migrated.compiler_version == "tasklattice-nemo-config-v5"
+    assert "EvaluateStep" not in migrated.colang_content
+    assert version.compiler_version == migrated.compiler_version
+    assert version.config_checksum == NeMoConfigCompiler.checksum(migrated)
+    assert version.execution_mode == "nemo_only"
+    assert any(
+        item.kind == "system.nemo_snapshots.migrated"
+        for item in restarted.activities()
+    )
+
+
 @pytest.mark.asyncio
 async def test_activation_rejects_a_missing_required_nemo_action_provider(tmp_path):
     service = ControlPlaneService(tmp_path / "missing-provider.db")
@@ -635,18 +687,12 @@ async def test_activation_rejects_a_missing_required_nemo_action_provider(tmp_pa
     await registry.shutdown()
 
 
-def test_production_defaults_reject_legacy_modes_and_normalize_otlp_endpoint(
+def test_production_has_no_runtime_mode_switch_and_normalizes_otlp_endpoint(
     tmp_path,
 ):
     service = ControlPlaneService(tmp_path / "nemo-only.db")
-    plan = service.resolve(RequestContext("test")).plan
-
-    with pytest.raises(ValidationError, match="NeMo-only"):
-        service.set_version_execution_mode(
-            plan.guardrail_id,
-            plan.guardrail_version,
-            "legacy_only",
-        )
+    assert not hasattr(service, "set_version_execution_mode")
+    assert not hasattr(service, "version_execution_mode")
 
     assert _otlp_trace_endpoint("http://collector:4318") == (
         "http://collector:4318/v1/traces"

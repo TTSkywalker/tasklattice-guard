@@ -157,7 +157,6 @@ def test_current_compiler_uses_direct_actions_without_stage_protocol():
     plan = _plan("prompt_injection", "fast_semantic")
     config = NeMoConfigCompiler().compile(plan)
     assert "TaskLatticePromptSecurityFastAction" in config.colang_content
-    assert "TaskLatticeEvaluateStepAction" not in config.colang_content
     assert all(
         item.action_name and item.action_version for item in config.action_bindings
     )

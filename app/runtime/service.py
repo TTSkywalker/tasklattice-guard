@@ -10,7 +10,7 @@ from .contracts import (
     EvaluationDecision,
     EvaluationRequest,
     EvaluationUsage,
-    GuardrailEngine,
+    NeMoPolicyRuntime,
     GuardContentBlock,
     ModuleAssessment,
     PlanResolver,
@@ -23,7 +23,7 @@ class ModelGuardrailsEngineService:
 
     def __init__(
         self,
-        engine: GuardrailEngine,
+        engine: NeMoPolicyRuntime,
         resolver: PlanResolver,
         contexts: CallContextStore | None = None,
     ) -> None:

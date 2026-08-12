@@ -13,7 +13,7 @@ from .control_plane.api import ControlPlaneAPI
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
 from .control_plane.nemo_compiler import NeMoConfigCompiler
 from .control_plane.service import ControlPlaneService
-from .runtime.contracts import GuardrailEngine
+from .runtime.contracts import NeMoPolicyRuntime
 from .nemo.action_registry import RuntimeActionRegistry, runtime_action_registry
 from .nemo.actions.automated_reasoning import (
     AutomatedReasoningPolicyEngine,
@@ -123,14 +123,14 @@ def create_action_registry(settings: Settings) -> RuntimeActionRegistry:
 def create_app(
     *,
     settings: Settings | None = None,
-    engine: GuardrailEngine | None = None,
+    engine: NeMoPolicyRuntime | None = None,
     intent_analyzer: IntentAnalyzer | None = None,
 ) -> FastAPI:
     configured = settings or Settings.from_env()
     tracer_provider = _configure_telemetry(configured)
     control_plane = _create_control_plane(configured)
     if engine is None:
-        runtime_engine: GuardrailEngine = create_engine(configured, control_plane)
+        runtime_engine: NeMoPolicyRuntime = create_engine(configured, control_plane)
     else:
         # Explicit injection is reserved for tests and embedding. Production
         # construction always installs the version-pinned NeMo runtime above.
