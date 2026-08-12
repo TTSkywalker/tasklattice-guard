@@ -1,0 +1,296 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { PlaygroundCheckResult, PlaygroundInteraction } from "@/lib/api";
+
+import { StageTabs } from "./probe-inspection-drawer";
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => {
+    const translations: Record<string, string> = {
+      "playground.inspectionStages": "Guardrail checkpoints",
+      "playground.inputRail": "Input Rail",
+      "playground.outputRail": "Output Rail",
+      "playground.beforeModel": "Before the model",
+      "playground.afterModel": "After the model",
+      "playground.decisions.allow": "Allowed",
+      "playground.decisions.block": "Blocked",
+      "playground.notRun": "Not run",
+      "playground.requestCheck": "Request check",
+      "playground.requestCheckDescription": "Request checkpoint description",
+      "playground.responseCheck": "Response check",
+      "playground.responseCheckDescription": "Response checkpoint description",
+      "playground.responseCheckSkipped": "Response check was not run",
+      "playground.responseCheckSkippedDescription": "The request was blocked before the model, so there was no model response to inspect.",
+      "playground.triggeredControl": "Triggered control",
+      "playground.triggeredRule": "Triggered rule",
+      "playground.latency": "Latency",
+      "playground.runtime": "Runtime",
+      "playground.triggeredControls": "Triggered controls",
+      "playground.controlCount": "{{count}} evaluated",
+      "playground.controlStates.matched": "Matched",
+      "playground.findings": "Findings",
+      "playground.severity.low": "Low",
+      "playground.executionTrace": "Execution trace",
+      "playground.matchedSteps": "{{count}} matched steps",
+    };
+    return {
+      t: (key: string, values?: Record<string, string | number>) =>
+        Object.entries(values ?? {}).reduce(
+          (label, [name, value]) => label.replace(`{{${name}}}`, String(value)),
+          translations[key] ?? key,
+        ),
+      i18n: {
+        exists: (key: string) => key in translations,
+        language: "en",
+      },
+    };
+  },
+}));
+
+function checkResult(
+  phase: PlaygroundCheckResult["phase"],
+  overrides: Partial<PlaygroundCheckResult> = {},
+): PlaygroundCheckResult {
+  const input = phase === "input";
+  return {
+    check_id: `${phase}-check`,
+    trace_id: `${phase}-trace`,
+    evidence_id: `${phase}-evidence`,
+    guardrail: {
+      id: "guardrail-1",
+      name: "Customer safety",
+      draft_version: 3,
+      compiler_version: "nemo-native-v1",
+    },
+    phase,
+    decision: "allow",
+    action: "pass",
+    output_content: input ? "Effective request" : "Safe response",
+    latency_ms: input ? 7 : 11,
+    reason: input ? "Unique input checkpoint reason" : "Unique output checkpoint reason",
+    runtime: "nemo-native",
+    triggered_control: input
+      ? { id: "control-input", name: "Input safety control" }
+      : { id: "control-output", name: "Output safety control" },
+    triggered_rule: input
+      ? { id: "rule-input", name: "Input rule" }
+      : { id: "rule-output", name: "Output rule" },
+    controls: [
+      {
+        id: input ? "control-input" : "control-output",
+        name: input ? "Input safety control" : "Output safety control",
+        risk: input ? "prompt_injection" : "unsafe_output",
+        status: "matched",
+        duration_ms: input ? 4 : 6,
+      },
+    ],
+    findings: [
+      {
+        id: `${phase}-finding`,
+        severity: "low",
+        title: `${phase} finding`,
+        detail: `${phase} finding detail`,
+        confidence: 0.91,
+        recommended_action: "Review",
+        control_id: input ? "control-input" : "control-output",
+        rule_id: input ? "rule-input" : "rule-output",
+      },
+    ],
+    trace_summary: { steps: 1, matched_steps: 1 },
+    trace: [
+      {
+        id: `${phase}-step`,
+        kind: "control",
+        name: `${phase} trace step`,
+        status: "matched",
+        detail: `${phase} trace detail`,
+        duration_ms: input ? 4 : 6,
+        parent_id: null,
+        stage: phase,
+        verdict: "allow",
+        route: "default",
+        risk: input ? "prompt_injection" : "unsafe_output",
+        confidence: 0.91,
+        control_id: input ? "control-input" : "control-output",
+        control_version: 1,
+        rail_type: phase,
+        flow_name: `${phase}_flow`,
+        action_name: "check_content",
+        action_version: "1",
+        outcome: "allow",
+        engine: "nemo-native",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function interaction(
+  overrides: Partial<PlaygroundInteraction> = {},
+): PlaygroundInteraction {
+  return {
+    interaction_id: "interaction-completed",
+    state: "completed",
+    user_message: "Can you help?",
+    effective_user_message: "Can you help?",
+    assistant_message: "Of course.",
+    model: {
+      id: "model-1",
+      provider: "openai",
+      name: "GPT Test",
+      icon: "openai",
+      latency_ms: 25,
+    },
+    input_check: checkResult("input"),
+    output_check: checkResult("output"),
+    ...overrides,
+  };
+}
+
+function tabs() {
+  return {
+    input: screen.getByRole("tab", { name: /Input Rail/ }),
+    output: screen.getByRole("tab", { name: /Output Rail/ }),
+  };
+}
+
+function clickTab(tab: HTMLElement) {
+  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.mouseUp(tab, { button: 0, ctrlKey: false });
+  fireEvent.click(tab);
+}
+
+describe("StageTabs", () => {
+  afterEach(cleanup);
+
+  it("exposes the input checkpoint as the default accessible tab and panel", () => {
+    render(<StageTabs result={interaction()} />);
+
+    expect(screen.getByRole("tablist")).toBeTruthy();
+    const { input, output } = tabs();
+    const panel = screen.getByRole("tabpanel");
+
+    expect(input.getAttribute("aria-selected")).toBe("true");
+    expect(output.getAttribute("aria-selected")).toBe("false");
+    expect(input.getAttribute("aria-controls")).toBe(panel.id);
+    expect(panel.getAttribute("aria-labelledby")).toBe(input.id);
+    expect(screen.getByRole("heading", { name: "Request check" })).toBeTruthy();
+    expect(screen.getByText("Unique input checkpoint reason")).toBeTruthy();
+    expect(screen.queryByText("Unique output checkpoint reason")).toBeNull();
+  });
+
+  it("switches to output checkpoint content when the output tab is clicked", () => {
+    render(<StageTabs result={interaction()} />);
+
+    const { input, output } = tabs();
+    clickTab(output);
+
+    expect(input.getAttribute("aria-selected")).toBe("false");
+    expect(output.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("heading", { name: "Response check" })).toBeTruthy();
+    expect(screen.getByText("Unique output checkpoint reason")).toBeTruthy();
+    expect(screen.queryByText("Unique input checkpoint reason")).toBeNull();
+  });
+
+  it("uses horizontal arrow keys to focus, select, and reveal the output tab", async () => {
+    render(<StageTabs result={interaction()} />);
+
+    const { input, output } = tabs();
+    input.focus();
+    fireEvent.keyDown(input, { key: "ArrowRight", code: "ArrowRight" });
+
+    await waitFor(() => expect(document.activeElement).toBe(output));
+    expect(output.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Unique output checkpoint reason")).toBeTruthy();
+
+    fireEvent.keyDown(output, { key: "ArrowLeft", code: "ArrowLeft" });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(input.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Unique input checkpoint reason")).toBeTruthy();
+  });
+
+  it("defaults an output-blocked interaction to the output checkpoint", () => {
+    render(
+      <StageTabs
+        result={interaction({
+          interaction_id: "interaction-output-blocked",
+          state: "output_blocked",
+          assistant_message: null,
+          output_check: checkResult("output", {
+            decision: "block",
+            action: "reject",
+          }),
+        })}
+      />,
+    );
+
+    const { input, output } = tabs();
+    expect(input.getAttribute("aria-selected")).toBe("false");
+    expect(output.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Unique output checkpoint reason")).toBeTruthy();
+  });
+
+  it("explains a skipped output checkpoint after an input block", () => {
+    render(
+      <StageTabs
+        result={interaction({
+          interaction_id: "interaction-input-blocked",
+          state: "input_blocked",
+          effective_user_message: null,
+          assistant_message: null,
+          model: {
+            id: "model-1",
+            provider: "openai",
+            name: "GPT Test",
+            icon: "openai",
+            latency_ms: null,
+          },
+          input_check: checkResult("input", {
+            decision: "block",
+            action: "reject",
+          }),
+          output_check: null,
+        })}
+      />,
+    );
+
+    clickTab(tabs().output);
+
+    expect(screen.getByRole("heading", { name: "Response check was not run" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The request was blocked before the model, so there was no model response to inspect.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("resets to the correct default tab when a new interaction is rendered", () => {
+    const { rerender } = render(<StageTabs result={interaction()} />);
+    clickTab(tabs().output);
+    expect(tabs().output.getAttribute("aria-selected")).toBe("true");
+
+    rerender(
+      <StageTabs
+        result={interaction({ interaction_id: "interaction-completed-2" })}
+      />,
+    );
+    expect(tabs().input.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Unique input checkpoint reason")).toBeTruthy();
+
+    rerender(
+      <StageTabs
+        result={interaction({
+          interaction_id: "interaction-output-blocked-2",
+          state: "output_blocked",
+          output_check: checkResult("output", {
+            decision: "block",
+            action: "reject",
+          }),
+        })}
+      />,
+    );
+    expect(tabs().output.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Unique output checkpoint reason")).toBeTruthy();
+  });
+});

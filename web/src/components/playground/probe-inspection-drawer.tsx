@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, CheckCircle2, ChevronDown, ExternalLink, ShieldCheck, SkipForward } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ModelMark } from "@/components/playground/model-mark";
@@ -10,14 +10,22 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { PlaygroundCheckResult, PlaygroundInteraction } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export function ProbeInspectionDrawer({ result, open, onOpenChange }: { result: PlaygroundInteraction | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
+  const titleRef = useRef<HTMLHeadingElement>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[min(46rem,calc(100vw-1rem))]! max-w-none! gap-0 overflow-y-auto sm:max-w-none!">
+      <SheetContent
+        className="w-[min(46rem,calc(100vw-1rem))]! max-w-none! gap-0 overflow-y-auto sm:max-w-none!"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          titleRef.current?.focus();
+        }}
+      >
         <SheetHeader className="border-b p-5 pr-14">
-          <SheetTitle>{t("playground.inspectionTitle")}</SheetTitle>
+          <SheetTitle ref={titleRef} tabIndex={-1} className="outline-none">{t("playground.inspectionTitle")}</SheetTitle>
           <SheetDescription>{t("playground.inspectionDescription")}</SheetDescription>
         </SheetHeader>
         {result ? <div className="space-y-5 p-5">
@@ -34,30 +42,40 @@ export function ProbeInspectionDrawer({ result, open, onOpenChange }: { result: 
   );
 }
 
-function StageTabs({ result }: { result: PlaygroundInteraction }) {
+export function StageTabs({ result }: { result: PlaygroundInteraction }) {
   const { t } = useTranslation();
   return (
-    <Tabs defaultValue={result.state === "output_blocked" ? "output" : "input"}>
-      <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl bg-muted/60 p-1.5">
-        <TabsTrigger value="input" className="min-h-14 justify-start gap-3 px-3 data-active:bg-card">
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/[0.07] text-primary"><ShieldCheck className="size-4" /></span>
-          <span className="min-w-0 text-left"><span className="block text-sm font-semibold text-foreground">{t("playground.inputRail")}</span><span className="hidden text-[11px] font-normal text-muted-foreground sm:block">{t("playground.beforeModel")}</span></span>
-          <span className="ml-auto hidden sm:block"><StateBadge state={result.input_check.decision} /></span>
+    <Tabs
+      key={result.interaction_id}
+      defaultValue={result.state === "output_blocked" ? "output" : "input"}
+      className="gap-0 overflow-hidden rounded-xl border bg-card shadow-xs"
+    >
+      <TabsList
+        aria-label={t("playground.inspectionStages")}
+        className="grid h-auto! w-full grid-cols-2 rounded-none border-b bg-muted/30 p-0"
+      >
+        <TabsTrigger value="input" className="group/stage min-h-[4.25rem] min-w-0 justify-start gap-1.5 overflow-hidden rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-2 py-3 text-left shadow-none first:border-r first:border-r-border hover:bg-muted/40 hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset sm:gap-3 sm:px-4">
+          <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground ring-1 ring-border transition-colors group-data-[state=active]/stage:bg-primary/[0.08] group-data-[state=active]/stage:text-primary group-data-[state=active]/stage:ring-primary/15 sm:size-8"><ShieldCheck className="size-3.5 sm:size-4" /></span>
+          <span className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-foreground/70 group-data-[state=active]/stage:text-foreground">{t("playground.inputRail")}</span><span className="hidden truncate text-[11px] font-normal text-muted-foreground sm:block">{t("playground.beforeModel")}</span></span>
+          <StageStateMarker state={result.input_check.decision} label={t(`playground.decisions.${result.input_check.decision}`)} />
         </TabsTrigger>
-        <TabsTrigger value="output" className="min-h-14 justify-start gap-3 px-3 data-active:bg-card">
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/[0.07] text-primary"><ShieldCheck className="size-4" /></span>
-          <span className="min-w-0 text-left"><span className="block text-sm font-semibold text-foreground">{t("playground.outputRail")}</span><span className="hidden text-[11px] font-normal text-muted-foreground sm:block">{t("playground.afterModel")}</span></span>
-          <span className="ml-auto hidden sm:block">{result.output_check ? <StateBadge state={result.output_check.decision} /> : <StateBadge state="not evaluated" />}</span>
+        <TabsTrigger value="output" className="group/stage min-h-[4.25rem] min-w-0 justify-start gap-1.5 overflow-hidden rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-2 py-3 text-left shadow-none hover:bg-muted/40 hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset sm:gap-3 sm:px-4">
+          <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground ring-1 ring-border transition-colors group-data-[state=active]/stage:bg-primary/[0.08] group-data-[state=active]/stage:text-primary group-data-[state=active]/stage:ring-primary/15 sm:size-8"><ShieldCheck className="size-3.5 sm:size-4" /></span>
+          <span className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-foreground/70 group-data-[state=active]/stage:text-foreground">{t("playground.outputRail")}</span><span className="hidden truncate text-[11px] font-normal text-muted-foreground sm:block">{t("playground.afterModel")}</span></span>
+          <StageStateMarker
+            state={result.output_check?.decision ?? "skipped"}
+            label={result.output_check ? t(`playground.decisions.${result.output_check.decision}`) : t("playground.notRun")}
+          />
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="input" className="mt-2">
-        <CheckpointPanel title={t("playground.requestCheck")} description={t("playground.requestCheckDescription")} result={result.input_check} />
+      <TabsContent value="input" className="m-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none">
+        <CheckpointPanel title={t("playground.requestCheck")} description={t("playground.requestCheckDescription")} result={result.input_check} embedded />
       </TabsContent>
-      <TabsContent value="output" className="mt-2">
+      <TabsContent value="output" className="m-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none">
         {result.output_check ? (
-          <CheckpointPanel title={t("playground.responseCheck")} description={t("playground.responseCheckDescription")} result={result.output_check} />
+          <CheckpointPanel title={t("playground.responseCheck")} description={t("playground.responseCheckDescription")} result={result.output_check} embedded />
         ) : (
-          <section className="rounded-xl border border-dashed bg-muted/20 p-6 text-center">
+          <section className="bg-card px-6 py-10 text-center">
             <SkipForward className="mx-auto size-5 text-muted-foreground" />
             <h3 className="mt-2 text-sm font-semibold">{t("playground.responseCheckSkipped")}</h3>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("playground.responseCheckSkippedDescription")}</p>
@@ -65,6 +83,23 @@ function StageTabs({ result }: { result: PlaygroundInteraction }) {
         )}
       </TabsContent>
     </Tabs>
+  );
+}
+
+function StageStateMarker({ state, label }: { state: string; label: string }) {
+  return (
+    <span className="ml-auto flex size-4 shrink-0 items-center justify-center sm:size-6" title={label}>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "size-2 rounded-full bg-muted-foreground/40 ring-4 ring-muted-foreground/[0.06]",
+          state === "allow" && "bg-emerald-500 ring-emerald-500/10",
+          state === "block" && "bg-destructive ring-destructive/10",
+          state === "transform" && "bg-amber-500 ring-amber-500/10",
+        )}
+      />
+      <span className="sr-only">{label}</span>
+    </span>
   );
 }
 
@@ -95,10 +130,10 @@ function FlowNode({ icon, title, detail, latency, state }: { icon: ReactNode; ti
   );
 }
 
-function CheckpointPanel({ title, description, result }: { title: string; description: string; result: PlaygroundCheckResult }) {
+function CheckpointPanel({ title, description, result, embedded = false }: { title: string; description: string; result: PlaygroundCheckResult; embedded?: boolean }) {
   const { t } = useTranslation();
   return (
-    <section className="overflow-hidden rounded-xl border bg-card">
+    <section className={cn("overflow-hidden bg-card", !embedded && "rounded-xl border")}>
       <header className="flex items-center gap-3 bg-muted/20 px-4 py-3.5">
         <div className="min-w-0 flex-1"><h2 className="text-sm font-semibold">{title}</h2><p className="mt-0.5 text-xs text-muted-foreground">{description}</p></div>
         <StateBadge state={result.decision} />
