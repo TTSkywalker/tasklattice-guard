@@ -199,6 +199,7 @@ async def test_customer_data_control_runs_create_to_real_http_on_one_version(tmp
                 "output_scope": "full",
             },
         )
+        metrics_response = await client.get("/api/v1/metrics")
 
     assert input_response.status_code == 200, input_response.text
     assert output_response.status_code == 200, output_response.text
@@ -213,13 +214,66 @@ async def test_customer_data_control_runs_create_to_real_http_on_one_version(tmp
     assert input_payload["guardrail_version"] == guardrail_version
     assert output_payload["guardrail_version"] == guardrail_version
     assert {
-        "runtime", "control", "rail", "evaluator"
+        "runtime", "control", "rail", "action"
     } <= {item["kind"] for item in output_payload["trace"]}
+    action_steps = [
+        item for item in output_payload["trace"] if item["kind"] == "action"
+    ]
     assert any(
-        "TaskLatticeCustomerIdentifierAction@1.0.0" in item["detail"]
-        and "check_customer_identifier_output" in item["detail"]
-        for item in output_payload["trace"]
+        item["control_id"] == control_id
+        and item["control_version"] == control_version
+        and item["rail_type"] == "output"
+        and item["flow_name"] == "check_customer_identifier_output"
+        and item["action_name"] == "TaskLatticeCustomerIdentifierAction"
+        and item["action_version"] == "1.0.0"
+        and item["engine"] == "llmrails"
+        and item["config_checksum"]
+        and item["provider_latency_ms"] >= 0
+        for item in action_steps
     )
+    assert any(
+        item["kind"] == "action"
+        and item["parallel_group"] == "customer-data-detection"
+        for item in input_payload["trace"]
+    )
+    trace_contract = {
+        "guardrail_id",
+        "guardrail_version",
+        "control_id",
+        "control_version",
+        "rail_type",
+        "flow_name",
+        "action_name",
+        "action_version",
+        "outcome",
+        "duration_ms",
+        "timed_out",
+        "parallel_group",
+        "engine",
+        "config_checksum",
+    }
+    evaluation_trace = tested.json()["results"][0]["trace"]
+    assert evaluation_trace and output_payload["trace"]
+    assert all(trace_contract <= item.keys() for item in evaluation_trace)
+    assert all(trace_contract <= item.keys() for item in output_payload["trace"])
+
+    assert metrics_response.status_code == 200, metrics_response.text
+    runtime_metrics = metrics_response.json()
+    assert runtime_metrics["peak_active_concurrency"] >= 1
+    assert runtime_metrics["provider_p95_ms"] >= 0
+    assert any(
+        item["guardrail_id"] == guardrail_id
+        and item["guardrail_version"] == guardrail_version
+        and item["requests"] == 2
+        for item in runtime_metrics["version_distribution"]
+    )
+    assert any(
+        item["control_id"] == control_id
+        and item["control_version"] == control_version
+        and item["invocations"] >= 2
+        for item in runtime_metrics["control_distribution"]
+    )
+    assert "alice@example.com" not in metrics_response.text
 
     service = app.state.control_plane
     config = service.nemo_config(guardrail_id, guardrail_version)

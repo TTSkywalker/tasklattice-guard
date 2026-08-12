@@ -41,10 +41,10 @@ export function OverviewPage() {
       {metrics.data ? (
         <>
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={t("overview.allRecordedTraffic")} />
+            <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={t("overview.peakConcurrency", { count: metrics.data.peak_active_concurrency })} />
             <Kpi icon={ShieldAlert} label={t("overview.blockRate")} value={`${metrics.data.block_rate}%`} detail={t("overview.blockedCount", { count: metrics.data.blocked })} tone={metrics.data.block_rate > 10 ? "warning" : "default"} />
             <Kpi icon={Workflow} label={t("overview.activeAssignments")} value={`${metrics.data.active_assignments}/${metrics.data.total_assignments}`} detail={t("overview.protectedScope")} />
-            <Kpi icon={Clock3} label={t("overview.runtimeP95")} value={metrics.data.total_decisions ? `${metrics.data.runtime_p95_ms} ms` : "—"} detail={metrics.data.total_decisions ? t("overview.runtimeSlo", { budget: metrics.data.latency_slo.p95_budget_ms, p99: metrics.data.runtime_p99_ms }) : t("overview.runtimeLatencyEmpty")} tone={metrics.data.latency_slo.p95_status === "breached" ? "warning" : "default"} />
+            <Kpi icon={Clock3} label={t("overview.runtimeP95")} value={metrics.data.total_decisions ? `${metrics.data.runtime_p95_ms} ms` : "—"} detail={metrics.data.total_decisions ? t("overview.runtimeSlo", { budget: metrics.data.latency_slo.p95_budget_ms, p99: metrics.data.runtime_p99_ms, breaches: metrics.data.slo_breach_count }) : t("overview.runtimeLatencyEmpty")} tone={metrics.data.latency_slo.p95_status === "breached" ? "warning" : "default"} />
           </div>
 
           <GuardrailDistribution metrics={metrics.data} />
@@ -60,6 +60,11 @@ export function OverviewPage() {
               description={t("overview.actionPerformanceDescription")}
               items={metrics.data.action_metrics}
             />
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <ControlDistribution metrics={metrics.data} />
+            <VersionDistribution metrics={metrics.data} />
           </div>
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
@@ -189,6 +194,7 @@ function RuntimeExecution({ item }: { item: GuardrailMetric }) {
       <p className="font-medium">NeMo Guardrails · <span className="font-mono">{runtime}</span></p>
       <p className="mt-1 text-muted-foreground">{t("overview.runtimeCalls", { rails: item.rail_invocations, actions: item.action_invocations, models: item.model_invocations })}</p>
       <p className="mt-0.5 text-muted-foreground">{t("overview.cacheRate", { rate: cacheRate })}</p>
+      <p className="mt-0.5 text-muted-foreground">{t("overview.concurrencyAndBreaches", { concurrency: item.peak_active_concurrency, breaches: item.slo_breach_count })}</p>
     </div>
   );
 }
@@ -235,6 +241,7 @@ function LatencyDistribution({ item }: { item: GuardrailMetric }) {
       <p><span className="text-muted-foreground">P50</span> {item.p50_latency_ms} ms <span className="ml-3 text-muted-foreground">P95</span> {item.p95_latency_ms} ms <span className="ml-3 text-muted-foreground">P99</span> {item.p99_latency_ms} ms</p>
       <p className="mt-1 text-muted-foreground">Queue P95 <span className="text-foreground">{item.queue_p95_ms} ms</span></p>
       <p className="mt-1 text-muted-foreground">Rail P95 <span className="text-foreground">{item.rail_p95_ms} ms</span> · Action P95 <span className="text-foreground">{item.action_p95_ms} ms</span></p>
+      <p className="mt-1 text-muted-foreground">Provider P95 <span className="text-foreground">{item.provider_p95_ms} ms</span></p>
     </div>
   );
 }
@@ -266,6 +273,7 @@ function RuntimeComponents({ title, description, items }: { title: string; descr
                     <TableCell className="max-w-64 pl-4">
                       <p className="break-words font-mono text-xs">{item.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{item.risk ? riskLabel(item.risk, t) : t("overview.runtimeCore")}</p>
+                      {item.parallel_group ? <p className="mt-0.5 text-[11px] text-muted-foreground">{t("overview.parallelGroup", { group: item.parallel_group })}</p> : null}
                     </TableCell>
                     <TableCell className="font-mono text-sm tabular-nums">{item.invocations.toLocaleString(i18n.language)}</TableCell>
                     <TableCell>
@@ -279,6 +287,95 @@ function RuntimeComponents({ title, description, items }: { title: string; descr
             </Table>
           </div>
         ) : <p className="px-4 py-12 text-center text-sm text-muted-foreground">{t("overview.noComponentMetrics")}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ControlDistribution({ metrics }: { metrics: Metrics }) {
+  const { t, i18n } = useTranslation();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("overview.controlDistribution")}</CardTitle>
+        <CardDescription>{t("overview.controlDistributionDescription")}</CardDescription>
+        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+      </CardHeader>
+      <CardContent className="px-0">
+        {metrics.control_distribution.length ? (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[600px]">
+              <TableHeader><TableRow>
+                <TableHead className="pl-4">{t("overview.controlVersion")}</TableHead>
+                <TableHead>{t("overview.invocations")}</TableHead>
+                <TableHead>{t("overview.componentOutcomes")}</TableHead>
+                <TableHead className="pr-4 text-right">P95</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {metrics.control_distribution.slice(0, 8).map((item) => (
+                  <TableRow key={`${item.control_id}:${item.control_version ?? "draft"}`}>
+                    <TableCell className="pl-4">
+                      <Link to="/control-library" className="font-mono text-xs hover:underline">{item.control_id}</Link>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{item.control_version ? `v${item.control_version}` : t("overview.unversioned")} · {item.rail_types.join(" + ") || "—"}</p>
+                    </TableCell>
+                    <TableCell>
+                      <p className="font-mono text-sm tabular-nums">{item.invocations.toLocaleString(i18n.language)}</p>
+                      <p className="text-xs text-muted-foreground">{t("overview.controlHitShare", { share: item.hit_share, rate: item.hits_per_request })}</p>
+                    </TableCell>
+                    <TableCell>
+                      <p className="text-xs">{t("overview.componentOutcomeSummary", { passed: item.passed, intervened: item.intervened, errors: item.errors })}</p>
+                      {item.timeouts ? <p className="mt-0.5 text-xs text-amber-700">{t("overview.timeoutCount", { count: item.timeouts })}</p> : null}
+                    </TableCell>
+                    <TableCell className="pr-4 text-right font-mono text-xs tabular-nums">
+                      <p>{item.p95_latency_ms} ms</p>
+                      <p className="mt-0.5 text-muted-foreground">{t("overview.providerLatency", { value: item.provider_p95_ms })}</p>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : <p className="px-4 py-12 text-center text-sm text-muted-foreground">{t("overview.noControlMetrics")}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function VersionDistribution({ metrics }: { metrics: Metrics }) {
+  const { t, i18n } = useTranslation();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("overview.versionDistribution")}</CardTitle>
+        <CardDescription>{t("overview.versionDistributionDescription")}</CardDescription>
+        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+      </CardHeader>
+      <CardContent className="px-0">
+        {metrics.version_distribution.length ? (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[520px]">
+              <TableHeader><TableRow>
+                <TableHead className="pl-4">{t("overview.guardrail")}</TableHead>
+                <TableHead>{t("overview.requestShare")}</TableHead>
+                <TableHead>{t("overview.sloBreaches")}</TableHead>
+                <TableHead className="pr-4 text-right">P95</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {metrics.version_distribution.slice(0, 8).map((item) => (
+                  <TableRow key={`${item.guardrail_id}:${item.guardrail_version}`}>
+                    <TableCell className="pl-4">
+                      <Link to="/guardrails/$guardrailId" params={{ guardrailId: item.guardrail_id }} className="font-medium hover:underline">{item.guardrail_name}</Link>
+                      <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">v{item.guardrail_version}</p>
+                    </TableCell>
+                    <TableCell><p className="font-mono text-sm tabular-nums">{item.requests.toLocaleString(i18n.language)}</p><p className="text-xs text-muted-foreground">{item.share}%</p></TableCell>
+                    <TableCell><span className={item.slo_breaches || item.errors ? "font-mono text-sm text-destructive" : "font-mono text-sm text-muted-foreground"}>{item.slo_breaches}</span><p className="text-xs text-muted-foreground">{t("overview.errorCount", { count: item.errors })}</p></TableCell>
+                    <TableCell className="pr-4 text-right font-mono text-xs tabular-nums">{item.p95_latency_ms} ms</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : <p className="px-4 py-12 text-center text-sm text-muted-foreground">{t("overview.noVersionMetrics")}</p>}
       </CardContent>
     </Card>
   );

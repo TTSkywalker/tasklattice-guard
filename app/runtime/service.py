@@ -260,6 +260,11 @@ def _usage(items: list[EvaluationUsage]) -> EvaluationUsage | None:
         runtime_engine=_one_value(tuple(item.runtime_engine for item in items)),
         config_checksum=_one_value(tuple(item.config_checksum for item in items)),
         fail_closed=any(item.fail_closed for item in items),
+        active_concurrency=max(
+            (item.active_concurrency for item in items),
+            default=0,
+        ),
+        provider_latency_ms=sum(item.provider_latency_ms for item in items),
     )
 
 

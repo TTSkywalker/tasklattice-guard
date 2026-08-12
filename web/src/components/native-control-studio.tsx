@@ -343,7 +343,48 @@ function ParameterEditor({ parameters, onChange }: { parameters: ControlParamete
 
 function TestEditor({ tests, run, error, onChange }: { tests: ControlTestCase[]; run: ControlTestRun | null; error: string | null; onChange: (tests: ControlTestCase[]) => void }) {
   const { t } = useTranslation();
-  return <StudioSection title={t("controlStudio.testsTitle")} description={t("controlStudio.testsDescription")} action={<Button variant="outline" onClick={() => onChange([...tests, { name: "", rail_type: "input", content: "", expected_decision: "allow" }])}><Plus />{t("controlStudio.addCase")}</Button>}>{error ? <Alert variant="destructive" className="mb-4"><CircleAlert /><AlertTitle>{t("controlStudio.cannotRun")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}<div className="space-y-3">{tests.map((test, index) => { const result = run?.results?.[index]; return <section key={index} className={cn("rounded-lg border bg-card", result && (result.passed ? "border-emerald-200" : "border-destructive/30"))}><header className="flex items-center justify-between border-b bg-muted/20 px-4 py-3"><strong className="text-sm">{t("controlStudio.testCase", { number: index + 1 })}</strong><Button size="icon" variant="ghost" aria-label={t("common.remove")} onClick={() => onChange(tests.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></Button></header><div className="grid gap-4 p-4 sm:grid-cols-2"><Field label={`${t("controlStudio.caseName")} *`}><Input className="min-h-11" value={test.name} onChange={(event) => replaceAt(tests, index, { ...test, name: event.target.value }, onChange)} /></Field><Field label={t("controlStudio.rail")}><Select value={test.rail_type} onValueChange={(value) => replaceAt(tests, index, { ...test, rail_type: value as NativeRailType }, onChange)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="input">Input</SelectItem><SelectItem value="output">Output</SelectItem></SelectContent></Select></Field><Field label={`${t("controlStudio.content")} *`}><Textarea className="min-h-24" value={test.content} onChange={(event) => replaceAt(tests, index, { ...test, content: event.target.value }, onChange)} /></Field><Field label={t("controlStudio.expectedDecision")}><Select value={test.expected_decision} onValueChange={(value) => replaceAt(tests, index, { ...test, expected_decision: value as ControlTestCase["expected_decision"] }, onChange)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{["allow", "block", "transform"].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>{result ? <div className="sm:col-span-2"><Alert variant={result.passed ? "default" : "destructive"}>{result.passed ? <Check /> : <X />}<AlertTitle>{result.passed ? t("controlStudio.casePassed") : t("controlStudio.caseFailed")}</AlertTitle><AlertDescription>{result.actual_decision} · {result.latency_ms}ms{result.reason ? ` · ${result.reason}` : ""}</AlertDescription></Alert></div> : null}</div></section>; })}{!tests.length ? <EmptyInline icon={FlaskConical} text={t("controlStudio.noTests")} /> : null}</div></StudioSection>;
+  const addCase = () => onChange([...tests, {
+    name: "",
+    rail_type: "input",
+    content: "",
+    expected_decision: "allow",
+    case_type: "unit",
+    required: true,
+    expected_failure: null,
+    concurrency_group: null,
+  }]);
+  return (
+    <StudioSection title={t("controlStudio.testsTitle")} description={t("controlStudio.testsDescription")} action={<Button variant="outline" onClick={addCase}><Plus />{t("controlStudio.addCase")}</Button>}>
+      {error ? <Alert variant="destructive" className="mb-4"><CircleAlert /><AlertTitle>{t("controlStudio.cannotRun")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
+      <div className="space-y-3">
+        {tests.map((test, index) => {
+          const result = run?.results?.[index];
+          return (
+            <section key={index} className={cn("rounded-lg border bg-card", result && (result.passed ? "border-emerald-200" : "border-destructive/30"))}>
+              <header className="flex items-center justify-between border-b bg-muted/20 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2"><strong className="text-sm">{t("controlStudio.testCase", { number: index + 1 })}</strong><Badge variant="outline">{test.case_type}</Badge>{test.required ? null : <Badge variant="secondary">{t("controlStudio.optional")}</Badge>}</div>
+                <Button size="icon" variant="ghost" aria-label={t("common.remove")} onClick={() => onChange(tests.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></Button>
+              </header>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <Field label={`${t("controlStudio.caseName")} *`}><Input className="min-h-11" value={test.name} onChange={(event) => replaceAt(tests, index, { ...test, name: event.target.value }, onChange)} /></Field>
+                <Field label={t("controlStudio.caseType")}><Select value={test.case_type} onValueChange={(value) => replaceAt(tests, index, { ...test, case_type: value as ControlTestCase["case_type"], expected_failure: value === "timeout" || value === "provider_failure" ? value : null }, onChange)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{["unit", "input_rail", "output_rail", "block", "transform", "timeout", "provider_failure", "concurrency"].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
+                <Field label={t("controlStudio.rail")}><Select value={test.rail_type} onValueChange={(value) => replaceAt(tests, index, { ...test, rail_type: value as NativeRailType }, onChange)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="input">Input</SelectItem><SelectItem value="output">Output</SelectItem></SelectContent></Select></Field>
+                <Field label={t("controlStudio.expectedDecision")}><Select value={test.expected_decision} onValueChange={(value) => replaceAt(tests, index, { ...test, expected_decision: value as ControlTestCase["expected_decision"] }, onChange)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{["allow", "block", "transform"].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
+                <Field label={`${t("controlStudio.content")} *`}><Textarea className="min-h-24" value={test.content} onChange={(event) => replaceAt(tests, index, { ...test, content: event.target.value }, onChange)} /></Field>
+                <div className="grid content-start gap-4">
+                  <label className="flex min-h-11 items-center gap-2"><Checkbox checked={test.required} onCheckedChange={(value) => replaceAt(tests, index, { ...test, required: Boolean(value) }, onChange)} /><span className="text-xs">{t("controlStudio.requiredGate")}</span></label>
+                  {test.case_type === "concurrency" ? <Field label={t("controlStudio.concurrencyGroup")} hint={t("controlStudio.concurrencyGroupHint")}><Input className="min-h-11 font-mono text-xs" value={test.concurrency_group ?? ""} onChange={(event) => replaceAt(tests, index, { ...test, concurrency_group: event.target.value || null }, onChange)} /></Field> : null}
+                  {test.expected_failure ? <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{t("controlStudio.expectedFailure", { failure: test.expected_failure })}</p> : null}
+                </div>
+                {result ? <div className="sm:col-span-2"><Alert variant={result.passed ? "default" : "destructive"}>{result.passed ? <Check /> : <X />}<AlertTitle>{result.passed ? t("controlStudio.casePassed") : t("controlStudio.caseFailed")}</AlertTitle><AlertDescription>{result.actual_decision}{result.actual_failure ? ` · ${result.actual_failure}` : ""} · {result.latency_ms}ms{result.reason ? ` · ${result.reason}` : ""}</AlertDescription></Alert></div> : null}
+              </div>
+            </section>
+          );
+        })}
+        {!tests.length ? <EmptyInline icon={FlaskConical} text={t("controlStudio.noTests")} /> : null}
+      </div>
+    </StudioSection>
+  );
 }
 
 function ValidationReview({ name, draft, error }: { name: string; draft: NativeControlDraft; error: string | null }) { const { t } = useTranslation(); return <StudioSection title={t("controlStudio.validateTitle")} description={t("controlStudio.validateDescription")}><ReviewGrid items={[{ label: t("controlStudio.control"), value: name }, { label: t("controlStudio.colangVersion"), value: draft.colang_version }, { label: t("controlStudio.rails"), value: String(draft.rail_bindings.length) }, { label: t("controlStudio.actions"), value: String(draft.action_references.length) }, { label: t("controlStudio.parameters"), value: String(draft.parameter_schema.length) }, { label: t("controlStudio.timeoutBudget"), value: `${criticalPath(draft.rail_bindings)}ms` }]} />{error ? <Alert variant="destructive" className="mt-4"><CircleAlert /><AlertTitle>{t("controlStudio.validationFailed")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : <Alert variant="info" className="mt-4"><PackageCheck /><AlertTitle>{t("controlStudio.readyToValidate")}</AlertTitle><AlertDescription>{t("controlStudio.validationChecks")}</AlertDescription></Alert>}</StudioSection>; }

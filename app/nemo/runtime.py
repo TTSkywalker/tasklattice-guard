@@ -4,13 +4,11 @@ import asyncio
 import difflib
 import re
 import time
-import threading
-from collections import OrderedDict
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
-from nemoguardrails import Guardrails, RailsConfig
+from nemoguardrails import Guardrails
 from nemoguardrails.rails.llm.options import GenerationResponse
 
 from ..runtime.content_views import request_view, with_active_text
@@ -33,6 +31,7 @@ from ..runtime.contracts import (
 )
 from .action_registry import RuntimeActionRegistry
 from .actions.contracts import ActionRequest, ActionResult
+from .registry import NeMoRailsRegistry
 
 
 _CURRENT_REQUEST: ContextVar[EngineRequest | None] = ContextVar(
@@ -59,32 +58,16 @@ _ACTION_PRIORITY = (
 )
 
 
-class NeMoConfigStore(Protocol):
-    def plan(self, guardrail_id: str, version: int) -> GuardrailPlanSnapshot: ...
-
-    def nemo_config(self, guardrail_id: str, version: int) -> NeMoConfigSnapshot: ...
-
-    def active_plan_keys(self) -> tuple[tuple[str, int], ...]: ...
-
-
 @dataclass(slots=True)
 class _RuntimeResult:
     binding: NeMoActionBinding
     result: StageResult
     latency_ms: int
+    provider_latency_ms: int = 0
 
 
 class _PatchConflict(ValueError):
     pass
-
-
-@dataclass(slots=True)
-class NeMoRailsInstance:
-    config: NeMoConfigSnapshot
-    plan: GuardrailPlanSnapshot
-    rails: Guardrails
-    actions: "NeMoActionExecutor"
-    admission: asyncio.BoundedSemaphore
 
 
 class NeMoActionExecutor:
@@ -294,6 +277,7 @@ class NeMoActionExecutor:
         if binding is None:
             return await self.evaluate_step(text, binding_id, context)
         started = time.perf_counter()
+        provider_latency_ms = 0
         try:
             provider = self._registry.get(action_name, action_version)
             supported_risks = getattr(provider, "risks", frozenset())
@@ -306,6 +290,7 @@ class NeMoActionExecutor:
             async with asyncio.timeout(binding.timeout_ms / 1_000):
                 action_result = await provider.execute(action_request)
             result = _stage_result(action_result)
+            provider_latency_ms = action_result.usage.provider_latency_ms
         except asyncio.CancelledError:
             raise
         except TimeoutError:
@@ -329,7 +314,13 @@ class NeMoActionExecutor:
                 ),
             )
         latency = max(0, round((time.perf_counter() - started) * 1_000))
-        return self._record(context, binding, result, latency)
+        return self._record(
+            context,
+            binding,
+            result,
+            latency,
+            provider_latency_ms=provider_latency_ms or latency,
+        )
 
     async def detect_sensitive_data(
         self,
@@ -358,6 +349,7 @@ class NeMoActionExecutor:
         text: str,
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        resolve_started = time.perf_counter()
         runtime_results = self._ordered_results()
         terminal_by_risk: dict[str, _RuntimeResult] = {}
         for item in runtime_results:
@@ -413,6 +405,9 @@ class NeMoActionExecutor:
             "modified": modified,
             "content": resolved if modified else text,
             "reason": reason,
+            "_resolve_latency_ms": max(
+                0, round((time.perf_counter() - resolve_started) * 1_000)
+            ),
         }
         if context is not None:
             context["tasklattice_decision"] = payload
@@ -708,8 +703,14 @@ class NeMoActionExecutor:
         binding: NeMoActionBinding,
         result: StageResult,
         latency_ms: int,
+        provider_latency_ms: int | None = None,
     ) -> dict[str, Any]:
-        runtime_result = _RuntimeResult(binding, result, latency_ms)
+        runtime_result = _RuntimeResult(
+            binding,
+            result,
+            latency_ms,
+            latency_ms if provider_latency_ms is None else provider_latency_ms,
+        )
         results = _CURRENT_RESULTS.get()
         if results is not None:
             results.append(runtime_result)
@@ -722,6 +723,7 @@ class NeMoActionExecutor:
                     "verdict": result.verdict,
                     "action": binding.on_unsafe,
                     "latency_ms": latency_ms,
+                    "provider_latency_ms": runtime_result.provider_latency_ms,
                 }
             )
         return {
@@ -733,171 +735,8 @@ class NeMoActionExecutor:
             "reason": result.reason,
             "action": binding.on_unsafe,
             "latency_ms": latency_ms,
+            "provider_latency_ms": runtime_result.provider_latency_ms,
         }
-
-
-class NeMoRailsRegistry:
-    """Construct and cache one immutable NeMo runtime per Guardrail version."""
-
-    def __init__(
-        self,
-        store: NeMoConfigStore,
-        actions: RuntimeActionRegistry,
-        *,
-        max_entries: int = 128,
-        max_concurrency_per_guardrail: int = 64,
-    ) -> None:
-        self._store = store
-        self._actions = actions
-        self._max_entries = max(1, max_entries)
-        self._max_concurrency_per_guardrail = max(
-            1, max_concurrency_per_guardrail
-        )
-        self._items: OrderedDict[tuple[str, int, str], NeMoRailsInstance] = OrderedDict()
-        self._lock = threading.RLock()
-        self._hits = 0
-        self._misses = 0
-        self.reload()
-
-    def get(self, plan: GuardrailPlanSnapshot) -> NeMoRailsInstance:
-        return self.acquire(plan)[0]
-
-    def acquire(
-        self,
-        plan: GuardrailPlanSnapshot,
-    ) -> tuple[NeMoRailsInstance, bool, int]:
-        config = self._store.nemo_config(plan.guardrail_id, plan.guardrail_version)
-        key = (plan.guardrail_id, plan.guardrail_version, _config_checksum(config))
-        waiting_started = time.perf_counter()
-        with self._lock:
-            queue_latency_ms = max(
-                0, round((time.perf_counter() - waiting_started) * 1_000)
-            )
-            item = self._items.get(key)
-            if item is not None:
-                self._hits += 1
-                self._items.move_to_end(key)
-                return item, True, queue_latency_ms
-            self._misses += 1
-            return self._build(plan, config, key), False, queue_latency_ms
-
-    def validate(
-        self,
-        plan: GuardrailPlanSnapshot,
-        config: NeMoConfigSnapshot,
-    ) -> None:
-        key = (plan.guardrail_id, plan.guardrail_version, _config_checksum(config))
-        with self._lock:
-            if key not in self._items:
-                self._build(plan, config, key)
-
-    def reload(self) -> None:
-        active = set(self._store.active_plan_keys())
-        with self._lock:
-            for guardrail_id, version in active:
-                plan = self._store.plan(guardrail_id, version)
-                self.get(plan)
-
-    def stats(self) -> dict[str, int]:
-        with self._lock:
-            return {
-                "entries": len(self._items),
-                "hits": self._hits,
-                "misses": self._misses,
-            }
-
-    def ready(self) -> bool:
-        with self._lock:
-            available = {key[:2] for key in self._items}
-            return set(self._store.active_plan_keys()) <= available
-
-    async def shutdown(self) -> None:
-        with self._lock:
-            rails = tuple(item.rails for item in self._items.values())
-            self._items.clear()
-        await asyncio.gather(
-            *(item.shutdown() for item in rails),
-            return_exceptions=True,
-        )
-
-    def _build(
-        self,
-        plan: GuardrailPlanSnapshot,
-        config: NeMoConfigSnapshot,
-        key: tuple[str, int, str],
-    ) -> NeMoRailsInstance:
-        self._validate_bindings(config)
-        rails_config = RailsConfig.from_content(
-            yaml_content=config.config_yaml,
-            colang_content=config.colang_content or None,
-        )
-        rails = Guardrails(
-            rails_config,
-            use_iorails=config.runtime_engine == "iorails",
-            require_iorails=config.runtime_engine == "iorails",
-        )
-        actions = NeMoActionExecutor(plan, config, self._actions)
-        if config.runtime_engine == "llmrails":
-            actions.register(rails)
-        item = NeMoRailsInstance(
-            config,
-            plan,
-            rails,
-            actions,
-            asyncio.BoundedSemaphore(self._max_concurrency_per_guardrail),
-        )
-        self._items[key] = item
-        self._items.move_to_end(key)
-        while len(self._items) > self._max_entries:
-            candidate = next(iter(self._items))
-            if candidate[:2] in set(self._store.active_plan_keys()):
-                self._items.move_to_end(candidate)
-                if all(key[:2] in set(self._store.active_plan_keys()) for key in self._items):
-                    break
-                continue
-            self._items.pop(candidate)
-        return item
-
-    def _validate_bindings(self, config: NeMoConfigSnapshot) -> None:
-        first_binding_ids = {
-            selected[0].id
-            for phase in ("input", "output")
-            for risk in {item.risk for item in config.bindings_for(phase)}
-            if (selected := config.bindings_for(phase, risk))
-        }
-        missing = tuple(
-            binding
-            for binding in config.action_bindings
-            if binding.control_id is None
-            and (
-                not binding.action_name
-                or not binding.action_version
-                or not self._actions.contains(
-                    binding.action_name, binding.action_version
-                )
-            )
-            and (
-                binding.id in first_binding_ids
-                or binding.escalation != "on_uncertain"
-            )
-        )
-        if "sensitive_data_detection" in config.required_features and not (
-            self._actions.contains("TaskLatticePiiAction", "1.0.0")
-        ):
-            from ..control_plane.domain import PlanCompilationError
-
-            raise PlanCompilationError(
-                "NeMo sensitive-data rails require a configured PII Action provider."
-            )
-        if missing:
-            from ..control_plane.domain import PlanCompilationError
-
-            names = ", ".join(
-                f"{item.id} ({item.stage})" for item in missing
-            )
-            raise PlanCompilationError(
-                f"NeMo Action providers are unavailable for: {names}."
-            )
 
 
 class NeMoGuardrailsEngine:
@@ -928,10 +767,13 @@ class NeMoGuardrailsEngine:
         queue_started = started
         queue_latency_ms = registry_queue_latency_ms
         admitted = False
+        active_concurrency = 0
         try:
             async with asyncio.timeout(_request_timeout_ms(request) / 1_000):
                 await instance.admission.acquire()
                 admitted = True
+                instance.active_requests += 1
+                active_concurrency = instance.active_requests
                 queue_latency_ms += max(
                     0, round((time.perf_counter() - queue_started) * 1_000)
                 )
@@ -968,9 +810,11 @@ class NeMoGuardrailsEngine:
                 instance.config,
                 cache_hit=cache_hit,
                 queue_latency_ms=queue_latency_ms,
+                active_concurrency=active_concurrency,
             )
         finally:
             if admitted:
+                instance.active_requests = max(0, instance.active_requests - 1)
                 instance.admission.release()
             _CURRENT_RESULTS.reset(result_token)
             _CURRENT_REQUEST.reset(token)
@@ -983,6 +827,7 @@ class NeMoGuardrailsEngine:
                 instance.config,
                 cache_hit=cache_hit,
                 queue_latency_ms=queue_latency_ms,
+                active_concurrency=active_concurrency,
             )
         if programmable and not decision_state:
             return _failed_decision(
@@ -992,6 +837,7 @@ class NeMoGuardrailsEngine:
                 instance.config,
                 cache_hit=cache_hit,
                 queue_latency_ms=queue_latency_ms,
+                active_concurrency=active_concurrency,
             )
         return _decision(
             request,
@@ -1001,6 +847,7 @@ class NeMoGuardrailsEngine:
             custom_decision=decision_state or None,
             cache_hit=cache_hit,
             queue_latency_ms=queue_latency_ms,
+            active_concurrency=active_concurrency,
         )
 
     async def shutdown(self) -> None:
@@ -1077,6 +924,7 @@ def _decision(
     custom_decision: dict[str, Any] | None = None,
     cache_hit: bool,
     queue_latency_ms: int,
+    active_concurrency: int,
 ) -> EvaluationDecision:
     output_data = response.output_data or {}
     custom = custom_decision or output_data.get("tasklattice_decision")
@@ -1126,7 +974,15 @@ def _decision(
                 recommended_action=native_action,
             ),
         )
-    trace = _trace(config, activated, runtime_results, request.active_block_id)
+    trace = _trace(
+        request,
+        config,
+        activated,
+        runtime_results,
+        request.active_block_id,
+        queue_latency_ms=queue_latency_ms,
+        resolve_latency_ms=int((custom_decision or {}).get("_resolve_latency_ms", 0)),
+    )
     assessments = _assessments(request, runtime_results, trace, findings)
     interventions = _interventions(
         request,
@@ -1186,81 +1042,107 @@ def _decision(
                 and _binding_fails_closed(request, item.binding)
                 for item in _terminal_runtime_results(runtime_results)
             ),
+            active_concurrency=active_concurrency,
+            provider_latency_ms=sum(
+                item.provider_latency_ms for item in runtime_results
+            ),
         ),
         mode=request.mode,
     )
 
 
-def _trace(config, activated, results, content_block_id):
+def _trace(
+    request,
+    config,
+    activated,
+    results,
+    content_block_id,
+    *,
+    queue_latency_ms=0,
+    resolve_latency_ms=0,
+):
+    checksum = _config_checksum(config)
+    root_id = f"nemo:config:{config.guardrail_id}:{config.guardrail_version}"
+
+    def common(**values):
+        return {
+            "guardrail_id": config.guardrail_id,
+            "guardrail_version": config.guardrail_version,
+            "engine": config.runtime_engine,
+            "config_checksum": checksum,
+            "content_block_id": content_block_id,
+            **values,
+        }
+
     trace = [
         EvaluationTraceStep(
-            id=f"nemo:config:{config.guardrail_id}:{config.guardrail_version}",
+            id=root_id,
             kind="runtime",
             name="NeMo Guardrails",
             status="active",
-            detail=(
-                f"Executed immutable {config.compiler_version} configuration "
-                f"with {config.runtime_engine}; checksum={_config_checksum(config)}."
-            ),
-            content_block_id=content_block_id,
-        )
+            outcome="active",
+            detail=f"Executed immutable {config.compiler_version} configuration.",
+            **common(),
+        ),
+        EvaluationTraceStep(
+            id=f"{root_id}:queue",
+            kind="queue",
+            name="Runtime admission",
+            status="passed",
+            outcome="admitted",
+            detail="Waited for the version-isolated Guardrail admission slot.",
+            duration_ms=max(0, queue_latency_ms),
+            parent_id=root_id,
+            rail_type=request.phase,
+            **common(),
+        ),
     ]
     for index, rail in enumerate(activated):
+        rail_type = str(rail.type or request.phase)
         trace.append(
             EvaluationTraceStep(
-                id=f"nemo:rail:{index}",
+                id=f"nemo:rail:native:{index}",
                 kind="rail",
                 name=rail.name,
                 status="blocked" if rail.stop else "passed",
-                detail=f"NeMo {rail.type} rail {'stopped' if rail.stop else 'continued'} processing.",
+                outcome="blocked" if rail.stop else "passed",
+                detail=f"NeMo {rail_type} Rail {'stopped' if rail.stop else 'continued'} processing.",
                 duration_ms=max(0, round((rail.duration or 0) * 1_000)),
+                parent_id=root_id,
                 verdict="unsafe" if rail.stop else "safe",
                 route="enforce" if rail.stop else "complete",
                 risk=_native_risk(rail.name),
-                content_block_id=content_block_id,
+                rail_type=rail_type,
+                **common(),
             )
         )
+    rail_ids: dict[str, str] = {}
+    control_ids: dict[str, str] = {}
     if _is_colang_v2(config):
         risks = tuple(dict.fromkeys(item.binding.risk for item in results))
         for risk in risks:
             selected = tuple(item for item in results if item.binding.risk == risk)
             terminal = selected[-1]
+            binding = terminal.binding
             error = terminal.result.verdict == "error"
             unsafe = terminal.result.verdict == "unsafe"
             uncertain = terminal.result.verdict == "uncertain"
-            if terminal.binding.control_id is not None:
-                trace.append(
-                    EvaluationTraceStep(
-                        id=(
-                            f"nemo:control:{terminal.binding.control_id}:"
-                            f"{terminal.binding.control_version}"
-                        ),
-                        kind="control",
-                        name=(
-                            f"{terminal.binding.control_id}@"
-                            f"{terminal.binding.control_version}"
-                        ),
-                        status="active",
-                        detail=(
-                            f"Executed Control Version on the "
-                            f"{terminal.binding.phases[0]} Rail; "
-                            f"flow={terminal.binding.flow_name}."
-                        ),
-                        risk=risk,
-                        content_block_id=content_block_id,
-                    )
-                )
+            status = (
+                "error" if error else "blocked" if unsafe else
+                "needs_context" if uncertain else "passed"
+            )
+            rail_id = f"nemo:rail:{request.phase}:{risk}"
+            rail_ids[risk] = rail_id
             trace.append(
                 EvaluationTraceStep(
-                    id=f"nemo:colang:rail:{risk}",
+                    id=rail_id,
                     kind="rail",
-                    name=f"tasklattice risk {risk.replace('_', ' ')}",
-                    status=(
-                        "error" if error else "blocked" if unsafe else
-                        "needs_context" if uncertain else "passed"
-                    ),
-                    detail="NeMo Colang 2.x risk flow completed.",
+                    name=f"{request.phase.title()} Rail",
+                    status=status,
+                    outcome=status,
+                    detail="NeMo Colang 2.x Rail Flow completed.",
                     duration_ms=sum(item.latency_ms for item in selected),
+                    parent_id=root_id,
                     verdict=(
                         "error" if error else "unsafe" if unsafe else
                         "uncertain" if uncertain else "safe"
@@ -1270,41 +1152,101 @@ def _trace(config, activated, results, content_block_id):
                         "escalate" if uncertain else "complete"
                     ),
                     risk=risk,
-                    content_block_id=content_block_id,
+                    rail_type=request.phase,
+                    flow_name=binding.flow_name,
+                    parallel_group=binding.parallel_group,
+                    timeout_ms=binding.timeout_ms,
+                    timed_out=error and "timeout" in (terminal.result.reason or "").casefold(),
+                    **common(),
                 )
             )
+            if binding.control_id is not None:
+                control_id = (
+                    f"nemo:control:{binding.control_id}:"
+                    f"{binding.control_version}:{binding.flow_name or risk}"
+                )
+                control_ids[risk] = control_id
+                trace.append(
+                    EvaluationTraceStep(
+                        id=control_id,
+                        kind="control",
+                        name=f"{binding.control_id}@{binding.control_version}",
+                        status=status,
+                        outcome=status,
+                        detail="Executed the immutable Control Flow binding.",
+                        duration_ms=sum(item.latency_ms for item in selected),
+                        parent_id=rail_id,
+                        risk=risk,
+                        control_id=binding.control_id,
+                        control_version=binding.control_version,
+                        rail_type=request.phase,
+                        flow_name=binding.flow_name,
+                        parallel_group=binding.parallel_group,
+                        timeout_ms=binding.timeout_ms,
+                        timed_out=error and "timeout" in (terminal.result.reason or "").casefold(),
+                        **common(),
+                    )
+                )
     for item in results:
         trace.extend(item.result.trace)
+        binding = item.binding
+        timed_out = (
+            item.result.verdict == "error"
+            and "timeout" in (item.result.reason or "").casefold()
+        )
         trace.append(
             EvaluationTraceStep(
-                id=f"nemo:action:{item.binding.id}",
-                kind="evaluator",
-                name=item.binding.id,
+                id=f"nemo:action:{binding.id}",
+                kind="action",
+                name=binding.action_name or binding.id,
                 status=item.result.verdict,
-                detail=(
-                    f"{item.binding.action_name}@{item.binding.action_version}; "
-                    f"flow={item.binding.flow_name}; "
-                    f"parallel_group={item.binding.parallel_group or 'serial'}. "
-                    f"{item.result.reason or 'NeMo Action completed.'}"
-                    if item.binding.action_name
-                    else item.result.reason or "NeMo Action completed."
-                ),
+                outcome=item.result.verdict,
+                detail=item.result.reason or "NeMo Action completed.",
                 duration_ms=item.latency_ms,
-                stage=item.binding.stage,
+                parent_id=(
+                    control_ids.get(binding.risk)
+                    or rail_ids.get(binding.risk)
+                    or root_id
+                ),
+                stage=binding.stage,
                 verdict=item.result.verdict,
                 route=(
-                    "enforce"
-                    if item.result.verdict == "unsafe"
-                    else "fail_closed"
-                    if item.result.verdict == "error"
-                    else "escalate"
-                    if item.result.verdict == "uncertain"
-                    else "complete"
+                    "enforce" if item.result.verdict == "unsafe" else
+                    "fail_closed" if item.result.verdict == "error" else
+                    "escalate" if item.result.verdict == "uncertain" else
+                    "complete"
                 ),
-                risk=item.binding.risk,
-                content_block_id=content_block_id,
+                risk=binding.risk,
+                control_id=binding.control_id,
+                control_version=binding.control_version,
+                rail_type=request.phase,
+                flow_name=binding.flow_name,
+                action_name=binding.action_name,
+                action_version=binding.action_version,
+                timeout_ms=binding.timeout_ms,
+                timed_out=timed_out,
+                parallel_group=binding.parallel_group,
+                provider_latency_ms=item.provider_latency_ms,
+                **common(),
             )
         )
+    trace.append(
+        EvaluationTraceStep(
+            id=f"{root_id}:resolve",
+            kind="action",
+            name="TaskLatticeResolveAction",
+            status="passed",
+            outcome="resolved",
+            detail="Resolved Action results into the final policy decision.",
+            duration_ms=max(0, resolve_latency_ms),
+            parent_id=root_id,
+            rail_type=request.phase,
+            action_name="TaskLatticeResolveAction",
+            action_version="1.0.0",
+            provider_latency_ms=max(0, resolve_latency_ms),
+            **common(),
+        )
+    )
     return tuple(trace)
 
 
@@ -1450,8 +1392,10 @@ def _failed_decision(
     *,
     cache_hit=False,
     queue_latency_ms=0,
+    active_concurrency=0,
 ):
     reason = f"NeMo Guardrails failed closed with {type(error).__name__}."
+    checksum = _config_checksum(config)
     trace = (
         EvaluationTraceStep(
             id="nemo:runtime:error",
@@ -1462,6 +1406,13 @@ def _failed_decision(
             duration_ms=duration,
             route="fail_closed",
             content_block_id=request.active_block_id,
+            guardrail_id=request.plan.guardrail_id,
+            guardrail_version=request.plan.guardrail_version,
+            rail_type=request.phase,
+            outcome="error",
+            timed_out=isinstance(error, TimeoutError),
+            engine=config.runtime_engine,
+            config_checksum=checksum,
         ),
     )
     return EvaluationDecision(
@@ -1485,8 +1436,9 @@ def _failed_decision(
             cache_misses=int(not cache_hit),
             queue_latency_ms=queue_latency_ms,
             runtime_engine=config.runtime_engine,
-            config_checksum=_config_checksum(config),
+            config_checksum=checksum,
             fail_closed=True,
+            active_concurrency=active_concurrency,
         ),
         mode=request.mode,
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from collections.abc import Callable
@@ -138,6 +139,13 @@ class ControlTestInput(BaseModel):
     rail_type: Literal["input", "output", "retrieval", "dialog", "execution"]
     content: str = Field(min_length=1, max_length=8_000)
     expected_decision: Literal["allow", "block", "transform"]
+    case_type: Literal[
+        "unit", "input_rail", "output_rail", "timeout",
+        "provider_failure", "concurrency"
+    ] = "unit"
+    required: bool = True
+    expected_failure: Literal["timeout", "provider_failure"] | None = None
+    concurrency_group: str | None = Field(default=None, max_length=128)
 
 
 class ControlDraftInput(BaseModel):
@@ -445,8 +453,7 @@ class ControlPlaneAPI:
                         "Draft Evaluation currently requires input or output Rail cases."
                     )
                 plan, _ = self._service.compile_control_draft(control_id)
-                results: list[dict[str, object]] = []
-                for case in package.draft.tests:
+                async def evaluate_case(index, case):
                     started = time.perf_counter()
                     decision = await self._engine.evaluate(
                         EngineRequest(
@@ -472,28 +479,68 @@ class ControlPlaneAPI:
                         )
                     )
                     actual = decision.decision
-                    results.append(
-                        {
-                            "name": case.name,
-                            "rail_type": case.rail_type,
-                            "expected_decision": case.expected_decision,
-                            "actual_decision": actual,
-                            "passed": _matches_expected(
-                                case.expected_decision, actual
-                            ),
-                            "latency_ms": max(
-                                0,
-                                round(
-                                    (time.perf_counter() - started) * 1_000
-                                ),
-                            ),
-                            "reason": decision.reason or "",
-                            "trace": [asdict(item) for item in decision.trace],
-                        }
+                    timed_out = any(item.timed_out for item in decision.trace)
+                    provider_failed = any(
+                        item.kind == "action"
+                        and item.status == "error"
+                        and not item.timed_out
+                        for item in decision.trace
                     )
+                    failure_matched = (
+                        case.expected_failure is None
+                        or case.expected_failure == "timeout" and timed_out
+                        or case.expected_failure == "provider_failure"
+                        and provider_failed
+                    )
+                    return index, {
+                        "name": case.name,
+                        "case_type": case.case_type,
+                        "required": case.required,
+                        "rail_type": case.rail_type,
+                        "concurrency_group": case.concurrency_group,
+                        "expected_decision": case.expected_decision,
+                        "expected_failure": case.expected_failure,
+                        "actual_decision": actual,
+                        "passed": (
+                            _matches_expected(case.expected_decision, actual)
+                            and failure_matched
+                        ),
+                        "latency_ms": max(
+                            0,
+                            round((time.perf_counter() - started) * 1_000),
+                        ),
+                        "reason": decision.reason or "",
+                        "trace": [asdict(item) for item in decision.trace],
+                    }
+
+                batches: list[list[tuple[int, object]]] = []
+                grouped: dict[str, list[tuple[int, object]]] = {}
+                for index, case in enumerate(package.draft.tests):
+                    if case.concurrency_group:
+                        grouped.setdefault(case.concurrency_group, []).append(
+                            (index, case)
+                        )
+                    else:
+                        batches.append([(index, case)])
+                batches.extend(grouped.values())
+                indexed_results = []
+                for batch in batches:
+                    indexed_results.extend(
+                        await asyncio.gather(
+                            *(evaluate_case(index, case) for index, case in batch)
+                        )
+                    )
+                results = [
+                    result
+                    for _, result in sorted(indexed_results, key=lambda item: item[0])
+                ]
                 status = (
                     "passed"
-                    if all(bool(item["passed"]) for item in results)
+                    if all(
+                        bool(item["passed"])
+                        for item in results
+                        if bool(item["required"])
+                    )
                     else "failed"
                 )
                 return self._service.save_control_test_run(
@@ -748,7 +795,8 @@ class ControlPlaneAPI:
                 results: list[EvaluationCaseResult] = []
                 latencies: list[int] = []
                 deep_count = 0
-                for case in cases:
+
+                async def evaluate_case(index, case):
                     started = time.perf_counter()
                     evaluation_view = _test_content_view(case)
                     decision = await self._engine.evaluate(
@@ -773,12 +821,26 @@ class ControlPlaneAPI:
                         )
                     )
                     latency = max(0, round((time.perf_counter() - started) * 1000))
-                    latencies.append(latency)
                     stage_reached = _stage_reached(decision.trace)
-                    if stage_reached == "deep_judge":
-                        deep_count += 1
                     actual_reasoning_result = _reasoning_result(decision.findings)
-                    results.append(
+                    timed_out = any(item.timed_out for item in decision.trace)
+                    provider_failed = any(
+                        item.kind == "action"
+                        and item.status == "error"
+                        and not item.timed_out
+                        for item in decision.trace
+                    )
+                    actual_failure = (
+                        "timeout"
+                        if timed_out
+                        else "provider_failure" if provider_failed else None
+                    )
+                    failure_matched = (
+                        case.expected_failure is None
+                        or case.expected_failure == actual_failure
+                    )
+                    return (
+                        index,
                         EvaluationCaseResult(
                             case_id=case.id,
                             name=case.name,
@@ -790,6 +852,7 @@ class ControlPlaneAPI:
                                     case.expected_decision,
                                     decision.decision,
                                 )
+                                and failure_matched
                                 and (
                                     case.expected_reasoning_result is None
                                     or case.expected_reasoning_result
@@ -815,10 +878,43 @@ class ControlPlaneAPI:
                             grounding_sources=case.grounding_sources,
                             expected_reasoning_result=case.expected_reasoning_result,
                             actual_reasoning_result=actual_reasoning_result,
+                            case_type=case.case_type,
+                            required=case.required,
+                            expected_failure=case.expected_failure,
+                            actual_failure=actual_failure,
+                            concurrency_group=case.concurrency_group,
+                        ),
+                        latency,
+                        stage_reached == "deep_judge",
+                    )
+
+                batches: list[list[tuple[int, object]]] = []
+                grouped: dict[str, list[tuple[int, object]]] = {}
+                for index, case in enumerate(cases):
+                    if case.concurrency_group:
+                        grouped.setdefault(case.concurrency_group, []).append(
+                            (index, case)
+                        )
+                    else:
+                        batches.append([(index, case)])
+                batches.extend(grouped.values())
+                indexed_results = []
+                for batch in batches:
+                    indexed_results.extend(
+                        await asyncio.gather(
+                            *(evaluate_case(index, case) for index, case in batch)
                         )
                     )
+                indexed_results.sort(key=lambda item: item[0])
+                results = [item[1] for item in indexed_results]
+                latencies = [item[2] for item in indexed_results]
+                deep_count = sum(item[3] for item in indexed_results)
                 metrics = _metrics(tuple(results), latencies, deep_count)
-                status = "passed" if metrics.passed == metrics.total else "failed"
+                status = (
+                    "passed"
+                    if all(item.passed for item in results if item.required)
+                    else "failed"
+                )
                 run = self._service.save_evaluation(
                     guardrail_id=guardrail.id,
                     guardrail_version=None,
@@ -1176,6 +1272,7 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
     latest_test_p95 = test_runs[0].metrics.p95_latency_ms if test_runs else 0
     status = service.summary()
     latency = _runtime_latency(events)
+    provider_latency = _provider_latency(events)
     guardrail_distribution = []
     for guardrail in guardrails:
         matching = tuple(item for item in events if item.guardrail_id == guardrail.id)
@@ -1191,6 +1288,7 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         item_total = len(matching)
         item_latency = _runtime_latency(matching)
         item_queue_latency = _queue_latency(matching)
+        item_provider_latency = _provider_latency(matching)
         guardrail_distribution.append(
             {
                 "guardrail_id": guardrail.id,
@@ -1224,7 +1322,13 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
                 "queue_p95_ms": item_queue_latency["p95"],
                 "rail_p95_ms": _step_latency(matching_steps, "rail")["p95"],
                 "action_p95_ms": _step_latency(matching_steps, "action")["p95"],
+                "provider_p95_ms": item_provider_latency["p95"],
                 "fail_closed_count": sum(item.fail_closed for item in matching),
+                "peak_active_concurrency": max(
+                    (item.active_concurrency for item in matching),
+                    default=0,
+                ),
+                "slo_breach_count": sum(item.slo_breached for item in matching),
                 "runtime_engines": sorted(
                     {item.runtime_engine for item in matching if item.runtime_engine}
                 ),
@@ -1241,6 +1345,8 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
             }
         )
     guardrail_distribution.sort(key=lambda item: (-int(item["total"]), str(item["name"])))
+    version_distribution = _version_distribution(events, guardrails)
+    control_distribution = _control_distribution(step_events, total)
     return {
         "window": "7d",
         "window_start": window_start.isoformat(),
@@ -1267,7 +1373,15 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         "queue_p50_ms": _queue_latency(events)["p50"],
         "queue_p95_ms": _queue_latency(events)["p95"],
         "queue_p99_ms": _queue_latency(events)["p99"],
+        "provider_p50_ms": provider_latency["p50"],
+        "provider_p95_ms": provider_latency["p95"],
+        "provider_p99_ms": provider_latency["p99"],
         "fail_closed_count": sum(item.fail_closed for item in events),
+        "peak_active_concurrency": max(
+            (item.active_concurrency for item in events),
+            default=0,
+        ),
+        "slo_breach_count": sum(item.slo_breached for item in events),
         "runtime_engine_counts": [
             {
                 "runtime_engine": runtime_engine,
@@ -1318,6 +1432,8 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
             )
         ],
         "guardrail_distribution": guardrail_distribution,
+        "version_distribution": version_distribution,
+        "control_distribution": control_distribution,
         "unassigned_requests": sum(item.guardrail_id is None for item in events),
         "trend": list(trend.values()),
         "system_status": status["status"],
@@ -1342,6 +1458,15 @@ def _queue_latency(events) -> dict[str, int]:
     }
 
 
+def _provider_latency(events) -> dict[str, int]:
+    values = sorted(item.provider_latency_ms for item in events)
+    return {
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+        "p99": _percentile(values, 0.99),
+    }
+
+
 def _step_latency(events, kind: str) -> dict[str, int]:
     values = sorted(item.latency_ms for item in events if item.kind == kind)
     return {
@@ -1359,10 +1484,19 @@ def _component_metrics(events, kind: str) -> list[dict[str, object]]:
     metrics: list[dict[str, object]] = []
     for (name, risk), items in groups.items():
         latency = _step_latency(items, kind)
+        provider_latency = _provider_latency(items)
+        first = items[0]
         metrics.append(
             {
                 "name": name,
                 "risk": risk,
+                "control_id": first.control_id,
+                "control_version": first.control_version,
+                "rail_type": first.rail_type,
+                "flow_name": first.flow_name,
+                "action_name": first.action_name,
+                "action_version": first.action_version,
+                "parallel_group": first.parallel_group,
                 "invocations": len(items),
                 "passed": sum(
                     item.outcome in {"passed", "safe", "pass"} for item in items
@@ -1379,10 +1513,97 @@ def _component_metrics(events, kind: str) -> list[dict[str, object]]:
                 "p50_latency_ms": latency["p50"],
                 "p95_latency_ms": latency["p95"],
                 "p99_latency_ms": latency["p99"],
+                "provider_p50_ms": provider_latency["p50"],
+                "provider_p95_ms": provider_latency["p95"],
+                "provider_p99_ms": provider_latency["p99"],
             }
         )
     metrics.sort(key=lambda item: (-int(item["invocations"]), str(item["name"])))
     return metrics
+
+
+def _version_distribution(events, guardrails) -> list[dict[str, object]]:
+    names = {item.id: item.name for item in guardrails}
+    groups: dict[tuple[str, int], list] = {}
+    for item in events:
+        if item.guardrail_id is not None and item.guardrail_version is not None:
+            groups.setdefault(
+                (item.guardrail_id, item.guardrail_version), []
+            ).append(item)
+    total = len(events)
+    distribution = []
+    for (guardrail_id, version), items in groups.items():
+        latency = _runtime_latency(items)
+        distribution.append(
+            {
+                "guardrail_id": guardrail_id,
+                "guardrail_name": names.get(guardrail_id, guardrail_id),
+                "guardrail_version": version,
+                "requests": len(items),
+                "share": round(len(items) / total * 100, 1) if total else 0,
+                "p95_latency_ms": latency["p95"],
+                "errors": sum(item.outcome == "error" for item in items),
+                "slo_breaches": sum(item.slo_breached for item in items),
+            }
+        )
+    distribution.sort(
+        key=lambda item: (
+            -int(item["requests"]),
+            str(item["guardrail_name"]),
+            -int(item["guardrail_version"]),
+        )
+    )
+    return distribution
+
+
+def _control_distribution(events, request_total: int) -> list[dict[str, object]]:
+    groups: dict[tuple[str, int | None], list] = {}
+    for item in events:
+        if item.control_id is not None and item.kind == "action":
+            groups.setdefault((item.control_id, item.control_version), []).append(item)
+    distribution = []
+    action_total = sum(len(items) for items in groups.values())
+    for (control_id, version), items in groups.items():
+        latency = _step_latency(items, "action")
+        provider_latency = _provider_latency(items)
+        distribution.append(
+            {
+                "control_id": control_id,
+                "control_version": version,
+                "invocations": len(items),
+                "hit_share": (
+                    round(len(items) / action_total * 100, 1)
+                    if action_total
+                    else 0
+                ),
+                "hits_per_request": (
+                    round(len(items) / request_total, 2) if request_total else 0
+                ),
+                "passed": sum(
+                    item.outcome in {"passed", "safe", "pass"} for item in items
+                ),
+                "intervened": sum(
+                    item.outcome in {"blocked", "unsafe", "intervene"}
+                    for item in items
+                ),
+                "errors": sum(item.outcome == "error" for item in items),
+                "timeouts": sum(item.timed_out for item in items),
+                "p50_latency_ms": latency["p50"],
+                "p95_latency_ms": latency["p95"],
+                "p99_latency_ms": latency["p99"],
+                "provider_p95_ms": provider_latency["p95"],
+                "rail_types": sorted(
+                    {item.rail_type for item in items if item.rail_type}
+                ),
+                "parallel_groups": sorted(
+                    {item.parallel_group for item in items if item.parallel_group}
+                ),
+            }
+        )
+    distribution.sort(
+        key=lambda item: (-int(item["invocations"]), str(item["control_id"]))
+    )
+    return distribution
 
 
 def _percentile(values: list[int], quantile: float) -> int:
@@ -1455,6 +1676,10 @@ def _control_draft(item: ControlDraftInput) -> ControlDraft:
                 rail_type=test.rail_type,
                 content=test.content,
                 expected_decision=test.expected_decision,
+                case_type=test.case_type,
+                required=test.required,
+                expected_failure=test.expected_failure,
+                concurrency_group=test.concurrency_group,
             )
             for test in item.tests
         ),
@@ -1662,7 +1887,11 @@ def _native_evaluation_cases(
         )
         enabled = set(selected.enabled_rails)
         for index, test in enumerate(version.tests):
-            if test.rail_type not in enabled or test.rail_type not in {"input", "output"}:
+            if (
+                not test.required
+                or test.rail_type not in enabled
+                or test.rail_type not in {"input", "output"}
+            ):
                 continue
             cases.append(
                 EvaluationCase(
@@ -1675,6 +1904,10 @@ def _native_evaluation_cases(
                     phase=test.rail_type,
                     content=test.content,
                     expected_decision=test.expected_decision,
+                    case_type=test.case_type,
+                    required=test.required,
+                    expected_failure=test.expected_failure,
+                    concurrency_group=test.concurrency_group,
                     target_source=(
                         "user_input" if test.rail_type == "input" else "model_output"
                     ),

@@ -77,6 +77,21 @@ class EvaluationTraceStep:
     risk: str | None = None
     confidence: float | None = None
     content_block_id: str | None = None
+    guardrail_id: str | None = None
+    guardrail_version: int | None = None
+    control_id: str | None = None
+    control_version: int | None = None
+    rail_type: str | None = None
+    flow_name: str | None = None
+    action_name: str | None = None
+    action_version: str | None = None
+    outcome: str | None = None
+    timeout_ms: int | None = None
+    timed_out: bool = False
+    parallel_group: str | None = None
+    engine: str | None = None
+    config_checksum: str | None = None
+    provider_latency_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,6 +481,8 @@ class EvaluationUsage:
     runtime_engine: str = ""
     config_checksum: str = ""
     fail_closed: bool = False
+    active_concurrency: int = 0
+    provider_latency_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)

@@ -71,6 +71,10 @@ class ControlTestDefinition:
     rail_type: RailType
     content: str
     expected_decision: str
+    case_type: str = "unit"
+    required: bool = True
+    expected_failure: str | None = None
+    concurrency_group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +364,10 @@ class EvaluationCase:
     query: str = ""
     grounding_sources: tuple[str, ...] = ()
     expected_reasoning_result: AutomatedReasoningResult | None = None
+    case_type: str = "unit"
+    required: bool = True
+    expected_failure: str | None = None
+    concurrency_group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,6 +386,10 @@ class GuardrailTestCase:
     query: str = ""
     grounding_sources: tuple[str, ...] = ()
     expected_reasoning_result: AutomatedReasoningResult | None = None
+    case_type: str = "unit"
+    required: bool = True
+    expected_failure: str | None = None
+    concurrency_group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,6 +415,11 @@ class EvaluationCaseResult:
     grounding_sources: tuple[str, ...] = ()
     expected_reasoning_result: AutomatedReasoningResult | None = None
     actual_reasoning_result: AutomatedReasoningResult | None = None
+    case_type: str = "unit"
+    required: bool = True
+    expected_failure: str | None = None
+    actual_failure: str | None = None
+    concurrency_group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,6 +485,9 @@ class RuntimeMetricEvent:
     runtime_engine: str = ""
     config_checksum: str = ""
     fail_closed: bool = False
+    active_concurrency: int = 0
+    provider_latency_ms: int = 0
+    slo_breached: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,6 +511,15 @@ class RuntimeStepMetricEvent:
     timed_out: bool
     runtime_engine: str
     config_checksum: str
+    control_id: str | None = None
+    control_version: int | None = None
+    rail_type: str | None = None
+    flow_name: str | None = None
+    action_name: str | None = None
+    action_version: str | None = None
+    parallel_group: str | None = None
+    timeout_ms: int | None = None
+    provider_latency_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)

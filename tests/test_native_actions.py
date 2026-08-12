@@ -143,6 +143,13 @@ async def test_action_errors_are_privacy_safe_and_fail_closed():
     assert "super-secret" not in serialized
     assert "provider_response" not in serialized
     assert "RuntimeError" in serialized
+    failed_action = next(step for step in decision.trace if step.kind == "action")
+    assert failed_action.outcome == "error"
+    assert failed_action.timed_out is False
+    assert failed_action.action_name == "TaskLatticeSecretsAction"
+    assert failed_action.action_version == "1.0.0"
+    assert failed_action.engine == "llmrails"
+    assert failed_action.config_checksum
     await engine.shutdown()
 
 

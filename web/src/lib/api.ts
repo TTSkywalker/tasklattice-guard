@@ -359,6 +359,10 @@ export type ControlTestCase = {
   rail_type: NativeRailType;
   content: string;
   expected_decision: "allow" | "block" | "transform";
+  case_type: "unit" | "input_rail" | "output_rail" | "block" | "transform" | "timeout" | "provider_failure" | "concurrency";
+  required: boolean;
+  expected_failure: "timeout" | "provider_failure" | null;
+  concurrency_group: string | null;
 };
 export type NativeControlDraft = {
   colang_version: "1.0" | "2.x";
@@ -421,12 +425,18 @@ export type ControlTestRun = {
   status: "not_run" | "passed" | "failed";
   results?: Array<{
     name: string;
+    case_type: ControlTestCase["case_type"];
+    required: boolean;
     rail_type: NativeRailType;
+    concurrency_group: string | null;
     expected_decision: string;
+    expected_failure: ControlTestCase["expected_failure"];
     actual_decision: string;
+    actual_failure?: ControlTestCase["expected_failure"];
     passed: boolean;
     latency_ms: number;
     reason: string;
+    trace: Array<Record<string, unknown>>;
   }>;
   created_at?: string;
 };
@@ -507,7 +517,12 @@ export type Metrics = {
   queue_p50_ms: number;
   queue_p95_ms: number;
   queue_p99_ms: number;
+  provider_p50_ms: number;
+  provider_p95_ms: number;
+  provider_p99_ms: number;
   fail_closed_count: number;
+  peak_active_concurrency: number;
+  slo_breach_count: number;
   runtime_engine_counts: Array<{ runtime_engine: string; count: number }>;
   rail_metrics: RuntimeComponentMetric[];
   action_metrics: RuntimeComponentMetric[];
@@ -556,10 +571,40 @@ export type Metrics = {
     queue_p95_ms: number;
     rail_p95_ms: number;
     action_p95_ms: number;
+    provider_p95_ms: number;
     fail_closed_count: number;
+    peak_active_concurrency: number;
+    slo_breach_count: number;
     runtime_engines: string[];
     config_checksums: string[];
     versions: number[];
+  }>;
+  version_distribution: Array<{
+    guardrail_id: string;
+    guardrail_name: string;
+    guardrail_version: number;
+    requests: number;
+    share: number;
+    p95_latency_ms: number;
+    errors: number;
+    slo_breaches: number;
+  }>;
+  control_distribution: Array<{
+    control_id: string;
+    control_version: number | null;
+    invocations: number;
+    hit_share: number;
+    hits_per_request: number;
+    passed: number;
+    intervened: number;
+    errors: number;
+    timeouts: number;
+    p50_latency_ms: number;
+    p95_latency_ms: number;
+    p99_latency_ms: number;
+    provider_p95_ms: number;
+    rail_types: string[];
+    parallel_groups: string[];
   }>;
   unassigned_requests: number;
   trend: Array<{ date: string; total: number; blocked: number; intervened: number; errored: number }>;
@@ -569,6 +614,13 @@ export type Metrics = {
 export type RuntimeComponentMetric = {
   name: string;
   risk: string | null;
+  control_id: string | null;
+  control_version: number | null;
+  rail_type: string | null;
+  flow_name: string | null;
+  action_name: string | null;
+  action_version: string | null;
+  parallel_group: string | null;
   invocations: number;
   passed: number;
   intervened: number;
@@ -578,6 +630,9 @@ export type RuntimeComponentMetric = {
   p50_latency_ms: number;
   p95_latency_ms: number;
   p99_latency_ms: number;
+  provider_p50_ms: number;
+  provider_p95_ms: number;
+  provider_p99_ms: number;
 };
 
 export type IdentityRole = "admin" | "member";

@@ -40,6 +40,8 @@ def record_runtime_decision(
         runtime_engine=usage.runtime_engine if usage else "",
         config_checksum=usage.config_checksum if usage else "",
         fail_closed=usage.fail_closed if usage else False,
+        active_concurrency=usage.active_concurrency if usage else 0,
+        provider_latency_ms=usage.provider_latency_ms if usage else 0,
         detail=detail,
     )
     control_plane.record_runtime_steps(
@@ -84,8 +86,4 @@ def _latency_ms(started: float) -> int:
 
 
 def _timed_out(decision: EvaluationDecision) -> bool:
-    return any(
-        "timeout" in step.detail.casefold()
-        for assessment in decision.assessments
-        for step in assessment.trace
-    )
+    return any(step.timed_out for step in decision.trace)

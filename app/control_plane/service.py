@@ -1175,8 +1175,9 @@ class ControlPlaneService:
                          trusted_instruction, target_source, expected_decision,
                          query_content, grounding_sources_json,
                          expected_reasoning_result,
+                         case_type, required, expected_failure, concurrency_group,
                          origin, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
                     """,
                     (
                         str(case.id), guardrail_id, str(case.name), str(case.risk),
@@ -1187,6 +1188,10 @@ class ControlPlaneService:
                         case.query,
                         _json(case.grounding_sources),
                         case.expected_reasoning_result,
+                        case.case_type,
+                        int(case.required),
+                        case.expected_failure,
+                        case.concurrency_group,
                         now,
                     ),
                 )
@@ -1231,8 +1236,9 @@ class ControlPlaneService:
                      trusted_instruction, target_source, expected_decision,
                      query_content, grounding_sources_json,
                      expected_reasoning_result,
+                     case_type, required, expected_failure, concurrency_group,
                      origin, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unit', 1, NULL, NULL, 'custom', ?)
                 """,
                 (
                     case_id, guardrail_id, name.strip(), risk, phase,
@@ -1574,7 +1580,8 @@ class ControlPlaneService:
                        module_invocations, evaluator_invocations,
                        rail_invocations, action_invocations, model_invocations,
                        queue_latency_ms, cache_hits, cache_misses,
-                       runtime_engine, config_checksum, fail_closed
+                       runtime_engine, config_checksum, fail_closed,
+                       active_concurrency, provider_latency_ms, slo_breached
                 FROM runtime_metric_events
                 WHERE created_at >= ?
                 ORDER BY created_at DESC, id DESC
@@ -1607,6 +1614,9 @@ class ControlPlaneService:
                 runtime_engine=str(row[21]),
                 config_checksum=str(row[22]),
                 fail_closed=bool(row[23]),
+                active_concurrency=int(row[24]),
+                provider_latency_ms=int(row[25]),
+                slo_breached=bool(row[26]),
             )
             for row in rows
         )
@@ -1621,7 +1631,9 @@ class ControlPlaneService:
                 "SELECT id, created_at, guardrail_id, guardrail_version, "
                 "assignment_id, integration_id, protocol, phase, kind, name, "
                 "risk, stage, outcome, latency_ms, timed_out, runtime_engine, "
-                "config_checksum FROM runtime_step_metric_events "
+                "config_checksum, control_id, control_version, rail_type, "
+                "flow_name, action_name, action_version, parallel_group, "
+                "timeout_ms, provider_latency_ms FROM runtime_step_metric_events "
                 "WHERE created_at >= ? ORDER BY created_at DESC, id DESC",
                 (since,),
             ).fetchall()
@@ -1644,6 +1656,15 @@ class ControlPlaneService:
                 timed_out=bool(row[14]),
                 runtime_engine=str(row[15]),
                 config_checksum=str(row[16]),
+                control_id=str(row[17]) if row[17] else None,
+                control_version=int(row[18]) if row[18] is not None else None,
+                rail_type=str(row[19]) if row[19] else None,
+                flow_name=str(row[20]) if row[20] else None,
+                action_name=str(row[21]) if row[21] else None,
+                action_version=str(row[22]) if row[22] else None,
+                parallel_group=str(row[23]) if row[23] else None,
+                timeout_ms=int(row[24]) if row[24] is not None else None,
+                provider_latency_ms=int(row[25]),
             )
             for row in rows
         )
@@ -1691,9 +1712,18 @@ class ControlPlaneService:
                     step.stage,
                     step.status,
                     max(0, step.duration_ms),
-                    int("timeout" in step.detail.casefold()),
-                    runtime_engine,
-                    config_checksum,
+                    int(step.timed_out),
+                    step.engine or runtime_engine,
+                    step.config_checksum or config_checksum,
+                    step.control_id,
+                    step.control_version,
+                    step.rail_type,
+                    step.flow_name,
+                    step.action_name,
+                    step.action_version,
+                    step.parallel_group,
+                    step.timeout_ms,
+                    max(0, step.provider_latency_ms),
                 )
             )
         if not rows:
@@ -1703,8 +1733,10 @@ class ControlPlaneService:
                 "INSERT INTO runtime_step_metric_events "
                 "(id, created_at, guardrail_id, guardrail_version, assignment_id, "
                 "integration_id, protocol, phase, kind, name, risk, stage, outcome, "
-                "latency_ms, timed_out, runtime_engine, config_checksum) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "latency_ms, timed_out, runtime_engine, config_checksum, control_id, "
+                "control_version, rail_type, flow_name, action_name, action_version, "
+                "parallel_group, timeout_ms, provider_latency_ms) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             connection.commit()
@@ -1735,6 +1767,8 @@ class ControlPlaneService:
         runtime_engine: str = "",
         config_checksum: str = "",
         fail_closed: bool = False,
+        active_concurrency: int = 0,
+        provider_latency_ms: int = 0,
     ) -> None:
         now = _now()
         with self._write_lock, self._connect() as connection:
@@ -1756,8 +1790,9 @@ class ControlPlaneService:
                      module_invocations, evaluator_invocations,
                      rail_invocations, action_invocations, model_invocations,
                      queue_latency_ms, cache_hits, cache_misses,
-                     runtime_engine, config_checksum, fail_closed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     runtime_engine, config_checksum, fail_closed,
+                     active_concurrency, provider_latency_ms, slo_breached)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"metric-{uuid.uuid4().hex[:12]}",
@@ -1784,6 +1819,9 @@ class ControlPlaneService:
                     runtime_engine,
                     config_checksum,
                     int(fail_closed),
+                    max(0, active_concurrency),
+                    max(0, provider_latency_ms),
+                    int(latency_ms > self._runtime_p99_budget_ms),
                 ),
             )
             connection.commit()
@@ -1969,6 +2007,10 @@ class ControlPlaneService:
                 query_content TEXT NOT NULL,
                 grounding_sources_json TEXT NOT NULL,
                 expected_reasoning_result TEXT,
+                case_type TEXT NOT NULL DEFAULT 'unit',
+                required INTEGER NOT NULL DEFAULT 1,
+                expected_failure TEXT,
+                concurrency_group TEXT,
                 origin TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (guardrail_id, id),
@@ -2008,7 +2050,10 @@ class ControlPlaneService:
                 cache_misses INTEGER NOT NULL DEFAULT 0,
                 runtime_engine TEXT NOT NULL DEFAULT '',
                 config_checksum TEXT NOT NULL DEFAULT '',
-                fail_closed INTEGER NOT NULL DEFAULT 0
+                fail_closed INTEGER NOT NULL DEFAULT 0,
+                active_concurrency INTEGER NOT NULL DEFAULT 0,
+                provider_latency_ms INTEGER NOT NULL DEFAULT 0,
+                slo_breached INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX runtime_metric_events_created_at_idx
                 ON runtime_metric_events(created_at);
@@ -2057,6 +2102,21 @@ class ControlPlaneService:
                 "ALTER TABLE guardrails ADD COLUMN control_bindings_json "
                 "TEXT NOT NULL DEFAULT '[]'"
             )
+        test_case_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(test_cases)").fetchall()
+        }
+        test_case_additions = {
+            "case_type": "TEXT NOT NULL DEFAULT 'unit'",
+            "required": "INTEGER NOT NULL DEFAULT 1",
+            "expected_failure": "TEXT",
+            "concurrency_group": "TEXT",
+        }
+        for name, definition in test_case_additions.items():
+            if name not in test_case_columns:
+                connection.execute(
+                    f"ALTER TABLE test_cases ADD COLUMN {name} {definition}"
+                )
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS control_packages (
@@ -2192,7 +2252,16 @@ class ControlPlaneService:
                 latency_ms INTEGER NOT NULL,
                 timed_out INTEGER NOT NULL,
                 runtime_engine TEXT NOT NULL,
-                config_checksum TEXT NOT NULL
+                config_checksum TEXT NOT NULL,
+                control_id TEXT,
+                control_version INTEGER,
+                rail_type TEXT,
+                flow_name TEXT,
+                action_name TEXT,
+                action_version TEXT,
+                parallel_group TEXT,
+                timeout_ms INTEGER,
+                provider_latency_ms INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS runtime_step_metric_events_created_at_idx
                 ON runtime_step_metric_events(created_at);
@@ -2216,11 +2285,36 @@ class ControlPlaneService:
             "runtime_engine": "TEXT NOT NULL DEFAULT ''",
             "config_checksum": "TEXT NOT NULL DEFAULT ''",
             "fail_closed": "INTEGER NOT NULL DEFAULT 0",
+            "active_concurrency": "INTEGER NOT NULL DEFAULT 0",
+            "provider_latency_ms": "INTEGER NOT NULL DEFAULT 0",
+            "slo_breached": "INTEGER NOT NULL DEFAULT 0",
         }
         for name, definition in additions.items():
             if name not in columns:
                 connection.execute(
                     f"ALTER TABLE runtime_metric_events ADD COLUMN {name} {definition}"
+                )
+        step_columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(runtime_step_metric_events)"
+            ).fetchall()
+        }
+        step_additions = {
+            "control_id": "TEXT",
+            "control_version": "INTEGER",
+            "rail_type": "TEXT",
+            "flow_name": "TEXT",
+            "action_name": "TEXT",
+            "action_version": "TEXT",
+            "parallel_group": "TEXT",
+            "timeout_ms": "INTEGER",
+            "provider_latency_ms": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for name, definition in step_additions.items():
+            if name not in step_columns:
+                connection.execute(
+                    f"ALTER TABLE runtime_step_metric_events ADD COLUMN {name} {definition}"
                 )
 
     def _seed(self, connection: sqlite3.Connection) -> None:
@@ -3304,6 +3398,18 @@ def _test_case_from_row(row: sqlite3.Row) -> GuardrailTestCase:
         expected_reasoning_result=(
             str(row["expected_reasoning_result"])
             if row["expected_reasoning_result"] is not None
+            else None
+        ),
+        case_type=str(row["case_type"]),
+        required=bool(row["required"]),
+        expected_failure=(
+            str(row["expected_failure"])
+            if row["expected_failure"] is not None
+            else None
+        ),
+        concurrency_group=(
+            str(row["concurrency_group"])
+            if row["concurrency_group"] is not None
             else None
         ),
     )

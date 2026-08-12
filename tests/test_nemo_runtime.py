@@ -410,6 +410,9 @@ async def test_independent_nemo_action_risks_run_in_parallel():
     assert decision.decision == "allow"
     assert tracker.maximum == 2
     assert elapsed < 0.18
+    assert decision.usage is not None
+    assert decision.usage.active_concurrency == 1
+    assert decision.usage.provider_latency_ms >= 180
     await engine.shutdown()
 
 
@@ -516,10 +519,15 @@ async def test_required_action_timeout_fails_closed_and_is_observable():
     assert decision.decision == "block"
     assert decision.action == "reject"
     assert decision.usage is not None and decision.usage.fail_closed is True
-    assert any(
-        step.route == "fail_closed" and "timeout" in step.detail.casefold()
+    timed_out_action = next(
+        step
         for step in decision.trace
+        if step.kind == "action" and step.timed_out
     )
+    assert timed_out_action.route == "fail_closed"
+    assert timed_out_action.timeout_ms == 20
+    assert timed_out_action.outcome == "error"
+    assert timed_out_action.provider_latency_ms >= 0
     await engine.shutdown()
 
 

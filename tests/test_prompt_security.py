@@ -60,7 +60,10 @@ async def test_prompt_security_blocks_untrusted_instruction_override():
     assert decision.findings[0].confidence == 0.99
     assert "override or extract trusted instructions" in decision.reason
     assert any(
-        step.kind == "evaluator" and step.risk == "prompt_injection"
+        step.kind == "action"
+        and step.risk == "prompt_injection"
+        and step.action_name
+        and step.engine == "llmrails"
         for step in decision.trace
     )
     await engine.shutdown()

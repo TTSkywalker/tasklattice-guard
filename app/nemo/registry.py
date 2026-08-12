@@ -30,6 +30,7 @@ class NeMoRailsInstance:
     rails: Guardrails
     actions: Any
     admission: asyncio.BoundedSemaphore
+    active_requests: int = 0
 
 
 class NeMoRailsRegistry:
