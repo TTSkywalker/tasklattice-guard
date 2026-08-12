@@ -705,6 +705,29 @@ function LiteLLMProviderSetup({ endpoint, detail = false }: { endpoint: string; 
         <p className="mt-2 text-xs leading-5 text-muted-foreground">{t(detail ? "integrations.integrationSecretDetailsDescription" : "integrations.integrationSecretDescription")}</p>
       </div>
 
+      <section className="overflow-hidden rounded-lg border bg-card" aria-labelledby={`${confirmationId}-settings-title`}>
+        <div className="border-b bg-muted/30 px-4 py-3">
+          <h4 id={`${confirmationId}-settings-title`} className="text-sm font-semibold">{t("integrations.litellmProviderSettings")}</h4>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("integrations.litellmProviderSettingsDescription")}</p>
+        </div>
+        <dl className="divide-y divide-border text-xs">
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+            <dt className="font-medium text-foreground">{t("integrations.protectionStages")}</dt>
+            <dd className="leading-5 text-muted-foreground">{t("integrations.protectionStagesDescription")}</dd>
+          </div>
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+            <dt className="font-medium text-foreground">{t("integrations.guardUnavailable")}</dt>
+            <dd className="leading-5 text-muted-foreground">{t("integrations.guardUnavailableDescription")}</dd>
+          </div>
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+            <dt className="font-medium text-foreground">{t("integrations.advancedProviderSettings")}</dt>
+            <dd className="leading-5 text-muted-foreground">{t("integrations.advancedProviderSettingsDescription")}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <InfoNotice title={t("integrations.failOpenScopeTitle")}>{t("integrations.failOpenScopeDescription")}</InfoNotice>
+
       <InfoNotice title={t("integrations.noLiteLLMRestartTitle")}>{t("integrations.noLiteLLMRestartDescription")}</InfoNotice>
     </div>
   );

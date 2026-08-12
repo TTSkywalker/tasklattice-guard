@@ -1,15 +1,19 @@
 # Connect LiteLLM to TaskLattice Guard
 
 The TaskLattice LiteLLM image includes **TaskLattice Guard** as a Guardrail
-Provider. Connect one LiteLLM Gateway by entering only two values in the
-LiteLLM Admin UI:
+Provider. Connect one LiteLLM Gateway in the LiteLLM Admin UI with:
 
 - **Endpoint** — the stable URL for one TaskLattice Integration;
-- **Secret** — the matching one-time Integration credential.
+- **Secret** — the matching one-time Integration credential;
+- **Protection stages** — **Before model**, **After model**, or both;
+- **Guard unavailable** behavior — block the request or continue without
+  protection; and
+- optional **Advanced** settings for timeout and default application.
 
-The Provider owns the callback path, input/output modes, always-on behavior,
-and fail-closed defaults. You do not need to edit `config.yaml`, select a
-generic provider, or restart LiteLLM after connecting it.
+LiteLLM owns these runtime settings and decides when to call TaskLattice Guard.
+TaskLattice Guard does not consume them as part of the Integration protocol.
+You do not need to edit `config.yaml`, select a generic provider, or restart
+LiteLLM after connecting it.
 
 ## Before you begin
 
@@ -53,18 +57,32 @@ Integration is rejected.
 
 In the LiteLLM Admin UI:
 
-1. Open **Guardrails** and choose **Add Guardrail**.
-2. Under **Provider**, select **TaskLattice Guard**.
+1. Open **Guardrails > Guardrail Garden**.
+2. Open **TaskLattice Guard**, choose **Create Guardrail**, and confirm
+   **TaskLattice Guard** in the Provider flow.
 3. Paste the TaskLattice **Endpoint**.
 4. Paste the matching **Secret**.
-5. Choose **Verify & connect**.
+5. Under **Protection stages**, select **Before model**, **After model**, or
+   both. At least one stage is required.
+6. Under **Guard unavailable**, choose:
+   - **Block request** (recommended and the default); or
+   - **Continue without protection** for an availability-first deployment.
+7. Under **Advanced**, review:
+   - **Runtime timeout** — 1–60 seconds, default 10 seconds. A timeout follows the
+     selected **Guard unavailable** behavior; and
+   - **Apply to every request** — on by default. Turn it off only when clients
+     explicitly select this Guardrail.
+8. Choose **Verify & connect**.
 
-That is the complete Provider configuration. LiteLLM validates the Endpoint and
-Secret against TaskLattice's side-effect-free verification endpoint, saves the
-Provider, and activates it in the running instance. Verification does not count
-as Guardrail traffic and does not advance the Integration's callback status.
-There is no `config.yaml` change and no LiteLLM restart or redeploy after this
-step.
+LiteLLM validates the Endpoint and Secret against TaskLattice's side-effect-free
+verification endpoint, saves the Provider settings, and activates it in the
+running instance. Verification does not count as Guardrail traffic and does not
+advance the Integration's callback status. There is no `config.yaml` change and
+no LiteLLM restart or redeploy after this step.
+
+**Before model** inspects model input and **After model** inspects model output.
+These are LiteLLM hooks: LiteLLM sends only the callback phases you select, while
+the TaskLattice Integration URL and wire protocol remain unchanged.
 
 Use the Endpoint exactly as TaskLattice displays it. It must end with the
 Integration UUID:
@@ -80,13 +98,10 @@ internally:
 /beta/litellm_basic_guardrail_api
 ```
 
-The Provider also fixes these security behaviors internally, so they are not
-configuration fields:
-
-- inspect both model input and model output;
-- apply TaskLattice Guard by default;
-- block when the Guard service is unreachable; and
-- block on invalid or failed Guard responses.
+**Continue without protection** is deliberately narrow. It applies only when
+LiteLLM cannot reach Guard because of a network failure or timeout, or receives
+HTTP 502, 503, or 504. It never bypasses a TaskLattice policy block, HTTP 4xx or
+500, or an invalid Guard response.
 
 ## 3. Verify real traffic
 

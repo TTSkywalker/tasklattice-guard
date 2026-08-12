@@ -44,18 +44,28 @@ vi.mock("react-i18next", () => ({
         "integrations.configureAdapter": "Configure {{adapter}}",
         "integrations.configureAdapterDescription": "Deploy the generated configuration.",
         "integrations.configureTaskLatticeProvider": "Connect the TaskLattice Guard Provider",
-        "integrations.configureTaskLatticeProviderDescription": "Select TaskLattice Guard and provide only the Endpoint and Secret.",
+        "integrations.configureTaskLatticeProviderDescription": "Connect Endpoint and Secret, then choose Provider settings.",
         "integrations.protocolShort.litellm": "LiteLLM",
         "integrations.taskLatticeGuardProvider": "TaskLattice Guard",
         "integrations.taskLatticeGuardProviderDescription": "Built into the TaskLattice LiteLLM image",
-        "integrations.litellmProviderStepOpen": "Open Guardrails and choose Add Guardrail.",
-        "integrations.litellmProviderStepSelect": "Under Provider, select TaskLattice Guard.",
-        "integrations.litellmProviderStepConnect": "Paste the Endpoint and Secret, then choose Verify & connect.",
+        "integrations.litellmProviderStepOpen": "Open Guardrails > Guardrail Garden.",
+        "integrations.litellmProviderStepSelect": "Open TaskLattice Guard and choose Create Guardrail.",
+        "integrations.litellmProviderStepConnect": "Paste Endpoint and Secret, select a protection stage, then choose Verify & connect.",
         "integrations.integrationEndpoint": "Endpoint",
         "integrations.integrationSecret": "Secret",
         "integrations.integrationSecretDescription": "Use the complete one-time Secret saved in step 1.",
         "integrations.integrationSecretDetailsDescription": "Use any active Secret.",
         "integrations.integrationSecretAvailable": "Active Secret available",
+        "integrations.litellmProviderSettings": "Provider settings",
+        "integrations.litellmProviderSettingsDescription": "These settings are enforced by LiteLLM.",
+        "integrations.protectionStages": "Protection stages",
+        "integrations.protectionStagesDescription": "Select Before model, After model, or both. At least one stage is required.",
+        "integrations.guardUnavailable": "Guard unavailable",
+        "integrations.guardUnavailableDescription": "Block request is recommended; Continue without protection favors availability.",
+        "integrations.advancedProviderSettings": "Advanced",
+        "integrations.advancedProviderSettingsDescription": "Runtime timeout defaults to 10 seconds. Apply to every request is on by default.",
+        "integrations.failOpenScopeTitle": "Continue is limited to availability failures",
+        "integrations.failOpenScopeDescription": "Continue applies only to network failures, timeouts, and HTTP 502, 503, or 504.",
         "integrations.noLiteLLMRestartTitle": "No LiteLLM restart required",
         "integrations.noLiteLLMRestartDescription": "Verify & connect saves and activates this Provider immediately.",
         "integrations.apiBaseUrl": "TaskLattice API base URL",
@@ -163,7 +173,7 @@ describe("Integration onboarding", () => {
     vi.restoreAllMocks();
   });
 
-  it("guides the packaged TaskLattice Guard Provider with only Endpoint and Secret", () => {
+  it("guides the packaged TaskLattice Guard Provider through connection and runtime settings", () => {
     const item = integration({
       setup_status: "awaiting_output",
       runtime_status: "waiting",
@@ -187,11 +197,15 @@ describe("Integration onboarding", () => {
     expect(screen.getByText("tali_••••8NzQ")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reveal credential" })).toBeTruthy();
     expect(screen.getByText("Connect the TaskLattice Guard Provider")).toBeTruthy();
-    expect(screen.getByText("Under Provider, select TaskLattice Guard.")).toBeTruthy();
-    expect(screen.getByText("Paste the Endpoint and Secret, then choose Verify & connect.")).toBeTruthy();
+    expect(screen.getByText("Open TaskLattice Guard and choose Create Guardrail.")).toBeTruthy();
+    expect(screen.getByText("Paste Endpoint and Secret, select a protection stage, then choose Verify & connect.")).toBeTruthy();
     expect(screen.getByText("Endpoint")).toBeTruthy();
     expect(screen.getByText(item.setup.api_base_url)).toBeTruthy();
     expect(screen.getByText("Secret")).toBeTruthy();
+    expect(screen.getByText("Protection stages")).toBeTruthy();
+    expect(screen.getByText("Guard unavailable")).toBeTruthy();
+    expect(screen.getByText("Advanced")).toBeTruthy();
+    expect(screen.getByText("Continue is limited to availability failures")).toBeTruthy();
     expect(screen.getByText("No LiteLLM restart required")).toBeTruthy();
     expect(screen.getAllByText("Complete").length).toBe(2);
     expect(screen.queryByText(/config\.yaml/i)).toBeNull();
