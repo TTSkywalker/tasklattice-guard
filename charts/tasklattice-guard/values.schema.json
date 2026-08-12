@@ -8,7 +8,7 @@
       "minLength": 1,
       "maxLength": 63,
       "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
-      "description": "Kubernetes name used by the Guard Service and Deployment."
+      "description": "Kubernetes name used by the Guard Service, Deployment, Pod prefix, and default PVC."
     },
     "replicaCount": {
       "type": "integer",

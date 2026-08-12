@@ -40,6 +40,17 @@ def test_helm_chart_configures_schema_v5_and_public_runtime_url():
     )
     assert deployment["metadata"]["name"] == "tali-guard"
     assert service["metadata"]["name"] == "tali-guard"
+    assert service["spec"]["ports"] == [
+        {
+            "name": "http",
+            "port": 38081,
+            "targetPort": "http",
+            "protocol": "TCP",
+        }
+    ]
+    assert container["ports"] == [
+        {"name": "http", "containerPort": 8091, "protocol": "TCP"}
+    ]
     assert service["spec"]["selector"] == deployment["spec"]["selector"]["matchLabels"]
     workload_labels = {
         "app.kubernetes.io/name": "tali",
@@ -51,7 +62,7 @@ def test_helm_chart_configures_schema_v5_and_public_runtime_url():
     assert workload_labels.items() <= service["metadata"]["labels"].items()
 
 
-def test_workload_rename_keeps_the_existing_sqlite_claim():
+def test_default_persistence_uses_the_tali_guard_claim():
     rendered = subprocess.run(
         [
             "helm",
@@ -79,5 +90,10 @@ def test_workload_rename_keeps_the_existing_sqlite_claim():
     )
 
     assert deployment["metadata"]["name"] == "tali-guard"
-    assert persistent_volume_claim["metadata"]["name"] == "tasklattice-guard"
-    assert data_volume["persistentVolumeClaim"]["claimName"] == "tasklattice-guard"
+    assert persistent_volume_claim["metadata"]["name"] == "tali-guard"
+    assert persistent_volume_claim["metadata"]["annotations"] == {
+        "helm.sh/resource-policy": "keep"
+    }
+    assert persistent_volume_claim["spec"]["accessModes"] == ["ReadWriteOnce"]
+    assert persistent_volume_claim["spec"]["resources"]["requests"]["storage"] == "1Gi"
+    assert data_volume["persistentVolumeClaim"]["claimName"] == "tali-guard"

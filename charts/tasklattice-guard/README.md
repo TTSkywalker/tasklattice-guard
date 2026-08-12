@@ -35,10 +35,12 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `image.tag` | `dev` | Container tag |
 | `workloadNameOverride` | `tali-guard` | Kubernetes Service and Deployment name; Pod names inherit this prefix |
 | `service.type` | `LoadBalancer` | Kubernetes Service exposure |
+| `service.port` | `38081` | Kubernetes Service port; the Guard container continues to listen on `8091` |
 | `persistence.enabled` | `true` | Persist SQLite control-plane state |
+| `persistence.existingClaim` | empty | Existing PVC override; otherwise the chart creates `tali-guard` |
 | `persistence.retain` | `true` | Retain the PVC after uninstall |
 | `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v5.db` | Persistent Guardrail, Assignment, evidence, and identity database |
-| `runtime.publicBaseUrl` | `http://localhost:8091` | Stable public origin used to generate per-Integration callback URLs |
+| `runtime.publicBaseUrl` | `http://localhost:38081` | Stable public origin used to generate per-Integration callback URLs |
 | `evaluators.nvidia.baseUrl` | empty | Enable model-backed evaluators |
 | `evaluators.nvidia.groundingModel` | empty | OpenAI-compatible model used for contextual grounding evidence |
 | `evaluators.deepJudge.model` | empty | Provider-neutral fallback model for prompt security, Topic Control, and contextual grounding |

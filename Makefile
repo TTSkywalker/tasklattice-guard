@@ -5,7 +5,8 @@ HELM_CHART := charts/tasklattice-guard
 HELM_WORKLOAD := tali-guard
 HELM_TIMEOUT ?= 180s
 PORT ?= 8091
-RUNTIME_PUBLIC_BASE_URL ?= http://$(HELM_WORKLOAD).$(DEV_NAMESPACE).svc.cluster.local:$(PORT)
+SERVICE_PORT ?= 38081
+RUNTIME_PUBLIC_BASE_URL ?= http://$(HELM_WORKLOAD).$(DEV_NAMESPACE).svc.cluster.local:$(SERVICE_PORT)
 LOCAL_ENV_FILE := $(if $(wildcard .env),--env-file .env,)
 LOCAL_PROVIDER_SECRET ?= tasklattice-guard-provider-keys
 NVIDIA_BASE_URL ?= https://integrate.api.nvidia.com/v1
@@ -43,7 +44,7 @@ helm-template:
 
 helm-install: image helm-lint
 	@set -eu; \
-		helm_args="--set-string image.tag=dev --set-string runtime.publicBaseUrl=$(RUNTIME_PUBLIC_BASE_URL)"; \
+		helm_args="--set-string image.tag=dev --set service.port=$(SERVICE_PORT) --set-string runtime.publicBaseUrl=$(RUNTIME_PUBLIC_BASE_URL)"; \
 		provider_configured=false; \
 		if [ -f .env ]; then \
 			if grep -Eq '^NVAPI_API_KEY=.+$$' .env; then \

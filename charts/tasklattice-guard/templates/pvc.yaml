@@ -4,7 +4,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ include "tasklattice-guard.persistenceClaimName" . }}
   labels:
-    {{- include "tasklattice-guard.labels" . | nindent 4 }}
+    {{- include "tasklattice-guard.workloadLabels" . | nindent 4 }}
   {{- if or .Values.persistence.retain .Values.persistence.annotations }}
   annotations:
     {{- if .Values.persistence.retain }}

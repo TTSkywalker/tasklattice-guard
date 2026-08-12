@@ -40,7 +40,7 @@ securityContext:
 
 service:
   type: LoadBalancer
-  port: 8091
+  port: 38081
   annotations: {}
 
 persistence:
@@ -59,7 +59,7 @@ database:
   path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v5.db
 
 runtime:
-  publicBaseUrl: http://localhost:8091
+  publicBaseUrl: http://localhost:38081
 
 evaluators:
   nvidia:

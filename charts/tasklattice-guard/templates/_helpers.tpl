@@ -79,7 +79,7 @@ app.kubernetes.io/part-of: tali
 {{- end }}
 
 {{- define "tasklattice-guard.persistenceClaimName" -}}
-{{- default (include "tasklattice-guard.fullname" .) .Values.persistence.existingClaim }}
+{{- default (include "tasklattice-guard.workloadName" .) .Values.persistence.existingClaim }}
 {{- end }}
 
 {{- define "tasklattice-guard.validateValues" -}}
