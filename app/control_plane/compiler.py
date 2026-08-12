@@ -31,6 +31,9 @@ _AUTOMATED_REASONING_TIMEOUT_MS = 30_000
 class GuardrailCompiler:
     """Compile human-facing Guardrails into immutable execution plans."""
 
+    def __init__(self, *, deep_judge_configured: bool = False) -> None:
+        self._deep_judge_configured = deep_judge_configured
+
     def compile(
         self,
         guardrail: Guardrail,
@@ -47,7 +50,15 @@ class GuardrailCompiler:
         steps: list[GuardrailPlanStep] = []
         for configured in guardrail.controls:
             definition = runtime_control(configured.risk)
-            stages = definition.available_stages
+            stages = tuple(
+                stage
+                for stage in definition.available_stages
+                if not (
+                    stage == "deep_judge"
+                    and not self._deep_judge_configured
+                    and len(definition.available_stages) > 1
+                )
+            )
             phases = self._phases(guardrail, configured.risk, definition.default_phases)
             parameters = self._guardrail_parameters(guardrail, configured.risk)
             if not stages:

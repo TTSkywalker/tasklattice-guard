@@ -258,6 +258,7 @@ def _usage(items: list[EvaluationUsage]) -> EvaluationUsage | None:
         cache_misses=sum(item.cache_misses for item in items),
         queue_latency_ms=sum(item.queue_latency_ms for item in items),
         runtime_engine=_one_value(tuple(item.runtime_engine for item in items)),
+        runtime_profile=_one_value(tuple(item.runtime_profile for item in items)),
         config_checksum=_one_value(tuple(item.config_checksum for item in items)),
         fail_closed=any(item.fail_closed for item in items),
         active_concurrency=max(

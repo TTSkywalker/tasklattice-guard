@@ -25,7 +25,7 @@ def test_topic_judge_receives_guardrail_purpose_and_primary_intent_rule():
         active_version=None,
         updated_at="2026-08-10T00:00:00Z",
     )
-    plan = GuardrailCompiler().compile(guardrail, 1)
+    plan = GuardrailCompiler(deep_judge_configured=True).compile(guardrail, 1)
     prompt = topic_judge_prompt(plan.steps_for("input", "deep_judge"))
 
     assert guardrail.purpose in prompt
@@ -69,7 +69,7 @@ def test_topic_judge_preserves_prior_conversation_for_input():
         active_version=None,
         updated_at="2026-08-10T00:00:00Z",
     )
-    plan = GuardrailCompiler().compile(guardrail, 1)
+    plan = GuardrailCompiler(deep_judge_configured=True).compile(guardrail, 1)
     request = EngineRequest(
         phase="input",
         text="Now compare that with last quarter.",

@@ -1419,6 +1419,7 @@ def _compile_preview_payload(plan, config, checksum: str) -> dict[str, object]:
         "guardrail_id": plan.guardrail_id,
         "candidate_version": plan.guardrail_version,
         "engine": config.runtime_engine,
+        "runtime_profile": config.runtime_profile,
         "colang_version": config.colang_version,
         "compiler_version": config.compiler_version,
         "checksum": checksum,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
+import sqlite3
 
 import pytest
 
@@ -126,6 +128,34 @@ def test_builtins_are_published_control_versions_and_compile_when_bound(tmp_path
     assert binding.control_id == secrets.id
     assert binding.control_version == 1
     assert binding.action_name == "TaskLatticeSecretsAction"
+
+
+def test_startup_never_rewrites_a_released_builtin_control_version(tmp_path):
+    database = tmp_path / "immutable-builtins.db"
+    service = ControlPlaneService(database)
+    original = service.control_version("builtin-secrets", 1)
+    sentinel_checksum = "reviewed-release-sentinel"
+
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT version_json FROM control_versions "
+            "WHERE control_id = 'builtin-secrets' AND version = 1"
+        ).fetchone()
+        assert row is not None
+        payload = json.loads(row[0])
+        payload["name"] = "Reviewed built-in release"
+        connection.execute(
+            "UPDATE control_versions SET version_json = ?, checksum = ? "
+            "WHERE control_id = 'builtin-secrets' AND version = 1",
+            (json.dumps(payload), sentinel_checksum),
+        )
+
+    restarted = ControlPlaneService(database)
+    stored = restarted.control_version("builtin-secrets", 1)
+
+    assert stored.version == original.version == 1
+    assert stored.name == "Reviewed built-in release"
+    assert stored.checksum == sentinel_checksum
 
 
 def test_guardrail_binding_requires_an_existing_fixed_control_version(tmp_path):

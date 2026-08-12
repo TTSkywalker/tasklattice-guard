@@ -57,6 +57,11 @@ OutputDeliveryMode = Literal["interruptible", "window_buffered", "full_buffered"
 EscalationMode = Literal["never", "on_uncertain", "always"]
 MatcherKind = Literal["header", "jwt_claim", "field"]
 NeMoRuntimeEngine = Literal["iorails", "llmrails"]
+NeMoRuntimeProfile = Literal[
+    "iorails_native",
+    "llmrails_colang1_standard",
+    "llmrails_colang2_programmable",
+]
 ControlExecutionMode = Literal["detect", "mutate"]
 
 
@@ -89,6 +94,7 @@ class EvaluationTraceStep:
     timed_out: bool = False
     parallel_group: str | None = None
     engine: str | None = None
+    runtime_profile: str | None = None
     config_checksum: str | None = None
     provider_latency_ms: int = 0
 
@@ -344,6 +350,7 @@ class NeMoActionBinding:
     execution_mode: ControlExecutionMode = "detect"
     failure_mode: FailureMode = "fail_closed"
     depends_on: tuple[str, ...] = ()
+    result_var: str | None = None
 
     def parameter(self, name: str) -> str | None:
         return next((value for key, value in self.parameters if key == name), None)
@@ -365,6 +372,7 @@ class NeMoConfigSnapshot:
     required_features: tuple[str, ...] = ()
     runtime_engine: NeMoRuntimeEngine = "llmrails"
     colang_version: str = "2.x"
+    runtime_profile: NeMoRuntimeProfile = "llmrails_colang2_programmable"
     rail_flows: tuple[tuple[str, str], ...] = ()
     dependency_manifest: tuple[tuple[str, str, str], ...] = ()
     estimated_critical_path_ms: int = 0
@@ -478,6 +486,7 @@ class EvaluationUsage:
     cache_misses: int = 0
     queue_latency_ms: int = 0
     runtime_engine: str = ""
+    runtime_profile: str = ""
     config_checksum: str = ""
     fail_closed: bool = False
     active_concurrency: int = 0

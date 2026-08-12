@@ -125,7 +125,9 @@ class ControlPlaneService:
         self._fast_semantic_configured = fast_semantic_configured
         self._deep_judge_configured = deep_judge_configured
         self._automated_reasoning_configured = automated_reasoning_configured
-        self._compiler = GuardrailCompiler()
+        self._compiler = GuardrailCompiler(
+            deep_judge_configured=deep_judge_configured,
+        )
         self._nemo_compiler = nemo_compiler or NeMoConfigCompiler()
         self._action_catalog = action_catalog or BUILTIN_ACTION_CATALOG
         self._runtime_p95_budget_ms = runtime_p95_budget_ms
@@ -749,7 +751,7 @@ class ControlPlaneService:
     def compile_draft(self, guardrail_id: str) -> GuardrailPlanSnapshot:
         guardrail = self.guardrail(guardrail_id)
         plan = self._compile_guardrail(
-            guardrail, (guardrail.active_version or 0) + 1
+            guardrail, self._next_guardrail_version(guardrail_id)
         )
         # Draft evaluation uses the same compiler/runtime as released traffic,
         # without making the candidate deployable or durable.
@@ -856,7 +858,7 @@ class ControlPlaneService:
                 self.nemo_config(guardrail_id, existing.version),
             )
 
-        next_version = (guardrail.active_version or 0) + 1
+        next_version = self._next_guardrail_version(guardrail_id)
         plan = self._compile_guardrail(guardrail, next_version)
         nemo_config = self._nemo_compiler.compile(plan)
         checksum = self._nemo_compiler.checksum(nemo_config)
@@ -922,11 +924,19 @@ class ControlPlaneService:
             created_at=created_at,
             active=True,
             runtime_engine=nemo_config.runtime_engine,
+            runtime_profile=nemo_config.runtime_profile,
             config_checksum=checksum,
         )
         return TestedGuardrailVersion(
             self.guardrail(guardrail_id), version, plan, nemo_config
         )
+
+    def _next_guardrail_version(self, guardrail_id: str) -> int:
+        """Allocate after every released version, independent of rollback state."""
+        return max(
+            (item.version for item in self.versions(guardrail_id)),
+            default=0,
+        ) + 1
 
     def versions(self, guardrail_id: str) -> tuple[GuardrailVersion, ...]:
         guardrail = self.guardrail(guardrail_id)
@@ -935,7 +945,7 @@ class ControlPlaneService:
                 """
                 SELECT guardrail_id, version, source_draft_version, compiler_version,
                     plan_checksum, created_at, runtime_engine, config_checksum,
-                    execution_mode
+                    execution_mode, nemo_config_json
                 FROM guardrail_versions WHERE guardrail_id = ? ORDER BY version DESC
                 """,
                 (guardrail_id,),
@@ -950,6 +960,7 @@ class ControlPlaneService:
                 created_at=str(row[5]),
                 active=int(row[1]) == guardrail.active_version,
                 runtime_engine=str(row[6] or "nemo"),
+                runtime_profile=_stored_runtime_profile(row[9]),
                 config_checksum=str(row[7] or row[4]),
                 execution_mode="nemo_only",
             )
@@ -2311,10 +2322,7 @@ class ControlPlaneService:
                 INSERT INTO control_versions
                     (control_id, version, version_json, checksum, published_at)
                 VALUES (?, 1, ?, ?, ?)
-                ON CONFLICT(control_id, version) DO UPDATE SET
-                    version_json = excluded.version_json,
-                    checksum = excluded.checksum,
-                    published_at = excluded.published_at
+                ON CONFLICT(control_id, version) DO NOTHING
                 """,
                 (control_id, _json(version_payload), checksum, published_at),
             )
@@ -3207,10 +3215,18 @@ def _plan_from_payload(payload: dict[str, object]) -> GuardrailPlanSnapshot:
 
 
 def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
+    compiler_version = str(payload.get("compiler_version", ""))
+    compiler_generation = _nemo_compiler_generation(compiler_version)
+    if compiler_generation is not None and compiler_generation >= 6 and not payload.get(
+        "runtime_profile"
+    ):
+        raise ControlPlaneError(
+            "Stored NeMo v6 artifact is missing its explicit runtime_profile."
+        )
     return NeMoConfigSnapshot(
         guardrail_id=str(payload["guardrail_id"]),
         guardrail_version=int(payload["guardrail_version"]),
-        compiler_version=str(payload["compiler_version"]),
+        compiler_version=compiler_version,
         output_delivery=str(payload["output_delivery"]),
         config_yaml=str(payload["config_yaml"]),
         colang_content=str(payload["colang_content"]),
@@ -3256,6 +3272,11 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
                 execution_mode=str(item.get("execution_mode", "detect")),
                 failure_mode=str(item.get("failure_mode", "fail_closed")),
                 depends_on=tuple(item.get("depends_on", ())),
+                result_var=(
+                    str(item["result_var"])
+                    if item.get("result_var")
+                    else None
+                ),
             )
             for item in payload.get("action_bindings", ())
         ),
@@ -3263,6 +3284,10 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
         required_features=tuple(payload.get("required_features", ())),
         runtime_engine=str(payload.get("runtime_engine", "llmrails")),
         colang_version=str(payload.get("colang_version", "2.x")),
+        runtime_profile=str(
+            payload.get("runtime_profile")
+            or _legacy_runtime_profile(payload)
+        ),
         rail_flows=tuple(
             tuple(item) for item in payload.get("rail_flows", ())
         ),
@@ -3273,6 +3298,34 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
             payload.get("estimated_critical_path_ms", 0)
         ),
     )
+
+
+def _legacy_runtime_profile(payload: dict[str, object]) -> str:
+    """Read pre-v6 immutable artifacts without re-compiling them."""
+    engine = str(payload.get("runtime_engine", "llmrails"))
+    colang_version = str(payload.get("colang_version", "2.x"))
+    if engine == "iorails":
+        return "iorails_native"
+    if colang_version in {"1.0", "1"}:
+        return "llmrails_colang1_standard"
+    return "llmrails_colang2_programmable"
+
+
+def _stored_runtime_profile(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        payload = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return _nemo_config_from_payload(payload).runtime_profile
+
+
+def _nemo_compiler_generation(value: str) -> int | None:
+    match = re.fullmatch(r"tasklattice-nemo-config-v(\d+)", value)
+    return int(match.group(1)) if match else None
 
 
 def _reasoning_binding(value: object) -> AutomatedReasoningPolicyBinding | None:

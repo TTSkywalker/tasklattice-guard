@@ -62,12 +62,12 @@ def test_guardrail_compiles_from_global_enforcement_mode_and_tests_create_versio
     )
     plan = service.compile_draft(guardrail.id)
 
-    assert {step.stage for step in plan.steps} == {"deterministic", "deep_judge"}
+    assert {step.stage for step in plan.steps} == {"deterministic"}
     assert plan.compiler_version == "guardrail-plan-v4"
     assert tuple(module.module for module in plan.modules_for("input")) == (
         "business_assurance",
     )
-    assert any(step.escalation == "on_uncertain" for step in plan.steps)
+    assert all(step.escalation == "never" for step in plan.steps)
     with pytest.raises(ValidationError, match="Run and pass tests"):
         service.activate_tested_version(guardrail.id)
 

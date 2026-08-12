@@ -168,6 +168,53 @@ async def test_nemo_detect_mode_records_without_enforcing():
 
 
 @pytest.mark.asyncio
+async def test_colang1_uses_the_strongest_finding_and_applies_fallback_content():
+    block_plan = _plan(("mixed_policy", "redact", "interaction_safety"))
+    block_engine = nemo_engine(
+        block_plan,
+        ResultAction(
+            "mixed_policy",
+            StageResult(
+                "unsafe",
+                "[MASKED] and blocked",
+                (
+                    _finding("mixed_policy", "redact"),
+                    _finding("mixed_policy", "reject"),
+                ),
+            ),
+        ),
+    )
+
+    blocked = await block_engine.evaluate(
+        EngineRequest("input", "masked and blocked", block_plan)
+    )
+
+    assert blocked.decision == "block"
+    assert blocked.action == "reject"
+    await block_engine.shutdown()
+
+    clarify_plan = _plan(("uncertain_policy", "reject", "interaction_safety"))
+    clarify_engine = nemo_engine(
+        clarify_plan,
+        ResultAction(
+            "uncertain_policy",
+            StageResult("uncertain", "ambiguous", reason="More context is required."),
+        ),
+    )
+
+    clarified = await clarify_engine.evaluate(
+        EngineRequest("input", "ambiguous", clarify_plan)
+    )
+
+    assert clarified.decision == "transform"
+    assert clarified.action == "clarify"
+    assert clarified.texts == (
+        "More information is required before the request can be evaluated safely.",
+    )
+    await clarify_engine.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_required_action_errors_honor_module_failure_mode():
     open_plan = _plan(
         ("optional_policy", "reject", "business_assurance"),
@@ -180,6 +227,14 @@ async def test_required_action_errors_honor_module_failure_mode():
     open_engine = nemo_engine(open_plan, stage)
     allowed = await open_engine.evaluate(EngineRequest("input", "request", open_plan))
     assert allowed.decision == "allow"
+    assert allowed.usage is not None
+    assert allowed.usage.fail_closed is False
+    assert allowed.usage.action_invocations == 1
+    assert all(
+        step.route != "fail_closed"
+        for step in allowed.trace
+        if step.kind in {"rail", "action"}
+    )
     await open_engine.shutdown()
 
     closed_plan = _plan(("required_policy", "reject", "business_assurance"))

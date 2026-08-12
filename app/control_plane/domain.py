@@ -220,6 +220,7 @@ class GuardrailVersion:
     created_at: str
     active: bool
     runtime_engine: str = "nemo"
+    runtime_profile: str = ""
     config_checksum: str = ""
     execution_mode: Literal["nemo_only"] = "nemo_only"
 

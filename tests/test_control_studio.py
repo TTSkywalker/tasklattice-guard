@@ -139,7 +139,8 @@ async def test_guardrail_creation_preview_compiles_pinned_native_version(tmp_pat
         assert preview.status_code == 200, preview.text
         payload = preview.json()
         assert payload["engine"] == "llmrails"
-        assert payload["colang_version"] == "2.x"
+        assert payload["runtime_profile"] == "llmrails_colang1_standard"
+        assert payload["colang_version"] == "1.0"
         assert payload["checksum"]
         assert payload["dependency_manifest"]
         assert payload["estimated_critical_path_ms"] > 0

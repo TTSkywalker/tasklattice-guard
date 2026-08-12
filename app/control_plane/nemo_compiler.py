@@ -3,24 +3,29 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict
-from typing import Any
+from dataclasses import asdict, replace
+from typing import Any, Literal
 
 import yaml
 from nemoguardrails import RailsConfig
 
+from ..control_library import control as library_control
 from ..nemo.action_registry import action_name_for
+from ..nemo.artifacts import config_checksum
 from ..runtime.contracts import (
     GuardrailPhase,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     NeMoActionBinding,
     NeMoConfigSnapshot,
+    NeMoRuntimeProfile,
 )
 from .domain import ControlDraft, PlanCompilationError, RailBinding
 
 
-NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v5"
+NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v6"
+
+ExecutionSurface = Literal["standalone_check", "owned_generation"]
 
 _NATIVE_IORAILS_FLOWS = {
     "content safety check input $model=content_safety",
@@ -28,6 +33,17 @@ _NATIVE_IORAILS_FLOWS = {
     "topic safety check input $model=topic_control",
     "jailbreak detection model",
 }
+
+_COLANG1_STANDARD_ACTIONS = {
+    "TaskLatticeSecretsAction",
+    "TaskLatticePiiAction",
+    "TaskLatticeBuiltinContentFilterAction",
+    "TaskLatticeTopicDeterministicAction",
+    "TaskLatticePromptSecurityFastAction",
+    "TaskLatticePromptSecurityJudgeAction",
+    "TaskLatticeTopicJudgeAction",
+}
+_COLANG1_COMPLEX_RISKS = {"contextual_grounding", "automated_reasoning"}
 
 
 class NeMoConfigCompiler:
@@ -40,6 +56,7 @@ class NeMoConfigCompiler:
         builtin_prompts_yaml: str = "",
         jailbreak_detection: dict[str, Any] | None = None,
         otel_enabled: bool = False,
+        execution_surface: ExecutionSurface = "standalone_check",
     ) -> None:
         self._models = tuple(dict(item) for item in models)
         self._model_types = frozenset(str(item.get("type", "")) for item in models)
@@ -51,6 +68,9 @@ class NeMoConfigCompiler:
             dict(jailbreak_detection) if jailbreak_detection else None
         )
         self._otel_enabled = otel_enabled
+        if execution_surface not in {"standalone_check", "owned_generation"}:
+            raise ValueError(f"Unsupported NeMo execution surface {execution_surface!r}.")
+        self._execution_surface = execution_surface
 
     def has_model_dependency(self, name: str) -> bool:
         return name in self._model_types
@@ -78,7 +98,14 @@ class NeMoConfigCompiler:
                 if not steps:
                     continue
 
-                native = self._native_flow(risk, phase, steps[0].on_unsafe)
+                # A NeMo library flow represents one terminal check.  Never
+                # collapse a multi-step risk (for example fast -> deep) into
+                # that flow or the escalation step would silently disappear.
+                native = (
+                    self._native_flow(risk, phase, steps[0].on_unsafe)
+                    if len(steps) == 1
+                    else None
+                )
                 if native is not None:
                     target = native_mutation if native.startswith("mask ") else native_detection
                     target.append(native)
@@ -86,8 +113,6 @@ class NeMoConfigCompiler:
                         required_models.add("content_safety")
                     elif risk == "topic_control":
                         required_models.add("topic_control")
-                    elif risk == "pii":
-                        required_features.add("sensitive_data_detection")
                     elif risk == "jailbreak":
                         required_features.add("jailbreak_detection")
                     continue
@@ -120,23 +145,35 @@ class NeMoConfigCompiler:
             )
 
         prompts = self._prompts_for(plan, required_models)
-        runtime_engine = (
-            "iorails"
-            if not bindings
-            and "sensitive_data_detection" not in required_features
-            and all(
-                flow in _NATIVE_IORAILS_FLOWS
-                for items in flows.values()
-                for flow in items
-            )
-            else "llmrails"
+        runtime_profile = _runtime_profile(
+            plan,
+            flows,
+            builtin_bindings,
+            custom_bindings,
+            required_features,
+            execution_surface=self._execution_surface,
         )
+        runtime_engine = (
+            "iorails" if runtime_profile == "iorails_native" else "llmrails"
+        )
+        colang_version = (
+            "2.x"
+            if runtime_profile == "llmrails_colang2_programmable"
+            else "1.0"
+        )
+        if runtime_profile == "llmrails_colang1_standard":
+            builtin_bindings = tuple(
+                _with_result_var(binding) for binding in builtin_bindings
+            )
+            bindings = builtin_bindings + custom_bindings
+            flows = _colang_v1_flow_lists(flows, builtin_bindings)
         config = self._config(
             flows,
             prompts,
             required_features,
-            colang_version="1.0" if runtime_engine == "iorails" else "2.x",
-            include_flow_lists=runtime_engine == "iorails",
+            runtime_profile=runtime_profile,
+            colang_version=colang_version,
+            include_flow_lists=runtime_profile != "llmrails_colang2_programmable",
         )
         config_yaml = yaml.safe_dump(
             config,
@@ -144,11 +181,12 @@ class NeMoConfigCompiler:
             sort_keys=False,
         )
         colang_content = (
-            ""
-            if runtime_engine == "iorails"
+            _colang_v1_standard(builtin_bindings)
+            if runtime_profile == "llmrails_colang1_standard"
+            else ""
+            if runtime_profile == "iorails_native"
             else _colang_v2(plan, flows, builtin_bindings, custom_bindings)
         )
-        colang_version = "1.0" if runtime_engine == "iorails" else "2.x"
         rail_flows = tuple(
             (phase, flow)
             for phase, phase_flows in flows.items()
@@ -157,7 +195,12 @@ class NeMoConfigCompiler:
             (binding.phases[0], binding.id) for binding in custom_bindings
         )
         dependency_manifest = _dependency_manifest(
-            plan, bindings, required_models, prompts
+            plan,
+            bindings,
+            required_models,
+            prompts,
+            runtime_profile=runtime_profile,
+            has_native_flows=any(flows.values()),
         )
         snapshot = NeMoConfigSnapshot(
             guardrail_id=plan.guardrail_id,
@@ -174,6 +217,7 @@ class NeMoConfigCompiler:
             required_features=tuple(sorted(required_features)),
             runtime_engine=runtime_engine,
             colang_version=colang_version,
+            runtime_profile=runtime_profile,
             rail_flows=rail_flows,
             dependency_manifest=dependency_manifest,
             estimated_critical_path_ms=_estimated_critical_path_ms(
@@ -188,7 +232,8 @@ class NeMoConfigCompiler:
         if draft.colang_version != "2.x":
             raise PlanCompilationError(
                 f"Custom Control {control_id!r} must use Colang 2.x; "
-                "Colang 1.0 is reserved for the IORails native lane."
+                "the Colang 1 standard lane is generated from versioned Python "
+                "Action contracts rather than user-authored Control source."
             )
         declarations: dict[str, tuple[str, int]] = {}
         for source in draft.sources:
@@ -292,8 +337,7 @@ class NeMoConfigCompiler:
 
     @staticmethod
     def checksum(snapshot: NeMoConfigSnapshot) -> str:
-        payload = json.dumps(asdict(snapshot), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(payload.encode()).hexdigest()
+        return config_checksum(snapshot)
 
     @staticmethod
     def validate(snapshot: NeMoConfigSnapshot) -> None:
@@ -313,13 +357,15 @@ class NeMoConfigCompiler:
         phase: GuardrailPhase,
         action: str,
     ) -> str | None:
-        if risk == "content_safety":
+        if risk == "content_safety" and action == "reject":
             return f"content safety check {phase} $model=content_safety"
-        if risk == "topic_control" and phase == "input" and "topic_control" in self._model_types:
+        if (
+            risk == "topic_control"
+            and action == "reject"
+            and phase == "input"
+            and "topic_control" in self._model_types
+        ):
             return "topic safety check input $model=topic_control"
-        if risk == "pii":
-            operation = "mask" if action in {"redact", "rewrite"} else "detect"
-            return f"{operation} sensitive data on {phase}"
         if (
             risk == "jailbreak"
             and phase == "input"
@@ -367,6 +413,7 @@ class NeMoConfigCompiler:
         prompts: list[dict[str, Any]],
         required_features: set[str],
         *,
+        runtime_profile: NeMoRuntimeProfile,
         colang_version: str,
         include_flow_lists: bool,
     ) -> dict[str, Any]:
@@ -391,17 +438,31 @@ class NeMoConfigCompiler:
             rails.setdefault("config", {})["jailbreak_detection"] = dict(
                 self._jailbreak_detection or {}
             )
+        tracing_enabled = (
+            self._otel_enabled
+            and runtime_profile != "llmrails_colang2_programmable"
+        )
+        tracing: dict[str, Any] = {
+            "enabled": tracing_enabled,
+            "enable_content_capture": False,
+        }
+        if runtime_profile == "llmrails_colang1_standard":
+            tracing.update(
+                {
+                    "adapters": [{"name": "OpenTelemetry"}],
+                    "span_format": "opentelemetry",
+                }
+            )
         config: dict[str, Any] = {
             "colang_version": colang_version,
             "enable_rails_exceptions": False,
             "rails": rails,
-            "tracing": {
-                "enabled": self._otel_enabled,
-                "adapters": [{"name": "OpenTelemetry"}],
-                "span_format": "opentelemetry",
-                "enable_content_capture": False,
+            "tracing": tracing,
+            "metrics": {
+                "enabled": (
+                    self._otel_enabled and runtime_profile == "iorails_native"
+                )
             },
-            "metrics": {"enabled": self._otel_enabled},
         }
         if self._models:
             config["models"] = [dict(item) for item in self._models]
@@ -415,6 +476,236 @@ def _prompts(raw: str) -> tuple[dict[str, Any], ...]:
         return ()
     payload = yaml.safe_load(raw) or {}
     return tuple(dict(item) for item in payload.get("prompts", ()))
+
+
+def _runtime_profile(
+    plan: GuardrailPlanSnapshot,
+    native_flows: dict[GuardrailPhase, list[str]],
+    builtin_bindings: tuple[NeMoActionBinding, ...],
+    custom_bindings: tuple[NeMoActionBinding, ...],
+    required_features: set[str],
+    *,
+    execution_surface: ExecutionSurface,
+) -> NeMoRuntimeProfile:
+    """Select the smallest NeMo runtime that proves the plan's semantics.
+
+    IORails owns full generation, but this service normally performs standalone
+    pre/post checks.  The latter therefore remains on LLMRails even when every
+    configured library flow is IORails-compatible.
+    """
+    configured_native = tuple(
+        flow for items in native_flows.values() for flow in items
+    )
+    iorails_compatible = (
+        execution_surface == "owned_generation"
+        and not builtin_bindings
+        and not custom_bindings
+        and "sensitive_data_detection" not in required_features
+        and bool(configured_native)
+        and all(flow in _NATIVE_IORAILS_FLOWS for flow in configured_native)
+    )
+    if iorails_compatible:
+        return "iorails_native"
+    if _is_colang1_standard_compatible(
+        plan, configured_native, builtin_bindings, custom_bindings
+    ):
+        return "llmrails_colang1_standard"
+    return "llmrails_colang2_programmable"
+
+
+def _is_colang1_standard_compatible(
+    plan: GuardrailPlanSnapshot,
+    native_flows: tuple[str, ...],
+    builtin_bindings: tuple[NeMoActionBinding, ...],
+    custom_bindings: tuple[NeMoActionBinding, ...],
+) -> bool:
+    if any(
+        not any(
+            module.phase == phase and step.id in module.step_ids
+            for module in plan.modules
+        )
+        for step in plan.steps
+        for phase in step.phases
+    ):
+        # Fall through to the programmable compiler, whose graph validation
+        # reports the missing Control module before a runtime can be built.
+        return False
+    if custom_bindings:
+        # User-authored Controls are validated and namespaced as Colang 2.x.
+        return False
+    if any(step.risk in _COLANG1_COMPLEX_RISKS for step in plan.steps):
+        return False
+    if any(module.depends_on for module in plan.modules):
+        return False
+    if any(
+        module.input_view not in {"original", "complete_output"}
+        for module in plan.modules
+    ):
+        return False
+
+    steps_by_risk_phase: dict[tuple[str, GuardrailPhase], list[object]] = {}
+    for step in plan.steps:
+        for phase in step.phases:
+            steps_by_risk_phase.setdefault((step.risk, phase), []).append(step)
+    if any(len(items) != 1 for items in steps_by_risk_phase.values()):
+        # Escalation and multi-stage chains need ordered result-aware routing.
+        return False
+    if any(
+        binding.action_name not in _COLANG1_STANDARD_ACTIONS
+        or binding.depends_on
+        or binding.execution_mode != "detect"
+        for binding in builtin_bindings
+    ):
+        return False
+
+    # Native library flows and custom Actions do not expose one common result
+    # contract.  Keep mixed plans programmable until native adapters produce
+    # explicit per-binding results.
+    if native_flows and builtin_bindings:
+        return False
+
+    modifiers_by_phase = {
+        phase: sum(
+            1
+            for binding in builtin_bindings
+            if phase in binding.phases and _binding_can_modify(binding)
+        )
+        for phase in ("input", "output")
+    }
+    return all(count <= 1 for count in modifiers_by_phase.values())
+
+
+def _binding_can_modify(binding: NeMoActionBinding) -> bool:
+    if binding.on_unsafe not in {"reject", "pass"}:
+        return True
+    if binding.action_name in {
+        "TaskLatticeTopicDeterministicAction",
+        "TaskLatticePromptSecurityFastAction",
+        "TaskLatticePromptSecurityJudgeAction",
+        "TaskLatticeTopicJudgeAction",
+    }:
+        # These Actions can return ``uncertain``.  The standard lane maps that
+        # outcome to a clarification, which is a content modification even when
+        # the configured unsafe action itself is reject.
+        return True
+    if binding.risk != "builtin_content_filter":
+        return False
+
+    # A LiteLLM content-filter binding can contain a mix of BLOCK and MASK
+    # rules even though its Guardrail-level fallback action is reject.  Inspect
+    # the immutable rule selection rather than classifying every imported pack
+    # as a modifier; this lets block-only packs safely share the C1 parallel
+    # lane with one real modifier (for example PII redaction).
+    parameters = dict(binding.parameters)
+    try:
+        enabled = json.loads(parameters.get("enabled_rules_json", "{}"))
+        overrides = json.loads(parameters.get("rule_actions_json", "{}"))
+        custom_rules = json.loads(parameters.get("custom_rules_json", "[]"))
+    except (TypeError, ValueError):
+        return True
+
+    if any(
+        _is_modifying_rule_action(str(item.get("action", "")))
+        for item in custom_rules
+        if isinstance(item, dict)
+    ):
+        return True
+
+    for control_id in parameters.get("control_ids", "").splitlines():
+        control_id = control_id.strip()
+        if not control_id:
+            continue
+        definition = library_control(control_id)
+        if definition is None:
+            return True
+        selected = enabled.get(control_id)
+        selected_ids = set(selected) if isinstance(selected, list) else None
+        for rule in definition.rules:
+            if selected_ids is not None and rule.id not in selected_ids:
+                continue
+            action = overrides.get(f"{control_id}:{rule.id}", rule.action)
+            if _is_modifying_rule_action(str(action)):
+                return True
+    return False
+
+
+def _is_modifying_rule_action(action: str) -> bool:
+    return action.strip().casefold() in {"mask", "redact", "rewrite"}
+
+
+def _with_result_var(binding: NeMoActionBinding) -> NeMoActionBinding:
+    return replace(
+        binding,
+        result_var=(
+            f"tasklattice_result_{_flow_identifier(binding.id)}_"
+            f"{_binding_suffix(binding)}"
+        ),
+    )
+
+
+def _colang_v1_flow_lists(
+    native_flows: dict[GuardrailPhase, list[str]],
+    bindings: tuple[NeMoActionBinding, ...],
+) -> dict[GuardrailPhase, list[str]]:
+    return {
+        phase: [
+            *native_flows[phase],
+            *(
+                _colang_v1_flow_name(binding, phase)
+                for binding in bindings
+                if phase in binding.phases
+            ),
+        ]
+        for phase in ("input", "output")
+    }
+
+
+def _colang_v1_standard(
+    bindings: tuple[NeMoActionBinding, ...],
+) -> str:
+    lines = [
+        "define bot tasklattice refuse",
+        '  "The interaction was blocked by the active Guardrail."',
+        "",
+    ]
+    for binding in bindings:
+        if not binding.action_name or not binding.result_var:
+            raise PlanCompilationError(
+                f"Colang 1 Action binding {binding.id!r} is incomplete."
+            )
+        for phase in binding.phases:
+            message_var = "$user_message" if phase == "input" else "$bot_message"
+            lines.extend(
+                (
+                    f"define subflow {_colang_v1_flow_name(binding, phase)}",
+                    (
+                        f"  ${binding.result_var} = execute {binding.action_name}("
+                        f'text={message_var}, binding_id="{binding.id}")'
+                    ),
+                    f'  if ${binding.result_var}["blocked"]',
+                    "    bot tasklattice refuse",
+                    "    stop",
+                    f'  else if ${binding.result_var}["modified"]',
+                    f'    {message_var} = ${binding.result_var}["content"]',
+                    "",
+                )
+            )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _colang_v1_flow_name(
+    binding: NeMoActionBinding,
+    phase: GuardrailPhase,
+) -> str:
+    return (
+        "tasklattice check "
+        f"{phase} {_flow_identifier(binding.id).replace('_', ' ')} "
+        f"{_binding_suffix(binding)}"
+    )
+
+
+def _binding_suffix(binding: NeMoActionBinding) -> str:
+    return hashlib.sha256(binding.id.encode()).hexdigest()[:8]
 
 
 def _timeout_for(
@@ -585,8 +876,13 @@ def _binding_flow_lines(bindings: tuple[NeMoActionBinding, ...]) -> list[str]:
                 f'{previous}["verdict"] == "uncertain"'
             ),
             "on_uncertain": f'{previous}["verdict"] == "uncertain"',
-            "never": "false",
+            # A later binding with no route into it is retained in the
+            # immutable manifest, but must not produce invalid `if false`
+            # Colang 2.x syntax or execute accidentally.
+            "never": None,
         }[binding.escalation]
+        if condition is None:
+            continue
         lines.extend((f"  if {condition}", f"    {call}"))
     return lines
 
@@ -998,6 +1294,9 @@ def _dependency_manifest(
     bindings: tuple[NeMoActionBinding, ...],
     required_models: set[str],
     prompts: list[dict[str, Any]],
+    *,
+    runtime_profile: NeMoRuntimeProfile,
+    has_native_flows: bool,
 ) -> tuple[tuple[str, str, str], ...]:
     entries: set[tuple[str, str, str]] = set()
     for version in plan.control_versions:
@@ -1005,13 +1304,24 @@ def _dependency_manifest(
         for source in version.sources:
             digest = hashlib.sha256(source.content.encode()).hexdigest()
             entries.add(("source", f"{version.control_id}/{source.path}", digest))
-        for action in version.action_references:
-            entries.add(("action", action.name, action.version))
+        if version.source != "built-in":
+            # Custom Colang source may call more than the primary Action stored
+            # on its rail binding, so every declared reference is a runtime
+            # dependency. Built-in Control packages list all possible stage
+            # implementations; only the plan-selected binding is required.
+            for action in version.action_references:
+                entries.add(("action", action.name, action.version))
         entries.update(("model", item, "pinned") for item in version.model_dependencies)
         entries.update(("prompt", item, "pinned") for item in version.prompt_dependencies)
     for binding in bindings:
         if binding.action_name and binding.action_version:
             entries.add(("action", binding.action_name, binding.action_version))
+    if runtime_profile == "llmrails_colang2_programmable":
+        entries.add(("action", "TaskLatticeResolveAction", "1.0.0"))
+        if has_native_flows:
+            entries.add(("action", "TaskLatticeRecordNativeAction", "1.0.0"))
+        if any(item.control_id is not None for item in bindings):
+            entries.add(("action", "TaskLatticeRecordControlAction", "1.0.0"))
     entries.update(("model", item, "profile") for item in required_models)
     for prompt in prompts:
         task = str(prompt.get("task", ""))
