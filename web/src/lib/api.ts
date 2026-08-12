@@ -102,11 +102,20 @@ export type EvaluationTraceStep = {
   status: string;
   detail: string;
   duration_ms: number;
+  parent_id?: string | null;
   stage?: string | null;
   verdict?: string | null;
   route?: string | null;
   risk?: string | null;
   confidence?: number | null;
+  control_id?: string | null;
+  control_version?: number | null;
+  rail_type?: string | null;
+  flow_name?: string | null;
+  action_name?: string | null;
+  action_version?: string | null;
+  outcome?: string | null;
+  engine?: string | null;
 };
 
 export type EvaluationCaseResult = {
@@ -144,18 +153,48 @@ export type TestRun = {
   created_at: string;
 };
 
-export type QuickTestResult = {
-  guardrail_id: string;
-  source_draft_version: number;
+export type PlaygroundProbeControl = {
+  id: string;
+  name: string;
+  risk: string;
+  status: "matched" | "not_matched" | "error";
+  duration_ms: number;
+};
+
+export type PlaygroundProbeFinding = {
+  id: string;
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  confidence: number;
+  recommended_action: string;
+  control_id: string | null;
+  rule_id: string | null;
+};
+
+export type PlaygroundProbeResult = {
+  probe_id: string;
+  trace_id: string;
+  evidence_id: string | null;
+  guardrail: {
+    id: string;
+    name: string;
+    draft_version: number;
+    compiler_version: string;
+  };
   phase: "input" | "output";
-  input_content: string;
+  content: string;
   decision: "allow" | "transform" | "block";
   action: string;
   output_content: string;
-  stage_reached: string;
   latency_ms: number;
   reason: string;
-  findings: EvaluationFinding[];
+  runtime: string;
+  triggered_control: { id: string; name: string } | null;
+  triggered_rule: { id: string; name: string } | null;
+  controls: PlaygroundProbeControl[];
+  findings: PlaygroundProbeFinding[];
+  trace_summary: { steps: number; matched_steps: number };
   trace: EvaluationTraceStep[];
 };
 
@@ -479,8 +518,29 @@ export type DecisionEvent = {
   outcome: string;
   guardrail_id: string | null;
   assignment_id: string | null;
+  integration_id: string | null;
   risk: string | null;
   detail: string;
+};
+
+export type MetricWindow = "1h" | "24h" | "7d" | "15d" | "30d";
+
+export type MetricTrendPoint = {
+  timestamp: string;
+  total: number;
+  allowed: number;
+  blocked: number;
+  transformed: number;
+  errored: number;
+  timed_out: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+};
+
+export type MetricTrendSeries = {
+  name: string;
+  points: MetricTrendPoint[];
 };
 
 export type SystemStatus = {
@@ -498,7 +558,7 @@ export type SystemStatus = {
 };
 
 export type Metrics = {
-  window: "24h" | "7d" | "30d";
+  window: MetricWindow;
   window_start: string;
   scope: {
     guardrail_id: string | null;
@@ -508,6 +568,12 @@ export type Metrics = {
   comparison: {
     previous_total_decisions: number;
     request_delta_pct: number | null;
+    previous_intervention_rate: number | null;
+    intervention_rate_delta_pp: number | null;
+    previous_runtime_p95_ms: number | null;
+    runtime_p95_delta_ms: number | null;
+    previous_error_rate: number | null;
+    error_rate_delta_pp: number | null;
   };
   total_decisions: number;
   allowed: number;
@@ -617,7 +683,13 @@ export type Metrics = {
     parallel_groups: string[];
   }>;
   unassigned_requests: number;
-  trend: Array<{ date: string; total: number; blocked: number; intervened: number; errored: number }>;
+  interval: "1m" | "15m" | "1h" | "6h" | "1d";
+  trend: MetricTrendPoint[];
+  trend_series: {
+    none: MetricTrendSeries[];
+    environment: MetricTrendSeries[];
+    guardrail: MetricTrendSeries[];
+  };
   system_status: "healthy" | "degraded";
 };
 
@@ -725,7 +797,14 @@ export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" 
 export const createTestRun = (guardrailId: string) => mutate<TestRun>("/api/v1/test-runs", "POST", { guardrail_id: guardrailId });
 export const getTestRuns = (guardrailId?: string) => read<Collection<TestRun>>(`/api/v1/test-runs${query({ guardrail_id: guardrailId })}`);
 export const getTestRun = (runId: string) => read<TestRun>(`/api/v1/test-runs/${encodeURIComponent(runId)}`);
-export const runQuickTest = (guardrailId: string, input: { phase: "input" | "output"; content: string }) => mutate<QuickTestResult>("/api/v1/quick-tests", "POST", { guardrail_id: guardrailId, ...input });
+export const createPlaygroundProbe = (
+  guardrailId: string,
+  input: {
+    phase: "input" | "output";
+    content: string;
+    context_messages?: { role: "user" | "assistant"; content: string }[];
+  },
+) => mutate<PlaygroundProbeResult>("/api/v1/playground/probes", "POST", { guardrail_id: guardrailId, ...input });
 export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
 export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "risk" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
 export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");
@@ -735,7 +814,7 @@ export const getTrafficScopeFields = () => read<Collection<TrafficScopeField>>("
 export const createAssignment = (input: { name: string; guardrail_id: string; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<GuardrailAssignment>("/api/v1/assignments", "POST", input);
 export const setAssignmentEnabled = (id: string, enabled: boolean) => mutate<GuardrailAssignment>(`/api/v1/assignments/${encodeURIComponent(id)}`, "PATCH", { enabled });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
-export const createIntegration = (input: { name: string; environment: "production" | "staging" | "development" | "test"; protocol: "litellm" | "http" | "a2a" }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", input);
-export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; outcome?: string; risk?: string } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, outcome: filters.outcome, risk: filters.risk })}`);
-export const getMetrics = (filters: { guardrailId?: string; environment?: string; window?: "24h" | "7d" | "30d" } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, environment: filters.environment, window: filters.window })}`);
+export const createIntegration = (input: { name: string; protocol: Integration["protocol"] }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", { ...input, environment: "production" });
+export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; kind?: string; outcome?: string; risk?: string; environment?: string; window?: MetricWindow } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, environment: filters.environment, window: filters.window })}`);
+export const getMetrics = (filters: { guardrailId?: string; environment?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, environment: filters.environment, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

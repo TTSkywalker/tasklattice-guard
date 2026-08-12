@@ -24,10 +24,11 @@ import { queryKeys } from "@/features/query-keys";
 import { getSystemStatus } from "@/lib/api";
 
 const names: Record<string, { group: string; page: string }> = {
-  "/": { group: "nav.home", page: "nav.overview" },
+  "/": { group: "nav.home", page: "nav.dashboard" },
+  "/dashboard": { group: "nav.home", page: "nav.dashboard" },
   "/guardrails": { group: "nav.buildValidate", page: "nav.guardrails" },
   "/control-library": { group: "nav.buildValidate", page: "nav.controlLibrary" },
-  "/playground": { group: "nav.buildValidate", page: "nav.playground" },
+  "/playground": { group: "nav.home", page: "nav.playground" },
   "/evaluations": { group: "nav.buildValidate", page: "nav.evaluations" },
   "/deployments": { group: "nav.runtime", page: "nav.deployments" },
   "/assignments": { group: "nav.runtime", page: "nav.deployments" },
@@ -41,7 +42,7 @@ export function ControlPlaneLayout() {
   const { t } = useTranslation();
   const auth = useAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const location = names[pathname] ?? (pathname.startsWith("/guardrails/") ? names["/guardrails"] : { group: "nav.home", page: "nav.overview" });
+  const location = names[pathname] ?? (pathname.startsWith("/guardrails/") ? names["/guardrails"] : { group: "nav.home", page: "nav.dashboard" });
   const systemStatus = useQuery({ queryKey: queryKeys.systemStatus, queryFn: getSystemStatus, refetchInterval: 15_000, enabled: Boolean(auth.status?.authenticated) });
 
   if (auth.isLoading) {
@@ -78,7 +79,7 @@ export function ControlPlaneLayout() {
               <RuntimeHealthMenu loading={systemStatus.isLoading} status={systemStatus.data} />
             </div>
           </header>
-          <main className="mx-auto w-full max-w-[1600px] min-w-0 flex-1 px-4 pb-12 sm:px-6 lg:px-8">
+          <main className="mx-auto w-full max-w-[1600px] min-w-0 flex-1 px-4 pb-12 transition-[max-width] duration-200 ease-linear motion-reduce:transition-none sm:px-6 lg:px-8 group-has-[[data-state=collapsed]]/sidebar-wrapper:max-w-full">
             <Outlet />
           </main>
         </SidebarInset>

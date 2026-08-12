@@ -455,6 +455,7 @@ class DecisionEvent:
     assignment_id: str | None
     risk: str | None
     detail: str
+    integration_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

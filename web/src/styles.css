@@ -83,6 +83,16 @@
   --radius-large: 1rem;
   --shadow-surface: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.08);
   --shadow-overlay: 0 12px 32px rgb(16 24 40 / 0.16);
+  --chart-1: #2563eb;
+  --chart-2: #667085;
+  --chart-3: #0e7490;
+  --chart-4: #b7791f;
+  --chart-5: #5b6b88;
+  --chart-6: #7c6f64;
+  --chart-grid: #edf0f3;
+  --outcome-allow: #3f8f72;
+  --outcome-transform: #c28b37;
+  --outcome-block: #b6544b;
 }
 
 @layer base {

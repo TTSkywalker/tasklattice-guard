@@ -49,14 +49,12 @@ import {
   getControlDefinitions,
   getGuardrailTemplates,
   getAssignments,
-  runQuickTest,
   rollbackGuardrail,
   updateGuardrail,
   type GuardrailControl,
   type GuardrailControlConfig,
   type EvaluationCaseResult,
   type IntentAnalysis,
-  type QuickTestResult,
   type TestCase,
   type ControlDefinition,
   type Guardrail,
@@ -730,123 +728,6 @@ function DetectionPipeline({ definitions, controls }: { definitions: ControlDefi
       </div>
     </section>
   );
-}
-
-export function QuickTestPanel({ guardrailId }: { guardrailId: string }) {
-  const { t } = useTranslation();
-  const [phase, setPhase] = useState<"input" | "output">("input");
-  const [content, setContent] = useState("");
-  const [result, setResult] = useState<QuickTestResult | null>(null);
-  const quickTest = useMutation({
-    mutationFn: () => runQuickTest(guardrailId, { phase, content: content.trim() }),
-    onSuccess: setResult,
-  });
-
-  const changePhase = (value: "input" | "output") => {
-    setPhase(value);
-    setResult(null);
-    quickTest.reset();
-  };
-  const changeContent = (value: string) => {
-    setContent(value);
-    setResult(null);
-    quickTest.reset();
-  };
-
-  return (
-    <section className="overflow-hidden rounded-lg border bg-card">
-      <header className="flex flex-col gap-3 border-b bg-muted/30 p-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="max-w-2xl">
-          <h3 className="text-lg font-semibold">{t("guardrails.quickTestTitle")}</h3>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">{t("guardrails.quickTestDescription")}</p>
-        </div>
-        <span className="shrink-0 self-start rounded-md border bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground">{t("guardrails.draftOnly")}</span>
-      </header>
-
-      <div className="grid xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,.95fr)]">
-        <div className="border-b p-5 xl:border-r xl:border-b-0">
-          <div className="grid gap-5">
-            <Field label={t("guardrails.testSurface")} hint={t("guardrails.testSurfaceHint")}>
-              <Select value={phase} onValueChange={(value) => changePhase(value as "input" | "output")}>
-                <SelectTrigger aria-label={t("guardrails.testSurface")} className="min-h-11 rounded-lg bg-card"><SelectValue /></SelectTrigger>
-                <SelectContent className="rounded-lg">
-                  <SelectItem value="input">{t("guardrails.modelInput")}</SelectItem>
-                  <SelectItem value="output">{t("guardrails.modelResponse")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label={t(phase === "input" ? "guardrails.inputToInspect" : "guardrails.outputToInspect")}>
-              <Textarea
-                value={content}
-                onChange={(event) => changeContent(event.target.value)}
-                className="min-h-56 resize-y rounded-lg bg-card font-mono text-sm leading-6"
-                placeholder={t(phase === "input" ? "guardrails.quickInputPlaceholder" : "guardrails.quickOutputPlaceholder")}
-                maxLength={8_000}
-              />
-            </Field>
-          </div>
-          <div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="max-w-md text-xs leading-5 text-muted-foreground">{t("guardrails.quickTestNoEvidence")}</p>
-            <Button className="min-h-11 shrink-0" disabled={!content.trim() || quickTest.isPending} onClick={() => quickTest.mutate()}>
-              {quickTest.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
-              {t(quickTest.isPending ? "guardrails.runningQuickTest" : "guardrails.runQuickTest")}
-            </Button>
-          </div>
-        </div>
-
-        <div className="min-h-[440px] bg-muted/15 p-5" aria-live="polite">
-          {quickTest.error ? <ErrorNotice error={quickTest.error} /> : result ? (
-            <QuickTestResultView result={result} />
-          ) : quickTest.isPending ? (
-            <div className="space-y-4"><Skeleton className="h-8 w-32" /><Skeleton className="h-24 rounded-lg" /><Skeleton className="h-32 rounded-lg" /></div>
-          ) : (
-            <div className="flex h-full min-h-96 items-center justify-center text-center">
-              <div className="max-w-xs">
-                <span className="mx-auto grid size-10 place-items-center rounded-full border bg-card text-muted-foreground"><FlaskConical className="size-4" /></span>
-                <h4 className="mt-4 text-sm font-semibold">{t("guardrails.noQuickTest")}</h4>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("guardrails.noQuickTestDescription")}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function QuickTestResultView({ result }: { result: QuickTestResult }) {
-  const { t } = useTranslation();
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
-        <div><p className="text-xs font-medium text-muted-foreground">{t("guardrails.currentDecision")}</p><h4 className="mt-1 text-lg font-semibold">{t("guardrails.quickTestResult")}</h4></div>
-        <StateBadge state={result.decision} />
-      </div>
-      <dl className="mt-5 divide-y overflow-hidden rounded-lg border bg-card">
-        <QuickResultFact label={t("guardrails.actualAction")} value={actionLabel(result.action, t)} />
-        <QuickResultFact label={t("guardrails.stageReached")} value={stageLabel(result.stage_reached, t)} />
-        <QuickResultFact label={t("guardrails.executionLatency")} value={`${result.latency_ms} ms`} />
-      </dl>
-      <section className="mt-4 rounded-lg border bg-card p-4">
-        <h5 className="text-xs font-medium text-muted-foreground">{t("guardrails.decisionReason")}</h5>
-        <p className="mt-2 text-sm leading-6">{result.reason || t("guardrails.evidenceNotRecorded")}</p>
-      </section>
-      {result.decision === "transform" && result.output_content ? <div className="mt-4"><EvidenceContent label={t("guardrails.transformedContent")} meta={actionLabel(result.action, t)} value={result.output_content} /></div> : null}
-      {result.findings.length ? (
-        <section className="mt-4">
-          <h5 className="text-xs font-medium text-muted-foreground">{t("guardrails.triggeredFindings")}</h5>
-          <div className="mt-2 divide-y overflow-hidden rounded-lg border bg-card">
-            {result.findings.map((finding, index) => <div key={`${finding.risk}-${index}`} className="p-3"><div className="flex items-center justify-between gap-3"><strong className="text-sm font-medium">{riskLabel(finding.risk, t)}</strong><span className="font-mono text-xs text-muted-foreground">{Math.round(finding.confidence * 100)}%</span></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{finding.evidence}</p></div>)}
-          </div>
-        </section>
-      ) : null}
-      <p className="mt-4 text-xs leading-5 text-muted-foreground">{t("guardrails.quickTestDraftVersion", { version: result.source_draft_version })}</p>
-    </div>
-  );
-}
-
-function QuickResultFact({ label, value }: { label: string; value: string }) {
-  return <div className="flex items-center justify-between gap-4 px-4 py-3"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="text-right text-sm font-medium">{value}</dd></div>;
 }
 
 export function TestEvidence({ guardrail }: { guardrail: Guardrail }) {

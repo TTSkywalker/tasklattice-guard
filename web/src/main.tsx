@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createBrowserHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
+import { createBrowserHistory, createRootRoute, createRoute, createRouter, Navigate, RouterProvider } from "@tanstack/react-router";
 import { ThemeProvider } from "next-themes";
 
 import { ControlPlaneLayout } from "@/routes/layout";
@@ -9,9 +9,10 @@ import { GuardrailDetailPage, GuardrailsPage } from "@/routes/guardrails";
 import { AssignmentsPage } from "@/routes/assignments";
 import { EvidencePage } from "@/routes/evidence";
 import { IntegrationsPage } from "@/routes/integrations";
-import { EvaluationsPage, PlaygroundPage } from "@/routes/validation";
+import { EvaluationsPage } from "@/routes/validation";
+import { PlaygroundPage } from "@/routes/playground";
 import { UsersPage } from "@/routes/users";
-import { OverviewPage } from "@/routes/overview";
+import { DashboardPage } from "@/routes/dashboard";
 import { ControlLibraryPage } from "@/routes/control-library";
 import { AuthProvider } from "@/lib/auth";
 import "@/i18n";
@@ -19,7 +20,8 @@ import "@/styles.css";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, retry: 1 } } });
 const rootRoute = createRootRoute({ component: ControlPlaneLayout });
-const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: OverviewPage });
+const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <Navigate to="/dashboard" replace /> });
+const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: DashboardPage });
 const guardrailsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails", component: GuardrailsPage });
 const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails/$guardrailId", component: GuardrailDetailPage });
 const controlLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/control-library", component: ControlLibraryPage });
@@ -34,6 +36,7 @@ const evidenceRoute = createRoute({ getParentRoute: () => rootRoute, path: "/evi
 const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  dashboardRoute,
   guardrailsRoute,
   guardrailDetailRoute,
   controlLibraryRoute,

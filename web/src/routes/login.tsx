@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Building2, Languages, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +13,7 @@ import type { SupportedLanguage } from "@/i18n";
 export function LoginPage() {
   const { t, i18n } = useTranslation();
   const { login, setLanguage, loginPending } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,6 +23,7 @@ export function LoginPage() {
     setError("");
     try {
       await login({ email, password });
+      await navigate({ to: "/dashboard", replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("common.unknownError"));
     }

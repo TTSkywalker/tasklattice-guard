@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, Cable, ChevronsUpDown, FlaskConical, Globe2, KeyRound, LibraryBig, ListChecks, LogOut, Rocket, ShieldCheck, UsersRound } from "lucide-react";
+import { Activity, Cable, ChevronsUpDown, FlaskConical, Globe2, KeyRound, LayoutDashboard, LibraryBig, ListChecks, LogOut, Rocket, ShieldCheck, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -39,11 +39,17 @@ import { getAssignments, getGuardrails, getIntegrations } from "@/lib/api";
 
 const navigation = [
   {
+    label: "nav.home",
+    items: [
+      { label: "nav.dashboard", to: "/dashboard", icon: LayoutDashboard },
+      { label: "nav.playground", to: "/playground", icon: FlaskConical },
+    ],
+  },
+  {
     label: "nav.buildValidate",
     items: [
       { label: "nav.guardrails", to: "/guardrails", icon: ShieldCheck, count: "guardrails" },
       { label: "nav.controlLibrary", to: "/control-library", icon: LibraryBig },
-      { label: "nav.playground", to: "/playground", icon: FlaskConical },
       { label: "nav.evaluations", to: "/evaluations", icon: ListChecks },
     ],
   },
@@ -100,7 +106,7 @@ export function ControlPlaneSidebar() {
       <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       <SidebarHeader className="h-16 justify-center border-b border-sidebar-border px-4 group-data-[collapsible=icon]:px-3">
         <Link
-          to="/"
+          to="/dashboard"
           aria-label="TaskLattice Guard"
           onClick={() => setOpenMobile(false)}
           className="flex min-h-11 items-center gap-2.5 rounded-lg px-1 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center"

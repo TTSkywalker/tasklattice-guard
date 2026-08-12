@@ -1511,7 +1511,9 @@ class ControlPlaneService:
     def activities(self, limit: int = 100) -> tuple[DecisionEvent, ...]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM evidence_events ORDER BY created_at DESC, id DESC LIMIT ?",
+                "SELECT id, created_at, kind, outcome, guardrail_id, assignment_id, "
+                "risk, detail, integration_id FROM evidence_events "
+                "ORDER BY created_at DESC, id DESC LIMIT ?",
                 (max(1, min(limit, 500)),),
             ).fetchall()
         return tuple(
@@ -1524,6 +1526,7 @@ class ControlPlaneService:
                 assignment_id=str(row[5]) if row[5] else None,
                 risk=str(row[6]) if row[6] else None,
                 detail=str(row[7]),
+                integration_id=str(row[8]) if row[8] else None,
             )
             for row in rows
         )
@@ -1740,6 +1743,7 @@ class ControlPlaneService:
                 outcome=outcome,
                 guardrail_id=guardrail_id,
                 assignment_id=assignment_id,
+                integration_id=integration_id,
                 risk=risk,
                 detail=detail,
             )
@@ -1993,7 +1997,8 @@ class ControlPlaneService:
                 guardrail_id TEXT,
                 assignment_id TEXT,
                 risk TEXT,
-                detail TEXT NOT NULL
+                detail TEXT NOT NULL,
+                integration_id TEXT
             );
             CREATE TABLE runtime_metric_events (
                 id TEXT PRIMARY KEY,
@@ -2239,6 +2244,14 @@ class ControlPlaneService:
 
     @staticmethod
     def _ensure_runtime_metrics_schema(connection: sqlite3.Connection) -> None:
+        evidence_columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(evidence_events)"
+            ).fetchall()
+        }
+        if "integration_id" not in evidence_columns:
+            connection.execute("ALTER TABLE evidence_events ADD COLUMN integration_id TEXT")
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS runtime_metric_events (
@@ -2613,13 +2626,14 @@ class ControlPlaneService:
         detail: str,
         guardrail_id: str | None = None,
         assignment_id: str | None = None,
+        integration_id: str | None = None,
         risk: str | None = None,
     ) -> None:
         connection.execute(
             """
             INSERT INTO evidence_events
-                (id, created_at, kind, outcome, guardrail_id, assignment_id, risk, detail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, created_at, kind, outcome, guardrail_id, assignment_id, risk, detail, integration_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 f"evidence-{uuid.uuid4().hex[:12]}",
@@ -2630,6 +2644,7 @@ class ControlPlaneService:
                 assignment_id,
                 risk,
                 detail,
+                integration_id,
             ),
         )
 

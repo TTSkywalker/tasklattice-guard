@@ -18,6 +18,7 @@ class ControlPlaneStaticFiles(StaticFiles):
                 or not _accepts_html(scope)
                 or path.split("/", 1)[0]
                 not in {
+                    "dashboard",
                     "guardrails",
                     "control-library",
                     "playground",

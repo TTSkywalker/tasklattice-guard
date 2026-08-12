@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Eraser, FlaskConical, LoaderCircle, Play, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, LoaderCircle, Play, Plus, Search, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, PageHeader, StateBadge } from "@/components/product-shell";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { queryKeys } from "@/features/query-keys";
 import {
   createTestRun,
@@ -21,112 +18,11 @@ import {
   getGuardrails,
   getTestCases,
   getTestRuns,
-  runQuickTest,
   type EvaluationCaseResult,
   type Guardrail,
-  type QuickTestResult,
   type TestRun,
 } from "@/lib/api";
 import { AddTestCaseSheet } from "@/routes/guardrails";
-
-type PlaygroundTurn = {
-  id: string;
-  phase: "input" | "output";
-  content: string;
-  result: QuickTestResult;
-};
-
-export function PlaygroundPage() {
-  const { t } = useTranslation();
-  const guardrailsQuery = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
-  const guardrails = guardrailsQuery.data?.items ?? [];
-  const [guardrailId, setGuardrailId] = useGuardrailSelection(guardrails);
-  const selected = guardrails.find((item) => item.id === guardrailId);
-
-  return (
-    <section className="py-6 sm:py-8">
-      <PageHeader title={t("pages.playground.title")} description={t("pages.playground.description")} />
-      {guardrailsQuery.error ? <div className="mt-5"><ErrorNotice error={guardrailsQuery.error} /></div> : null}
-      {guardrailsQuery.isLoading ? <Skeleton className="mt-5 h-[44rem] rounded-xl" /> : null}
-      {!guardrailsQuery.isLoading && !guardrails.length ? <div className="mt-5"><EmptyState title={t("validation.noGuardrails")} description={t("validation.noGuardrailsDescription")} /></div> : null}
-      {selected ? <PlaygroundWorkspace key={guardrailId} guardrail={selected} guardrails={guardrails} value={guardrailId} onChange={setGuardrailId} /> : null}
-    </section>
-  );
-}
-
-function PlaygroundWorkspace({ guardrail, guardrails, value, onChange }: { guardrail: Guardrail; guardrails: Guardrail[]; value: string; onChange: (value: string) => void }) {
-  const { t } = useTranslation();
-  const [phase, setPhase] = useState<"input" | "output">("input");
-  const [content, setContent] = useState("");
-  const [turns, setTurns] = useState<PlaygroundTurn[]>([]);
-  const quickTest = useMutation({
-    mutationFn: (input: { phase: "input" | "output"; content: string }) => runQuickTest(guardrail.id, input),
-    onSuccess: (result, input) => {
-      setTurns((current) => [...current, { id: `${Date.now()}-${current.length}`, ...input, result }]);
-      setContent("");
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : t("guardrails.operationFailed")),
-  });
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    const trimmed = content.trim();
-    if (trimmed && !quickTest.isPending) quickTest.mutate({ phase, content: trimmed });
-  };
-
-  return (
-    <section className="mt-5 overflow-hidden rounded-xl border bg-card shadow-xs">
-      <header className="flex flex-col gap-4 border-b bg-muted/20 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><FlaskConical className="size-4 text-primary" /><h2 className="text-sm font-semibold">{t("validation.testConversation")}</h2><Badge variant="outline">{t("validation.draftSession")}</Badge></div>
-          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{guardrail.purpose}</p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Select value={value} onValueChange={onChange}><SelectTrigger className="min-h-11 w-full bg-card sm:w-72" aria-label={t("validation.chooseGuardrail")}><SelectValue /></SelectTrigger><SelectContent>{guardrails.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
-          <Button type="button" variant="ghost" className="min-h-11" disabled={!turns.length} onClick={() => setTurns([])}><Eraser />{t("validation.clearSession")}</Button>
-          <Button asChild variant="outline" className="min-h-11"><Link to="/guardrails/$guardrailId" params={{ guardrailId: guardrail.id }}>{t("validation.openDefinition")}</Link></Button>
-        </div>
-      </header>
-
-      <div className="max-h-[58vh] min-h-[28rem] overflow-y-auto bg-muted/10 p-4 sm:p-6" aria-live="polite">
-        {!turns.length ? (
-          <div className="flex min-h-[24rem] items-center justify-center text-center"><div className="max-w-md"><span className="mx-auto grid size-11 place-items-center rounded-full border bg-card text-muted-foreground"><FlaskConical className="size-5" /></span><h3 className="mt-4 text-base font-semibold">{t("validation.emptyConversation")}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("validation.emptyConversationDescription")}</p></div></div>
-        ) : <div className="mx-auto max-w-4xl space-y-6">{turns.map((turn) => <PlaygroundTurnView key={turn.id} turn={turn} />)}</div>}
-        {quickTest.isPending ? <div className="mx-auto mt-6 flex max-w-4xl items-center gap-3 rounded-xl border bg-card p-4 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin text-primary" />{t("validation.inspectingDraft")}</div> : null}
-      </div>
-
-      <form className="sticky bottom-0 border-t bg-card/95 p-4 backdrop-blur sm:p-5" onSubmit={submit}>
-        <div className="mx-auto max-w-4xl">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <Select value={phase} onValueChange={(next) => setPhase(next as typeof phase)}><SelectTrigger className="min-h-10 w-44 bg-card" aria-label={t("guardrails.testSurface")}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="input">{t("guardrails.modelInput")}</SelectItem><SelectItem value="output">{t("guardrails.modelResponse")}</SelectItem></SelectContent></Select>
-            <span className="text-xs text-muted-foreground">{t("guardrails.quickTestNoEvidence")}</span>
-          </div>
-          <div className="flex items-end gap-3 rounded-xl border bg-background p-2 focus-within:ring-2 focus-within:ring-ring">
-            <Textarea value={content} onChange={(event) => setContent(event.target.value)} className="min-h-24 flex-1 resize-y border-0 bg-transparent shadow-none focus-visible:ring-0" placeholder={t(phase === "input" ? "guardrails.quickInputPlaceholder" : "guardrails.quickOutputPlaceholder")} maxLength={8_000} />
-            <Button type="submit" size="icon" className="size-11 shrink-0" aria-label={t("guardrails.runQuickTest")} disabled={!content.trim() || quickTest.isPending}>{quickTest.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}</Button>
-          </div>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-function PlaygroundTurnView({ turn }: { turn: PlaygroundTurn }) {
-  const { t } = useTranslation();
-  const result = turn.result;
-  return (
-    <article className="space-y-3">
-      <div className="ml-auto max-w-[82%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-primary-foreground"><p className="mb-1 text-[11px] font-medium opacity-75">{t(turn.phase === "input" ? "guardrails.modelInput" : "guardrails.modelResponse")}</p><p className="whitespace-pre-wrap text-sm leading-6">{turn.content}</p></div>
-      <div className="mr-auto max-w-[92%] overflow-hidden rounded-2xl rounded-bl-md border bg-card">
-        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/20 px-4 py-3"><StateBadge state={result.decision} /><strong className="text-sm">{humanize(result.action)}</strong><span className="ml-auto font-mono text-xs text-muted-foreground">{result.latency_ms} ms</span></div>
-        <div className="p-4"><p className="text-sm leading-6">{result.reason || t("guardrails.evidenceNotRecorded")}</p>
-          {result.decision === "transform" && result.output_content ? <div className="mt-3 rounded-lg bg-muted/40 p-3"><p className="text-[11px] font-medium text-muted-foreground">{t("guardrails.transformedContent")}</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6">{result.output_content}</p></div> : null}
-          {result.findings.length ? <div className="mt-3 flex flex-wrap gap-2">{result.findings.map((finding, index) => <Badge key={`${finding.risk}-${index}`} variant="outline">{humanize(finding.risk)} · {Math.round(finding.confidence * 100)}%</Badge>)}</div> : null}
-        </div>
-        {(result.findings.length || result.trace.length) ? <details className="group border-t"><summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 text-xs font-medium text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">{t("validation.executionDetails", { findings: result.findings.length, trace: result.trace.length })}<ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" /></summary><div className="space-y-2 border-t bg-muted/15 p-4">{result.trace.map((step) => <div key={step.id} className="flex gap-3 rounded-lg border bg-card p-3 text-xs"><span className="font-medium">{step.name}</span><span className="min-w-0 flex-1 text-muted-foreground">{step.detail}</span><span className="shrink-0 font-mono text-muted-foreground">{step.duration_ms} ms</span></div>)}</div></details> : null}
-      </div>
-    </article>
-  );
-}
 
 export function EvaluationsPage() {
   const { t, i18n } = useTranslation();
@@ -228,10 +124,3 @@ function targetLabel(run: TestRun, t: ReturnType<typeof useTranslation>["t"]) { 
 function shortId(id: string) { return id.replace(/^evaluation-/, "").slice(0, 8).toUpperCase(); }
 function humanize(value: string) { return value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "—"; }
 function notifyError(error: unknown, fallback: string) { toast.error(error instanceof Error ? error.message : fallback); }
-
-function useGuardrailSelection(guardrails: Guardrail[]) {
-  const initial = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("guardrail") ?? "";
-  const [guardrailId, setGuardrailId] = useState(initial);
-  useEffect(() => { if (guardrails.length && !guardrails.some((item) => item.id === guardrailId)) setGuardrailId(guardrails[0].id); }, [guardrailId, guardrails]);
-  return [guardrailId, setGuardrailId] as const;
-}

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,6 +47,10 @@ from .domain import (
 from .filtering import traffic_scope_field_payloads
 from .service import ControlPlaneService
 from .intent_analyzer import IntentAnalysisError, IntentAnalyzer
+from .playground import playground_probe_payload
+
+
+MetricWindow = Literal["1h", "24h", "7d", "15d", "30d"]
 
 
 class AutomatedReasoningPolicyInput(BaseModel):
@@ -309,12 +314,23 @@ class CreateTestRunRequest(BaseModel):
     guardrail_id: str = Field(min_length=1)
 
 
-class QuickTestRequest(BaseModel):
+class PlaygroundContextMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8_000)
+
+
+class PlaygroundProbeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     guardrail_id: str = Field(min_length=1)
     phase: Literal["input", "output"] = "input"
     content: str = Field(min_length=1, max_length=8_000)
+    context_messages: list[PlaygroundContextMessage] = Field(
+        default_factory=list,
+        max_length=100,
+    )
 
 
 class ControlPlaneAPI:
@@ -910,23 +926,25 @@ class ControlPlaneAPI:
                 _raise(error)
             return _test_payload(run)
 
-        @router.post("/quick-tests")
-        async def run_quick_test(request: QuickTestRequest):
+        @router.post("/playground/probes")
+        async def create_playground_probe(request: PlaygroundProbeRequest):
             try:
                 guardrail = self._service.guardrail(request.guardrail_id)
                 plan = self._service.compile_draft(request.guardrail_id)
+                probe_id = f"probe-{uuid4().hex}"
+                current_message = {
+                    "role": "user" if request.phase == "input" else "assistant",
+                    "content": request.content,
+                }
                 started = time.perf_counter()
                 decision = await self._engine.evaluate(
                     EngineRequest(
                         phase=request.phase,
                         text=request.content,
                         plan=plan,
-                        context_messages=(
-                            {
-                                "role": "user" if request.phase == "input" else "assistant",
-                                "content": request.content,
-                            },
-                        ),
+                        context_messages=tuple(
+                            item.model_dump() for item in request.context_messages
+                        ) + (current_message,),
                         target_source=(
                             "user_input" if request.phase == "input" else "model_output"
                         ),
@@ -936,24 +954,16 @@ class ControlPlaneAPI:
                 latency = max(0, round((time.perf_counter() - started) * 1000))
             except ControlPlaneError as error:
                 _raise(error)
-            return {
-                "guardrail_id": guardrail.id,
-                "source_draft_version": guardrail.draft_version,
-                "phase": request.phase,
-                "input_content": request.content,
-                "decision": decision.decision,
-                "action": decision.action,
-                "output_content": (
-                    decision.texts[0]
-                    if decision.texts
-                    else "" if decision.decision == "block" else request.content
-                ),
-                "stage_reached": _stage_reached(decision.trace),
-                "latency_ms": latency,
-                "reason": decision.reason or "",
-                "findings": [asdict(item) for item in decision.findings],
-                "trace": [asdict(item) for item in decision.trace],
-            }
+            return playground_probe_payload(
+                probe_id=probe_id,
+                guardrail=guardrail,
+                plan=plan,
+                phase=request.phase,
+                content=request.content,
+                decision=decision,
+                latency_ms=latency,
+                runtime=getattr(self._engine, "name", type(self._engine).__name__),
+            )
 
         @router.get("/assignments")
         def assignments():
@@ -1009,22 +1019,47 @@ class ControlPlaneAPI:
             limit: int = 100,
             guardrail_id: str | None = None,
             assignment_id: str | None = None,
+            kind: str | None = None,
             outcome: str | None = None,
             risk: str | None = None,
+            window: MetricWindow | None = None,
+            environment: Literal[
+                "production", "staging", "development", "test"
+            ]
+            | None = None,
         ):
+            window_start = (
+                datetime.now(UTC) - _metric_window_duration(window)
+                if window
+                else None
+            )
+            integration_ids = {
+                item.id
+                for item in self._service.integrations()
+                if not environment or item.environment == environment
+            }
             items = [
                 item
                 for item in self._service.activities(limit=500)
                 if (not guardrail_id or item.guardrail_id == guardrail_id)
                 and (not assignment_id or item.assignment_id == assignment_id)
+                and (not kind or item.kind == kind)
                 and (not outcome or item.outcome == outcome)
                 and (not risk or item.risk == risk)
+                and (
+                    not window_start
+                    or item.created_at >= window_start.isoformat()
+                )
+                and (
+                    not environment
+                    or item.integration_id in integration_ids
+                )
             ][: max(1, min(limit, 500))]
             return _collection([_decision_payload(item) for item in items])
 
         @router.get("/metrics")
         def metrics(
-            window: Literal["24h", "7d", "30d"] = "7d",
+            window: MetricWindow = "7d",
             guardrail_id: str | None = None,
             environment: Literal[
                 "production", "staging", "development", "test"
@@ -1216,17 +1251,14 @@ def _guardrail_id_for_case(service: ControlPlaneService, case_id: str) -> str:
 def _metrics_payload(
     service: ControlPlaneService,
     *,
-    window: Literal["24h", "7d", "30d"] = "7d",
+    window: MetricWindow = "7d",
     guardrail_id: str | None = None,
     environment: Literal["production", "staging", "development", "test"]
     | None = None,
 ) -> dict[str, object]:
     now = datetime.now(UTC)
-    duration = {
-        "24h": timedelta(hours=24),
-        "7d": timedelta(days=7),
-        "30d": timedelta(days=30),
-    }[window]
+    duration = _metric_window_duration(window)
+    interval = _metric_interval(window)
     window_start = now - duration
     comparison_start = window_start - duration
     integrations = service.integrations()
@@ -1268,34 +1300,7 @@ def _metrics_payload(
         if item.risk:
             risk_counts[item.risk] = risk_counts.get(item.risk, 0) + 1
 
-    today = now.date()
-    day_count = max(1, duration.days)
-    days = [
-        today - timedelta(days=offset)
-        for offset in range(day_count - 1, -1, -1)
-    ]
-    trend = {
-        day.isoformat(): {
-            "date": day.isoformat(),
-            "total": 0,
-            "blocked": 0,
-            "intervened": 0,
-            "errored": 0,
-        }
-        for day in days
-    }
-    for item in events:
-        try:
-            day = datetime.fromisoformat(item.created_at).date().isoformat()
-        except ValueError:
-            continue
-        bucket = trend.get(day)
-        if bucket is None:
-            continue
-        bucket["total"] += 1
-        bucket["blocked"] += int(item.outcome == "block")
-        bucket["intervened"] += int(item.outcome == "transform")
-        bucket["errored"] += int(item.outcome == "error")
+    trend = _metric_trend(events, window_start, now, interval)
 
     all_guardrails = service.guardrails()
     guardrails = tuple(
@@ -1320,7 +1325,35 @@ def _metrics_payload(
     latest_test_p95 = test_runs[0].metrics.p95_latency_ms if test_runs else 0
     status = service.summary()
     latency = _runtime_latency(events)
+    previous_latency = _runtime_latency(previous_events)
     provider_latency = _provider_latency(events)
+    previous_counts = {
+        "block": sum(item.outcome == "block" for item in previous_events),
+        "transform": sum(item.outcome == "transform" for item in previous_events),
+        "error": sum(item.outcome == "error" for item in previous_events),
+    }
+    previous_total = len(previous_events)
+    previous_intervention_rate = (
+        round(
+            (previous_counts["block"] + previous_counts["transform"])
+            / previous_total
+            * 100,
+            2,
+        )
+        if previous_total
+        else None
+    )
+    previous_error_rate = (
+        round(previous_counts["error"] / previous_total * 100, 2)
+        if previous_total
+        else None
+    )
+    intervention_rate = (
+        round((counts["block"] + counts["transform"]) / total * 100, 2)
+        if total
+        else 0
+    )
+    error_rate = round(counts["error"] / total * 100, 2) if total else 0
     guardrail_distribution = []
     for guardrail in guardrails:
         matching = tuple(item for item in events if item.guardrail_id == guardrail.id)
@@ -1404,10 +1437,30 @@ def _metrics_payload(
             "environment": environment,
         },
         "comparison": {
-            "previous_total_decisions": len(previous_events),
+            "previous_total_decisions": previous_total,
             "request_delta_pct": (
-                round((total - len(previous_events)) / len(previous_events) * 100, 1)
+                round((total - previous_total) / previous_total * 100, 1)
                 if previous_events
+                else None
+            ),
+            "previous_intervention_rate": previous_intervention_rate,
+            "intervention_rate_delta_pp": (
+                round(intervention_rate - previous_intervention_rate, 2)
+                if previous_intervention_rate is not None
+                else None
+            ),
+            "previous_runtime_p95_ms": (
+                previous_latency["p95"] if previous_total else None
+            ),
+            "runtime_p95_delta_ms": (
+                latency["p95"] - previous_latency["p95"]
+                if previous_total and total
+                else None
+            ),
+            "previous_error_rate": previous_error_rate,
+            "error_rate_delta_pp": (
+                round(error_rate - previous_error_rate, 2)
+                if previous_error_rate is not None
                 else None
             ),
         },
@@ -1417,8 +1470,8 @@ def _metrics_payload(
         "intervened": counts["transform"],
         "errors": counts["error"],
         "block_rate": round(counts["block"] / total * 100, 1) if total else 0,
-        "intervention_rate": round(counts["transform"] / total * 100, 1) if total else 0,
-        "error_rate": round(counts["error"] / total * 100, 1) if total else 0,
+        "intervention_rate": intervention_rate,
+        "error_rate": error_rate,
         "timeout_count": sum(item.timed_out for item in events),
         "rail_invocations": sum(item.rail_invocations for item in events),
         "action_invocations": sum(item.action_invocations for item in events),
@@ -1496,8 +1549,150 @@ def _metrics_payload(
         "version_distribution": version_distribution,
         "control_distribution": control_distribution,
         "unassigned_requests": sum(item.guardrail_id is None for item in events),
-        "trend": list(trend.values()),
+        "interval": _metric_interval_label(window),
+        "trend": trend,
+        "trend_series": _metric_trend_series(
+            events,
+            integrations=integrations,
+            guardrails=all_guardrails,
+            window_start=window_start,
+            now=now,
+            interval=interval,
+        ),
         "system_status": status["status"],
+    }
+
+
+def _metric_window_duration(window: MetricWindow) -> timedelta:
+    return {
+        "1h": timedelta(hours=1),
+        "24h": timedelta(hours=24),
+        "7d": timedelta(days=7),
+        "15d": timedelta(days=15),
+        "30d": timedelta(days=30),
+    }[window]
+
+
+def _metric_interval(window: MetricWindow) -> timedelta:
+    return {
+        "1h": timedelta(minutes=1),
+        "24h": timedelta(minutes=15),
+        "7d": timedelta(hours=1),
+        "15d": timedelta(hours=6),
+        "30d": timedelta(days=1),
+    }[window]
+
+
+def _metric_interval_label(window: MetricWindow) -> str:
+    return {
+        "1h": "1m",
+        "24h": "15m",
+        "7d": "1h",
+        "15d": "6h",
+        "30d": "1d",
+    }[window]
+
+
+def _metric_trend(events, window_start: datetime, now: datetime, interval: timedelta):
+    interval_seconds = int(interval.total_seconds())
+
+    def floor_time(value: datetime) -> datetime:
+        timestamp = int(value.timestamp())
+        return datetime.fromtimestamp(
+            timestamp - timestamp % interval_seconds,
+            tz=UTC,
+        )
+
+    start = floor_time(window_start)
+    end = floor_time(now)
+    buckets: dict[str, dict[str, object]] = {}
+    cursor = start
+    while cursor <= end:
+        timestamp = cursor.isoformat()
+        buckets[timestamp] = {
+            "timestamp": timestamp,
+            "total": 0,
+            "allowed": 0,
+            "blocked": 0,
+            "transformed": 0,
+            "errored": 0,
+            "timed_out": 0,
+            "latencies": [],
+        }
+        cursor += interval
+
+    for item in events:
+        try:
+            timestamp = floor_time(datetime.fromisoformat(item.created_at)).isoformat()
+        except ValueError:
+            continue
+        bucket = buckets.get(timestamp)
+        if bucket is None:
+            continue
+        bucket["total"] = int(bucket["total"]) + 1
+        bucket["allowed"] = int(bucket["allowed"]) + int(item.outcome == "allow")
+        bucket["blocked"] = int(bucket["blocked"]) + int(item.outcome == "block")
+        bucket["transformed"] = int(bucket["transformed"]) + int(item.outcome == "transform")
+        bucket["errored"] = int(bucket["errored"]) + int(item.outcome == "error")
+        bucket["timed_out"] = int(bucket["timed_out"]) + int(item.timed_out)
+        bucket["latencies"].append(item.latency_ms)
+
+    result = []
+    for bucket in buckets.values():
+        latencies = sorted(bucket.pop("latencies"))
+        bucket["p50_latency_ms"] = _percentile(latencies, 0.50)
+        bucket["p95_latency_ms"] = _percentile(latencies, 0.95)
+        bucket["p99_latency_ms"] = _percentile(latencies, 0.99)
+        result.append(bucket)
+    return result
+
+
+def _metric_trend_series(
+    events,
+    *,
+    integrations,
+    guardrails,
+    window_start: datetime,
+    now: datetime,
+    interval: timedelta,
+) -> dict[str, list[dict[str, object]]]:
+    environment_names = {item.id: item.environment for item in integrations}
+    guardrail_names = {item.id: item.name for item in guardrails}
+
+    def grouped_series(key_for_event) -> list[dict[str, object]]:
+        groups: dict[str, list[object]] = {}
+        for event in events:
+            name = key_for_event(event)
+            groups.setdefault(name, []).append(event)
+        return [
+            {
+                "name": name,
+                "points": _metric_trend(
+                    group,
+                    window_start,
+                    now,
+                    interval,
+                ),
+            }
+            for name, group in sorted(
+                groups.items(),
+                key=lambda item: (-len(item[1]), item[0]),
+            )
+        ]
+
+    return {
+        "none": [
+            {
+                "name": "All traffic",
+                "points": _metric_trend(events, window_start, now, interval),
+            }
+        ],
+        "environment": grouped_series(
+            lambda event: environment_names.get(event.integration_id, "Unknown")
+        ),
+        "guardrail": grouped_series(
+            lambda event: guardrail_names.get(event.guardrail_id, "Unassigned")
+        ),
     }
 
 
