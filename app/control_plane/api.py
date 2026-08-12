@@ -356,7 +356,18 @@ class ControlPlaneAPI:
 
         @router.get("/controls")
         def native_controls():
-            return _collection([asdict(item) for item in self._service.controls()])
+            return _collection(
+                [
+                    {
+                        **asdict(item),
+                        "versions": [
+                            asdict(version)
+                            for version in self._service.control_versions(item.id)
+                        ],
+                    }
+                    for item in self._service.controls()
+                ]
+            )
 
         @router.post("/controls", status_code=201)
         def create_control(request: CreateControlRequest):
@@ -408,6 +419,92 @@ class ControlPlaneAPI:
             except ControlPlaneError as error:
                 _raise(error)
 
+        @router.get("/controls/{control_id}/test-runs/latest")
+        def latest_control_test_run(control_id: str):
+            try:
+                item = self._service.latest_control_test_run(control_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return item or {"status": "not_run"}
+
+        @router.post("/controls/{control_id}/test-runs", status_code=201)
+        async def run_control_tests(control_id: str):
+            try:
+                package = self._service.control_package(control_id)
+                if not package.draft.tests:
+                    raise ValidationError(
+                        "Add at least one Evaluation case before running tests."
+                    )
+                unsupported = tuple(
+                    item.rail_type
+                    for item in package.draft.tests
+                    if item.rail_type not in {"input", "output"}
+                )
+                if unsupported:
+                    raise ValidationError(
+                        "Draft Evaluation currently requires input or output Rail cases."
+                    )
+                plan, _ = self._service.compile_control_draft(control_id)
+                results: list[dict[str, object]] = []
+                for case in package.draft.tests:
+                    started = time.perf_counter()
+                    decision = await self._engine.evaluate(
+                        EngineRequest(
+                            phase=case.rail_type,
+                            text=case.content,
+                            plan=plan,
+                            context_messages=(
+                                {
+                                    "role": (
+                                        "user"
+                                        if case.rail_type == "input"
+                                        else "assistant"
+                                    ),
+                                    "content": case.content,
+                                },
+                            ),
+                            target_source=(
+                                "user_input"
+                                if case.rail_type == "input"
+                                else "model_output"
+                            ),
+                            evidence_scope="full",
+                        )
+                    )
+                    actual = decision.decision
+                    results.append(
+                        {
+                            "name": case.name,
+                            "rail_type": case.rail_type,
+                            "expected_decision": case.expected_decision,
+                            "actual_decision": actual,
+                            "passed": _matches_expected(
+                                case.expected_decision, actual
+                            ),
+                            "latency_ms": max(
+                                0,
+                                round(
+                                    (time.perf_counter() - started) * 1_000
+                                ),
+                            ),
+                            "reason": decision.reason or "",
+                            "trace": [asdict(item) for item in decision.trace],
+                        }
+                    )
+                status = (
+                    "passed"
+                    if all(bool(item["passed"]) for item in results)
+                    else "failed"
+                )
+                return self._service.save_control_test_run(
+                    control_id=control_id,
+                    draft_revision=package.draft_revision,
+                    status=status,
+                    results=tuple(results),
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+
         @router.post("/controls/{control_id}/publish", status_code=201)
         def publish_control(control_id: str):
             try:
@@ -444,6 +541,26 @@ class ControlPlaneAPI:
         def guardrails():
             return _collection([self._guardrail_payload(item.id) for item in self._service.guardrails()])
 
+        @router.post("/guardrail-compile-previews")
+        def candidate_compile_preview(request: CreateGuardrailRequest):
+            try:
+                plan, config, checksum = self._service.compile_guardrail_candidate(
+                    name=request.name,
+                    purpose=request.purpose or "",
+                    allowed_topics=tuple(_clean_lines(request.allowed_topics)),
+                    restricted_topics=tuple(_clean_lines(request.restricted_topics)),
+                    controls=_controls(request.controls),
+                    control_configurations=_control_configurations(
+                        request.control_configurations
+                    ),
+                    control_bindings=_control_bindings(request.control_bindings),
+                    safety_level=request.safety_level,
+                    output_delivery=request.output_delivery,
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return _compile_preview_payload(plan, config, checksum)
+
         @router.get("/guardrails/{guardrail_id}")
         def guardrail(guardrail_id: str):
             return self._guardrail_payload(guardrail_id)
@@ -454,41 +571,7 @@ class ControlPlaneAPI:
                 plan, config, checksum = self._service.compile_preview(guardrail_id)
             except ControlPlaneError as error:
                 _raise(error)
-            return {
-                "guardrail_id": plan.guardrail_id,
-                "candidate_version": plan.guardrail_version,
-                "engine": config.runtime_engine,
-                "colang_version": config.colang_version,
-                "compiler_version": config.compiler_version,
-                "checksum": checksum,
-                "rails": [
-                    {"rail_type": rail, "flow": flow}
-                    for rail, flow in config.rail_flows
-                ],
-                "parallel_groups": sorted(
-                    {
-                        item.parallel_group
-                        for item in config.action_bindings
-                        if item.parallel_group
-                    }
-                ),
-                "actions": [
-                    {
-                        "name": item.action_name or item.id,
-                        "version": item.action_version,
-                        "flow": item.flow_name,
-                        "timeout_ms": item.timeout_ms,
-                        "failure_mode": item.failure_mode,
-                    }
-                    for item in config.action_bindings
-                ],
-                "models": list(config.required_models),
-                "dependency_manifest": [
-                    {"kind": kind, "name": name, "version": version}
-                    for kind, name, version in config.dependency_manifest
-                ],
-                "estimated_critical_path_ms": config.estimated_critical_path_ms,
-            }
+            return _compile_preview_payload(plan, config, checksum)
 
         @router.post("/guardrails", status_code=201)
         def create_guardrail(request: CreateGuardrailRequest):
@@ -990,6 +1073,44 @@ def _decision_payload(item) -> dict[str, object]:
 
 def _collection(items: list[object]) -> dict[str, object]:
     return {"items": items, "count": len(items)}
+
+
+def _compile_preview_payload(plan, config, checksum: str) -> dict[str, object]:
+    return {
+        "guardrail_id": plan.guardrail_id,
+        "candidate_version": plan.guardrail_version,
+        "engine": config.runtime_engine,
+        "colang_version": config.colang_version,
+        "compiler_version": config.compiler_version,
+        "checksum": checksum,
+        "rails": [
+            {"rail_type": rail, "flow": flow}
+            for rail, flow in config.rail_flows
+        ],
+        "parallel_groups": sorted(
+            {
+                item.parallel_group
+                for item in config.action_bindings
+                if item.parallel_group
+            }
+        ),
+        "actions": [
+            {
+                "name": item.action_name or item.id,
+                "version": item.action_version,
+                "flow": item.flow_name,
+                "timeout_ms": item.timeout_ms,
+                "failure_mode": item.failure_mode,
+            }
+            for item in config.action_bindings
+        ],
+        "models": list(config.required_models),
+        "dependency_manifest": [
+            {"kind": kind, "name": name, "version": version}
+            for kind, name, version in config.dependency_manifest
+        ],
+        "estimated_critical_path_ms": config.estimated_critical_path_ms,
+    }
 
 
 def _guardrail_id_for_case(service: ControlPlaneService, case_id: str) -> str:

@@ -108,8 +108,11 @@ async def test_customer_data_control_runs_create_to_real_http_on_one_version(tmp
         control_id = created.json()["id"]
 
         validated = await client.post(f"/api/v1/controls/{control_id}/validate")
+        tested = await client.post(f"/api/v1/controls/{control_id}/test-runs")
         published = await client.post(f"/api/v1/controls/{control_id}/publish")
         assert validated.json()["valid"] is True
+        assert tested.status_code == 201, tested.text
+        assert tested.json()["status"] == "passed"
         assert published.status_code == 201, published.text
         control_version = published.json()["version"]
 

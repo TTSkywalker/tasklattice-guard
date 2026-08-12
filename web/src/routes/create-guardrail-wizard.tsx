@@ -35,11 +35,16 @@ import {
   analyzeGuardrailIntent,
   createGuardrail,
   getControlTemplates,
+  getNativeControls,
   getIntentAnalysisStatus,
+  previewGuardrailCandidate,
   type ControlTemplate,
   type GuardrailControl,
   type GuardrailControlConfig,
   type GuardrailRuleConfig,
+  type GuardrailNativeControlBinding,
+  type NativeControl,
+  type GuardrailCompilePreview,
   type OutputDelivery,
   type SafetyLevel,
 } from "@/lib/api";
@@ -59,6 +64,7 @@ export function CreateGuardrailWizard({
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const templatesQuery = useQuery({ queryKey: queryKeys.controlTemplates, queryFn: getControlTemplates, enabled: open });
+  const nativeControlsQuery = useQuery({ queryKey: queryKeys.nativeControls, queryFn: getNativeControls, enabled: open });
   const intentStatusQuery = useQuery({ queryKey: queryKeys.intentAnalysisStatus, queryFn: getIntentAnalysisStatus, enabled: open, retry: false });
   const templates = templatesQuery.data?.items ?? [];
   const [step, setStep] = useState(0);
@@ -70,6 +76,8 @@ export function CreateGuardrailWizard({
   const [activeControlId, setActiveControlId] = useState("");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [nativeOpen, setNativeOpen] = useState(false);
+  const [nativeBindings, setNativeBindings] = useState<GuardrailNativeControlBinding[]>([]);
   const [safetyLevel, setSafetyLevel] = useState<SafetyLevel>("balanced");
   const [outputDelivery, setOutputDelivery] = useState<OutputDelivery>("window_buffered");
 
@@ -92,6 +100,8 @@ export function CreateGuardrailWizard({
     setActiveControlId("");
     setLibraryOpen(false);
     setManualOpen(false);
+    setNativeOpen(false);
+    setNativeBindings([]);
     setSafetyLevel("balanced");
     setOutputDelivery("window_buffered");
   }, [open]);
@@ -126,6 +136,7 @@ export function CreateGuardrailWizard({
       restricted_topics: lines(restricted),
       controls: runtimeControls(configurations),
       control_configurations: configurations,
+      control_bindings: nativeBindings,
       safety_level: safetyLevel,
       output_delivery: outputDelivery,
     }),
@@ -136,14 +147,35 @@ export function CreateGuardrailWizard({
     onError: (error) => notifyError(error, t("guardrailWizard.operationFailed")),
   });
 
+  const previewMutation = useMutation({
+    mutationFn: () => previewGuardrailCandidate({
+      name: name.trim(),
+      purpose: purpose.trim(),
+      allowed_topics: lines(allowed),
+      restricted_topics: lines(restricted),
+      controls: runtimeControls(configurations),
+      control_configurations: configurations,
+      control_bindings: nativeBindings,
+      safety_level: safetyLevel,
+      output_delivery: outputDelivery,
+    }),
+  });
+
+  useEffect(() => {
+    if (step === 4 && nativeBindings.length) previewMutation.mutate();
+    // The preview is a review-step snapshot; edits require leaving and re-entering.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   const enabledRules = configurations.flatMap((item) => item.rules).filter((rule) => rule.enabled);
   const intentBoundariesValid = !configurations.some((item) => item.id === INTENT_CONTROL_ID) || (lines(allowed).length > 0 && lines(restricted).length > 0);
+  const selectionCount = configurations.length + nativeBindings.length;
   const stepValid = [
     Boolean(name.trim() && purpose.trim()),
-    configurations.length > 0 && intentBoundariesValid,
-    configurations.length > 0 && configurations.every((item) => item.rules.some((rule) => rule.enabled) && item.rules.every(ruleReady)),
+    selectionCount > 0 && intentBoundariesValid,
+    selectionCount > 0 && configurations.every((item) => item.rules.some((rule) => rule.enabled) && item.rules.every(ruleReady)),
     true,
-    true,
+    nativeBindings.length === 0 || Boolean(previewMutation.data && !previewMutation.error),
   ];
 
   return (
@@ -191,8 +223,9 @@ export function CreateGuardrailWizard({
 
           {step === 1 ? (
             <WizardSection title={t("guardrailWizard.controlsTitle")} description={t("guardrailWizard.controlsDescription")}>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <AddMethod icon={LibraryBig} title={t("guardrailWizard.fromLibrary")} description={t("guardrailWizard.fromLibraryDescription")} onClick={() => setLibraryOpen(true)} />
+                <AddMethod icon={Braces} title={t("guardrailWizard.fromNative")} description={t("guardrailWizard.fromNativeDescription")} onClick={() => setNativeOpen(true)} />
                 <AddMethod
                   icon={Sparkles}
                   title={t("guardrailWizard.fromIntent")}
@@ -210,7 +243,7 @@ export function CreateGuardrailWizard({
 
               <section className="mt-6">
                 <div className="flex items-center justify-between gap-3">
-                  <div><h4 className="text-sm font-semibold">{t("guardrailWizard.selectedControls", { count: configurations.length })}</h4><p className="mt-1 text-xs text-muted-foreground">{t("guardrailWizard.selectedControlsDescription")}</p></div>
+                  <div><h4 className="text-sm font-semibold">{t("guardrailWizard.selectedControls", { count: selectionCount })}</h4><p className="mt-1 text-xs text-muted-foreground">{t("guardrailWizard.selectedControlsDescription")}</p></div>
                 </div>
                 {configurations.length ? (
                   <div className="mt-3 divide-y overflow-hidden rounded-lg border bg-card">
@@ -229,6 +262,14 @@ export function CreateGuardrailWizard({
                 ) : (
                   <div className="mt-3 rounded-lg border border-dashed p-8 text-center"><p className="text-sm font-medium">{t("guardrailWizard.noControls")}</p><p className="mt-1 text-xs text-muted-foreground">{t("guardrailWizard.noControlsDescription")}</p></div>
                 )}
+                {nativeBindings.length ? (
+                  <div className="mt-3 divide-y overflow-hidden rounded-lg border bg-card">
+                    {nativeBindings.map((binding) => {
+                      const native = nativeControlsQuery.data?.items.find((item) => item.id === binding.control_id);
+                      return <div key={binding.control_id} className="flex items-start gap-3 p-4"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border bg-primary/5 text-primary"><Braces className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm font-medium">{native?.name ?? binding.control_id}</strong><Badge variant="outline">NeMo Native</Badge><Badge variant="outline" className="font-mono">v{binding.control_version}</Badge></div><p className="mt-1 font-mono text-[11px] text-muted-foreground">{binding.control_id}</p><div className="mt-2 flex flex-wrap gap-1.5">{binding.enabled_rails.map((rail) => <Badge key={rail} variant="outline" className="font-mono text-[10px] uppercase">{rail}</Badge>)}</div></div><Button size="icon" variant="ghost" aria-label={t("guardrailWizard.removeControl", { name: native?.name ?? binding.control_id })} onClick={() => setNativeBindings((current) => current.filter((item) => item.control_id !== binding.control_id))}><Trash2 /></Button></div>;
+                    })}
+                  </div>
+                ) : null}
               </section>
 
               {configurations.some((item) => item.id === INTENT_CONTROL_ID) ? (
@@ -243,6 +284,8 @@ export function CreateGuardrailWizard({
 
           {step === 2 ? (
             <WizardSection title={t("guardrailWizard.rulesTitle")} description={t("guardrailWizard.rulesDescription")}>
+              {nativeBindings.length ? <div className="mb-4"><InfoNotice title={t("guardrailWizard.nativeVersionPinnedTitle")}>{t("guardrailWizard.nativeVersionPinnedDescription")}</InfoNotice></div> : null}
+              {configurations.length ? (
               <div className="grid overflow-hidden rounded-lg border bg-card md:grid-cols-[13rem_minmax(0,1fr)]">
                 <div className="border-b bg-muted/20 p-2 md:border-r md:border-b-0">
                   <p className="px-2 py-2 text-xs font-medium text-muted-foreground">{t("guardrailWizard.controls")}</p>
@@ -260,6 +303,7 @@ export function CreateGuardrailWizard({
                   onChange={(next) => setConfigurations((current) => current.map((item) => item.id === next.id ? next : item))}
                 />
               </div>
+              ) : <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{t("guardrailWizard.nativeRulesImmutable")}</div>}
             </WizardSection>
           ) : null}
 
@@ -282,12 +326,14 @@ export function CreateGuardrailWizard({
             <WizardSection title={t("guardrailWizard.reviewTitle")} description={t("guardrailWizard.reviewDescription")}>
               <section className="overflow-hidden rounded-lg border bg-card">
                 <div className="border-b bg-muted/20 p-4"><h4 className="text-lg font-semibold">{name}</h4><p className="mt-1 text-sm leading-6 text-muted-foreground">{purpose}</p></div>
-                <div className="grid grid-cols-3 divide-x border-b text-center"><ReviewMetric label={t("guardrailWizard.controls")} value={configurations.length} /><ReviewMetric label={t("guardrailWizard.activeRules")} value={enabledRules.length} /><ReviewMetric label={t("guardrailWizard.boundaries")} value={boundaryLabel(enabledRules, t)} /></div>
+                <div className="grid grid-cols-3 divide-x border-b text-center"><ReviewMetric label={t("guardrailWizard.controls")} value={selectionCount} /><ReviewMetric label={t("guardrailWizard.activeRules")} value={enabledRules.length + nativeBindings.length} /><ReviewMetric label={t("guardrailWizard.boundaries")} value={boundaryLabelWithNative(enabledRules, nativeBindings, t)} /></div>
                 <div className="divide-y">
                   {configurations.map((configuration) => <ReviewControl key={configuration.id} configuration={configuration} />)}
+                  {nativeBindings.map((binding) => <NativeReviewControl key={binding.control_id} binding={binding} control={nativeControlsQuery.data?.items.find((item) => item.id === binding.control_id)} />)}
                 </div>
               </section>
               <div className="mt-5"><Pipeline configurations={configurations} compact /></div>
+              {nativeBindings.length ? <div className="mt-5"><NativeRuntimePreview bindings={nativeBindings} controls={nativeControlsQuery.data?.items ?? []} preview={previewMutation.data} loading={previewMutation.isPending} error={previewMutation.error} /></div> : null}
               <p className="mt-4 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.afterCreate")}</p>
             </WizardSection>
           ) : null}
@@ -296,6 +342,7 @@ export function CreateGuardrailWizard({
 
       <ControlLibraryPicker open={libraryOpen} onOpenChange={setLibraryOpen} templates={templates} loading={templatesQuery.isLoading} existing={configurations} onAdd={(items) => setConfigurations((current) => [...current.filter((item) => !items.some((next) => next.id === item.id)), ...items])} />
       <CustomControlSheet open={manualOpen} onOpenChange={setManualOpen} onAdd={(item) => { setConfigurations((current) => [...current, item]); setActiveControlId(item.id); }} />
+      <NativeControlPicker open={nativeOpen} onOpenChange={setNativeOpen} controls={nativeControlsQuery.data?.items ?? []} loading={nativeControlsQuery.isLoading} existing={nativeBindings} onAdd={(items) => setNativeBindings((current) => [...current.filter((item) => !items.some((next) => next.control_id === item.control_id)), ...items])} />
     </>
   );
 }
@@ -321,6 +368,33 @@ function ControlLibraryPicker({ open, onOpenChange, templates, loading, existing
   return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("guardrailWizard.libraryEyebrow")} title={t("guardrailWizard.libraryTitle")} description={t("guardrailWizard.libraryDescription")} width="lg" footer={<><span className="mr-auto text-xs text-muted-foreground">{t("guardrailWizard.selectedCount", { count: selected.length })}</span><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!selected.length} onClick={submit}>{t("guardrailWizard.addSelected", { count: selected.length })}</Button></>}>
     <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_16rem]"><label className="relative"><span className="sr-only">{t("guardrailWizard.searchLibrary")}</span><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="min-h-11 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("guardrailWizard.searchLibrary")} /></label><Select value={pack} onValueChange={setPack}><SelectTrigger className="min-h-11" aria-label={t("guardrailWizard.filterPack")}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("guardrailWizard.allPacks")}</SelectItem>{packs.map(([id, label]) => <SelectItem key={id} value={id}>{label}</SelectItem>)}</SelectContent></Select></div>
     {loading ? <Skeleton className="mt-4 h-80" /> : <div className="mt-4 divide-y overflow-hidden rounded-lg border bg-card">{filtered.map((template) => { const checked = selected.includes(template.id); const alreadyAdded = existingIds.has(template.id); return <label key={template.id} className={cn("flex min-h-20 cursor-pointer items-start gap-3 p-4 hover:bg-muted/20", alreadyAdded && "cursor-not-allowed opacity-50")}><Checkbox className="mt-1" checked={alreadyAdded || checked} disabled={alreadyAdded} onCheckedChange={(value) => setSelected((current) => value ? [...current, template.id] : current.filter((id) => id !== template.id))} /><span className="min-w-0 flex-1"><strong className="block text-sm font-medium">{template.name}</strong><span className="mt-1 block font-mono text-[11px] text-muted-foreground">{template.id} · {template.version}</span><span className="mt-2 block text-xs text-muted-foreground">{t("guardrailWizard.rulePackSummary", { rules: template.rules.length, packs: template.packs.length })}</span></span></label>; })}{!filtered.length ? <p className="p-8 text-center text-sm text-muted-foreground">{t("guardrailWizard.noLibraryResults")}</p> : null}</div>}
+  </EntitySheet>;
+}
+
+function NativeControlPicker({ open, onOpenChange, controls, loading, existing, onAdd }: { open: boolean; onOpenChange: (open: boolean) => void; controls: NativeControl[]; loading: boolean; existing: GuardrailNativeControlBinding[]; onAdd: (items: GuardrailNativeControlBinding[]) => void }) {
+  const { t } = useTranslation();
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Record<string, GuardrailNativeControlBinding>>({});
+  useEffect(() => { if (open) { setSearch(""); setSelected({}); } }, [open]);
+  const existingIds = new Set(existing.map((item) => item.control_id));
+  const available = controls.filter((control) => (control.versions?.length ?? 0) > 0 && `${control.name} ${control.id} ${control.description}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const update = (control: NativeControl, checked: boolean) => {
+    setSelected((current) => {
+      if (!checked) { const next = { ...current }; delete next[control.id]; return next; }
+      const version = control.versions?.[0];
+      if (!version) return current;
+      const parameterValues = Object.fromEntries(version.parameter_schema.filter((item) => item.default !== null).map((item) => [item.name, item.default! ]));
+      return { ...current, [control.id]: { control_id: control.id, control_version: version.version, parameter_values: parameterValues, enabled_rails: [...new Set(version.rail_bindings.map((item) => item.rail_type))] } };
+    });
+  };
+  const selectedItems = Object.values(selected);
+  const valid = selectedItems.length > 0 && selectedItems.every((binding) => {
+    const version = controls.find((item) => item.id === binding.control_id)?.versions?.find((item) => item.version === binding.control_version);
+    return Boolean(binding.enabled_rails.length && version?.parameter_schema.every((parameter) => !parameter.required || binding.parameter_values[parameter.name]?.trim()));
+  });
+  return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("guardrailWizard.nativePickerEyebrow")} title={t("guardrailWizard.nativePickerTitle")} description={t("guardrailWizard.nativePickerDescription")} width="lg" footer={<><span className="mr-auto text-xs text-muted-foreground">{t("guardrailWizard.selectedCount", { count: selectedItems.length })}</span><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!valid} onClick={() => { onAdd(selectedItems); onOpenChange(false); }}>{t("guardrailWizard.addSelected", { count: selectedItems.length })}</Button></>}>
+    <label className="relative block"><span className="sr-only">{t("guardrailWizard.searchNative")}</span><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="min-h-11 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("guardrailWizard.searchNative")} /></label>
+    {loading ? <Skeleton className="mt-4 h-80" /> : <div className="mt-4 space-y-3">{available.map((control) => { const alreadyAdded = existingIds.has(control.id); const binding = selected[control.id]; const versions = control.versions ?? []; const version = versions.find((item) => item.version === binding?.control_version) ?? versions[0]; return <section key={control.id} className={cn("rounded-lg border bg-card", alreadyAdded && "opacity-55")}><label className="flex min-h-20 cursor-pointer items-start gap-3 p-4"><Checkbox className="mt-1" checked={alreadyAdded || Boolean(binding)} disabled={alreadyAdded} onCheckedChange={(value) => update(control, Boolean(value))} /><span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><strong className="text-sm font-medium">{control.name}</strong><Badge variant="outline">{control.source}</Badge></span><span className="mt-1 block font-mono text-[11px] text-muted-foreground">{control.id}</span><span className="mt-2 block text-xs leading-5 text-muted-foreground">{control.description}</span></span></label>{binding && version ? <div className="grid gap-4 border-t bg-muted/15 p-4 sm:grid-cols-2"><Field label={t("guardrailWizard.controlVersion")}><Select value={String(binding.control_version)} onValueChange={(value) => { const nextVersion = versions.find((item) => item.version === Number(value))!; setSelected((current) => ({ ...current, [control.id]: { ...binding, control_version: nextVersion.version, enabled_rails: [...new Set(nextVersion.rail_bindings.map((item) => item.rail_type))], parameter_values: Object.fromEntries(nextVersion.parameter_schema.filter((item) => item.default !== null).map((item) => [item.name, item.default!])) } })); }}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{versions.map((item) => <SelectItem key={item.version} value={String(item.version)}>v{item.version} · {item.checksum.slice(0, 8)}</SelectItem>)}</SelectContent></Select></Field><div><p className="text-sm font-medium">{t("guardrailWizard.enabledRails")}</p><div className="mt-2 flex flex-wrap gap-3">{[...new Set(version.rail_bindings.map((item) => item.rail_type))].map((rail) => <label key={rail} className="flex min-h-11 items-center gap-2 text-xs"><Checkbox checked={binding.enabled_rails.includes(rail)} onCheckedChange={(checked) => setSelected((current) => ({ ...current, [control.id]: { ...binding, enabled_rails: checked ? [...binding.enabled_rails, rail] : binding.enabled_rails.filter((item) => item !== rail) } }))} /><span className="font-mono uppercase">{rail}</span></label>)}</div></div>{version.parameter_schema.map((parameter) => <Field key={parameter.name} label={`${parameter.name}${parameter.required ? " *" : ""}`} hint={parameter.description}><Input className="min-h-11" type={parameter.kind === "secret" ? "password" : "text"} value={binding.parameter_values[parameter.name] ?? ""} onChange={(event) => setSelected((current) => ({ ...current, [control.id]: { ...binding, parameter_values: { ...binding.parameter_values, [parameter.name]: event.target.value } } }))} /></Field>)}</div> : null}</section>; })}{!available.length ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{t("guardrailWizard.noNativeResults")}</p> : null}</div>}
   </EntitySheet>;
 }
 
@@ -371,6 +445,29 @@ function ReviewControl({ configuration }: { configuration: GuardrailControlConfi
   return <details className="group"><summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 p-4 hover:bg-muted/20 [&::-webkit-details-marker]:hidden"><Check className="size-4 text-emerald-600" /><div className="min-w-0 flex-1"><strong className="block text-sm font-medium">{configuration.name}</strong><span className="mt-1 block text-xs text-muted-foreground">{t("guardrailWizard.activeRuleCount", { active: active.length, total: configuration.rules.length })}</span></div><ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" /></summary><div className="border-t bg-muted/15 px-4 py-3"><ul className="space-y-2">{active.map((rule) => <li key={rule.id} className="grid gap-1 text-xs sm:grid-cols-[minmax(0,1fr)_7rem_7rem]"><span className="font-medium">{rule.name}</span><span className="text-muted-foreground">{t(`guardrailWizard.detectors.${rule.detector}`)}</span><span className="text-muted-foreground">{actionLabel(rule.action, t)}</span></li>)}</ul></div></details>;
 }
 
+function NativeReviewControl({ binding, control }: { binding: GuardrailNativeControlBinding; control?: NativeControl }) {
+  const { t } = useTranslation();
+  const version = control?.versions?.find((item) => item.version === binding.control_version);
+  return <section className="border-t bg-primary/[0.025] p-4"><div className="flex flex-wrap items-center gap-2"><Check className="size-4 text-emerald-600" /><strong className="text-sm">{control?.name ?? binding.control_id}</strong><Badge variant="outline">NeMo Native</Badge><Badge variant="outline" className="font-mono">v{binding.control_version}</Badge></div><dl className="mt-3 grid gap-3 text-xs sm:grid-cols-3"><div><dt className="text-muted-foreground">{t("guardrailWizard.enabledRails")}</dt><dd className="mt-1 font-mono uppercase">{binding.enabled_rails.join(", ")}</dd></div><div><dt className="text-muted-foreground">Actions</dt><dd className="mt-1 font-mono">{version?.action_references.length ?? 0}</dd></div><div><dt className="text-muted-foreground">{t("controlStudio.timeoutBudget")}</dt><dd className="mt-1 font-mono">{version ? nativeCriticalPath(version.rail_bindings.filter((item) => binding.enabled_rails.includes(item.rail_type))) : 0}ms</dd></div></dl></section>;
+}
+
+function NativeRuntimePreview({ bindings, controls, preview, loading, error }: { bindings: GuardrailNativeControlBinding[]; controls: NativeControl[]; preview?: GuardrailCompilePreview; loading: boolean; error: Error | null }) {
+  const { t } = useTranslation();
+  const versions = bindings.flatMap((binding) => {
+    const version = controls.find((item) => item.id === binding.control_id)?.versions?.find((item) => item.version === binding.control_version);
+    return version ? [{ binding, version }] : [];
+  });
+  const rails = [...new Set(versions.flatMap(({ binding }) => binding.enabled_rails))];
+  const groups = [...new Set(versions.flatMap(({ version }) => version.rail_bindings.map((item) => item.parallel_group).filter(Boolean)))];
+  const actions = [...new Set(versions.flatMap(({ version }) => version.action_references.map((item) => `${item.name}@${item.version}`)))];
+  const models = [...new Set(versions.flatMap(({ version }) => version.model_dependencies))];
+  const prompts = [...new Set(versions.flatMap(({ version }) => version.prompt_dependencies))];
+  const critical = versions.reduce((maximum, { binding, version }) => Math.max(maximum, nativeCriticalPath(version.rail_bindings.filter((item) => binding.enabled_rails.includes(item.rail_type)))), 0);
+  return <section className="overflow-hidden rounded-lg border bg-card"><header className="border-b bg-muted/20 p-4"><div className="flex items-center gap-2"><Braces className="size-4 text-primary" /><h4 className="text-sm font-semibold">{t("guardrailWizard.nativePreviewTitle")}</h4>{loading ? <LoaderCircle className="size-4 animate-spin text-muted-foreground" /> : null}</div><p className="mt-1 text-xs text-muted-foreground">{t("guardrailWizard.nativePreviewDescription")}</p></header>{error ? <div className="p-4"><ErrorNotice error={error} /></div> : null}<dl className="grid divide-y text-xs sm:grid-cols-2 sm:divide-x sm:divide-y-0"><PreviewFact label="Engine" value={preview?.engine ?? "LLMRails"} /><PreviewFact label="Colang" value={preview?.colang_version ?? versions.map(({ version }) => version.colang_version).join(", ")} /><PreviewFact label="Rails" value={preview?.rails.map((item) => item.rail_type).join(", ") ?? rails.join(", ")} /><PreviewFact label="Parallel groups" value={preview?.parallel_groups.join(", ") || groups.join(", ") || "—"} /><PreviewFact label="Actions" value={preview?.actions.map((item) => `${item.name}@${item.version}`).join(", ") || actions.join(", ") || "—"} /><PreviewFact label="Models" value={preview?.models.join(", ") || models.join(", ") || "—"} /><PreviewFact label="Prompts" value={prompts.join(", ") || "—"} /><PreviewFact label={t("controlStudio.timeoutBudget")} value={`${preview?.estimated_critical_path_ms ?? critical}ms`} /><PreviewFact label="Compilation checksum" value={preview?.checksum ?? t("guardrailWizard.compilingChecksum")} /></dl></section>;
+}
+
+function PreviewFact({ label, value }: { label: string; value: string }) { return <div className="min-w-0 p-4"><dt className="text-muted-foreground">{label}</dt><dd className="mt-1 break-words font-mono text-[11px] font-medium">{value}</dd></div>; }
+
 function ReviewMetric({ label, value }: { label: string; value: React.ReactNode }) { return <div className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-semibold tabular-nums">{value}</p></div>; }
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) { return <label className="grid gap-2 text-sm font-medium"><span>{label}</span>{children}{hint ? <span className="text-xs font-normal leading-5 text-muted-foreground">{hint}</span> : null}</label>; }
 
@@ -399,6 +496,17 @@ function runtimeControls(configurations: GuardrailControlConfig[]): GuardrailCon
 function boundaryLabel(rules: GuardrailRuleConfig[], t: ReturnType<typeof useTranslation>["t"]): string {
   const phases = new Set(rules.flatMap((rule) => rule.phases));
   return phases.size === 2 ? t("guardrailWizard.inputOutput") : phases.has("input") ? t("guardrailWizard.inputOnly") : t("guardrailWizard.outputOnly");
+}
+
+function boundaryLabelWithNative(rules: GuardrailRuleConfig[], bindings: GuardrailNativeControlBinding[], t: ReturnType<typeof useTranslation>["t"]): string {
+  const phases = new Set([...rules.flatMap((rule) => rule.phases), ...bindings.flatMap((binding) => binding.enabled_rails.filter((rail): rail is "input" | "output" => rail === "input" || rail === "output"))]);
+  return phases.size === 2 ? t("guardrailWizard.inputOutput") : phases.has("input") ? t("guardrailWizard.inputOnly") : phases.has("output") ? t("guardrailWizard.outputOnly") : t("guardrailWizard.nativeRailOnly");
+}
+
+function nativeCriticalPath(rails: Array<{ rail_type: string; flow_name: string; parallel_group: string | null; timeout_ms: number }>): number {
+  const groups = new Map<string, number>();
+  rails.forEach((rail) => { const key = rail.parallel_group || `${rail.rail_type}:${rail.flow_name}`; groups.set(key, Math.max(groups.get(key) ?? 0, rail.timeout_ms)); });
+  return [...groups.values()].reduce((total, value) => total + value, 0);
 }
 
 function actionLabel(action: string, t: ReturnType<typeof useTranslation>["t"]): string {

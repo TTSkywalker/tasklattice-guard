@@ -266,6 +266,16 @@ class ControlPlaneService:
     def publish_control(self, control_id: str) -> ControlVersion:
         package = self.control_package(control_id)
         self.validate_control(control_id)
+        if package.source == "custom" and package.draft.tests:
+            latest = self.latest_control_test_run(control_id)
+            if (
+                latest is None
+                or int(latest["draft_revision"]) != package.draft_revision
+                or latest["status"] != "passed"
+            ):
+                raise ValidationError(
+                    "The current Control draft must pass Evaluation before publishing."
+                )
         versions = self.control_versions(control_id)
         version_number = max((item.version for item in versions), default=0) + 1
         published_at = _now()
@@ -305,6 +315,146 @@ class ControlPlaneService:
             )
             connection.commit()
         return self.control_version(control_id, version_number)
+
+    def compile_control_draft(
+        self, control_id: str
+    ) -> tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot]:
+        """Compile one draft through the production NeMo compiler for Evaluation."""
+        package = self.control_package(control_id)
+        self.validate_control(control_id)
+        revision = package.draft_revision
+        draft = package.draft
+        checksum_payload = {
+            "control_id": package.id,
+            "draft_revision": revision,
+            **asdict(draft),
+        }
+        checksum = hashlib.sha256(
+            json.dumps(
+                checksum_payload, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        candidate = ControlVersion(
+            control_id=package.id,
+            version=revision,
+            name=package.name,
+            description=package.description,
+            source=package.source,
+            owner=package.owner,
+            colang_version=draft.colang_version,
+            sources=draft.sources,
+            parameter_schema=draft.parameter_schema,
+            rail_bindings=draft.rail_bindings,
+            action_references=draft.action_references,
+            model_dependencies=draft.model_dependencies,
+            prompt_dependencies=draft.prompt_dependencies,
+            execution_contract=draft.execution_contract,
+            tests=draft.tests,
+            checksum=checksum,
+            published_at="",
+        )
+        binding = GuardrailControlBindingSnapshot(
+            control_id=package.id,
+            control_version=revision,
+            parameter_values=tuple(
+                sorted(
+                    (item.name, item.default)
+                    for item in draft.parameter_schema
+                    if item.default is not None
+                )
+            ),
+            enabled_rails=tuple(
+                dict.fromkeys(item.rail_type for item in draft.rail_bindings)
+            ),
+        )
+        guardrail = Guardrail(
+            id=f"control-preview-{package.id}",
+            name=package.name,
+            purpose=package.description or f"Evaluate {package.name}.",
+            allowed_topics=(),
+            restricted_topics=(),
+            controls=(),
+            safety_level="balanced",
+            output_delivery="window_buffered",
+            source_template_id=None,
+            template_parameters=(),
+            draft_version=revision,
+            active_version=None,
+            updated_at=package.updated_at,
+            control_bindings=(
+                GuardrailControlBinding(
+                    control_id=package.id,
+                    control_version=revision,
+                    enabled_rails=binding.enabled_rails,
+                ),
+            ),
+        )
+        plan = self._compiler.compile(
+            guardrail,
+            revision,
+            control_versions=(_control_version_snapshot(candidate),),
+            control_bindings=(binding,),
+        )
+        config = self._nemo_compiler.compile(plan)
+        self._nemo_configs[(plan.guardrail_id, plan.guardrail_version)] = config
+        return plan, config
+
+    def save_control_test_run(
+        self,
+        *,
+        control_id: str,
+        draft_revision: int,
+        status: str,
+        results: tuple[dict[str, object], ...],
+    ) -> dict[str, object]:
+        run_id = f"control-test-{uuid.uuid4().hex[:12]}"
+        created_at = _now()
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO control_test_runs
+                    (id, control_id, draft_revision, status, results_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    control_id,
+                    draft_revision,
+                    status,
+                    _json(results),
+                    created_at,
+                ),
+            )
+            connection.commit()
+        return {
+            "id": run_id,
+            "control_id": control_id,
+            "draft_revision": draft_revision,
+            "status": status,
+            "results": list(results),
+            "created_at": created_at,
+        }
+
+    def latest_control_test_run(
+        self, control_id: str
+    ) -> dict[str, object] | None:
+        self.control_package(control_id)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM control_test_runs WHERE control_id = ? "
+                "ORDER BY created_at DESC, id DESC LIMIT 1",
+                (control_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": str(row["id"]),
+            "control_id": str(row["control_id"]),
+            "draft_revision": int(row["draft_revision"]),
+            "status": str(row["status"]),
+            "results": json.loads(str(row["results_json"])),
+            "created_at": str(row["created_at"]),
+        }
 
     def control_versions(self, control_id: str) -> tuple[ControlVersion, ...]:
         self.control_package(control_id)
@@ -589,6 +739,50 @@ class ControlPlaneService:
     ) -> tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot, str]:
         plan = self.compile_draft(guardrail_id)
         config = self.nemo_config(plan.guardrail_id, plan.guardrail_version)
+        return plan, config, self._nemo_compiler.checksum(config)
+
+    def compile_guardrail_candidate(
+        self,
+        *,
+        name: str,
+        purpose: str,
+        allowed_topics: tuple[str, ...] = (),
+        restricted_topics: tuple[str, ...] = (),
+        controls: tuple[GuardrailControl, ...] = (),
+        control_configurations: tuple[GuardrailControlConfig, ...] = (),
+        control_bindings: tuple[GuardrailControlBinding, ...] = (),
+        safety_level: str = "balanced",
+        output_delivery: str = "window_buffered",
+    ) -> tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot, str]:
+        """Compile a creation-flow candidate without persisting a Guardrail."""
+        self._validate_guardrail_fields(
+            purpose,
+            controls,
+            safety_level,
+            output_delivery,
+            control_configurations,
+            control_bindings,
+        )
+        self._validate_guardrail_control_bindings(control_bindings)
+        guardrail = Guardrail(
+            id="guardrail-candidate-preview",
+            name=name.strip() or "Guardrail candidate",
+            purpose=purpose.strip(),
+            allowed_topics=allowed_topics,
+            restricted_topics=restricted_topics,
+            controls=controls,
+            safety_level=safety_level,
+            output_delivery=output_delivery,
+            source_template_id=None,
+            template_parameters=(),
+            draft_version=1,
+            active_version=None,
+            updated_at=_now(),
+            control_configurations=control_configurations,
+            control_bindings=control_bindings,
+        )
+        plan = self._compile_guardrail(guardrail, 1)
+        config = self._nemo_compiler.compile(plan)
         return plan, config, self._nemo_compiler.checksum(config)
 
     def bind_nemo_runtime(
@@ -1711,6 +1905,15 @@ class ControlPlaneService:
                 PRIMARY KEY (control_id, version),
                 FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
             );
+            CREATE TABLE control_test_runs (
+                id TEXT PRIMARY KEY,
+                control_id TEXT NOT NULL,
+                draft_revision INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                results_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
+            );
             CREATE TABLE integrations (
                 id TEXT PRIMARY KEY,
                 protocol TEXT NOT NULL,
@@ -1873,6 +2076,15 @@ class ControlPlaneService:
                 checksum TEXT NOT NULL,
                 published_at TEXT NOT NULL,
                 PRIMARY KEY (control_id, version),
+                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS control_test_runs (
+                id TEXT PRIMARY KEY,
+                control_id TEXT NOT NULL,
+                draft_revision INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                results_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
                 FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
             );
             """

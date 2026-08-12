@@ -24,6 +24,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { EntitySheet } from "@/components/entity-sheet";
+import { NativeControlInventory } from "@/components/native-control-studio";
 import { ErrorNotice, PageHeader } from "@/components/product-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryKeys } from "@/features/query-keys";
 import {
   getControlTemplates,
@@ -50,6 +52,29 @@ const tableFeatureSet = tableFeatures({
 const columnHelper = createColumnHelper<typeof tableFeatureSet, ControlTemplate>();
 
 export function ControlLibraryPage() {
+  const { t } = useTranslation();
+  return (
+    <section className="py-6 sm:py-8">
+      <PageHeader
+        eyebrow={t("pages.controlLibrary.eyebrow")}
+        title={t("pages.controlLibrary.title")}
+        description={t("pages.controlLibrary.description")}
+      />
+      <Tabs defaultValue="custom" className="mt-5">
+        <TabsList className="h-11 w-full justify-start overflow-x-auto p-1 sm:w-fit" aria-label={t("controlStudio.libraryViews")}>
+          <TabsTrigger className="min-h-9 px-3" value="custom">{t("controlStudio.customControls")}</TabsTrigger>
+          <TabsTrigger className="min-h-9 px-3" value="built-in">{t("controlStudio.builtInControls")}</TabsTrigger>
+          <TabsTrigger className="min-h-9 px-3" value="templates">{t("controlStudio.ruleTemplates")}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="custom" className="pt-4"><NativeControlInventory source="custom" /></TabsContent>
+        <TabsContent value="built-in" className="pt-4"><NativeControlInventory source="built-in" /></TabsContent>
+        <TabsContent value="templates"><LegacyControlTemplatePage embedded /></TabsContent>
+      </Tabs>
+    </section>
+  );
+}
+
+function LegacyControlTemplatePage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const templatesQuery = useQuery({ queryKey: queryKeys.controlTemplates, queryFn: getControlTemplates });
   const templates = templatesQuery.data?.items ?? EMPTY_TEMPLATES;
@@ -172,12 +197,12 @@ export function ControlLibraryPage() {
   const ruleCount = templates.reduce((total, item) => total + item.rules.length, 0);
 
   return (
-    <section className="py-6 sm:py-8">
-      <PageHeader
+    <section className={cn(!embedded && "py-6 sm:py-8", embedded && "pt-4")}>
+      {!embedded ? <PageHeader
         eyebrow={t("pages.controlLibrary.eyebrow")}
         title={t("pages.controlLibrary.title")}
         description={t("pages.controlLibrary.description")}
-      />
+      /> : null}
 
       {templatesQuery.error ? <div className="mt-5"><ErrorNotice error={templatesQuery.error} /></div> : null}
       {templatesQuery.isLoading ? <Skeleton className="mt-5 h-[34rem] rounded-xl" /> : null}
