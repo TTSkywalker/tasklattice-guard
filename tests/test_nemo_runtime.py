@@ -38,7 +38,8 @@ from app.runtime.contracts import (
 )
 from app.nemo.actions.deterministic import FastPassEngine
 from app.nemo.action_registry import runtime_action_registry
-from app.nemo.runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
+from app.nemo.runtime import NeMoGuardrailsEngine
+from app.nemo.registry import NeMoRailsRegistry
 from app.runtime.service import ModelGuardrailsEngineService
 from app.main import _otlp_trace_endpoint
 
@@ -339,6 +340,41 @@ async def test_registry_prewarms_and_never_builds_on_the_active_hot_path(tmp_pat
     assert after["misses"] == before["misses"]
     assert after["hits"] >= before["hits"] + 3
     await engine.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_registry_shutdown_releases_active_and_retired_runtimes():
+    active = _plan(
+        "active-runtime",
+        GuardrailPlanStep(
+            "secrets:deterministic", "secrets", "deterministic", ("input",), "reject"
+        ),
+    )
+    retired = _plan(
+        "retired-runtime",
+        GuardrailPlanStep(
+            "secrets:deterministic", "secrets", "deterministic", ("input",), "reject"
+        ),
+    )
+    compiler = NeMoConfigCompiler()
+
+    class ActiveOnlyStore(_StaticStore):
+        def active_plan_keys(self):
+            return ((active.guardrail_id, active.guardrail_version),)
+
+    store = ActiveOnlyStore(
+        (active, retired), (compiler.compile(active), compiler.compile(retired))
+    )
+    registry = NeMoRailsRegistry(
+        store, runtime_action_registry(FastPassEngine()), max_entries=1
+    )
+    registry.validate(retired, store.nemo_config(retired.guardrail_id, retired.guardrail_version))
+
+    assert registry.stats()["entries"] == 1
+    assert registry.stats()["retired"] == 1
+    await registry.shutdown()
+    assert registry.stats()["entries"] == 0
+    assert registry.stats()["retired"] == 0
 
 
 @pytest.mark.asyncio

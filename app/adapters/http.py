@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ..control_plane.domain import Integration, IntegrationAuthenticationError, ControlPlaneError
 from ..control_plane.service import ControlPlaneService
 from ..runtime.contracts import EvaluationRequest, GuardContentBlock, RequestContext
-from ..runtime.service import ModelGuardrailsEngineService
+from ..runtime.gateway import ModelGuardrailsEngineService
 from .observability import record_runtime_decision, record_runtime_failure
 
 

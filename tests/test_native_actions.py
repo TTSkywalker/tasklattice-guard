@@ -9,7 +9,8 @@ from app.control_plane.nemo_compiler import NeMoConfigCompiler
 from app.nemo.action_registry import runtime_action_registry
 from app.nemo.actions.contracts import ActionRequest, ActionResult
 from app.nemo.actions.deterministic import FastPassEngine
-from app.nemo.runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
+from app.nemo.runtime import NeMoGuardrailsEngine
+from app.nemo.registry import NeMoRailsRegistry
 from app.runtime.contracts import (
     EngineRequest,
     GuardrailPlanModule,

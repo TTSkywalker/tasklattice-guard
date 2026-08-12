@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from app.control_plane.nemo_compiler import NeMoConfigCompiler
-from app.nemo.runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
+from app.nemo.runtime import NeMoGuardrailsEngine
+from app.nemo.registry import NeMoRailsRegistry
 from app.nemo.action_registry import runtime_action_registry
 from app.runtime.contracts import (
     GuardrailPlanSnapshot,

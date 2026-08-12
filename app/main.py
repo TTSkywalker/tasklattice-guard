@@ -21,12 +21,10 @@ from .nemo.actions.automated_reasoning import (
 )
 from .nemo.actions.grounding import ContextualGroundingJudgeEngine
 from .nemo.actions.deterministic import FastPassEngine
-from .nemo.runtime import (
-    NeMoGuardrailsEngine,
-    NeMoRailsRegistry,
-)
+from .nemo.runtime import NeMoGuardrailsEngine
+from .nemo.registry import NeMoRailsRegistry
 from .nemo.actions.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
-from .runtime.service import ModelGuardrailsEngineService
+from .runtime.gateway import ModelGuardrailsEngineService
 from .nemo.actions.topic import PurposeAwareTopicJudgeEngine
 from .identity import IdentityAPI, IdentityService
 from .ui import ControlPlaneStaticFiles
