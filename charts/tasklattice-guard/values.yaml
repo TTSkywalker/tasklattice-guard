@@ -9,6 +9,9 @@ image:
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
+# Service, Deployment, and Pod prefix. Keep the Helm release and retained
+# storage names independent so a display-name change cannot switch databases.
+workloadNameOverride: tali-guard
 
 serviceAccount:
   create: true

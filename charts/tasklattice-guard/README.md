@@ -19,7 +19,7 @@ The default Service is `LoadBalancer`. OrbStack assigns a local external
 address; inspect it with:
 
 ```sh
-kubectl --namespace tali get service tasklattice-guard
+kubectl --namespace tali get service tali-guard
 ```
 
 A fresh persistent volume is initialized with the local administrator
@@ -33,6 +33,7 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | --- | --- | --- |
 | `image.repository` | `ghcr.io/tasklattice/tasklattice-guard` | Container repository |
 | `image.tag` | `dev` | Container tag |
+| `workloadNameOverride` | `tali-guard` | Kubernetes Service and Deployment name; Pod names inherit this prefix |
 | `service.type` | `LoadBalancer` | Kubernetes Service exposure |
 | `persistence.enabled` | `true` | Persist SQLite control-plane state |
 | `persistence.retain` | `true` | Retain the PVC after uninstall |

@@ -2,9 +2,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "tasklattice-guard.fullname" . }}
+  name: {{ include "tasklattice-guard.workloadName" . }}
   labels:
-    {{- include "tasklattice-guard.labels" . | nindent 4 }}
+    {{- include "tasklattice-guard.workloadLabels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
@@ -12,7 +12,7 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "tasklattice-guard.selectorLabels" . | nindent 6 }}
+      {{- include "tasklattice-guard.workloadSelectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -24,7 +24,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "tasklattice-guard.selectorLabels" . | nindent 8 }}
+        {{- include "tasklattice-guard.workloadSelectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

@@ -2,8 +2,10 @@ DEV_IMAGE := ghcr.io/tasklattice/tasklattice-guard:dev
 DEV_NAMESPACE := tali
 HELM_RELEASE := tasklattice-guard
 HELM_CHART := charts/tasklattice-guard
+HELM_WORKLOAD := tali-guard
 HELM_TIMEOUT ?= 180s
 PORT ?= 8091
+RUNTIME_PUBLIC_BASE_URL ?= http://$(HELM_WORKLOAD).$(DEV_NAMESPACE).svc.cluster.local:$(PORT)
 LOCAL_ENV_FILE := $(if $(wildcard .env),--env-file .env,)
 LOCAL_PROVIDER_SECRET ?= tasklattice-guard-provider-keys
 NVIDIA_BASE_URL ?= https://integrate.api.nvidia.com/v1
@@ -41,7 +43,7 @@ helm-template:
 
 helm-install: image helm-lint
 	@set -eu; \
-		helm_args="--set-string image.tag=dev"; \
+		helm_args="--set-string image.tag=dev --set-string runtime.publicBaseUrl=$(RUNTIME_PUBLIC_BASE_URL)"; \
 		provider_configured=false; \
 		if [ -f .env ]; then \
 			if grep -Eq '^NVAPI_API_KEY=.+$$' .env; then \
@@ -81,8 +83,8 @@ helm-install: image helm-lint
 			$$helm_args \
 			--wait \
 			--timeout $(HELM_TIMEOUT)
-	kubectl --namespace $(DEV_NAMESPACE) rollout restart deployment/$(HELM_RELEASE)
-	kubectl --namespace $(DEV_NAMESPACE) rollout status deployment/$(HELM_RELEASE) --timeout=$(HELM_TIMEOUT)
+	kubectl --namespace $(DEV_NAMESPACE) rollout restart deployment/$(HELM_WORKLOAD)
+	kubectl --namespace $(DEV_NAMESPACE) rollout status deployment/$(HELM_WORKLOAD) --timeout=$(HELM_TIMEOUT)
 
 helm-test:
 	helm test $(HELM_RELEASE) --namespace $(DEV_NAMESPACE)

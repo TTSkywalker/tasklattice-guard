@@ -15,6 +15,10 @@
 {{- end }}
 {{- end }}
 
+{{- define "tasklattice-guard.workloadName" -}}
+{{- default "tali-guard" .Values.workloadNameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "tasklattice-guard.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -30,6 +34,20 @@ app.kubernetes.io/part-of: tali
 {{- define "tasklattice-guard.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "tasklattice-guard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- define "tasklattice-guard.workloadSelectorLabels" -}}
+app.kubernetes.io/name: tali
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: guard
+{{- end }}
+
+{{- define "tasklattice-guard.workloadLabels" -}}
+helm.sh/chart: {{ include "tasklattice-guard.chart" . }}
+{{ include "tasklattice-guard.workloadSelectorLabels" . }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: tali
 {{- end }}
 
 {{- define "tasklattice-guard.serviceAccountName" -}}

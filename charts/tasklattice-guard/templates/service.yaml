@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "tasklattice-guard.fullname" . }}
+  name: {{ include "tasklattice-guard.workloadName" . }}
   labels:
-    {{- include "tasklattice-guard.labels" . | nindent 4 }}
+    {{- include "tasklattice-guard.workloadLabels" . | nindent 4 }}
   {{- with .Values.service.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -16,4 +16,4 @@ spec:
       targetPort: http
       protocol: TCP
   selector:
-    {{- include "tasklattice-guard.selectorLabels" . | nindent 4 }}
+    {{- include "tasklattice-guard.workloadSelectorLabels" . | nindent 4 }}
