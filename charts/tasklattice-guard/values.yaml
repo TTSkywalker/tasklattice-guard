@@ -89,9 +89,6 @@ observability:
     enabled: false
     endpoint: ""
 
-migration:
-  legacyModesEnabled: false
-
 controlPlaneAgent:
   deepseek:
     baseUrl: https://api.deepseek.com

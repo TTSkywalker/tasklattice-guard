@@ -4,12 +4,14 @@ import hashlib
 import json
 from dataclasses import asdict
 
-from ..engine.contracts import (
+from ..runtime.contracts import (
     AutomatedReasoningPolicySnapshot,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
     ControlModule,
+    ControlVersionSnapshot,
+    GuardrailControlBindingSnapshot,
 )
 from ..policy_packs.litellm import LITELLM_POLICY_PACK_VERSION, policy_template
 from .catalog import control
@@ -29,11 +31,18 @@ _AUTOMATED_REASONING_TIMEOUT_MS = 30_000
 class GuardrailCompiler:
     """Compile human-facing Guardrails into immutable execution plans."""
 
-    def compile(self, guardrail: Guardrail, version: int) -> GuardrailPlanSnapshot:
+    def compile(
+        self,
+        guardrail: Guardrail,
+        version: int,
+        *,
+        control_versions: tuple[ControlVersionSnapshot, ...] = (),
+        control_bindings: tuple[GuardrailControlBindingSnapshot, ...] = (),
+    ) -> GuardrailPlanSnapshot:
         if not guardrail.purpose.strip():
             raise PlanCompilationError("A Guardrail requires a clear purpose.")
-        if not guardrail.controls:
-            raise PlanCompilationError("Select at least one risk before testing.")
+        if not guardrail.controls and not control_bindings:
+            raise PlanCompilationError("Select at least one Control before testing.")
 
         steps: list[GuardrailPlanStep] = []
         for configured in guardrail.controls:
@@ -113,6 +122,8 @@ class GuardrailCompiler:
             steps=tuple(steps),
             modules=modules,
             reasoning_policies=reasoning_policies,
+            control_versions=control_versions,
+            control_bindings=control_bindings,
         )
 
     @staticmethod

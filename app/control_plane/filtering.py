@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 import fnmatch
 from typing import Any
 
-from ..engine.contracts import RequestContext
+from ..runtime.contracts import RequestContext
 from .domain import (
     ValidationError,
     TrafficScopeExpression,

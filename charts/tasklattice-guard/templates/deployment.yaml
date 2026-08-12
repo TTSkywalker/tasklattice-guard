@@ -59,8 +59,6 @@ spec:
               value: {{ .Values.observability.maxConcurrencyPerGuardrail | quote }}
             - name: MODEL_GUARDRAILS_OTEL_ENABLED
               value: {{ .Values.observability.openTelemetry.enabled | quote }}
-            - name: MODEL_GUARDRAILS_LEGACY_MIGRATION_ENABLED
-              value: {{ .Values.migration.legacyModesEnabled | quote }}
             {{- with .Values.observability.openTelemetry.endpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}

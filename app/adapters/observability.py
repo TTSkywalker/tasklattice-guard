@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 
 from ..control_plane.service import ControlPlaneService
-from ..engine.contracts import EvaluationDecision
+from ..runtime.contracts import EvaluationDecision
 
 
 def record_runtime_decision(

@@ -17,7 +17,7 @@ from .domain import (
     TemplateControl,
     TemplateParameter,
 )
-from ..engine.contracts import GuardrailPhase
+from ..runtime.contracts import GuardrailPhase
 
 
 LITELLM_POLICY_PACK_VERSION = "1.95.0"

@@ -12,14 +12,14 @@ from app.control_plane.domain import (
     GuardrailControl,
     Guardrail,
 )
-from app.engine.automated_reasoning import (
+from app.nemo.actions.automated_reasoning import (
     AutomatedReasoningPolicyEngine,
     HTTPAutomatedReasoningProvider,
     aggregate_reasoning_result,
     parse_reasoning_findings,
 )
-from app.engine.content_views import content_view
-from app.engine.contracts import (
+from app.runtime.content_views import content_view
+from app.runtime.contracts import (
     AutomatedReasoningFinding,
     AutomatedReasoningPolicySnapshot,
     EngineRequest,
@@ -28,7 +28,7 @@ from app.engine.contracts import (
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
 )
-from app.engine.dag import ModularGuardrailsEngine
+from tests.nemo_helpers import nemo_engine
 
 
 class FindingProvider:
@@ -130,9 +130,10 @@ def _request(plan: GuardrailPlanSnapshot, evidence_scope="full") -> EngineReques
 )
 async def test_resolver_maps_detection_only_results(result, decision, action):
     provider = FindingProvider(_finding(result))
-    engine = ModularGuardrailsEngine((AutomatedReasoningPolicyEngine(provider),))
+    plan = _plan()
+    engine = nemo_engine(plan, AutomatedReasoningPolicyEngine(provider))
 
-    observed = await engine.evaluate(_request(_plan()))
+    observed = await engine.evaluate(_request(plan))
 
     assert observed.decision == decision
     assert observed.action == action
@@ -142,26 +143,32 @@ async def test_resolver_maps_detection_only_results(result, decision, action):
     assert provider.calls[0]["query_content"].startswith("Can a part-time")
     if action != "pass":
         assert observed.interventions[0].kind == action
+    await engine.shutdown()
 
 
 @pytest.mark.asyncio
 async def test_valid_finding_is_omitted_from_compact_evidence():
-    engine = ModularGuardrailsEngine(
-        (AutomatedReasoningPolicyEngine(FindingProvider(_finding("valid"))),)
+    plan = _plan()
+    engine = nemo_engine(
+        plan,
+        AutomatedReasoningPolicyEngine(FindingProvider(_finding("valid"))),
     )
 
-    observed = await engine.evaluate(_request(_plan(), "interventions"))
+    observed = await engine.evaluate(_request(plan, "interventions"))
 
     assert observed.decision == "allow"
     assert observed.findings == ()
+    await engine.shutdown()
 
 
 @pytest.mark.asyncio
 async def test_detect_mode_records_resolver_action_without_enforcing_it():
-    engine = ModularGuardrailsEngine(
-        (AutomatedReasoningPolicyEngine(FindingProvider(_finding("invalid"))),)
+    plan = _plan()
+    engine = nemo_engine(
+        plan,
+        AutomatedReasoningPolicyEngine(FindingProvider(_finding("invalid"))),
     )
-    request = _request(_plan())
+    request = _request(plan)
     request = EngineRequest(
         phase=request.phase,
         text=request.text,
@@ -177,6 +184,7 @@ async def test_detect_mode_records_resolver_action_without_enforcing_it():
     assert observed.decision == "allow"
     assert observed.action == "pass"
     assert observed.interventions[0].kind == "rewrite"
+    await engine.shutdown()
 
 
 @pytest.mark.asyncio
@@ -185,14 +193,16 @@ async def test_provider_failure_is_not_converted_into_a_logical_finding():
         async def evaluate(self, **request):
             raise ValueError("invalid proof payload")
 
-    engine = ModularGuardrailsEngine((AutomatedReasoningPolicyEngine(BrokenProvider()),))
+    plan = _plan()
+    engine = nemo_engine(plan, AutomatedReasoningPolicyEngine(BrokenProvider()))
 
-    observed = await engine.evaluate(_request(_plan()))
+    observed = await engine.evaluate(_request(plan))
 
     assert observed.decision == "block"
     assert observed.findings == ()
     assert observed.assessments[0].status == "error"
     assert "ValueError" in observed.assessments[0].fragments[0].reason
+    await engine.shutdown()
 
 
 @pytest.mark.asyncio

@@ -10,9 +10,9 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..engine.content_views import content_view
-from ..engine.automated_reasoning import aggregate_reasoning_result
-from ..engine.contracts import (
+from ..runtime.content_views import content_view
+from ..nemo.actions.automated_reasoning import aggregate_reasoning_result
+from ..runtime.contracts import (
     ContentViewSnapshot,
     EngineRequest,
     GuardContentBlock,
@@ -34,6 +34,13 @@ from .domain import (
     TrafficScopeExpression,
     TrafficScopeRule,
     ValidationError,
+    ActionReference,
+    ControlDraft,
+    ControlParameterDefinition,
+    ControlSourceFile,
+    ControlTestDefinition,
+    GuardrailControlBinding,
+    RailBinding,
 )
 from .filtering import traffic_scope_field_payloads
 from .service import ControlPlaneService
@@ -82,6 +89,99 @@ class GuardrailControlConfigInput(BaseModel):
     rules: list[GuardrailRuleConfigInput] = Field(min_length=1, max_length=512)
 
 
+class ControlSourceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=256)
+    content: str = Field(min_length=1, max_length=100_000)
+
+
+class ControlParameterInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    kind: Literal["string", "number", "boolean", "secret"] = "string"
+    required: bool = False
+    default: str | None = Field(default=None, max_length=8_000)
+    description: str = Field(default="", max_length=1_000)
+
+
+class RailBindingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rail_type: Literal["input", "output", "retrieval", "dialog", "execution"]
+    flow_name: str = Field(min_length=1, max_length=256)
+    execution_mode: Literal["detect", "mutate"]
+    on_unsafe: Literal[
+        "pass", "redact", "rewrite", "regenerate", "redirect", "reject",
+        "fallback", "clarify"
+    ]
+    parallel_group: str | None = Field(default=None, max_length=128)
+    priority: int | None = Field(default=None, ge=0, le=10_000)
+    timeout_ms: int = Field(default=2_000, ge=1, le=120_000)
+    failure_mode: Literal["fail_open", "fail_closed"] = "fail_closed"
+    required: bool = True
+
+
+class ActionReferenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=256)
+    version: str = Field(min_length=1, max_length=64)
+
+
+class ControlTestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    rail_type: Literal["input", "output", "retrieval", "dialog", "execution"]
+    content: str = Field(min_length=1, max_length=8_000)
+    expected_decision: Literal["allow", "block", "transform"]
+
+
+class ControlDraftInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    colang_version: Literal["1.0", "2.x"] = "2.x"
+    sources: list[ControlSourceInput] = Field(min_length=1, max_length=32)
+    parameter_schema: list[ControlParameterInput] = Field(default_factory=list)
+    rail_bindings: list[RailBindingInput] = Field(min_length=1, max_length=32)
+    action_references: list[ActionReferenceInput] = Field(default_factory=list)
+    model_dependencies: list[str] = Field(default_factory=list, max_length=32)
+    prompt_dependencies: list[str] = Field(default_factory=list, max_length=32)
+    execution_contract: dict[str, str] = Field(default_factory=dict)
+    tests: list[ControlTestInput] = Field(default_factory=list, max_length=256)
+
+
+class CreateControlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=2_000)
+    owner: str = Field(min_length=1, max_length=256)
+    draft: ControlDraftInput
+
+
+class UpdateControlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2_000)
+    owner: str | None = Field(default=None, min_length=1, max_length=256)
+    draft: ControlDraftInput | None = None
+
+
+class GuardrailControlBindingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    control_id: str = Field(min_length=1, max_length=256)
+    control_version: int = Field(ge=1)
+    parameter_values: dict[str, str] = Field(default_factory=dict)
+    enabled_rails: list[
+        Literal["input", "output", "retrieval", "dialog", "execution"]
+    ] = Field(default_factory=lambda: ["input", "output"], min_length=1)
+
+
 class CreateGuardrailRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -93,6 +193,7 @@ class CreateGuardrailRequest(BaseModel):
     restricted_topics: list[str] = Field(default_factory=list)
     controls: list[GuardrailControlInput] = Field(default_factory=list)
     control_configurations: list[GuardrailControlConfigInput] = Field(default_factory=list)
+    control_bindings: list[GuardrailControlBindingInput] = Field(default_factory=list)
     safety_level: Literal["balanced", "strict"] = "balanced"
     output_delivery: Literal[
         "interruptible", "window_buffered", "full_buffered"
@@ -134,6 +235,7 @@ class UpdateGuardrailRequest(BaseModel):
     restricted_topics: list[str] | None = None
     controls: list[GuardrailControlInput] | None = None
     control_configurations: list[GuardrailControlConfigInput] | None = None
+    control_bindings: list[GuardrailControlBindingInput] | None = None
     safety_level: Literal["balanced", "strict"] | None = None
     output_delivery: Literal[
         "interruptible", "window_buffered", "full_buffered"
@@ -209,14 +311,7 @@ class QuickTestRequest(BaseModel):
 class RuntimeModeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal[
-        "legacy_only",
-        "shadow_nemo",
-        "compare",
-        "nemo_canary",
-        "nemo_primary_legacy_shadow",
-        "nemo_only",
-    ]
+    mode: Literal["nemo_only"]
 
 
 class ControlPlaneAPI:
@@ -253,6 +348,71 @@ class ControlPlaneAPI:
             return _collection(
                 [asdict(item) for item in self._service.control_definitions()]
             )
+
+        @router.get("/actions")
+        def action_catalog():
+            return _collection([asdict(item) for item in self._service.actions()])
+
+        @router.get("/controls")
+        def native_controls():
+            return _collection([asdict(item) for item in self._service.controls()])
+
+        @router.post("/controls", status_code=201)
+        def create_control(request: CreateControlRequest):
+            try:
+                item = self._service.create_control(
+                    name=request.name,
+                    description=request.description,
+                    owner=request.owner,
+                    draft=_control_draft(request.draft),
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return asdict(item)
+
+        @router.get("/controls/{control_id}")
+        def native_control(control_id: str):
+            try:
+                package = self._service.control_package(control_id)
+                versions = self._service.control_versions(control_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return {
+                **asdict(package),
+                "versions": [asdict(item) for item in versions],
+            }
+
+        @router.patch("/controls/{control_id}")
+        def update_control(control_id: str, request: UpdateControlRequest):
+            try:
+                item = self._service.update_control_draft(
+                    control_id,
+                    name=request.name,
+                    description=request.description,
+                    owner=request.owner,
+                    draft=(
+                        _control_draft(request.draft)
+                        if request.draft is not None
+                        else None
+                    ),
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return asdict(item)
+
+        @router.post("/controls/{control_id}/validate")
+        def validate_control(control_id: str):
+            try:
+                return self._service.validate_control(control_id)
+            except ControlPlaneError as error:
+                _raise(error)
+
+        @router.post("/controls/{control_id}/publish", status_code=201)
+        def publish_control(control_id: str):
+            try:
+                return asdict(self._service.publish_control(control_id))
+            except ControlPlaneError as error:
+                _raise(error)
 
         @router.get("/intent-analysis-status")
         def intent_analysis_status():
@@ -300,13 +460,15 @@ class ControlPlaneAPI:
                     control_configurations=_control_configurations(
                         request.control_configurations
                     ),
+                    control_bindings=_control_bindings(request.control_bindings),
                     template_parameters=tuple(request.template_parameters.items()),
                     safety_level=request.safety_level,
                     output_delivery=request.output_delivery,
                 )
                 self._service.sync_generated_test_cases(
                     item.id,
-                    _evaluation_cases(item),
+                    _evaluation_cases(item)
+                    + _native_evaluation_cases(self._service, item),
                 )
             except ControlPlaneError as error:
                 _raise(error)
@@ -339,12 +501,18 @@ class ControlPlaneAPI:
                         if request.control_configurations is not None
                         else None
                     ),
+                    control_bindings=(
+                        _control_bindings(request.control_bindings)
+                        if request.control_bindings is not None
+                        else None
+                    ),
                     safety_level=request.safety_level,
                     output_delivery=request.output_delivery,
                 )
                 self._service.sync_generated_test_cases(
                     guardrail_id,
-                    _evaluation_cases(item),
+                    _evaluation_cases(item)
+                    + _native_evaluation_cases(self._service, item),
                 )
             except ControlPlaneError as error:
                 _raise(error)
@@ -686,6 +854,9 @@ class ControlPlaneAPI:
             "control_configurations": [
                 asdict(item) for item in guardrail.control_configurations
             ],
+            "control_bindings": [
+                asdict(item) for item in guardrail.control_bindings
+            ],
             "safety_level": guardrail.safety_level,
             "output_delivery": guardrail.output_delivery,
             "source_template_id": guardrail.source_template_id,
@@ -790,7 +961,6 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
     window_start = now - timedelta(days=7)
     events = service.runtime_metrics(since=window_start.isoformat())
     step_events = service.runtime_step_metrics(since=window_start.isoformat())
-    comparisons = service.runtime_comparisons(since=window_start.isoformat())
     counts = {
         "allow": sum(item.outcome == "allow" for item in events),
         "block": sum(item.outcome == "block" for item in events),
@@ -945,25 +1115,12 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         ],
         "rail_metrics": _component_metrics(step_events, "rail"),
         "action_metrics": _component_metrics(step_events, "action"),
-        "comparison_count": len(comparisons),
-        "decision_match_rate": round(
-            sum(item.decision_match for item in comparisons)
-            / max(1, len(comparisons))
-            * 100,
-            1,
-        ),
-        "action_match_rate": round(
-            sum(item.action_match for item in comparisons)
-            / max(1, len(comparisons))
-            * 100,
-            1,
-        ),
-        "finding_match_rate": round(
-            sum(item.finding_match for item in comparisons)
-            / max(1, len(comparisons))
-            * 100,
-            1,
-        ),
+        # Kept as zero-valued compatibility fields until the unchanged UI no
+        # longer renders the retired dual-runtime comparison alert.
+        "comparison_count": 0,
+        "decision_match_rate": 100.0,
+        "action_match_rate": 100.0,
+        "finding_match_rate": 100.0,
         "runtime_p50_ms": latency["p50"],
         "runtime_p95_ms": latency["p95"],
         "runtime_p99_ms": latency["p99"],
@@ -1084,6 +1241,70 @@ def _controls(items: list[GuardrailControlInput]) -> tuple[GuardrailControl, ...
                 if item.reasoning_policy is not None
                 else None
             ),
+        )
+        for item in items
+    )
+
+
+def _control_draft(item: ControlDraftInput) -> ControlDraft:
+    return ControlDraft(
+        colang_version=item.colang_version,
+        sources=tuple(
+            ControlSourceFile(path=source.path, content=source.content)
+            for source in item.sources
+        ),
+        parameter_schema=tuple(
+            ControlParameterDefinition(
+                name=parameter.name,
+                kind=parameter.kind,
+                required=parameter.required,
+                default=parameter.default,
+                description=parameter.description,
+            )
+            for parameter in item.parameter_schema
+        ),
+        rail_bindings=tuple(
+            RailBinding(
+                rail_type=binding.rail_type,
+                flow_name=binding.flow_name,
+                execution_mode=binding.execution_mode,
+                on_unsafe=binding.on_unsafe,
+                parallel_group=binding.parallel_group,
+                priority=binding.priority,
+                timeout_ms=binding.timeout_ms,
+                failure_mode=binding.failure_mode,
+                required=binding.required,
+            )
+            for binding in item.rail_bindings
+        ),
+        action_references=tuple(
+            ActionReference(name=reference.name, version=reference.version)
+            for reference in item.action_references
+        ),
+        model_dependencies=tuple(item.model_dependencies),
+        prompt_dependencies=tuple(item.prompt_dependencies),
+        execution_contract=tuple(sorted(item.execution_contract.items())),
+        tests=tuple(
+            ControlTestDefinition(
+                name=test.name,
+                rail_type=test.rail_type,
+                content=test.content,
+                expected_decision=test.expected_decision,
+            )
+            for test in item.tests
+        ),
+    )
+
+
+def _control_bindings(
+    items: list[GuardrailControlBindingInput],
+) -> tuple[GuardrailControlBinding, ...]:
+    return tuple(
+        GuardrailControlBinding(
+            control_id=item.control_id,
+            control_version=item.control_version,
+            parameter_values=tuple(sorted(item.parameter_values.items())),
+            enabled_rails=tuple(item.enabled_rails),
         )
         for item in items
     )
@@ -1262,6 +1483,38 @@ def _evaluation_cases(guardrail) -> tuple[EvaluationCase, ...]:
                 ),
             )
         )
+    return tuple(cases)
+
+
+def _native_evaluation_cases(
+    service: ControlPlaneService,
+    guardrail,
+) -> tuple[EvaluationCase, ...]:
+    cases: list[EvaluationCase] = []
+    for selected in guardrail.control_bindings:
+        version = service.control_version(
+            selected.control_id, selected.control_version
+        )
+        enabled = set(selected.enabled_rails)
+        for index, test in enumerate(version.tests):
+            if test.rail_type not in enabled or test.rail_type not in {"input", "output"}:
+                continue
+            cases.append(
+                EvaluationCase(
+                    id=(
+                        f"{selected.control_id}-v{selected.control_version}-"
+                        f"{index + 1}"
+                    ),
+                    name=test.name,
+                    risk=selected.control_id,
+                    phase=test.rail_type,
+                    content=test.content,
+                    expected_decision=test.expected_decision,
+                    target_source=(
+                        "user_input" if test.rail_type == "input" else "model_output"
+                    ),
+                )
+            )
     return tuple(cases)
 
 

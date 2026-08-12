@@ -12,7 +12,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..engine.contracts import (
+from ..runtime.contracts import (
     AutomatedReasoningPolicySnapshot,
     EvaluationTraceStep,
     GuardrailPlanModule,
@@ -22,7 +22,13 @@ from ..engine.contracts import (
     NeMoConfigSnapshot,
     PlanResolution,
     RequestContext,
+    ControlActionReferenceSnapshot,
+    ControlRailBindingSnapshot,
+    ControlSourceSnapshot,
+    ControlVersionSnapshot,
+    GuardrailControlBindingSnapshot,
 )
+from ..nemo.action_registry import ActionCatalog, BUILTIN_ACTION_CATALOG
 from .catalog import (
     CONTROL_DEFINITIONS,
     control_templates,
@@ -55,7 +61,6 @@ from .domain import (
     NotFoundError,
     RuntimeMetricEvent,
     RuntimeStepMetricEvent,
-    RuntimeComparisonEvent,
     GuardrailVersion,
     GuardrailControl,
     GuardrailControlConfig,
@@ -67,6 +72,15 @@ from .domain import (
     Guardrail,
     TestedGuardrailVersion,
     ValidationError,
+    ActionReference,
+    ControlDraft,
+    ControlPackage,
+    ControlParameterDefinition,
+    ControlSourceFile,
+    ControlTestDefinition,
+    ControlVersion,
+    GuardrailControlBinding,
+    RailBinding,
 )
 from .filtering import (
     traffic_scope_from_payload,
@@ -92,9 +106,9 @@ class ControlPlaneService:
         deep_judge_configured: bool = False,
         automated_reasoning_configured: bool = False,
         nemo_compiler: NeMoConfigCompiler | None = None,
+        action_catalog: ActionCatalog | None = None,
         runtime_p95_budget_ms: int = 2_500,
         runtime_p99_budget_ms: int = 5_000,
-        legacy_migration_enabled: bool = False,
     ) -> None:
         self._database_path = database_path
         self._fast_semantic_configured = fast_semantic_configured
@@ -102,9 +116,9 @@ class ControlPlaneService:
         self._automated_reasoning_configured = automated_reasoning_configured
         self._compiler = GuardrailCompiler()
         self._nemo_compiler = nemo_compiler or NeMoConfigCompiler()
+        self._action_catalog = action_catalog or BUILTIN_ACTION_CATALOG
         self._runtime_p95_budget_ms = runtime_p95_budget_ms
         self._runtime_p99_budget_ms = runtime_p99_budget_ms
-        self._legacy_migration_enabled = legacy_migration_enabled
         self._nemo_runtime_validator: (
             Callable[[GuardrailPlanSnapshot, NeMoConfigSnapshot], None] | None
         ) = None
@@ -130,6 +144,183 @@ class ControlPlaneService:
 
     def control_definitions(self):
         return CONTROL_DEFINITIONS
+
+    def actions(self):
+        return self._action_catalog.definitions()
+
+    # Native Control packages
+
+    def controls(self) -> tuple[ControlPackage, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM control_packages ORDER BY name COLLATE NOCASE, id"
+            ).fetchall()
+        return tuple(_control_package_from_row(row) for row in rows)
+
+    def control_package(self, control_id: str) -> ControlPackage:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM control_packages WHERE id = ?", (control_id,)
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(f"Control {control_id!r} was not found.")
+        return _control_package_from_row(row)
+
+    def create_control(
+        self,
+        *,
+        name: str,
+        description: str,
+        owner: str,
+        draft: ControlDraft,
+        source: str = "custom",
+    ) -> ControlPackage:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValidationError("Control name is required.")
+        if source not in {"built-in", "custom"}:
+            raise ValidationError("Control source must be built-in or custom.")
+        control_id = f"control-{uuid.uuid4().hex[:12]}"
+        now = _now()
+        self._validate_control_draft(control_id, draft)
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO control_packages
+                    (id, name, description, source, owner, draft_json,
+                     draft_revision, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                """,
+                (
+                    control_id,
+                    clean_name,
+                    description.strip(),
+                    source,
+                    owner.strip() or "unknown",
+                    _json(asdict(draft)),
+                    now,
+                ),
+            )
+            self._insert_activity(
+                connection,
+                kind="control.created",
+                outcome="success",
+                detail=f"Created Control {clean_name}.",
+            )
+            connection.commit()
+        return self.control_package(control_id)
+
+    def update_control_draft(
+        self,
+        control_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        owner: str | None = None,
+        draft: ControlDraft | None = None,
+    ) -> ControlPackage:
+        current = self.control_package(control_id)
+        next_draft = current.draft if draft is None else draft
+        self._validate_control_draft(control_id, next_draft)
+        next_name = current.name if name is None else name.strip()
+        if not next_name:
+            raise ValidationError("Control name is required.")
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE control_packages
+                SET name = ?, description = ?, owner = ?, draft_json = ?,
+                    draft_revision = draft_revision + 1, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    next_name,
+                    current.description if description is None else description.strip(),
+                    current.owner if owner is None else owner.strip() or "unknown",
+                    _json(asdict(next_draft)),
+                    _now(),
+                    control_id,
+                ),
+            )
+            connection.commit()
+        return self.control_package(control_id)
+
+    def validate_control(self, control_id: str) -> dict[str, object]:
+        package = self.control_package(control_id)
+        self._validate_control_draft(control_id, package.draft)
+        self._nemo_compiler.validate_control(control_id, package.draft)
+        return {
+            "valid": True,
+            "control_id": control_id,
+            "draft_revision": package.draft_revision,
+            "colang_version": package.draft.colang_version,
+            "rails": tuple(item.rail_type for item in package.draft.rail_bindings),
+        }
+
+    def publish_control(self, control_id: str) -> ControlVersion:
+        package = self.control_package(control_id)
+        self.validate_control(control_id)
+        versions = self.control_versions(control_id)
+        version_number = max((item.version for item in versions), default=0) + 1
+        published_at = _now()
+        version_payload = {
+            "control_id": package.id,
+            "version": version_number,
+            "name": package.name,
+            "description": package.description,
+            "source": package.source,
+            "owner": package.owner,
+            **asdict(package.draft),
+            "published_at": published_at,
+        }
+        checksum = hashlib.sha256(
+            json.dumps(version_payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO control_versions
+                    (control_id, version, version_json, checksum, published_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    control_id,
+                    version_number,
+                    _json(version_payload),
+                    checksum,
+                    published_at,
+                ),
+            )
+            self._insert_activity(
+                connection,
+                kind="control.version.published",
+                outcome="success",
+                detail=f"Published Control {package.name} version {version_number}.",
+            )
+            connection.commit()
+        return self.control_version(control_id, version_number)
+
+    def control_versions(self, control_id: str) -> tuple[ControlVersion, ...]:
+        self.control_package(control_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM control_versions WHERE control_id = ? "
+                "ORDER BY version DESC",
+                (control_id,),
+            ).fetchall()
+        return tuple(_control_version_from_row(row) for row in rows)
+
+    def control_version(self, control_id: str, version: int) -> ControlVersion:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM control_versions WHERE control_id = ? AND version = ?",
+                (control_id, version),
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(
+                f"Control Version {control_id}@{version} was not found."
+            )
+        return _control_version_from_row(row)
 
     # Guardrails
 
@@ -159,6 +350,7 @@ class ControlPlaneService:
         restricted_topics: tuple[str, ...] = (),
         controls: tuple[GuardrailControl, ...] = (),
         control_configurations: tuple[GuardrailControlConfig, ...] = (),
+        control_bindings: tuple[GuardrailControlBinding, ...] = (),
         template_parameters: tuple[tuple[str, str], ...] = (),
         safety_level: str = "balanced",
         output_delivery: str = "window_buffered",
@@ -201,7 +393,9 @@ class ControlPlaneService:
             safety_level,
             output_delivery,
             control_configurations,
+            control_bindings,
         )
+        self._validate_guardrail_control_bindings(control_bindings)
         guardrail_id = f"guardrail-{uuid.uuid4().hex[:12]}"
         now = _now()
         with self._write_lock, self._connect() as connection:
@@ -211,8 +405,9 @@ class ControlPlaneService:
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
                      controls_json, safety_level, output_delivery, source_template_id,
                      template_parameters_json, control_configurations_json,
+                     control_bindings_json,
                      draft_version, active_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
                 """,
                 (
                     guardrail_id,
@@ -226,6 +421,7 @@ class ControlPlaneService:
                     template_id,
                     _json(dict(template_parameters)),
                     _control_configurations_json(control_configurations),
+                    _json([asdict(item) for item in control_bindings]),
                     now,
                 ),
             )
@@ -249,6 +445,7 @@ class ControlPlaneService:
         restricted_topics: tuple[str, ...] | None = None,
         controls: tuple[GuardrailControl, ...] | None = None,
         control_configurations: tuple[GuardrailControlConfig, ...] | None = None,
+        control_bindings: tuple[GuardrailControlBinding, ...] | None = None,
         safety_level: str | None = None,
         output_delivery: str | None = None,
     ) -> Guardrail:
@@ -263,6 +460,9 @@ class ControlPlaneService:
             if control_configurations is None
             else control_configurations
         )
+        next_control_bindings = (
+            current.control_bindings if control_bindings is None else control_bindings
+        )
         next_level = current.safety_level if safety_level is None else safety_level
         next_delivery = current.output_delivery if output_delivery is None else output_delivery
         if not next_name:
@@ -273,7 +473,9 @@ class ControlPlaneService:
             next_level,
             next_delivery,
             next_control_configurations,
+            next_control_bindings,
         )
+        self._validate_guardrail_control_bindings(next_control_bindings)
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
@@ -281,6 +483,7 @@ class ControlPlaneService:
                 SET name = ?, purpose = ?, allowed_topics_json = ?,
                     restricted_topics_json = ?, controls_json = ?, safety_level = ?,
                     output_delivery = ?, control_configurations_json = ?,
+                    control_bindings_json = ?,
                     draft_version = draft_version + 1,
                     updated_at = ?
                 WHERE id = ?
@@ -298,6 +501,7 @@ class ControlPlaneService:
                     next_level,
                     next_delivery,
                     _control_configurations_json(next_control_configurations),
+                    _json([asdict(item) for item in next_control_bindings]),
                     _now(),
                     guardrail_id,
                 ),
@@ -312,9 +516,38 @@ class ControlPlaneService:
             connection.commit()
         return self.guardrail(guardrail_id)
 
+    def _compile_guardrail(
+        self,
+        guardrail: Guardrail,
+        version: int,
+    ) -> GuardrailPlanSnapshot:
+        resolved_versions: list[ControlVersionSnapshot] = []
+        resolved_bindings: list[GuardrailControlBindingSnapshot] = []
+        for binding in guardrail.control_bindings:
+            control_version = self.control_version(
+                binding.control_id, binding.control_version
+            )
+            resolved_versions.append(_control_version_snapshot(control_version))
+            resolved_bindings.append(
+                GuardrailControlBindingSnapshot(
+                    control_id=binding.control_id,
+                    control_version=binding.control_version,
+                    parameter_values=binding.parameter_values,
+                    enabled_rails=binding.enabled_rails,
+                )
+            )
+        return self._compiler.compile(
+            guardrail,
+            version,
+            control_versions=tuple(resolved_versions),
+            control_bindings=tuple(resolved_bindings),
+        )
+
     def compile_draft(self, guardrail_id: str) -> GuardrailPlanSnapshot:
         guardrail = self.guardrail(guardrail_id)
-        plan = self._compiler.compile(guardrail, (guardrail.active_version or 0) + 1)
+        plan = self._compile_guardrail(
+            guardrail, (guardrail.active_version or 0) + 1
+        )
         # Draft evaluation uses the same compiler/runtime as released traffic,
         # without making the candidate deployable or durable.
         self._nemo_configs[(plan.guardrail_id, plan.guardrail_version)] = (
@@ -370,7 +603,7 @@ class ControlPlaneService:
             )
 
         next_version = (guardrail.active_version or 0) + 1
-        plan = self._compiler.compile(guardrail, next_version)
+        plan = self._compile_guardrail(guardrail, next_version)
         nemo_config = self._nemo_compiler.compile(plan)
         checksum = self._nemo_compiler.checksum(nemo_config)
         if self._nemo_runtime_validator is not None:
@@ -464,7 +697,7 @@ class ControlPlaneService:
                 active=int(row[1]) == guardrail.active_version,
                 runtime_engine=str(row[6] or "nemo"),
                 config_checksum=str(row[7] or row[4]),
-                execution_mode=str(row[8] or "nemo_only"),
+                execution_mode="nemo_only",
             )
             for row in rows
         )
@@ -529,19 +762,9 @@ class ControlPlaneService:
         version: int,
         mode: str,
     ) -> GuardrailVersion:
-        allowed = {
-            "legacy_only",
-            "shadow_nemo",
-            "compare",
-            "nemo_canary",
-            "nemo_primary_legacy_shadow",
-            "nemo_only",
-        }
-        if mode not in allowed:
-            raise ValidationError("Unsupported runtime migration mode.")
-        if mode != "nemo_only" and not self._legacy_migration_enabled:
+        if mode != "nemo_only":
             raise ValidationError(
-                "Legacy runtime migration modes are disabled; this deployment is NeMo-only."
+                "Legacy runtime modes were removed; this deployment is NeMo-only."
             )
         target = next(
             (item for item in self.versions(guardrail_id) if item.version == version),
@@ -549,11 +772,10 @@ class ControlPlaneService:
         )
         if target is None:
             raise NotFoundError("Guardrail Version was not found.")
-        if mode != "legacy_only":
-            plan = self.plan(guardrail_id, version)
-            config = self.nemo_config(guardrail_id, version)
-            if self._nemo_runtime_validator is not None:
-                self._nemo_runtime_validator(plan, config)
+        plan = self.plan(guardrail_id, version)
+        config = self.nemo_config(guardrail_id, version)
+        if self._nemo_runtime_validator is not None:
+            self._nemo_runtime_validator(plan, config)
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 "UPDATE guardrail_versions SET execution_mode = ? "
@@ -1159,41 +1381,6 @@ class ControlPlaneService:
             for row in rows
         )
 
-    def runtime_comparisons(
-        self,
-        *,
-        since: str,
-    ) -> tuple[RuntimeComparisonEvent, ...]:
-        with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT id, created_at, guardrail_id, guardrail_version, "
-                "execution_mode, primary_engine, primary_decision, "
-                "legacy_decision, nemo_decision, decision_match, action_match, "
-                "finding_match, legacy_latency_ms, nemo_latency_ms "
-                "FROM runtime_comparison_events WHERE created_at >= ? "
-                "ORDER BY created_at DESC, id DESC",
-                (since,),
-            ).fetchall()
-        return tuple(
-            RuntimeComparisonEvent(
-                id=str(row[0]),
-                created_at=str(row[1]),
-                guardrail_id=str(row[2]),
-                guardrail_version=int(row[3]),
-                execution_mode=str(row[4]),
-                primary_engine=str(row[5]),
-                primary_decision=str(row[6]),
-                legacy_decision=str(row[7]),
-                nemo_decision=str(row[8]),
-                decision_match=bool(row[9]),
-                action_match=bool(row[10]),
-                finding_match=bool(row[11]),
-                legacy_latency_ms=int(row[12]),
-                nemo_latency_ms=int(row[13]),
-            )
-            for row in rows
-        )
-
     def runtime_step_metrics(
         self,
         *,
@@ -1289,48 +1476,6 @@ class ControlPlaneService:
                 "latency_ms, timed_out, runtime_engine, config_checksum) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
-            )
-            connection.commit()
-
-    def record_runtime_comparison(
-        self,
-        *,
-        guardrail_id: str,
-        guardrail_version: int,
-        execution_mode: str,
-        primary_engine: str,
-        primary_decision: str,
-        legacy_decision: str,
-        nemo_decision: str,
-        decision_match: bool,
-        action_match: bool,
-        finding_match: bool,
-        legacy_latency_ms: int,
-        nemo_latency_ms: int,
-    ) -> None:
-        with self._write_lock, self._connect() as connection:
-            connection.execute(
-                "INSERT INTO runtime_comparison_events "
-                "(id, created_at, guardrail_id, guardrail_version, execution_mode, "
-                "primary_engine, primary_decision, legacy_decision, nemo_decision, "
-                "decision_match, action_match, finding_match, legacy_latency_ms, "
-                "nemo_latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    f"comparison-{uuid.uuid4().hex[:12]}",
-                    _now(),
-                    guardrail_id,
-                    guardrail_version,
-                    execution_mode,
-                    primary_engine,
-                    primary_decision,
-                    legacy_decision,
-                    nemo_decision,
-                    int(decision_match),
-                    int(action_match),
-                    int(finding_match),
-                    max(0, legacy_latency_ms),
-                    max(0, nemo_latency_ms),
-                ),
             )
             connection.commit()
 
@@ -1489,6 +1634,7 @@ class ControlPlaneService:
                 source_template_id TEXT,
                 template_parameters_json TEXT NOT NULL,
                 control_configurations_json TEXT NOT NULL DEFAULT '[]',
+                control_bindings_json TEXT NOT NULL DEFAULT '[]',
                 draft_version INTEGER NOT NULL,
                 active_version INTEGER,
                 updated_at TEXT NOT NULL
@@ -1508,6 +1654,25 @@ class ControlPlaneService:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (guardrail_id, version),
                 FOREIGN KEY (guardrail_id) REFERENCES guardrails(id) ON DELETE CASCADE
+            );
+            CREATE TABLE control_packages (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                source TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                draft_json TEXT NOT NULL,
+                draft_revision INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE control_versions (
+                control_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                version_json TEXT NOT NULL,
+                checksum TEXT NOT NULL,
+                published_at TEXT NOT NULL,
+                PRIMARY KEY (control_id, version),
+                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
             );
             CREATE TABLE integrations (
                 id TEXT PRIMARY KEY,
@@ -1609,24 +1774,6 @@ class ControlPlaneService:
                 ON runtime_metric_events(created_at);
             CREATE INDEX runtime_metric_events_guardrail_created_at_idx
                 ON runtime_metric_events(guardrail_id, created_at);
-            CREATE TABLE runtime_comparison_events (
-                id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                guardrail_id TEXT NOT NULL,
-                guardrail_version INTEGER NOT NULL,
-                execution_mode TEXT NOT NULL,
-                primary_engine TEXT NOT NULL,
-                primary_decision TEXT NOT NULL,
-                legacy_decision TEXT NOT NULL,
-                nemo_decision TEXT NOT NULL,
-                decision_match INTEGER NOT NULL,
-                action_match INTEGER NOT NULL,
-                finding_match INTEGER NOT NULL,
-                legacy_latency_ms INTEGER NOT NULL,
-                nemo_latency_ms INTEGER NOT NULL
-            );
-            CREATE INDEX runtime_comparison_events_created_at_idx
-                ON runtime_comparison_events(created_at);
             CREATE TABLE users (
                 id TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL,
@@ -1665,6 +1812,34 @@ class ControlPlaneService:
                 "ALTER TABLE guardrails ADD COLUMN control_configurations_json "
                 "TEXT NOT NULL DEFAULT '[]'"
             )
+        if "control_bindings_json" not in columns:
+            connection.execute(
+                "ALTER TABLE guardrails ADD COLUMN control_bindings_json "
+                "TEXT NOT NULL DEFAULT '[]'"
+            )
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS control_packages (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                source TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                draft_json TEXT NOT NULL,
+                draft_revision INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS control_versions (
+                control_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                version_json TEXT NOT NULL,
+                checksum TEXT NOT NULL,
+                published_at TEXT NOT NULL,
+                PRIMARY KEY (control_id, version),
+                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
+            );
+            """
+        )
 
     @staticmethod
     def _ensure_nemo_config_schema(connection: sqlite3.Connection) -> None:
@@ -1774,24 +1949,6 @@ class ControlPlaneService:
                 ON runtime_step_metric_events(created_at);
             CREATE INDEX IF NOT EXISTS runtime_step_metric_events_guardrail_created_at_idx
                 ON runtime_step_metric_events(guardrail_id, created_at);
-            CREATE TABLE IF NOT EXISTS runtime_comparison_events (
-                id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                guardrail_id TEXT NOT NULL,
-                guardrail_version INTEGER NOT NULL,
-                execution_mode TEXT NOT NULL,
-                primary_engine TEXT NOT NULL,
-                primary_decision TEXT NOT NULL,
-                legacy_decision TEXT NOT NULL,
-                nemo_decision TEXT NOT NULL,
-                decision_match INTEGER NOT NULL,
-                action_match INTEGER NOT NULL,
-                finding_match INTEGER NOT NULL,
-                legacy_latency_ms INTEGER NOT NULL,
-                nemo_latency_ms INTEGER NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS runtime_comparison_events_created_at_idx
-                ON runtime_comparison_events(created_at);
             """
         )
         columns = {
@@ -2012,7 +2169,7 @@ class ControlPlaneService:
                     nemo_configs[key] = _nemo_config_from_payload(
                         json.loads(str(row[3]))
                     )
-                execution_modes[key] = str(row[4] or "nemo_only")
+                execution_modes[key] = "nemo_only"
             for row in connection.execute(
                 "SELECT secret_hash, integration_id FROM integration_credentials WHERE revoked_at IS NULL"
             ).fetchall():
@@ -2055,6 +2212,87 @@ class ControlPlaneService:
             updated_at=str(row["updated_at"]),
         )
 
+    def _validate_control_draft(self, control_id: str, draft: ControlDraft) -> None:
+        if draft.colang_version not in {"1.0", "2.x"}:
+            raise ValidationError("Control Colang version must be 1.0 or 2.x.")
+        if not draft.sources or any(
+            not item.path.strip() or not item.content.strip() for item in draft.sources
+        ):
+            raise ValidationError("A Control requires at least one named Colang source.")
+        if len({item.path for item in draft.sources}) != len(draft.sources):
+            raise ValidationError("Control source paths must be unique.")
+        if not draft.rail_bindings:
+            raise ValidationError("A Control requires at least one Rail binding.")
+        for binding in draft.rail_bindings:
+            if binding.rail_type not in {
+                "input", "output", "retrieval", "dialog", "execution"
+            }:
+                raise ValidationError("Unsupported Control rail type.")
+            if binding.timeout_ms <= 0:
+                raise ValidationError("Control rail timeouts must be positive.")
+            if binding.execution_mode == "mutate" and binding.priority is None:
+                raise ValidationError(
+                    f"Mutating flow {binding.flow_name!r} requires an explicit priority."
+                )
+        mutating_groups: dict[tuple[str, str | None], list[RailBinding]] = {}
+        for binding in draft.rail_bindings:
+            if binding.execution_mode == "mutate":
+                mutating_groups.setdefault(
+                    (binding.rail_type, binding.parallel_group), []
+                ).append(binding)
+        for (rail, group), bindings in mutating_groups.items():
+            if group is not None and len(bindings) > 1:
+                raise ValidationError(
+                    f"Mutating {rail} flows cannot share parallel group {group!r}."
+                )
+        for reference in draft.action_references:
+            if not self._action_catalog.contains(reference.name, reference.version):
+                raise ValidationError(
+                    f"Control {control_id!r} references unregistered Action "
+                    f"{reference.name}@{reference.version}."
+                )
+            definition = self._action_catalog.get(reference.name, reference.version)
+            if not definition.provider_ready:
+                raise ValidationError(
+                    f"Action provider {reference.name}@{reference.version} is not ready."
+                )
+
+    def _validate_guardrail_control_bindings(
+        self,
+        bindings: tuple[GuardrailControlBinding, ...],
+    ) -> None:
+        keys = tuple((item.control_id, item.control_version) for item in bindings)
+        if len(set(keys)) != len(keys):
+            raise ValidationError("A Control Version may only be bound once.")
+        for binding in bindings:
+            version = self.control_version(binding.control_id, binding.control_version)
+            definitions = {item.name: item for item in version.parameter_schema}
+            supplied = dict(binding.parameter_values)
+            missing = tuple(
+                item.name
+                for item in definitions.values()
+                if item.required and item.default is None and not supplied.get(item.name)
+            )
+            if missing:
+                raise ValidationError(
+                    f"Control {binding.control_id}@{binding.control_version} requires "
+                    + ", ".join(missing)
+                    + "."
+                )
+            unknown = set(supplied) - set(definitions)
+            if unknown:
+                raise ValidationError(
+                    f"Unknown parameters for Control {binding.control_id}: "
+                    + ", ".join(sorted(unknown))
+                    + "."
+                )
+            available_rails = {item.rail_type for item in version.rail_bindings}
+            if not set(binding.enabled_rails) <= available_rails:
+                raise ValidationError(
+                    f"Control {binding.control_id}@{binding.control_version} does not "
+                    "provide every enabled rail."
+                )
+
     @staticmethod
     def _validate_guardrail_fields(
         purpose: str,
@@ -2062,6 +2300,7 @@ class ControlPlaneService:
         safety_level: str,
         output_delivery: str,
         control_configurations: tuple[GuardrailControlConfig, ...] = (),
+        control_bindings: tuple[GuardrailControlBinding, ...] = (),
     ) -> None:
         if not purpose.strip():
             raise ValidationError("Describe what this AI is allowed to do.")
@@ -2070,8 +2309,8 @@ class ControlPlaneService:
         if output_delivery not in {"interruptible", "window_buffered", "full_buffered"}:
             raise ValidationError("Unsupported output delivery mode.")
         known = {item.id: item for item in CONTROL_DEFINITIONS}
-        if not controls:
-            raise ValidationError("Select at least one risk to protect.")
+        if not controls and not control_bindings:
+            raise ValidationError("Select at least one Control to protect.")
         if len({item.risk for item in controls}) != len(controls):
             raise ValidationError("A risk may only be configured once.")
         for risk in controls:
@@ -2205,7 +2444,10 @@ class ControlPlaneService:
     ) -> None:
         if not name.strip() or not content.strip():
             raise ValidationError("Test case name and model content are required.")
-        if risk not in {item.risk for item in guardrail.controls}:
+        if risk not in {
+            *(item.risk for item in guardrail.controls),
+            *(item.control_id for item in guardrail.control_bindings),
+        }:
             raise ValidationError("Test case risk must be enabled in this Guardrail.")
         if phase not in {"input", "output"}:
             raise ValidationError("Test case phase must be input or output.")
@@ -2271,9 +2513,104 @@ class ControlPlaneService:
         return connection
 
 
+def _control_draft_from_payload(payload: dict[str, object]) -> ControlDraft:
+    return ControlDraft(
+        colang_version=str(payload["colang_version"]),
+        sources=tuple(ControlSourceFile(**item) for item in payload.get("sources", ())),
+        parameter_schema=tuple(
+            ControlParameterDefinition(**item)
+            for item in payload.get("parameter_schema", ())
+        ),
+        rail_bindings=tuple(
+            RailBinding(**item) for item in payload.get("rail_bindings", ())
+        ),
+        action_references=tuple(
+            ActionReference(**item) for item in payload.get("action_references", ())
+        ),
+        model_dependencies=tuple(payload.get("model_dependencies", ())),
+        prompt_dependencies=tuple(payload.get("prompt_dependencies", ())),
+        execution_contract=tuple(
+            tuple(item) for item in payload.get("execution_contract", ())
+        ),
+        tests=tuple(
+            ControlTestDefinition(**item) for item in payload.get("tests", ())
+        ),
+    )
+
+
+def _control_package_from_row(row: sqlite3.Row) -> ControlPackage:
+    return ControlPackage(
+        id=str(row["id"]),
+        name=str(row["name"]),
+        description=str(row["description"]),
+        source=str(row["source"]),
+        owner=str(row["owner"]),
+        draft=_control_draft_from_payload(json.loads(str(row["draft_json"]))),
+        draft_revision=int(row["draft_revision"]),
+        updated_at=str(row["updated_at"]),
+    )
+
+
+def _control_version_from_row(row: sqlite3.Row) -> ControlVersion:
+    payload = json.loads(str(row["version_json"]))
+    draft = _control_draft_from_payload(payload)
+    return ControlVersion(
+        control_id=str(payload["control_id"]),
+        version=int(payload["version"]),
+        name=str(payload["name"]),
+        description=str(payload["description"]),
+        source=str(payload["source"]),
+        owner=str(payload["owner"]),
+        colang_version=draft.colang_version,
+        sources=draft.sources,
+        parameter_schema=draft.parameter_schema,
+        rail_bindings=draft.rail_bindings,
+        action_references=draft.action_references,
+        model_dependencies=draft.model_dependencies,
+        prompt_dependencies=draft.prompt_dependencies,
+        execution_contract=draft.execution_contract,
+        tests=draft.tests,
+        checksum=str(row["checksum"]),
+        published_at=str(row["published_at"]),
+    )
+
+
+def _control_version_snapshot(version: ControlVersion) -> ControlVersionSnapshot:
+    return ControlVersionSnapshot(
+        control_id=version.control_id,
+        version=version.version,
+        name=version.name,
+        source=version.source,
+        colang_version=version.colang_version,
+        sources=tuple(
+            ControlSourceSnapshot(path=item.path, content=item.content)
+            for item in version.sources
+        ),
+        parameter_schema=tuple(
+            (item.name, item.kind) for item in version.parameter_schema
+        ),
+        rail_bindings=tuple(
+            ControlRailBindingSnapshot(**asdict(item))
+            for item in version.rail_bindings
+        ),
+        action_references=tuple(
+            ControlActionReferenceSnapshot(item.name, item.version)
+            for item in version.action_references
+        ),
+        model_dependencies=version.model_dependencies,
+        prompt_dependencies=version.prompt_dependencies,
+        execution_contract=version.execution_contract,
+        tests=tuple(
+            (item.name, item.expected_decision) for item in version.tests
+        ),
+        checksum=version.checksum,
+    )
+
+
 def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
     raw_controls = json.loads(str(row["controls_json"]))
     raw_configurations = json.loads(str(row["control_configurations_json"]))
+    raw_bindings = json.loads(str(row["control_bindings_json"]))
     return Guardrail(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -2336,6 +2673,17 @@ def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
             )
             for item in raw_configurations
         ),
+        control_bindings=tuple(
+            GuardrailControlBinding(
+                control_id=str(item["control_id"]),
+                control_version=int(item["control_version"]),
+                parameter_values=tuple(
+                    tuple(value) for value in item.get("parameter_values", ())
+                ),
+                enabled_rails=tuple(item.get("enabled_rails", ("input", "output"))),
+            )
+            for item in raw_bindings
+        ),
     )
 
 
@@ -2373,7 +2721,49 @@ def _plan_from_payload(payload: dict[str, object]) -> GuardrailPlanSnapshot:
         modules=modules,
         reasoning_policies=tuple(
             AutomatedReasoningPolicySnapshot(**item)
-            for item in payload["reasoning_policies"]
+            for item in payload.get("reasoning_policies", ())
+        ),
+        control_versions=tuple(
+            ControlVersionSnapshot(
+                control_id=str(item["control_id"]),
+                version=int(item["version"]),
+                name=str(item["name"]),
+                source=str(item["source"]),
+                colang_version=str(item["colang_version"]),
+                sources=tuple(
+                    ControlSourceSnapshot(**source) for source in item.get("sources", ())
+                ),
+                parameter_schema=tuple(
+                    tuple(value) for value in item.get("parameter_schema", ())
+                ),
+                rail_bindings=tuple(
+                    ControlRailBindingSnapshot(**binding)
+                    for binding in item.get("rail_bindings", ())
+                ),
+                action_references=tuple(
+                    ControlActionReferenceSnapshot(**reference)
+                    for reference in item.get("action_references", ())
+                ),
+                model_dependencies=tuple(item.get("model_dependencies", ())),
+                prompt_dependencies=tuple(item.get("prompt_dependencies", ())),
+                execution_contract=tuple(
+                    tuple(value) for value in item.get("execution_contract", ())
+                ),
+                tests=tuple(tuple(value) for value in item.get("tests", ())),
+                checksum=str(item["checksum"]),
+            )
+            for item in payload.get("control_versions", ())
+        ),
+        control_bindings=tuple(
+            GuardrailControlBindingSnapshot(
+                control_id=str(item["control_id"]),
+                control_version=int(item["control_version"]),
+                parameter_values=tuple(
+                    tuple(value) for value in item.get("parameter_values", ())
+                ),
+                enabled_rails=tuple(item.get("enabled_rails", ("input", "output"))),
+            )
+            for item in payload.get("control_bindings", ())
         ),
     )
 
@@ -2399,6 +2789,32 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
                 parameters=tuple(
                     tuple(value) for value in item.get("parameters", ())
                 ),
+                control_id=(
+                    str(item["control_id"]) if item.get("control_id") else None
+                ),
+                control_version=(
+                    int(item["control_version"])
+                    if item.get("control_version") is not None
+                    else None
+                ),
+                flow_name=(
+                    str(item["flow_name"]) if item.get("flow_name") else None
+                ),
+                action_name=(
+                    str(item["action_name"]) if item.get("action_name") else None
+                ),
+                action_version=(
+                    str(item["action_version"])
+                    if item.get("action_version")
+                    else None
+                ),
+                parallel_group=(
+                    str(item["parallel_group"])
+                    if item.get("parallel_group")
+                    else None
+                ),
+                execution_mode=str(item.get("execution_mode", "detect")),
+                failure_mode=str(item.get("failure_mode", "fail_closed")),
             )
             for item in payload.get("action_bindings", ())
         ),
@@ -2484,7 +2900,7 @@ def _test_case_from_row(row: sqlite3.Row) -> GuardrailTestCase:
 
 
 def _resolution_step(kind: str, name: str, detail: str):
-    from ..engine.contracts import EvaluationTraceStep
+    from ..runtime.contracts import EvaluationTraceStep
 
     return EvaluationTraceStep(
         id=f"resolution:{kind}", kind=kind, name=name, status="selected", detail=detail

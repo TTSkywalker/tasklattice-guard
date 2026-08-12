@@ -7,11 +7,10 @@ import pytest
 
 from app.control_plane.compiler import GuardrailCompiler
 from app.control_plane.domain import PlanCompilationError, GuardrailControl, Guardrail
-from app.engine.content_views import content_view
-from app.engine.contextual_grounding import ContextualGroundingJudgeEngine
-from app.engine.contracts import EngineRequest, GuardContentBlock
-from app.engine.dag import ModularGuardrailsEngine
-from app.engine.risk_router import RiskAwareStageRouter
+from app.runtime.content_views import content_view
+from app.nemo.actions.grounding import ContextualGroundingJudgeEngine
+from app.runtime.contracts import EngineRequest, GuardContentBlock
+from tests.nemo_helpers import nemo_engine
 
 
 def _profile(*risks: GuardrailControl, parameters=()) -> Guardrail:
@@ -233,9 +232,7 @@ async def test_grounding_provider_failure_fails_closed_at_module_boundary(monkey
         model="grounding-test",
         api_key_env_var="GROUNDING_TEST_KEY",
     )
-    engine = ModularGuardrailsEngine(
-        (RiskAwareStageRouter("deep_judge", (judge,)),)
-    )
+    engine = nemo_engine(request.plan, judge)
 
     result = await engine.evaluate(request)
 
@@ -243,6 +240,7 @@ async def test_grounding_provider_failure_fails_closed_at_module_boundary(monkey
     assert result.action == "reject"
     assert result.assessments[0].status == "error"
     assert "credential" in (result.assessments[0].fragments[0].reason or "")
+    await engine.shutdown()
 
 
 def test_compiler_creates_grounding_module_after_output_data_protection():

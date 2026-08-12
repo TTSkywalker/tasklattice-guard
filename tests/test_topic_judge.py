@@ -1,7 +1,7 @@
 from app.control_plane.compiler import GuardrailCompiler
 from app.control_plane.domain import GuardrailControl, Guardrail
-from app.engine.contracts import EngineRequest, GuardrailPlanSnapshot
-from app.engine.topic_judge import (
+from app.runtime.contracts import EngineRequest, GuardrailPlanSnapshot
+from app.nemo.actions.topic import (
     _interaction_text,
     _response_payload,
     _topic_messages,

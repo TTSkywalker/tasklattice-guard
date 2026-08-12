@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+from app.control_plane.nemo_compiler import NeMoConfigCompiler
+from app.nemo.runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
+from app.runtime.contracts import (
+    GuardrailPlanSnapshot,
+    GuardrailStage,
+    NeMoConfigSnapshot,
+)
+
+
+class StaticNeMoStore:
+    def __init__(
+        self,
+        plans: tuple[GuardrailPlanSnapshot, ...],
+        configs: tuple[NeMoConfigSnapshot, ...],
+    ) -> None:
+        self._plans = {
+            (item.guardrail_id, item.guardrail_version): item for item in plans
+        }
+        self._configs = {
+            (item.guardrail_id, item.guardrail_version): item for item in configs
+        }
+
+    def plan(self, guardrail_id: str, version: int) -> GuardrailPlanSnapshot:
+        return self._plans[(guardrail_id, version)]
+
+    def nemo_config(self, guardrail_id: str, version: int) -> NeMoConfigSnapshot:
+        return self._configs[(guardrail_id, version)]
+
+    def active_plan_keys(self) -> tuple[tuple[str, int], ...]:
+        return tuple(self._plans)
+
+
+def nemo_engine(
+    plan: GuardrailPlanSnapshot,
+    *stages: GuardrailStage,
+    max_concurrency_per_guardrail: int = 64,
+) -> NeMoGuardrailsEngine:
+    config = NeMoConfigCompiler().compile(plan)
+    return NeMoGuardrailsEngine(
+        NeMoRailsRegistry(
+            StaticNeMoStore((plan,), (config,)),
+            tuple(stages),
+            max_concurrency_per_guardrail=max_concurrency_per_guardrail,
+        )
+    )

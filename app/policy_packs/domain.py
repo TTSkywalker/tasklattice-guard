@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..engine.contracts import GuardrailPhase
+from ..runtime.contracts import GuardrailPhase
 
 
 OWASP_2025_COLLECTION = "OWASP Top 10 for LLM Applications 2025"

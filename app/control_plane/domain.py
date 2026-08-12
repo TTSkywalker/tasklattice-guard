@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from ..engine.contracts import (
+from ..runtime.contracts import (
     AutomatedReasoningResult,
     EnforcementAction,
     EvaluationTraceStep,
@@ -13,6 +13,7 @@ from ..engine.contracts import (
     OutputDeliveryMode,
     ControlModule,
     SafetyLevel,
+    RailType,
 )
 
 
@@ -25,6 +26,104 @@ TestTargetSource = Literal[
     "tool_output",
     "model_output",
 ]
+ControlSourceKind = Literal["built-in", "custom"]
+ControlVersionStatus = Literal["draft", "published"]
+
+
+@dataclass(frozen=True, slots=True)
+class ControlSourceFile:
+    path: str
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class ControlParameterDefinition:
+    name: str
+    kind: str
+    required: bool = False
+    default: str | None = None
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class RailBinding:
+    rail_type: RailType
+    flow_name: str
+    execution_mode: Literal["detect", "mutate"]
+    on_unsafe: EnforcementAction
+    parallel_group: str | None = None
+    priority: int | None = None
+    timeout_ms: int = 2_000
+    failure_mode: Literal["fail_open", "fail_closed"] = "fail_closed"
+    required: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ActionReference:
+    name: str
+    version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ControlTestDefinition:
+    name: str
+    rail_type: RailType
+    content: str
+    expected_decision: str
+
+
+@dataclass(frozen=True, slots=True)
+class ControlDraft:
+    colang_version: str
+    sources: tuple[ControlSourceFile, ...]
+    parameter_schema: tuple[ControlParameterDefinition, ...]
+    rail_bindings: tuple[RailBinding, ...]
+    action_references: tuple[ActionReference, ...]
+    model_dependencies: tuple[str, ...] = ()
+    prompt_dependencies: tuple[str, ...] = ()
+    execution_contract: tuple[tuple[str, str], ...] = ()
+    tests: tuple[ControlTestDefinition, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ControlPackage:
+    id: str
+    name: str
+    description: str
+    source: ControlSourceKind
+    owner: str
+    draft: ControlDraft
+    draft_revision: int
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ControlVersion:
+    control_id: str
+    version: int
+    name: str
+    description: str
+    source: ControlSourceKind
+    owner: str
+    colang_version: str
+    sources: tuple[ControlSourceFile, ...]
+    parameter_schema: tuple[ControlParameterDefinition, ...]
+    rail_bindings: tuple[RailBinding, ...]
+    action_references: tuple[ActionReference, ...]
+    model_dependencies: tuple[str, ...]
+    prompt_dependencies: tuple[str, ...]
+    execution_contract: tuple[tuple[str, str], ...]
+    tests: tuple[ControlTestDefinition, ...]
+    checksum: str
+    published_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailControlBinding:
+    control_id: str
+    control_version: int
+    parameter_values: tuple[tuple[str, str], ...] = ()
+    enabled_rails: tuple[RailType, ...] = ("input", "output")
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +281,7 @@ class Guardrail:
     active_version: int | None
     updated_at: str
     control_configurations: tuple[GuardrailControlConfig, ...] = ()
+    control_bindings: tuple[GuardrailControlBinding, ...] = ()
 
 @dataclass(frozen=True, slots=True)
 class GuardrailVersion:
@@ -390,26 +490,6 @@ class RuntimeStepMetricEvent:
     timed_out: bool
     runtime_engine: str
     config_checksum: str
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeComparisonEvent:
-    """Privacy-safe legacy/NeMo decision comparison for a migration run."""
-
-    id: str
-    created_at: str
-    guardrail_id: str
-    guardrail_version: int
-    execution_mode: str
-    primary_engine: str
-    primary_decision: str
-    legacy_decision: str
-    nemo_decision: str
-    decision_match: bool
-    action_match: bool
-    finding_match: bool
-    legacy_latency_ms: int
-    nemo_latency_ms: int
 
 
 @dataclass(frozen=True, slots=True)

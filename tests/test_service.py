@@ -16,7 +16,7 @@ from app.control_plane.domain import (
 )
 from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_ASSIGNMENT_ID
 from app.control_plane.intent_analyzer import IntentAnalysis
-from app.engine.contracts import (
+from app.runtime.contracts import (
     AutomatedReasoningFinding,
     EvaluationDecision,
     RequestContext,
@@ -962,12 +962,12 @@ async def test_http_and_a2a_adapters_expose_filterable_request_facts(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_http_adapter_exposes_dag_assessments_coverage_and_detect_mode(tmp_path):
+async def test_http_adapter_exposes_nemo_assessments_coverage_and_detect_mode(tmp_path):
     app = create_app(settings=settings(tmp_path))
     control_plane = app.state.control_plane
     registration = control_plane.create_integration(
         name="Default HTTP ingress",
-        description="DAG evidence test",
+            description="NeMo evidence test",
         environment="development",
         protocol="http",
     )
@@ -1003,7 +1003,7 @@ async def test_http_adapter_exposes_dag_assessments_coverage_and_detect_mode(tmp
     assert enforced.json()["coverage"]["status"] == "complete"
     assert enforced.json()["usage"] == {
         "module_invocations": 2,
-        "evaluator_invocations": 2,
+        "evaluator_invocations": 3,
         "text_characters": 25,
     }
 

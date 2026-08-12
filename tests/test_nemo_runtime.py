@@ -23,7 +23,7 @@ from app.control_plane.domain import (
 )
 from app.control_plane.nemo_compiler import NeMoConfigCompiler
 from app.control_plane.service import ControlPlaneService
-from app.engine.contracts import (
+from app.runtime.contracts import (
     EngineRequest,
     EvaluationDecision,
     EvaluationRequest,
@@ -36,10 +36,9 @@ from app.engine.contracts import (
     RiskFinding,
     StageResult,
 )
-from app.engine.fast_pass import FastPassEngine
-from app.engine.migration import RuntimeRolloutCoordinator
-from app.engine.nemo_runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
-from app.engine.service import ModelGuardrailsEngineService
+from app.nemo.actions.deterministic import FastPassEngine
+from app.nemo.runtime import NeMoGuardrailsEngine, NeMoRailsRegistry
+from app.runtime.service import ModelGuardrailsEngineService
 from app.main import _otlp_trace_endpoint
 
 
@@ -233,15 +232,15 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
     config = compiler.compile(plan)
     payload = yaml.safe_load(config.config_yaml)
     flows = tuple(
-        flow
-        for phase in ("input", "output")
-        for flow in payload["rails"].get(phase, {}).get("flows", ())
+        line.strip()
+        for line in config.colang_content.splitlines()
+        if "Action" in line or line.strip().startswith("flow tasklattice_risk_")
     )
     native_risks = {
-        "content_safety" if "content safety" in flow else
-        "pii" if "sensitive data" in flow else
-        "topic_control" if "topic safety" in flow else
-        "jailbreak" if "jailbreak" in flow else
+        "content_safety" if "ContentSafety" in flow else
+        "pii" if "SensitiveData" in flow else
+        "topic_control" if "TopicSafety" in flow else
+        "jailbreak" if "Jailbreak" in flow else
         ""
         for flow in flows
     } - {""}
@@ -258,8 +257,11 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
         "automated_reasoning",
     } <= action_risks
     assert config.runtime_engine == "llmrails"
-    assert "tasklattice evaluate input" in flows
-    assert "tasklattice enforce output" in flows
+    assert payload["colang_version"] == "2.x"
+    assert "TaskLatticeEvaluateStepAction" in config.colang_content
+    assert "TaskLatticeResolveAction" in config.colang_content
+    assert "start tasklattice_module_input" in config.colang_content
+    assert "match $parallel_0.Finished()" in config.colang_content
 
     native_plan = _plan(
         "native-only",
@@ -274,6 +276,43 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
     native = compiler.compile(native_plan)
     assert native.runtime_engine == "iorails"
     assert native.action_bindings == ()
+    native_payload = yaml.safe_load(native.config_yaml)
+    assert native_payload["colang_version"] == "1.0"
+    assert native_payload["rails"]["input"]["parallel"] is True
+
+
+@pytest.mark.asyncio
+async def test_iorails_registry_builds_without_dynamic_action_registration():
+    plan = _plan(
+        "iorails-native",
+        GuardrailPlanStep(
+            "content_safety:fast-semantic",
+            "content_safety",
+            "fast_semantic",
+            ("input",),
+            "reject",
+        ),
+    )
+    compiler = NeMoConfigCompiler(
+        models=(
+            {
+                "type": "content_safety",
+                "engine": "nim",
+                "model": "content-safety-test",
+                "parameters": {"base_url": "https://nvidia.example/v1"},
+            },
+        ),
+        profile_prompts_yaml=Path(
+            "profiles/model-io-default-v1/prompts.yml"
+        ).read_text(),
+    )
+    config = compiler.compile(plan)
+
+    registry = NeMoRailsRegistry(_StaticStore((plan,), (config,)), ())
+
+    assert config.runtime_engine == "iorails"
+    assert registry.ready() is True
+    await registry.shutdown()
 
 
 @pytest.mark.asyncio
@@ -329,7 +368,7 @@ async def test_independent_nemo_action_risks_run_in_parallel():
 
     assert decision.decision == "allow"
     assert tracker.maximum == 2
-    assert elapsed < 0.19
+    assert elapsed < 0.18
     await engine.shutdown()
 
 
@@ -537,95 +576,6 @@ async def test_activation_rejects_a_missing_required_nemo_action_provider(tmp_pa
     assert service.guardrail(guardrail.id).active_version is None
     assert service.versions(guardrail.id) == ()
     await registry.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_rollout_modes_are_lazy_and_record_only_privacy_safe_comparisons():
-    plan = _plan(
-        "rollout",
-        GuardrailPlanStep(
-            "secrets:deterministic", "secrets", "deterministic", ("input",), "reject"
-        ),
-    )
-
-    class Store:
-        mode = "nemo_only"
-
-        def __init__(self) -> None:
-            self.records = []
-
-        def version_execution_mode(self, guardrail_id, version):
-            return self.mode
-
-        def record_runtime_comparison(self, **values):
-            self.records.append(values)
-
-    class Engine:
-        supported_phases = frozenset({"input", "output"})
-
-        def __init__(self, name, decision):
-            self.name = name
-            self._decision = decision
-
-        async def evaluate(self, request):
-            finding = RiskFinding(
-                "secrets", "unsafe", 1.0, "structured finding", "reject"
-            )
-            return EvaluationDecision(
-                self._decision,
-                "reject" if self._decision == "block" else "pass",
-                guardrail_id=request.plan.guardrail_id,
-                guardrail_version=request.plan.guardrail_version,
-                findings=(finding,) if self._decision == "block" else (),
-            )
-
-    store = Store()
-    constructed = 0
-
-    def legacy_factory():
-        nonlocal constructed
-        constructed += 1
-        return Engine("legacy", "allow")
-
-    coordinator = RuntimeRolloutCoordinator(
-        Engine("nemo", "block"),
-        legacy_factory,
-        store,
-        transition_enabled=True,
-    )
-    request = EngineRequest(
-        "input", "private prompt api_key=do-not-store", plan
-    )
-
-    nemo_only = await coordinator.evaluate(request)
-    assert nemo_only.decision == "block"
-    assert constructed == 0
-
-    store.mode = "compare"
-    primary = await coordinator.evaluate(request)
-    assert primary.decision == "allow"
-    assert constructed == 1
-    assert store.records[0]["decision_match"] is False
-    assert "private prompt" not in repr(store.records[0])
-    assert "do-not-store" not in repr(store.records[0])
-
-    store.mode = "legacy_only"
-    disabled_constructed = 0
-
-    def disabled_legacy_factory():
-        nonlocal disabled_constructed
-        disabled_constructed += 1
-        return Engine("legacy", "allow")
-
-    nemo_only_coordinator = RuntimeRolloutCoordinator(
-        Engine("nemo", "block"),
-        disabled_legacy_factory,
-        store,
-        transition_enabled=False,
-    )
-    forced_nemo = await nemo_only_coordinator.evaluate(request)
-    assert forced_nemo.decision == "block"
-    assert disabled_constructed == 0
 
 
 def test_production_defaults_reject_legacy_modes_and_normalize_otlp_endpoint(

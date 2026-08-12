@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.engine.contracts import EngineRequest, GuardrailPlanSnapshot, GuardrailPlanStep
-from app.engine.fast_pass import FastPassEngine
+from app.runtime.contracts import EngineRequest, GuardrailPlanSnapshot, GuardrailPlanStep
+from app.nemo.actions.deterministic import FastPassEngine
 
 
 PLAN = GuardrailPlanSnapshot(

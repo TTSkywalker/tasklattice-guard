@@ -15,9 +15,9 @@ from app.control_plane.domain import (
 )
 from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_ASSIGNMENT_ID
 from app.control_plane.service import ControlPlaneService
-from app.engine.contracts import EngineRequest, RequestContext, StageResult
-from app.engine.fast_pass import FastPassEngine
-from app.engine.dag import ModularGuardrailsEngine
+from app.runtime.contracts import EngineRequest, RequestContext, StageResult
+from app.nemo.actions.deterministic import FastPassEngine
+from tests.nemo_helpers import nemo_engine
 
 
 def filter_rule(
@@ -251,7 +251,7 @@ async def test_default_safe_blocks_locally_without_calling_semantic_stages(tmp_p
 
     fast = SemanticStage("fast_semantic")
     deep = SemanticStage("deep_judge")
-    engine = ModularGuardrailsEngine((FastPassEngine(), fast, deep))
+    engine = nemo_engine(resolution.plan, FastPassEngine(), fast, deep)
 
     decision = await engine.evaluate(
         EngineRequest(
@@ -263,6 +263,7 @@ async def test_default_safe_blocks_locally_without_calling_semantic_stages(tmp_p
 
     assert decision.decision == "block"
     assert fast.calls == deep.calls == 0
+    await engine.shutdown()
 
 
 def test_incompatible_database_schema_is_rejected_without_migration(tmp_path):

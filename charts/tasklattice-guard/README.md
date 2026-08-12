@@ -50,7 +50,6 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `observability.maxConcurrencyPerGuardrail` | `64` | Maximum concurrent requests admitted to one prewarmed Guardrail Version |
 | `observability.openTelemetry.enabled` | `false` | Export NeMo runtime telemetry over OTLP/HTTP |
 | `observability.openTelemetry.endpoint` | empty | OTLP/HTTP collector base URL or traces endpoint |
-| `migration.legacyModesEnabled` | `false` | Temporarily allow legacy shadow/compare/canary rollout modes |
 | `controlPlaneAgent.deepseek.model` | `deepseek-v4-flash` | Model used only to structure policy intent |
 | `controlPlaneAgent.deepseek.existingSecret` | empty | Existing Secret containing the DeepSeek API key |
 

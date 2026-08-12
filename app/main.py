@@ -13,21 +13,20 @@ from .control_plane.api import ControlPlaneAPI
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
 from .control_plane.nemo_compiler import NeMoConfigCompiler
 from .control_plane.service import ControlPlaneService
-from .engine.contracts import GuardrailEngine, GuardrailStage
-from .engine.automated_reasoning import (
+from .runtime.contracts import GuardrailEngine, GuardrailStage
+from .nemo.actions.automated_reasoning import (
     AutomatedReasoningPolicyEngine,
     HTTPAutomatedReasoningProvider,
 )
-from .engine.contextual_grounding import ContextualGroundingJudgeEngine
-from .engine.fast_pass import FastPassEngine
-from .engine.migration import RuntimeRolloutCoordinator
-from .engine.nemo_runtime import (
+from .nemo.actions.grounding import ContextualGroundingJudgeEngine
+from .nemo.actions.deterministic import FastPassEngine
+from .nemo.runtime import (
     NeMoGuardrailsEngine,
     NeMoRailsRegistry,
 )
-from .engine.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
-from .engine.service import ModelGuardrailsEngineService
-from .engine.topic_judge import PurposeAwareTopicJudgeEngine
+from .nemo.actions.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
+from .runtime.service import ModelGuardrailsEngineService
+from .nemo.actions.topic import PurposeAwareTopicJudgeEngine
 from .identity import IdentityAPI, IdentityService
 from .ui import ControlPlaneStaticFiles
 
@@ -122,34 +121,6 @@ def create_action_stages(settings: Settings) -> tuple[GuardrailStage, ...]:
     return tuple(stages)
 
 
-def create_legacy_engine(settings: Settings) -> GuardrailEngine:
-    """Lazily construct the former runtime only for time-bounded migration modes."""
-    from .engine.dag import ModularGuardrailsEngine
-    from .engine.nemo import NemoFastSemanticEngine
-    from .engine.risk_router import RiskAwareStageRouter
-
-    action_stages = create_action_stages(settings)
-    deterministic = next(item for item in action_stages if item.stage == "deterministic")
-    fast = [item for item in action_stages if item.stage == "fast_semantic"]
-    if settings.content_safety_model and settings.nvidia_base_url:
-        fast.append(
-            NemoFastSemanticEngine(
-                settings.nemo_config_path,
-                base_url=settings.nvidia_base_url,
-                model=settings.content_safety_model,
-                api_key_env_var=settings.nvidia_api_key_env_var,
-            )
-        )
-    stages: list[GuardrailStage] = [
-        deterministic,
-        RiskAwareStageRouter("fast_semantic", tuple(fast)),
-    ]
-    deep = tuple(item for item in action_stages if item.stage == "deep_judge")
-    if deep:
-        stages.append(RiskAwareStageRouter("deep_judge", deep))
-    return ModularGuardrailsEngine(tuple(stages))
-
-
 def create_app(
     *,
     settings: Settings | None = None,
@@ -160,16 +131,10 @@ def create_app(
     tracer_provider = _configure_telemetry(configured)
     control_plane = _create_control_plane(configured)
     if engine is None:
-        nemo_engine = create_engine(configured, control_plane)
-        runtime_engine: GuardrailEngine = RuntimeRolloutCoordinator(
-            nemo_engine,
-            lambda: create_legacy_engine(configured),
-            control_plane,
-            transition_enabled=configured.legacy_migration_enabled,
-        )
+        runtime_engine: GuardrailEngine = create_engine(configured, control_plane)
     else:
-        # Explicit injection is reserved for tests/embedding; normal application
-        # construction always installs the NeMo rollout coordinator above.
+        # Explicit injection is reserved for tests and embedding. Production
+        # construction always installs the version-pinned NeMo runtime above.
         runtime_engine = engine
     service = ModelGuardrailsEngineService(
         runtime_engine,
@@ -265,7 +230,6 @@ def _create_control_plane(settings: Settings) -> ControlPlaneService:
         nemo_compiler=_nemo_compiler(settings),
         runtime_p95_budget_ms=settings.runtime_p95_budget_ms,
         runtime_p99_budget_ms=settings.runtime_p99_budget_ms,
-        legacy_migration_enabled=settings.legacy_migration_enabled,
     )
 
 

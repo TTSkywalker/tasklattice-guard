@@ -108,13 +108,6 @@
           }
         }
       }
-    },
-    "migration": {
-      "type": "object",
-      "required": ["legacyModesEnabled"],
-      "properties": {
-        "legacyModesEnabled": {"type": "boolean"}
-      }
     }
   }
 }

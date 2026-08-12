@@ -20,9 +20,11 @@ Resolve Assignment → Guardrail ID + Version
 Acquire prewarmed NeMo instance by ID + Version + Checksum
       │
       ▼
-NeMo Input or Output Rails
-  ├─ native NeMo flows
-  └─ TaskLattice Actions
+NeMo runtime selected by compiled capability
+  ├─ IORails: pure native NeMo flows
+  └─ LLMRails: Colang 2.x policy graph
+       ├─ native NeMo Actions
+       └─ TaskLattice extension Actions
       │
       ▼
 Allow / Transform / Block + Evidence + Metrics
@@ -68,10 +70,12 @@ version.
 
 ## Concurrency and latency
 
-Independent risk families run concurrently inside the NeMo phase Action. Stages
-within one risk family remain ordered so an uncertain fast result can escalate to
-a deeper judge. All mutations are deferred until detection completes and are
-resolved deterministically in this priority order:
+The compiler translates module dependencies into Colang waves. Independent
+modules and risk flows run with Colang 2.x `start`/`match`; stages within one risk
+remain ordered so an uncertain fast result can escalate to a deeper judge.
+Python providers implement Actions only and do not schedule a second policy DAG.
+All mutations are deferred until detection completes and are resolved by the
+final NeMo Action in this priority order:
 
 ```text
 reject → clarify → fallback → regenerate → rewrite → redirect → redact → pass
@@ -81,8 +85,8 @@ Each prewarmed Guardrail Version has an admission limit controlled by
 `MODEL_GUARDRAILS_RUNTIME_MAX_CONCURRENCY_PER_GUARDRAIL`. Different Guardrails
 have independent limits and continue in parallel. Waiting for a slot is measured
 as queue latency and remains inside the whole-request deadline. Each Action has
-the timeout compiled from its module; the request deadline is the longest
-required module timeout plus a small orchestration allowance. A required timeout,
+a share of its module timeout; the request deadline is the critical dependency
+path across Colang waves plus a small orchestration allowance. A required timeout,
 queue deadline, or provider error fails closed in enforce mode.
 
 Latency cannot be guaranteed by configuration alone. Operate it as an SLO:
@@ -90,8 +94,7 @@ Latency cannot be guaranteed by configuration alone. Operate it as an SLO:
 1. Set `MODEL_GUARDRAILS_RUNTIME_P95_BUDGET_MS` and
    `MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS`.
 2. Watch overall, queue, rail, and Action P50/P95/P99 on the Overview page.
-3. Alert on budget breach, timeout, fail-closed count, cache misses, or shadow
-   disagreement.
+3. Alert on budget breach, timeout, fail-closed count, or cache misses.
 4. Keep provider connection pools warm and scale external model endpoints to the
    measured concurrency envelope.
 5. Promote only after the representative load test satisfies the target SLO.
@@ -107,19 +110,10 @@ Set `MODEL_GUARDRAILS_OTEL_ENABLED=true` and an OTLP/HTTP endpoint to export NeM
 telemetry. TaskLattice always sets NeMo's message-content capture switch to
 `false` before initializing tracing.
 
-## Migration modes
+## NeMo-only invariant
 
-Historical versions can temporarily use these release modes:
-
-```text
-legacy_only → shadow_nemo → compare → nemo_canary
-            → nemo_primary_legacy_shadow → nemo_only
-```
-
-Shadow records only decision/action/finding equality and latency; it never stores
-request or response content. Every newly released version starts in `nemo_only`.
-The legacy engine is constructed lazily and is not present in the final request
-path. Transition modes are rejected unless
-`MODEL_GUARDRAILS_LEGACY_MIGRATION_ENABLED=true` is deliberately set for a
-controlled migration window. When the switch is off, persisted historical modes
-cannot bypass the NeMo-only production path.
+Every released version uses `nemo_only`. Legacy, shadow, comparison, and canary
+runtime modes are rejected by the control plane, and no legacy engine is built or
+available in the production request path. The persisted `execution_mode` column
+is retained only for database compatibility and is normalized to `nemo_only`
+when versions are read.

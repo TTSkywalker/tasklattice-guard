@@ -36,7 +36,6 @@ class Settings:
     )
     otel_enabled: bool = False
     otel_exporter_endpoint: str | None = None
-    legacy_migration_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -98,9 +97,6 @@ class Settings:
         ).strip() or "MODEL_GUARDRAILS_JAILBREAK_API_KEY"
         otel_enabled = os.environ.get(
             "MODEL_GUARDRAILS_OTEL_ENABLED", "false"
-        ).strip().casefold() in {"1", "true", "yes", "on"}
-        legacy_migration_enabled = os.environ.get(
-            "MODEL_GUARDRAILS_LEGACY_MIGRATION_ENABLED", "false"
         ).strip().casefold() in {"1", "true", "yes", "on"}
         otel_exporter_endpoint = os.environ.get(
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
@@ -203,7 +199,6 @@ class Settings:
             ),
             otel_enabled=otel_enabled,
             otel_exporter_endpoint=otel_exporter_endpoint.rstrip("/") or None,
-            legacy_migration_enabled=legacy_migration_enabled,
         )
 
 

@@ -12,8 +12,8 @@ from ..control_plane.domain import (
     ControlPlaneError,
 )
 from ..control_plane.service import ControlPlaneService
-from ..engine.contracts import EvaluationDecision, EvaluationRequest, RequestContext
-from ..engine.service import ModelGuardrailsEngineService
+from ..runtime.contracts import EvaluationDecision, EvaluationRequest, RequestContext
+from ..runtime.service import ModelGuardrailsEngineService
 from .http import SENSITIVE_HEADERS
 from .observability import record_runtime_decision, record_runtime_failure
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.engine.contracts import (
+from app.runtime.contracts import (
     EvaluationRequest,
     GuardContentBlock,
     GuardrailPlanModule,
@@ -12,8 +12,8 @@ from app.engine.contracts import (
     RequestContext,
     StageResult,
 )
-from app.engine.dag import ModularGuardrailsEngine
-from app.engine.service import ModelGuardrailsEngineService
+from app.runtime.service import ModelGuardrailsEngineService
+from tests.nemo_helpers import nemo_engine
 
 
 class StaticResolver:
@@ -41,7 +41,7 @@ class ViewRecordingStage:
 def _plan() -> GuardrailPlanSnapshot:
     step = GuardrailPlanStep(
         id="content:fast",
-        risk="content_safety",
+        risk="document_policy",
         stage="fast_semantic",
         phases=("input", "output"),
         on_unsafe="reject",
@@ -84,9 +84,11 @@ def test_only_trusted_instruction_blocks_can_be_marked_trusted():
 @pytest.mark.asyncio
 async def test_service_guards_only_qualified_untrusted_blocks_with_stable_views():
     stage = ViewRecordingStage()
+    plan = _plan()
+    engine = nemo_engine(plan, stage)
     service = ModelGuardrailsEngineService(
-        ModularGuardrailsEngine((stage,)),
-        StaticResolver(_plan()),
+        engine,
+        StaticResolver(plan),
     )
     blocks = (
         GuardContentBlock(
@@ -156,14 +158,17 @@ async def test_service_guards_only_qualified_untrusted_blocks_with_stable_views(
     assert result.coverage.total_items == 3
     assert result.content_results[0].evaluated is False
     assert all(item.decision == "allow" for item in result.content_results)
+    await engine.shutdown()
 
 
 @pytest.mark.asyncio
 async def test_output_view_includes_pinned_input_blocks_from_the_call_context():
     stage = ViewRecordingStage()
+    plan = _plan()
+    engine = nemo_engine(plan, stage)
     service = ModelGuardrailsEngineService(
-        ModularGuardrailsEngine((stage,)),
-        StaticResolver(_plan()),
+        engine,
+        StaticResolver(plan),
     )
     context = RequestContext(protocol="litellm")
     await service.evaluate(
@@ -210,3 +215,4 @@ async def test_output_view_includes_pinned_input_blocks_from_the_call_context():
         "query",
         "answer",
     )
+    await engine.shutdown()

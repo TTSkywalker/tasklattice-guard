@@ -11,9 +11,9 @@ from app.control_plane.domain import (
     ValidationError,
 )
 from app.control_plane.service import ControlPlaneService
-from app.engine.content_filter import BuiltinContentFilter
-from app.engine.contracts import EngineRequest
-from app.engine.fast_pass import FastPassEngine
+from app.nemo.actions.content_filter import BuiltinContentFilter
+from app.runtime.contracts import EngineRequest
+from app.nemo.actions.deterministic import FastPassEngine
 from app.main import create_app
 from app.policy_packs.litellm import policy_pack, policy_template
 
