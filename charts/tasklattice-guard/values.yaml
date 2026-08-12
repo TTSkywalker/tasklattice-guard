@@ -53,7 +53,10 @@ persistence:
   mountPath: /var/lib/tasklattice/model-guardrails
 
 database:
-  path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v4.db
+  path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v5.db
+
+runtime:
+  publicBaseUrl: http://localhost:8091
 
 evaluators:
   nvidia:

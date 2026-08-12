@@ -14,6 +14,7 @@ from ..control_plane.domain import (
 from ..control_plane.service import ControlPlaneService
 from ..runtime.contracts import EvaluationDecision, EvaluationRequest, RequestContext
 from ..runtime.gateway import ModelGuardrailsEngineService
+from ..integrations import LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID
 from .http import SENSITIVE_HEADERS
 from .observability import record_runtime_decision, record_runtime_failure
 
@@ -61,23 +62,26 @@ class LiteLLMAdapter:
 
     def _register_routes(self) -> None:
         @self.router.post(
-            "/beta/litellm_basic_guardrail_api",
+            "/runtime/v1/integrations/{integration_id}/beta/litellm_basic_guardrail_api",
             response_model=LiteLLMGuardrailResponse,
             response_model_exclude_none=True,
         )
         async def apply_guardrail(
+            integration_id: str,
             request: LiteLLMGuardrailRequest,
             x_api_key: str | None = Header(default=None),
         ) -> LiteLLMGuardrailResponse:
             started = time.perf_counter()
-            integration = self._authorize(x_api_key)
+            integration = self._authorize(integration_id, x_api_key)
             phase = "input" if request.input_type == "request" else "output"
             try:
                 decision = await self._service.evaluate(
                     self._to_engine_request(request, integration)
                 )
             except ControlPlaneError as error:
-                self._control_plane.record_integration_activity(integration.id, success=True)
+                self._control_plane.record_integration_activity(
+                    integration.id, phase=phase, success=True
+                )
                 record_runtime_failure(
                     self._control_plane,
                     integration_id=integration.id,
@@ -92,7 +96,9 @@ class LiteLLMAdapter:
                     blocked_reason="No Assignment matches this request.",
                 )
             except Exception as error:
-                self._control_plane.record_integration_activity(integration.id, success=False)
+                self._control_plane.record_integration_activity(
+                    integration.id, phase=phase, success=False
+                )
                 record_runtime_failure(
                     self._control_plane,
                     integration_id=integration.id,
@@ -103,7 +109,9 @@ class LiteLLMAdapter:
                     detail=f"Guardrail evaluation failed with {type(error).__name__}.",
                 )
                 raise
-            self._control_plane.record_integration_activity(integration.id, success=True)
+            self._control_plane.record_integration_activity(
+                integration.id, phase=phase, success=True
+            )
             record_runtime_decision(
                 self._control_plane,
                 decision=decision,
@@ -115,9 +123,15 @@ class LiteLLMAdapter:
             )
             return self._to_litellm_response(decision)
 
-    def _authorize(self, api_key: str | None) -> Integration:
+    def _authorize(
+        self, integration_id: str, api_key: str | None
+    ) -> Integration:
         try:
-            return self._control_plane.authenticate_integration(api_key, "litellm")
+            return self._control_plane.authenticate_integration(
+                integration_id,
+                api_key,
+                LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+            )
         except IntegrationAuthenticationError as error:
             raise HTTPException(status_code=401, detail="Unauthorized.") from error
 

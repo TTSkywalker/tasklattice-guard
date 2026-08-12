@@ -9,6 +9,7 @@ from pathlib import Path
 class Settings:
     database_path: Path
     ui_dist_path: Path
+    public_runtime_base_url: str = "http://localhost:8091"
     nvidia_base_url: str | None = None
     content_safety_model: str | None = None
     topic_control_model: str | None = None
@@ -39,6 +40,14 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         root = Path(__file__).resolve().parent.parent
+        public_runtime_base_url = os.environ.get(
+            "MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL",
+            "http://localhost:8091",
+        ).strip().rstrip("/")
+        if not public_runtime_base_url.startswith(("http://", "https://")):
+            raise ValueError(
+                "MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL must be an HTTP(S) URL."
+            )
         nvidia_base_url = os.environ.get(
             "MODEL_GUARDRAILS_NVIDIA_BASE_URL",
             "",
@@ -156,7 +165,7 @@ class Settings:
             database_path=Path(
                 os.environ.get(
                     "MODEL_GUARDRAILS_DATABASE_PATH",
-                    str(root / "data" / "tasklattice-guard-schema-v4.db"),
+                    str(root / "data" / "tasklattice-guard-schema-v5.db"),
                 )
             ),
             ui_dist_path=Path(
@@ -165,6 +174,7 @@ class Settings:
                     str(root / "web" / "dist"),
                 )
             ),
+            public_runtime_base_url=public_runtime_base_url,
             nvidia_base_url=nvidia_base_url.rstrip("/") or None,
             content_safety_model=content_safety_model or None,
             topic_control_model=topic_control_model or None,

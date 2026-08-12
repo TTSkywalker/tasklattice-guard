@@ -16,6 +16,11 @@ from app.control_plane.domain import (
 )
 from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_ASSIGNMENT_ID
 from app.control_plane.intent_analyzer import IntentAnalysis
+from app.integrations import (
+    A2A_GUARD_ADAPTER_ID,
+    GENERIC_HTTP_GUARD_ADAPTER_ID,
+    LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+)
 from app.runtime.contracts import (
     AutomatedReasoningFinding,
     EvaluationDecision,
@@ -218,14 +223,14 @@ async def test_control_plane_exposes_enterprise_product_resources(tmp_path):
             "/api/v1/integrations",
             json={
                 "name": "HTTP ingress",
-                "protocol": "http",
+                "adapter_id": GENERIC_HTTP_GUARD_ADAPTER_ID,
             },
         )
         obsolete_integration_environment = await client.post(
             "/api/v1/integrations",
             json={
                 "name": "Obsolete environment payload",
-                "protocol": "http",
+                "adapter_id": GENERIC_HTTP_GUARD_ADAPTER_ID,
                 "environment": "development",
             },
         )
@@ -1008,18 +1013,19 @@ async def test_litellm_adapter_keeps_gateway_protocol_and_uses_guardrail_decisio
     registration = control_plane.create_integration(
         name="Test LiteLLM",
         description="Adapter test",
+        adapter_id=LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
     )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
         unauthorized = await client.post(
-            "/beta/litellm_basic_guardrail_api",
+            f"/runtime/v1/integrations/{registration.integration.id}/beta/litellm_basic_guardrail_api",
             json={"input_type": "request", "texts": ["hello"]},
         )
         blocked = await client.post(
-            "/beta/litellm_basic_guardrail_api",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/beta/litellm_basic_guardrail_api",
+            headers={"x-api-key": registration.credential.value},
             json={"input_type": "request", "texts": ["blocked"]},
         )
 
@@ -1068,6 +1074,7 @@ async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_p
     registration = control_plane.create_integration(
         name="Observed LiteLLM",
         description="Runtime metrics test",
+        adapter_id=LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
     )
 
     async with httpx.AsyncClient(
@@ -1075,8 +1082,8 @@ async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_p
     ) as client:
         for text in ("hello", "blocked"):
             response = await client.post(
-                "/beta/litellm_basic_guardrail_api",
-                headers={"x-api-key": registration.credential},
+                f"/runtime/v1/integrations/{registration.integration.id}/beta/litellm_basic_guardrail_api",
+                headers={"x-api-key": registration.credential.value},
                 json={"input_type": "request", "texts": [text]},
             )
             assert response.status_code == 200
@@ -1170,14 +1177,15 @@ async def test_litellm_adapter_resolves_native_authenticated_fields_only(tmp_pat
     registration = control_plane.create_integration(
         name="Test LiteLLM",
         description="Native field filter test",
+        adapter_id=LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
     )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
         trusted = await client.post(
-            "/beta/litellm_basic_guardrail_api",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/beta/litellm_basic_guardrail_api",
+            headers={"x-api-key": registration.credential.value},
             json={
                 "input_type": "request",
                 "texts": ["hello"],
@@ -1185,8 +1193,8 @@ async def test_litellm_adapter_resolves_native_authenticated_fields_only(tmp_pat
             },
         )
         untrusted_metadata = await client.post(
-            "/beta/litellm_basic_guardrail_api",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/beta/litellm_basic_guardrail_api",
+            headers={"x-api-key": registration.credential.value},
             json={
                 "input_type": "request",
                 "texts": ["hello"],
@@ -1248,29 +1256,29 @@ async def test_http_and_a2a_adapters_expose_filterable_request_facts(tmp_path):
     http_registration = control_plane.create_integration(
         name="HTTP ingress",
         description="HTTP filter test",
-        protocol="http",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
     )
     a2a_registration = control_plane.create_integration(
         name="A2A ingress",
         description="A2A filter test",
-        protocol="a2a",
+        adapter_id=A2A_GUARD_ADAPTER_ID,
     )
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         http_result = await client.post(
-            "/v1/guardrails/evaluate",
+            f"/runtime/v1/integrations/{http_registration.integration.id}/guardrails/evaluate",
             headers={
-                "x-api-key": http_registration.credential,
+                "x-api-key": http_registration.credential.value,
                 "x-app-id": "finance-agent",
             },
             json={"protocol": "http", "texts": ["hello"], "path": "/finance"},
         )
         a2a_result = await client.post(
-            "/v1/guardrails/evaluate",
+            f"/runtime/v1/integrations/{a2a_registration.integration.id}/guardrails/evaluate",
             headers={
-                "x-api-key": a2a_registration.credential,
+                "x-api-key": a2a_registration.credential.value,
                 "a2a-version": "1.0",
                 "a2a-extensions": "https://example.com/payments/v1",
             },
@@ -1300,15 +1308,15 @@ async def test_http_adapter_exposes_nemo_assessments_coverage_and_detect_mode(tm
     registration = control_plane.create_integration(
         name="Default HTTP ingress",
             description="NeMo evidence test",
-        protocol="http",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
     )
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         attempted_bypass = await client.post(
-            "/v1/guardrails/evaluate",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/guardrails/evaluate",
+            headers={"x-api-key": registration.credential.value},
             json={
                 "protocol": "http",
                 "texts": ["Contact alice@example.com"],
@@ -1316,8 +1324,8 @@ async def test_http_adapter_exposes_nemo_assessments_coverage_and_detect_mode(tm
             },
         )
         enforced = await client.post(
-            "/v1/guardrails/evaluate",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/guardrails/evaluate",
+            headers={"x-api-key": registration.credential.value},
             json={
                 "protocol": "http",
                 "texts": ["Contact alice@example.com"],
@@ -1346,15 +1354,15 @@ async def test_http_adapter_accepts_structured_content_blocks_with_provenance(tm
     registration = control_plane.create_integration(
         name="Structured HTTP ingress",
         description="Content block contract test",
-        protocol="http",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
     )
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         forged_trust = await client.post(
-            "/v1/guardrails/evaluate",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/guardrails/evaluate",
+            headers={"x-api-key": registration.credential.value},
             json={
                 "protocol": "http",
                 "content": [
@@ -1368,8 +1376,8 @@ async def test_http_adapter_accepts_structured_content_blocks_with_provenance(tm
             },
         )
         response = await client.post(
-            "/v1/guardrails/evaluate",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/guardrails/evaluate",
+            headers={"x-api-key": registration.credential.value},
             json={
                 "protocol": "http",
                 "content": [
@@ -1607,14 +1615,14 @@ async def test_http_response_uses_query_and_sources_as_context_not_guard_targets
     registration = app.state.control_plane.create_integration(
         name="Grounding HTTP ingress",
         description="Qualifier semantics test",
-        protocol="http",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
     )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/v1/guardrails/evaluate",
-            headers={"x-api-key": registration.credential},
+            f"/runtime/v1/integrations/{registration.integration.id}/guardrails/evaluate",
+            headers={"x-api-key": registration.credential.value},
             json={
                 "protocol": "http",
                 "input_type": "response",

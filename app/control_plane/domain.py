@@ -28,6 +28,9 @@ TestTargetSource = Literal[
 ]
 ControlSourceKind = Literal["built-in", "custom"]
 ControlVersionStatus = Literal["draft", "published"]
+IntegrationSetupStatus = Literal[
+    "awaiting_input", "awaiting_output", "verified", "disabled"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,18 +250,39 @@ class GuardrailAssignment:
 
 
 @dataclass(frozen=True, slots=True)
+class IntegrationCredential:
+    id: str
+    key_hint: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class IntegrationCredentialSecret:
+    id: str
+    value: str
+    key_hint: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class Integration:
     id: str
+    adapter_id: str
     protocol: str
     name: str
     description: str
     enabled: bool
-    credential_prefix: str
-    verification_status: str
+    key_hint: str
+    credentials: tuple[IntegrationCredential, ...]
+    setup_status: IntegrationSetupStatus
     runtime_status: str
+    first_seen_at: str | None
     last_seen_at: str | None
+    input_seen_at: str | None
+    output_seen_at: str | None
     request_count: int
     error_count: int
+    last_error_at: str | None
     created_at: str
     updated_at: str
 
@@ -266,7 +290,7 @@ class Integration:
 @dataclass(frozen=True, slots=True)
 class IntegrationRegistration:
     integration: Integration
-    credential: str
+    credential: IntegrationCredentialSecret
 
 
 @dataclass(frozen=True, slots=True)
@@ -461,6 +485,10 @@ class NotFoundError(ControlPlaneError):
 
 
 class ValidationError(ControlPlaneError):
+    pass
+
+
+class ConflictError(ControlPlaneError):
     pass
 
 

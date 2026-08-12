@@ -12,6 +12,10 @@ from ..control_plane.domain import Integration, IntegrationAuthenticationError, 
 from ..control_plane.service import ControlPlaneService
 from ..runtime.contracts import EvaluationRequest, GuardContentBlock, RequestContext
 from ..runtime.gateway import ModelGuardrailsEngineService
+from ..integrations import (
+    A2A_GUARD_ADAPTER_ID,
+    GENERIC_HTTP_GUARD_ADAPTER_ID,
+)
 from .observability import record_runtime_decision, record_runtime_failure
 
 
@@ -135,16 +139,19 @@ class HTTPAdapter:
 
     def _register_routes(self) -> None:
         @self.router.post(
-            "/v1/guardrails/evaluate",
+            "/runtime/v1/integrations/{integration_id}/guardrails/evaluate",
             response_model=HTTPGuardrailResponse,
         )
         async def evaluate(
+            integration_id: str,
             payload: HTTPGuardrailRequest,
             request: Request,
             x_api_key: str | None = Header(default=None),
         ) -> HTTPGuardrailResponse:
             started = time.perf_counter()
-            integration = self._authorize(x_api_key, payload.protocol)
+            integration = self._authorize(
+                integration_id, x_api_key, payload.protocol
+            )
             phase = "input" if payload.input_type == "request" else "output"
             external_call_id = (
                 payload.call_id
@@ -166,7 +173,9 @@ class HTTPAdapter:
                     )
                 )
             except ControlPlaneError as error:
-                self._control_plane.record_integration_activity(integration.id, success=True)
+                self._control_plane.record_integration_activity(
+                    integration.id, phase=phase, success=True
+                )
                 record_runtime_failure(
                     self._control_plane,
                     integration_id=integration.id,
@@ -184,7 +193,9 @@ class HTTPAdapter:
                     call_id=external_call_id,
                 )
             except Exception as error:
-                self._control_plane.record_integration_activity(integration.id, success=False)
+                self._control_plane.record_integration_activity(
+                    integration.id, phase=phase, success=False
+                )
                 record_runtime_failure(
                     self._control_plane,
                     integration_id=integration.id,
@@ -195,7 +206,9 @@ class HTTPAdapter:
                     detail=f"Guardrail evaluation failed with {type(error).__name__}.",
                 )
                 raise
-            self._control_plane.record_integration_activity(integration.id, success=True)
+            self._control_plane.record_integration_activity(
+                integration.id, phase=phase, success=True
+            )
             record_runtime_decision(
                 self._control_plane,
                 decision=decision,
@@ -236,9 +249,18 @@ class HTTPAdapter:
                 call_id=external_call_id,
             )
 
-    def _authorize(self, api_key: str | None, protocol: str) -> Integration:
+    def _authorize(
+        self, integration_id: str, api_key: str | None, protocol: str
+    ) -> Integration:
         try:
-            return self._control_plane.authenticate_integration(api_key, protocol)
+            adapter_id = (
+                A2A_GUARD_ADAPTER_ID
+                if protocol == "a2a"
+                else GENERIC_HTTP_GUARD_ADAPTER_ID
+            )
+            return self._control_plane.authenticate_integration(
+                integration_id, api_key, adapter_id
+            )
         except IntegrationAuthenticationError as error:
             raise HTTPException(status_code=401, detail="Unauthorized.") from error
 

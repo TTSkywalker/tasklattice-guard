@@ -270,6 +270,7 @@ def _playground_chat_models(settings: Settings) -> tuple[PlaygroundChatModel, ..
 def _create_control_plane(settings: Settings) -> ControlPlaneService:
     return ControlPlaneService(
         settings.database_path,
+        public_runtime_base_url=settings.public_runtime_base_url,
         fast_semantic_configured=bool(
             settings.content_safety_model and settings.nvidia_base_url
         ),

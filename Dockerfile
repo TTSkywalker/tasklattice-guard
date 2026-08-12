@@ -35,7 +35,7 @@ FROM python:3.12-slim AS runtime
 ENV PATH="/opt/tasklattice/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MODEL_GUARDRAILS_DATABASE_PATH=/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v4.db \
+    MODEL_GUARDRAILS_DATABASE_PATH=/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v5.db \
     MODEL_GUARDRAILS_UI_DIST_PATH=/opt/tasklattice/model-guardrails/web/dist
 
 WORKDIR /opt/tasklattice/model-guardrails

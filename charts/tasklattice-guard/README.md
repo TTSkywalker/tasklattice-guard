@@ -36,7 +36,8 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `service.type` | `LoadBalancer` | Kubernetes Service exposure |
 | `persistence.enabled` | `true` | Persist SQLite control-plane state |
 | `persistence.retain` | `true` | Retain the PVC after uninstall |
-| `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v4.db` | Persistent Guardrail, Assignment, evidence, and identity database |
+| `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v5.db` | Persistent Guardrail, Assignment, evidence, and identity database |
+| `runtime.publicBaseUrl` | `http://localhost:8091` | Stable public origin used to generate per-Integration callback URLs |
 | `evaluators.nvidia.baseUrl` | empty | Enable model-backed evaluators |
 | `evaluators.nvidia.groundingModel` | empty | OpenAI-compatible model used for contextual grounding evidence |
 | `evaluators.deepJudge.model` | empty | Provider-neutral fallback model for prompt security, Topic Control, and contextual grounding |
@@ -46,17 +47,17 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `evaluators.jailbreakDetection.nimBaseUrl` | empty | Optional NeMo Jailbreak Detection NIM base URL |
 | `evaluators.jailbreakDetection.existingSecret` | empty | Existing Secret containing the Jailbreak Detection API key |
 | `observability.runtimeP95BudgetMs` | `2500` | Runtime P95 latency budget shown on the operational dashboard |
-
-Schema v4 is an intentional early-development reset. The service rejects v3
-databases instead of migrating them; keep the v4 default path above or point
-`database.path` at a fresh database file. Integration records no longer carry
-an `environment` field.
 | `observability.runtimeP99BudgetMs` | `5000` | Runtime P99 latency budget shown on the operational dashboard |
 | `observability.maxConcurrencyPerGuardrail` | `64` | Maximum concurrent requests admitted to one prewarmed Guardrail Version |
 | `observability.openTelemetry.enabled` | `false` | Export NeMo runtime telemetry over OTLP/HTTP |
 | `observability.openTelemetry.endpoint` | empty | OTLP/HTTP collector base URL or traces endpoint |
 | `controlPlaneAgent.deepseek.model` | `deepseek-v4-flash` | Model used only to structure policy intent |
 | `controlPlaneAgent.deepseek.existingSecret` | empty | Existing Secret containing the DeepSeek API key |
+
+Schema v5 is an intentional early-development reset. The service rejects older
+databases instead of migrating them; keep the v5 default path above or point
+`database.path` at a fresh database file. Integration records no longer carry
+an `environment` field; they persist an adapter ID and per-instance setup state.
 
 TaskLattice Guard currently uses SQLite, so `replicaCount` is restricted to
 `1`. Integration credentials are generated only when an Integration is

@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.config import Settings
+from app.integrations import GENERIC_HTTP_GUARD_ADAPTER_ID
 from app.main import create_app
 
 
@@ -169,16 +170,17 @@ async def test_customer_data_control_runs_create_to_real_http_on_one_version(tmp
             "/api/v1/integrations",
             json={
                 "name": "Customer HTTP ingress",
-                "protocol": "http",
+                "adapter_id": GENERIC_HTTP_GUARD_ADAPTER_ID,
             },
         )
         assert assignment.status_code == 201, assignment.text
         assert integration.status_code == 201, integration.text
-        credential = integration.json()["credential"]
+        integration_id = integration.json()["integration"]["id"]
+        credential = integration.json()["credential"]["value"]
 
         headers = {"x-api-key": credential, "x-app-id": "customer-api"}
         input_response = await client.post(
-            "/v1/guardrails/evaluate",
+            f"/runtime/v1/integrations/{integration_id}/guardrails/evaluate",
             headers=headers,
             json={
                 "input_type": "request",
@@ -188,7 +190,7 @@ async def test_customer_data_control_runs_create_to_real_http_on_one_version(tmp
             },
         )
         output_response = await client.post(
-            "/v1/guardrails/evaluate",
+            f"/runtime/v1/integrations/{integration_id}/guardrails/evaluate",
             headers=headers,
             json={
                 "input_type": "response",

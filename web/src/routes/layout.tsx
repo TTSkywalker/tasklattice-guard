@@ -112,7 +112,7 @@ function RuntimeHealthMenu({ loading, status }: { loading: boolean; status?: Awa
         <DropdownMenuSeparator />
         <div className="grid grid-cols-2 gap-2 p-2 text-xs">
           <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.deployments")}</p><p className="mt-1 font-mono text-base text-foreground">{status?.active_assignments ?? "—"}</p></div>
-          <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.integrations")}</p><p className="mt-1 font-mono text-base text-foreground">{status ? `${status.online_integrations}/${status.total_integrations}` : "—"}</p></div>
+          <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.integrations")}</p><p className="mt-1 font-mono text-base text-foreground">{status ? `${status.enabled_integrations}/${status.total_integrations}` : "—"}</p></div>
         </div>
         <div className="space-y-1 px-2 pb-2">
           {capabilities.map(([name, configured]) => <div key={name} className="flex min-h-9 items-center gap-2 rounded-lg px-2 text-xs"><span className={`size-1.5 rounded-full ${configured ? "bg-emerald-500" : "bg-muted-foreground/35"}`} /><span className="min-w-0 flex-1">{name}</span><span className="text-muted-foreground">{t(configured ? "runtimeHealth.available" : "runtimeHealth.optional")}</span></div>)}

@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..adapters.observability import record_runtime_decision
@@ -28,6 +28,7 @@ from .catalog import control
 from .defaults import is_default_guardrail, is_default_assignment
 from .domain import (
     AutomatedReasoningPolicyBinding,
+    ConflictError,
     ControlPlaneError,
     EvaluationCase,
     EvaluationCaseResult,
@@ -308,7 +309,13 @@ class CreateIntegrationRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
-    protocol: Literal["litellm", "http", "a2a"] = "litellm"
+    adapter_id: str = Field(min_length=1, max_length=120)
+
+
+class UpdateIntegrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
 
 
 class CreateTestRunRequest(BaseModel):
@@ -1130,7 +1137,24 @@ class ControlPlaneAPI:
 
         @router.get("/integrations")
         def integrations():
-            return _collection([_integration_payload(item) for item in self._service.integrations()])
+            return _collection(
+                [
+                    _integration_payload(
+                        item, self._service.integration_setup(item.id)
+                    )
+                    for item in self._service.integrations()
+                ]
+            )
+
+        @router.get("/integrations/{integration_id}")
+        def integration(integration_id: str):
+            try:
+                item = self._service.integration(integration_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _integration_payload(
+                item, self._service.integration_setup(item.id)
+            )
 
         @router.post("/integrations", status_code=201)
         def create_integration(request: CreateIntegrationRequest):
@@ -1138,14 +1162,60 @@ class ControlPlaneAPI:
                 item = self._service.create_integration(
                     name=request.name,
                     description=request.description,
-                    protocol=request.protocol,
+                    adapter_id=request.adapter_id,
                 )
             except ControlPlaneError as error:
                 _raise(error)
             return {
-                "integration": _integration_payload(item.integration),
-                "credential": item.credential,
+                "integration": _integration_payload(
+                    item.integration,
+                    self._service.integration_setup(item.integration.id),
+                ),
+                "credential": asdict(item.credential),
             }
+
+        @router.patch("/integrations/{integration_id}")
+        def update_integration(
+            integration_id: str, request: UpdateIntegrationRequest
+        ):
+            try:
+                item = self._service.set_integration_enabled(
+                    integration_id, request.enabled
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return _integration_payload(
+                item, self._service.integration_setup(item.id)
+            )
+
+        @router.post("/integrations/{integration_id}/credentials", status_code=201)
+        def rotate_integration_credential(integration_id: str):
+            try:
+                item = self._service.rotate_integration_credential(integration_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return {
+                "integration": _integration_payload(
+                    item.integration,
+                    self._service.integration_setup(item.integration.id),
+                ),
+                "credential": asdict(item.credential),
+            }
+
+        @router.delete(
+            "/integrations/{integration_id}/credentials/{credential_id}",
+            status_code=204,
+        )
+        def revoke_integration_credential(
+            integration_id: str, credential_id: str
+        ) -> Response:
+            try:
+                self._service.revoke_integration_credential(
+                    integration_id, credential_id
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return Response(status_code=204)
 
         @router.get("/decisions")
         def decisions(
@@ -1316,8 +1386,10 @@ def _test_case_payload(item) -> dict[str, object]:
     return asdict(item)
 
 
-def _integration_payload(item) -> dict[str, object]:
-    return asdict(item)
+def _integration_payload(
+    item, setup: dict[str, object]
+) -> dict[str, object]:
+    return {**asdict(item), "setup": setup}
 
 
 def _decision_payload(item) -> dict[str, object]:
@@ -2497,5 +2569,13 @@ def _metrics(
 
 
 def _raise(error: ControlPlaneError):
-    status = 404 if isinstance(error, NotFoundError) else 422 if isinstance(error, ValidationError) else 400
+    status = (
+        404
+        if isinstance(error, NotFoundError)
+        else 409
+        if isinstance(error, ConflictError)
+        else 422
+        if isinstance(error, ValidationError)
+        else 400
+    )
     raise HTTPException(status_code=status, detail=str(error)) from error

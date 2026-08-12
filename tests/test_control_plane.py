@@ -267,12 +267,12 @@ async def test_default_safe_blocks_locally_without_calling_semantic_stages(tmp_p
     await engine.shutdown()
 
 
-def test_v3_database_schema_is_rejected_without_migration(tmp_path):
+def test_v4_database_schema_is_rejected_without_migration(tmp_path):
     database_path = tmp_path / "incompatible.db"
     ControlPlaneService(database_path)
     with sqlite3.connect(database_path) as connection:
         connection.execute(
-            "UPDATE control_plane_meta SET value = 'tasklattice-guard-schema-v3' "
+            "UPDATE control_plane_meta SET value = 'tasklattice-guard-schema-v4' "
             "WHERE key = 'schema_version'"
         )
         connection.commit()
@@ -301,6 +301,10 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         integration_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(integrations)")
         }
+        credential_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(integration_credentials)")
+        }
         schema_version = connection.execute(
             "SELECT value FROM control_plane_meta WHERE key = 'schema_version'"
         ).fetchone()[0]
@@ -324,9 +328,20 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         "active_version",
     } <= guardrail_columns
     assert {"guardrail_id", "guardrail_version", "traffic_scope_json"} <= assignment_columns
-    assert {"protocol", "enabled"} <= integration_columns
-    assert "environment" not in integration_columns
-    assert schema_version == "tasklattice-guard-schema-v4"
+    assert {
+        "adapter_id",
+        "enabled",
+        "first_seen_at",
+        "last_seen_at",
+        "input_seen_at",
+        "output_seen_at",
+        "request_count",
+        "error_count",
+    } <= integration_columns
+    assert {"protocol", "environment"}.isdisjoint(integration_columns)
+    assert "key_hint" in credential_columns
+    assert "secret_prefix" not in credential_columns
+    assert schema_version == "tasklattice-guard-schema-v5"
     assert {
         "protections_json",
         "filters_json",

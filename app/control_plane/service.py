@@ -39,6 +39,7 @@ from ..control_library import (
     control_packs as library_control_packs,
     controls as library_controls,
 )
+from ..integrations import adapter_definition
 from .catalog import CONTROL_DEFINITIONS, control
 from .compiler import GuardrailCompiler
 from .nemo_compiler import NeMoConfigCompiler
@@ -55,6 +56,7 @@ from .defaults import (
 )
 from .domain import (
     AutomatedReasoningPolicyBinding,
+    ConflictError,
     ControlPlaneError,
     DecisionEvent,
     EvaluationCaseResult,
@@ -62,6 +64,8 @@ from .domain import (
     EvaluationRun,
     Integration,
     IntegrationAuthenticationError,
+    IntegrationCredential,
+    IntegrationCredentialSecret,
     IntegrationRegistration,
     NotFoundError,
     RuntimeMetricEvent,
@@ -97,7 +101,7 @@ from .filtering import (
 )
 
 
-SCHEMA_VERSION = "tasklattice-guard-schema-v4"
+SCHEMA_VERSION = "tasklattice-guard-schema-v5"
 
 
 class ControlPlaneService:
@@ -107,6 +111,7 @@ class ControlPlaneService:
         self,
         database_path: Path,
         *,
+        public_runtime_base_url: str = "http://localhost:8091",
         fast_semantic_configured: bool = False,
         deep_judge_configured: bool = False,
         automated_reasoning_configured: bool = False,
@@ -116,6 +121,7 @@ class ControlPlaneService:
         runtime_p99_budget_ms: int = 5_000,
     ) -> None:
         self._database_path = database_path
+        self._public_runtime_base_url = public_runtime_base_url.rstrip("/")
         self._fast_semantic_configured = fast_semantic_configured
         self._deep_judge_configured = deep_judge_configured
         self._automated_reasoning_configured = automated_reasoning_configured
@@ -129,8 +135,6 @@ class ControlPlaneService:
         ) = None
         self._nemo_runtime_reloader: Callable[[], None] | None = None
         self._write_lock = threading.Lock()
-        self._runtime_lock = threading.Lock()
-        self._integration_runtime: dict[str, dict[str, object]] = {}
         self._plans: dict[tuple[str, int], GuardrailPlanSnapshot] = {}
         self._nemo_configs: dict[tuple[str, int], NeMoConfigSnapshot] = {}
         self._assignments: tuple[GuardrailAssignment, ...] = ()
@@ -1443,76 +1447,187 @@ class ControlPlaneService:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT a.*,
-                       COALESCE((SELECT secret_prefix FROM integration_credentials c
-                                 WHERE c.integration_id = a.id AND c.revoked_at IS NULL
-                                 ORDER BY c.created_at DESC LIMIT 1), '') AS credential_prefix
-                FROM integrations a ORDER BY a.name COLLATE NOCASE, a.id
+                SELECT * FROM integrations
+                ORDER BY name COLLATE NOCASE, id
                 """
             ).fetchall()
-        return tuple(self._integration_from_row(row) for row in rows)
+            return tuple(self._integration_from_row(connection, row) for row in rows)
 
     def integration(self, integration_id: str) -> Integration:
-        item = next((item for item in self.integrations() if item.id == integration_id), None)
-        if item is None:
-            raise NotFoundError("Integration was not found.")
-        return item
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM integrations WHERE id = ?", (integration_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFoundError("Integration was not found.")
+            return self._integration_from_row(connection, row)
+
+    def integration_setup(self, integration_id: str) -> dict[str, object]:
+        integration = self.integration(integration_id)
+        adapter = adapter_definition(integration.adapter_id)
+        if adapter is None:
+            raise ControlPlaneError("Stored Integration adapter is not registered.")
+        return adapter.setup(self._public_runtime_base_url, integration.id)
 
     def create_integration(
         self,
         *,
         name: str,
         description: str,
-        protocol: str = "litellm",
+        adapter_id: str,
     ) -> IntegrationRegistration:
         if not name.strip():
             raise ValidationError("Integration name is required.")
-        if protocol not in {"litellm", "http", "a2a"}:
-            raise ValidationError("Unsupported Integration protocol.")
-        integration_id = f"integration-{uuid.uuid4().hex[:12]}"
-        credential = _new_credential()
+        adapter = adapter_definition(adapter_id)
+        if adapter is None:
+            raise ValidationError("Unsupported Integration adapter.")
+        integration_id = str(uuid.uuid4())
         now = _now()
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO integrations
-                    (id, protocol, name, description, enabled, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 1, ?, ?)
+                    (id, adapter_id, name, description, enabled, request_count,
+                     error_count, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 0, 0, ?, ?)
                 """,
-                (integration_id, protocol, name.strip(), description.strip(), now, now),
+                (integration_id, adapter.id, name.strip(), description.strip(), now, now),
             )
-            self._insert_credential(connection, integration_id, credential, "generated")
+            credential = self._insert_credential(connection, integration_id, "generated")
             self._insert_activity(
                 connection,
                 kind="integration.registered",
                 outcome="success",
-                detail=f"Registered {protocol.upper()} Integration {name.strip()}.",
+                integration_id=integration_id,
+                detail=f"Registered {adapter.name} Integration {name.strip()}.",
             )
             connection.commit()
         self._reload_runtime()
         return IntegrationRegistration(self.integration(integration_id), credential)
 
-    def authenticate_integration(self, credential: str | None, protocol: str) -> Integration:
+    def set_integration_enabled(
+        self, integration_id: str, enabled: bool
+    ) -> Integration:
+        current = self.integration(integration_id)
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                "UPDATE integrations SET enabled = ?, updated_at = ? WHERE id = ?",
+                (int(enabled), _now(), integration_id),
+            )
+            self._insert_activity(
+                connection,
+                kind="integration.updated",
+                outcome="success",
+                integration_id=integration_id,
+                detail=f"Integration {current.name} {'enabled' if enabled else 'disabled'}.",
+            )
+            connection.commit()
+        return self.integration(integration_id)
+
+    def rotate_integration_credential(
+        self, integration_id: str
+    ) -> IntegrationRegistration:
+        self.integration(integration_id)
+        with self._write_lock, self._connect() as connection:
+            credential = self._insert_credential(
+                connection, integration_id, "rotated"
+            )
+            self._insert_activity(
+                connection,
+                kind="integration.credential.rotated",
+                outcome="success",
+                integration_id=integration_id,
+                detail="Created a new Integration credential.",
+            )
+            connection.commit()
+        self._reload_runtime()
+        return IntegrationRegistration(self.integration(integration_id), credential)
+
+    def revoke_integration_credential(
+        self, integration_id: str, credential_id: str
+    ) -> None:
+        self.integration(integration_id)
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT id FROM integration_credentials "
+                "WHERE id = ? AND integration_id = ? AND revoked_at IS NULL",
+                (credential_id, integration_id),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError("Integration credential was not found.")
+            active_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM integration_credentials "
+                    "WHERE integration_id = ? AND revoked_at IS NULL",
+                    (integration_id,),
+                ).fetchone()[0]
+            )
+            if active_count <= 1:
+                raise ConflictError(
+                    "An Integration must keep at least one active credential."
+                )
+            connection.execute(
+                "UPDATE integration_credentials SET revoked_at = ? WHERE id = ?",
+                (_now(), credential_id),
+            )
+            self._insert_activity(
+                connection,
+                kind="integration.credential.revoked",
+                outcome="success",
+                integration_id=integration_id,
+                detail="Revoked an Integration credential.",
+            )
+            connection.commit()
+        self._reload_runtime()
+
+    def authenticate_integration(
+        self,
+        integration_id: str,
+        credential: str | None,
+        adapter_id: str,
+    ) -> Integration:
         if not credential:
             raise IntegrationAuthenticationError("Integration credential is required.")
-        integration_id = self._credential_index.get(_hash(credential))
-        if not integration_id:
+        credential_integration_id = self._credential_index.get(_hash(credential))
+        if credential_integration_id != integration_id:
             raise IntegrationAuthenticationError("Integration credential is invalid.")
-        integration = self.integration(integration_id)
-        if not integration.enabled or integration.protocol != protocol:
+        try:
+            integration = self.integration(integration_id)
+        except NotFoundError as error:
+            raise IntegrationAuthenticationError(
+                "Integration credential is invalid."
+            ) from error
+        if not integration.enabled or integration.adapter_id != adapter_id:
             raise IntegrationAuthenticationError("Integration credential is invalid.")
         return integration
 
-    def record_integration_activity(self, integration_id: str, *, success: bool) -> None:
-        with self._runtime_lock:
-            item = self._integration_runtime.setdefault(
-                integration_id,
-                {"last_seen_at": None, "request_count": 0, "error_count": 0},
+    def record_integration_activity(
+        self,
+        integration_id: str,
+        *,
+        phase: str,
+        success: bool,
+    ) -> None:
+        now = _now()
+        phase_column = "input_seen_at" if phase == "input" else "output_seen_at"
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                f"UPDATE integrations SET first_seen_at = COALESCE(first_seen_at, ?), "
+                f"last_seen_at = ?, {phase_column} = ?, request_count = request_count + 1, "
+                "error_count = error_count + ?, last_error_at = CASE WHEN ? THEN ? "
+                "ELSE last_error_at END, updated_at = ? WHERE id = ?",
+                (
+                    now,
+                    now,
+                    now,
+                    int(not success),
+                    int(not success),
+                    now,
+                    now,
+                    integration_id,
+                ),
             )
-            item["last_seen_at"] = _now()
-            item["request_count"] = int(item["request_count"]) + 1
-            if not success:
-                item["error_count"] = int(item["error_count"]) + 1
+            connection.commit()
 
     # Evidence and system summary
 
@@ -1814,9 +1929,7 @@ class ControlPlaneService:
             "status": "degraded" if degraded else "healthy",
             "status_reason": "integration_degraded" if degraded else "runtime_ready",
             "active_assignments": len(active),
-            "online_integrations": len(
-                [item for item in integrations if item.runtime_status in {"healthy", "waiting"}]
-            ),
+            "enabled_integrations": sum(item.enabled for item in integrations),
             "total_integrations": len(integrations),
             "capabilities": configured_capabilities,
             "latency_budget": {
@@ -1929,10 +2042,17 @@ class ControlPlaneService:
             );
             CREATE TABLE integrations (
                 id TEXT PRIMARY KEY,
-                protocol TEXT NOT NULL,
+                adapter_id TEXT NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
                 enabled INTEGER NOT NULL,
+                first_seen_at TEXT,
+                last_seen_at TEXT,
+                input_seen_at TEXT,
+                output_seen_at TEXT,
+                request_count INTEGER NOT NULL,
+                error_count INTEGER NOT NULL,
+                last_error_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -1940,7 +2060,7 @@ class ControlPlaneService:
                 id TEXT PRIMARY KEY,
                 integration_id TEXT NOT NULL,
                 secret_hash TEXT NOT NULL UNIQUE,
-                secret_prefix TEXT NOT NULL,
+                key_hint TEXT NOT NULL,
                 source TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 revoked_at TEXT,
@@ -2321,27 +2441,36 @@ class ControlPlaneService:
                 detail="Enabled the Default Assignment for unmatched traffic.",
             )
 
-    @staticmethod
     def _insert_credential(
+        self,
         connection: sqlite3.Connection,
         integration_id: str,
-        credential: str,
         source: str,
-    ) -> None:
+    ) -> IntegrationCredentialSecret:
+        credential_id = str(uuid.uuid4())
+        credential = _new_credential()
+        key_hint = _key_hint(credential)
+        created_at = _now()
         connection.execute(
             """
             INSERT INTO integration_credentials
-                (id, integration_id, secret_hash, secret_prefix, source, created_at, revoked_at)
+                (id, integration_id, secret_hash, key_hint, source, created_at, revoked_at)
             VALUES (?, ?, ?, ?, ?, ?, NULL)
             """,
             (
-                f"credential-{uuid.uuid4().hex[:12]}",
+                credential_id,
                 integration_id,
                 _hash(credential),
-                credential[:8] + "…",
+                key_hint,
                 source,
-                _now(),
+                created_at,
             ),
+        )
+        return IntegrationCredentialSecret(
+            id=credential_id,
+            value=credential,
+            key_hint=key_hint,
+            created_at=created_at,
         )
 
     @staticmethod
@@ -2401,33 +2530,67 @@ class ControlPlaneService:
         self._assignments = self.assignments()
         self._credential_index = credentials
 
-    def _integration_from_row(self, row: sqlite3.Row) -> Integration:
-        with self._runtime_lock:
-            runtime = self._integration_runtime.get(str(row["id"]), {})
-        last_seen = runtime.get("last_seen_at")
-        requests = int(runtime.get("request_count", 0))
-        errors = int(runtime.get("error_count", 0))
+    def _integration_from_row(
+        self, connection: sqlite3.Connection, row: sqlite3.Row
+    ) -> Integration:
+        adapter = adapter_definition(str(row["adapter_id"]))
+        if adapter is None:
+            raise ControlPlaneError("Stored Integration adapter is not registered.")
+        credentials = tuple(
+            IntegrationCredential(
+                id=str(item["id"]),
+                key_hint=str(item["key_hint"]),
+                created_at=str(item["created_at"]),
+            )
+            for item in connection.execute(
+                "SELECT id, key_hint, created_at FROM integration_credentials "
+                "WHERE integration_id = ? AND revoked_at IS NULL "
+                "ORDER BY created_at DESC, id DESC",
+                (str(row["id"]),),
+            ).fetchall()
+        )
         enabled = bool(row["enabled"])
+        first_seen_at = str(row["first_seen_at"]) if row["first_seen_at"] else None
+        last_seen_at = str(row["last_seen_at"]) if row["last_seen_at"] else None
+        input_seen_at = str(row["input_seen_at"]) if row["input_seen_at"] else None
+        output_seen_at = str(row["output_seen_at"]) if row["output_seen_at"] else None
+        last_error_at = str(row["last_error_at"]) if row["last_error_at"] else None
+        setup_status = (
+            "disabled"
+            if not enabled
+            else "awaiting_input"
+            if input_seen_at is None
+            else "awaiting_output"
+            if output_seen_at is None
+            else "verified"
+        )
+        runtime_status = (
+            "disabled"
+            if not enabled
+            else "waiting"
+            if last_seen_at is None
+            else "degraded"
+            if last_error_at == last_seen_at
+            else "healthy"
+        )
         return Integration(
             id=str(row["id"]),
-            protocol=str(row["protocol"]),
+            adapter_id=adapter.id,
+            protocol=adapter.protocol,
             name=str(row["name"]),
             description=str(row["description"]),
             enabled=enabled,
-            credential_prefix=str(row["credential_prefix"]),
-            verification_status="verified" if last_seen else "waiting",
-            runtime_status=(
-                "disabled"
-                if not enabled
-                else "degraded"
-                if errors
-                else "healthy"
-                if last_seen
-                else "waiting"
-            ),
-            last_seen_at=str(last_seen) if last_seen else None,
-            request_count=requests,
-            error_count=errors,
+            key_hint=credentials[0].key_hint if credentials else "",
+            credentials=credentials,
+            setup_status=setup_status,
+            runtime_status=runtime_status,
+            first_seen_at=first_seen_at,
+            last_seen_at=last_seen_at,
+            input_seen_at=input_seen_at,
+            output_seen_at=output_seen_at,
+            request_count=int(row["request_count"]),
+            error_count=int(row["error_count"]),
+            last_error_at=last_error_at,
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
         )
@@ -3260,6 +3423,10 @@ def _hash(value: str) -> str:
 
 def _new_credential() -> str:
     return "tali_integration_" + secrets.token_urlsafe(30)
+
+
+def _key_hint(credential: str) -> str:
+    return f"••••{credential[-6:]}"
 
 
 def _now() -> str:

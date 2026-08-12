@@ -51,6 +51,8 @@ spec:
           env:
             - name: MODEL_GUARDRAILS_DATABASE_PATH
               value: {{ .Values.database.path | quote }}
+            - name: MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL
+              value: {{ .Values.runtime.publicBaseUrl | quote }}
             - name: MODEL_GUARDRAILS_RUNTIME_P95_BUDGET_MS
               value: {{ .Values.observability.runtimeP95BudgetMs | quote }}
             - name: MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS

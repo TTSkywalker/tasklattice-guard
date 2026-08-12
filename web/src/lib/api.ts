@@ -509,20 +509,59 @@ export type GuardrailCompilePreview = {
   estimated_critical_path_ms: number;
 };
 
+export type IntegrationAdapterId = "litellm-generic-guardrail" | "generic-http-guard" | "a2a-guard";
+export type IntegrationProtocol = "litellm" | "http" | "a2a";
+export type IntegrationSetupStatus = "awaiting_input" | "awaiting_output" | "verified" | "disabled";
+
+export type IntegrationSetup = {
+  api_base_url: string;
+  callback_url: string;
+  auth_header: string;
+  credential_env_var: string;
+  api_base_env_var: string;
+  recommended_modes: string[];
+  default_on: boolean;
+  fail_on_error: boolean;
+  unreachable_fallback: "fail_closed" | "fail_open";
+  yaml_template: string;
+};
+
+export type IntegrationCredential = {
+  id: string;
+  key_hint: string;
+  created_at: string;
+};
+
+export type OneTimeIntegrationCredential = IntegrationCredential & {
+  value: string;
+};
+
 export type Integration = {
   id: string;
-  protocol: "litellm" | "http" | "a2a";
+  adapter_id: IntegrationAdapterId;
+  protocol: IntegrationProtocol;
   name: string;
   description: string;
   enabled: boolean;
-  credential_prefix: string;
-  verification_status: string;
+  key_hint: string;
+  credentials: IntegrationCredential[];
+  setup_status: IntegrationSetupStatus;
   runtime_status: string;
+  first_seen_at: string | null;
+  input_seen_at: string | null;
+  output_seen_at: string | null;
   last_seen_at: string | null;
+  last_error_at: string | null;
   request_count: number;
   error_count: number;
+  setup: IntegrationSetup;
   created_at: string;
   updated_at: string;
+};
+
+export type IntegrationRegistration = {
+  integration: Integration;
+  credential: OneTimeIntegrationCredential;
 };
 
 export type DecisionEvent = {
@@ -561,7 +600,7 @@ export type SystemStatus = {
   status: "healthy" | "degraded";
   status_reason: "runtime_ready" | "integration_degraded";
   active_assignments: number;
-  online_integrations: number;
+  enabled_integrations: number;
   total_integrations: number;
   capabilities: {
     deterministic: boolean;
@@ -824,7 +863,11 @@ export const getTrafficScopeFields = () => read<Collection<TrafficScopeField>>("
 export const createAssignment = (input: { name: string; guardrail_id: string; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<GuardrailAssignment>("/api/v1/assignments", "POST", input);
 export const setAssignmentEnabled = (id: string, enabled: boolean) => mutate<GuardrailAssignment>(`/api/v1/assignments/${encodeURIComponent(id)}`, "PATCH", { enabled });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
-export const createIntegration = (input: { name: string; protocol: Integration["protocol"] }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", input);
+export const getIntegration = (id: string) => read<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`);
+export const createIntegration = (input: { name: string; adapter_id: IntegrationAdapterId }) => mutate<IntegrationRegistration>("/api/v1/integrations", "POST", input);
+export const setIntegrationEnabled = (id: string, enabled: boolean) => mutate<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`, "PATCH", { enabled });
+export const rotateIntegrationCredential = (id: string) => mutate<IntegrationRegistration>(`/api/v1/integrations/${encodeURIComponent(id)}/credentials`, "POST");
+export const revokeIntegrationCredential = (integrationId: string, credentialId: string) => mutate<void>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/credentials/${encodeURIComponent(credentialId)}`, "DELETE");
 export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);
 export const getMetrics = (filters: { guardrailId?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

@@ -1,15 +1,38 @@
 from __future__ import annotations
 
+import pytest
+
 from app.config import Settings
 from app.main import create_engine
 
 
-def test_default_database_path_uses_current_v4_schema(monkeypatch):
+def test_default_database_path_uses_current_v5_schema(monkeypatch):
     monkeypatch.delenv("MODEL_GUARDRAILS_DATABASE_PATH", raising=False)
 
     settings = Settings.from_env()
 
-    assert settings.database_path.name == "tasklattice-guard-schema-v4.db"
+    assert settings.database_path.name == "tasklattice-guard-schema-v5.db"
+
+
+def test_public_runtime_base_url_is_canonical(monkeypatch):
+    monkeypatch.setenv(
+        "MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL",
+        "https://guard.example.com/",
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.public_runtime_base_url == "https://guard.example.com"
+
+
+def test_public_runtime_base_url_rejects_non_http_url(monkeypatch):
+    monkeypatch.setenv(
+        "MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL",
+        "guard.internal.local",
+    )
+
+    with pytest.raises(ValueError, match="PUBLIC_RUNTIME_BASE_URL"):
+        Settings.from_env()
 
 
 def test_settings_reuses_existing_provider_key_variables(monkeypatch):
