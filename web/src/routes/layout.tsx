@@ -1,6 +1,7 @@
-import { Outlet, useRouterState } from "@tanstack/react-router";
-import { Building2, ShieldCheck } from "lucide-react";
+import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Activity, Building2, CircleAlert, Gauge, ShieldCheck } from "lucide-react";
 import type { CSSProperties } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { ControlPlaneSidebar } from "@/components/control-plane-sidebar";
@@ -12,11 +13,15 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { LoginPage } from "@/routes/login";
+import { queryKeys } from "@/features/query-keys";
+import { getSystemStatus } from "@/lib/api";
 
 const names: Record<string, { group: string; page: string }> = {
   "/": { group: "nav.home", page: "nav.overview" },
@@ -37,6 +42,7 @@ export function ControlPlaneLayout() {
   const auth = useAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const location = names[pathname] ?? (pathname.startsWith("/guardrails/") ? names["/guardrails"] : { group: "nav.home", page: "nav.overview" });
+  const systemStatus = useQuery({ queryKey: queryKeys.systemStatus, queryFn: getSystemStatus, refetchInterval: 15_000, enabled: Boolean(auth.status?.authenticated) });
 
   if (auth.isLoading) {
     return <div className="flex min-h-dvh items-center justify-center bg-background"><div className="flex items-center gap-3 text-sm text-muted-foreground"><ShieldCheck className="size-5 animate-pulse text-primary" />{t("auth.sessionLoading")}</div></div>;
@@ -67,9 +73,9 @@ export function ControlPlaneLayout() {
                 </BreadcrumbList>
               </Breadcrumb>
             </div>
-            <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
-              <Building2 className="size-4" />
-              {t("nav.enterpriseSafety")}
+            <div className="flex items-center gap-2">
+              <div className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex"><Building2 className="size-4" />{t("nav.enterpriseSafety")}</div>
+              <RuntimeHealthMenu loading={systemStatus.isLoading} status={systemStatus.data} />
             </div>
           </header>
           <main className="mx-auto w-full max-w-[1600px] min-w-0 flex-1 px-4 pb-12 sm:px-6 lg:px-8">
@@ -79,5 +85,41 @@ export function ControlPlaneLayout() {
         <Toaster position="bottom-right" richColors />
       </SidebarProvider>
     </TooltipProvider>
+  );
+}
+
+function RuntimeHealthMenu({ loading, status }: { loading: boolean; status?: Awaited<ReturnType<typeof getSystemStatus>> }) {
+  const { t } = useTranslation();
+  const degraded = Boolean(status?.status === "degraded");
+  const capabilities = status ? [
+    [t("integrations.localDetection"), status.capabilities.deterministic],
+    [t("integrations.fastSemantic"), status.capabilities.fast_semantic],
+    [t("integrations.deepJudge"), status.capabilities.deep_judge],
+    [t("integrations.automatedReasoning"), status.capabilities.automated_reasoning],
+  ] as const : [];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" className="min-h-11 gap-2 px-3" aria-label={t("runtimeHealth.open")}>
+          <span className={`size-2 rounded-full ${loading ? "bg-muted-foreground/50" : degraded ? "bg-amber-500" : "bg-emerald-500"}`} />
+          <span className="hidden text-xs sm:inline">{t(loading ? "runtimeHealth.checking" : degraded ? "runtimeHealth.attention" : "runtimeHealth.ready")}</span>
+          <Gauge className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80 p-2">
+        <DropdownMenuLabel className="px-3 py-2"><span className="block text-sm font-semibold text-foreground">{t("runtimeHealth.title")}</span><span className="mt-1 block font-normal leading-5">{t(degraded ? "runtimeHealth.degradedDescription" : "runtimeHealth.readyDescription")}</span></DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="grid grid-cols-2 gap-2 p-2 text-xs">
+          <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.deployments")}</p><p className="mt-1 font-mono text-base text-foreground">{status?.active_assignments ?? "—"}</p></div>
+          <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.integrations")}</p><p className="mt-1 font-mono text-base text-foreground">{status ? `${status.online_integrations}/${status.total_integrations}` : "—"}</p></div>
+        </div>
+        <div className="space-y-1 px-2 pb-2">
+          {capabilities.map(([name, configured]) => <div key={name} className="flex min-h-9 items-center gap-2 rounded-lg px-2 text-xs"><span className={`size-1.5 rounded-full ${configured ? "bg-emerald-500" : "bg-muted-foreground/35"}`} /><span className="min-w-0 flex-1">{name}</span><span className="text-muted-foreground">{t(configured ? "runtimeHealth.available" : "runtimeHealth.optional")}</span></div>)}
+        </div>
+        {degraded ? <div className="mx-2 mb-2 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><CircleAlert className="mt-0.5 size-4 shrink-0" />{t("runtimeHealth.integrationWarning")}</div> : <div className="mx-2 mb-2 flex gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><Activity className="mt-0.5 size-4 shrink-0" />{t("runtimeHealth.runtimeReady")}</div>}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild><Link to="/integrations"><Building2 />{t("runtimeHealth.openIntegrations")}</Link></DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

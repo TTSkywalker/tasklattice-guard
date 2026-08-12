@@ -18,7 +18,6 @@ export function EnforcementsPage() {
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("enforcements.eyebrow")}
         title={t("enforcements.title")}
         description={t("enforcements.description")}
       />

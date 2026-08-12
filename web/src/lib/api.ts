@@ -485,6 +485,7 @@ export type DecisionEvent = {
 
 export type SystemStatus = {
   status: "healthy" | "degraded";
+  status_reason: "runtime_ready" | "integration_degraded";
   active_assignments: number;
   online_integrations: number;
   total_integrations: number;
@@ -497,8 +498,17 @@ export type SystemStatus = {
 };
 
 export type Metrics = {
-  window: "7d";
+  window: "24h" | "7d" | "30d";
   window_start: string;
+  scope: {
+    guardrail_id: string | null;
+    guardrail_name: string | null;
+    environment: string | null;
+  };
+  comparison: {
+    previous_total_decisions: number;
+    request_delta_pct: number | null;
+  };
   total_decisions: number;
   allowed: number;
   blocked: number;
@@ -713,6 +723,8 @@ export const getIntentAnalysisStatus = () => read<IntentAnalysisStatus>("/api/v1
 export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" | "zh-CN" }) => mutate<IntentAnalysis>("/api/v1/intent-analyses", "POST", input);
 
 export const createTestRun = (guardrailId: string) => mutate<TestRun>("/api/v1/test-runs", "POST", { guardrail_id: guardrailId });
+export const getTestRuns = (guardrailId?: string) => read<Collection<TestRun>>(`/api/v1/test-runs${query({ guardrail_id: guardrailId })}`);
+export const getTestRun = (runId: string) => read<TestRun>(`/api/v1/test-runs/${encodeURIComponent(runId)}`);
 export const runQuickTest = (guardrailId: string, input: { phase: "input" | "output"; content: string }) => mutate<QuickTestResult>("/api/v1/quick-tests", "POST", { guardrail_id: guardrailId, ...input });
 export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
 export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "risk" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
@@ -725,5 +737,5 @@ export const setAssignmentEnabled = (id: string, enabled: boolean) => mutate<Gua
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
 export const createIntegration = (input: { name: string; environment: "production" | "staging" | "development" | "test"; protocol: "litellm" | "http" | "a2a" }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", input);
 export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; outcome?: string; risk?: string } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, outcome: filters.outcome, risk: filters.risk })}`);
-export const getMetrics = () => read<Metrics>("/api/v1/metrics");
+export const getMetrics = (filters: { guardrailId?: string; environment?: string; window?: "24h" | "7d" | "30d" } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, environment: filters.environment, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

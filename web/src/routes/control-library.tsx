@@ -1,291 +1,424 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createColumnHelper,
-  createPaginatedRowModel,
-  createSortedRowModel,
-  rowPaginationFeature,
-  rowSortingFeature,
-  sortFn_alphanumeric,
-  sortFn_text,
-  tableFeatures,
-  useTable,
-} from "@tanstack/react-table";
-import {
-  ArrowUpDown,
+  Braces,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   ListTree,
   PackageOpen,
+  Plus,
+  RotateCcw,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
+  Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { ControlDetailSheet, ControlStudioSheet } from "@/components/native-control-studio";
 import { EntitySheet } from "@/components/entity-sheet";
-import { NativeControlInventory } from "@/components/native-control-studio";
 import { ErrorNotice, PageHeader } from "@/components/product-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryKeys } from "@/features/query-keys";
 import {
   getControlTemplates,
+  getNativeControls,
   type ControlTemplate,
   type ControlTemplateRule,
+  type NativeControl,
+  type NativeRailType,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const EMPTY_TEMPLATES: ControlTemplate[] = [];
-const tableFeatureSet = tableFeatures({
-  rowSortingFeature,
-  sortedRowModel: createSortedRowModel(),
-  sortFns: { alphanumeric: sortFn_alphanumeric, text: sortFn_text },
-  rowPaginationFeature,
-  paginatedRowModel: createPaginatedRowModel(),
-});
-const columnHelper = createColumnHelper<typeof tableFeatureSet, ControlTemplate>();
+const EMPTY_CONTROLS: NativeControl[] = [];
+const RAILS: NativeRailType[] = ["input", "output", "retrieval", "dialog", "execution"];
+const IMPLEMENTATIONS = ["colang", "regex", "keyword", "category"] as const;
+
+type CatalogSource = "custom" | "built-in" | "template";
+type CatalogImplementation = typeof IMPLEMENTATIONS[number];
+type CatalogItem = {
+  key: string;
+  id: string;
+  source: CatalogSource;
+  name: string;
+  description: string;
+  rails: NativeRailType[];
+  implementations: CatalogImplementation[];
+  packs: Array<{ id: string; name: string }>;
+  searchText: string;
+  native?: NativeControl;
+  template?: ControlTemplate;
+};
 
 export function ControlLibraryPage() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const nativeQuery = useQuery({ queryKey: queryKeys.nativeControls, queryFn: getNativeControls });
+  const templateQuery = useQuery({ queryKey: queryKeys.controlTemplates, queryFn: getControlTemplates });
+  const nativeControls = nativeQuery.data?.items ?? EMPTY_CONTROLS;
+  const templates = templateQuery.data?.items ?? EMPTY_TEMPLATES;
+  const [search, setSearch] = useState("");
+  const [sources, setSources] = useState<Set<CatalogSource>>(new Set());
+  const [rails, setRails] = useState<Set<NativeRailType>>(new Set());
+  const [implementations, setImplementations] = useState<Set<CatalogImplementation>>(new Set());
+  const [packs, setPacks] = useState<Set<string>>(new Set());
+  const [selectedNativeId, setSelectedNativeId] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<ControlTemplate | null>(null);
+  const [studioControl, setStudioControl] = useState<NativeControl | null | undefined>(undefined);
+
+  const items = useMemo(() => catalogItems(nativeControls, templates), [nativeControls, templates]);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return items.filter((item) => {
+      if (sources.size && !sources.has(item.source)) return false;
+      if (rails.size && !item.rails.some((rail) => rails.has(rail))) return false;
+      if (implementations.size && !item.implementations.some((implementation) => implementations.has(implementation))) return false;
+      if (packs.size && !item.packs.some((pack) => packs.has(pack.id))) return false;
+      return !query || item.searchText.includes(query);
+    });
+  }, [implementations, items, packs, rails, search, sources]);
+
+  const activeFilterCount = sources.size + rails.size + implementations.size + packs.size;
+  const loading = nativeQuery.isLoading || templateQuery.isLoading;
+
+  function clearFilters() {
+    setSources(new Set());
+    setRails(new Set());
+    setImplementations(new Set());
+    setPacks(new Set());
+  }
+
+  async function refresh(controlId?: string) {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.nativeControls });
+    if (controlId) await queryClient.invalidateQueries({ queryKey: queryKeys.nativeControl(controlId) });
+  }
+
+  const filterProps = {
+    items,
+    sources,
+    rails,
+    implementations,
+    packs,
+    activeFilterCount,
+    onToggleSource: (value: CatalogSource) => setSources((current) => toggled(current, value)),
+    onToggleRail: (value: NativeRailType) => setRails((current) => toggled(current, value)),
+    onToggleImplementation: (value: CatalogImplementation) => setImplementations((current) => toggled(current, value)),
+    onTogglePack: (value: string) => setPacks((current) => toggled(current, value)),
+    onClear: clearFilters,
+  };
+
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("pages.controlLibrary.eyebrow")}
         title={t("pages.controlLibrary.title")}
         description={t("pages.controlLibrary.description")}
+        action={<Button size="lg" onClick={() => setStudioControl(null)}><Plus />{t("controlStudio.newControl")}</Button>}
       />
-      <Tabs defaultValue="custom" className="mt-5">
-        <TabsList className="h-11 w-full justify-start overflow-x-auto p-1 sm:w-fit" aria-label={t("controlStudio.libraryViews")}>
-          <TabsTrigger className="min-h-9 px-3" value="custom">{t("controlStudio.customControls")}</TabsTrigger>
-          <TabsTrigger className="min-h-9 px-3" value="built-in">{t("controlStudio.builtInControls")}</TabsTrigger>
-          <TabsTrigger className="min-h-9 px-3" value="templates">{t("controlStudio.ruleTemplates")}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="custom" className="pt-4"><NativeControlInventory source="custom" /></TabsContent>
-        <TabsContent value="built-in" className="pt-4"><NativeControlInventory source="built-in" /></TabsContent>
-        <TabsContent value="templates"><LegacyControlTemplatePage embedded /></TabsContent>
-      </Tabs>
+
+      <div className="mt-6 flex flex-col gap-3 border-y py-4 sm:flex-row sm:items-center sm:justify-between">
+        <label className="relative block w-full sm:max-w-xl">
+          <span className="sr-only">{t("controlLibrary.searchCatalog")}</span>
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="min-h-11 bg-card pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("controlLibrary.catalogSearchPlaceholder")} />
+        </label>
+        <p className="shrink-0 text-xs text-muted-foreground" aria-live="polite">
+          {t("controlLibrary.catalogResults", { shown: filtered.length, total: items.length })}
+        </p>
+      </div>
+
+      {nativeQuery.error ? <div className="mt-5"><ErrorNotice error={nativeQuery.error} /></div> : null}
+      {templateQuery.error ? <div className="mt-5"><ErrorNotice error={templateQuery.error} /></div> : null}
+
+      {loading ? <CatalogSkeleton /> : (
+        <div className="mt-5 grid min-w-0 gap-5 lg:grid-cols-[19rem_minmax(0,1fr)] lg:items-start">
+          <aside className="sticky top-20 hidden max-h-[calc(100dvh-6rem)] overflow-y-auto border-r pr-5 lg:block" aria-label={t("controlLibrary.filters")}>
+            <FacetFilters {...filterProps} />
+          </aside>
+
+          <div className="min-w-0">
+            <details className="mb-4 overflow-hidden rounded-xl border bg-card lg:hidden">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                <SlidersHorizontal className="size-4 text-primary" />
+                <span>{t("controlLibrary.filters")}</span>
+                {activeFilterCount ? <Badge className="ml-auto">{activeFilterCount}</Badge> : <span className="ml-auto text-xs font-normal text-muted-foreground">{t("controlLibrary.optional")}</span>}
+                <ChevronDown className="size-4 text-muted-foreground" />
+              </summary>
+              <div className="border-t"><FacetFilters {...filterProps} compact /></div>
+            </details>
+
+            {filtered.length ? (
+              <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3" aria-label={t("controlLibrary.catalogLabel")}>
+                {filtered.map((item) => (
+                  <ControlCatalogCard
+                    key={item.key}
+                    item={item}
+                    onOpen={() => item.native ? setSelectedNativeId(item.native.id) : setSelectedTemplate(item.template ?? null)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed bg-card px-6 text-center">
+                <Workflow className="size-8 text-muted-foreground" />
+                <h2 className="mt-3 text-sm font-semibold">{t("controlLibrary.noCatalogResults")}</h2>
+                <p className="mt-1 max-w-md text-xs leading-5 text-muted-foreground">{t("controlLibrary.noCatalogResultsDescription")}</p>
+                <Button className="mt-4" variant="outline" onClick={() => { setSearch(""); clearFilters(); }}><RotateCcw />{t("controlLibrary.resetCatalog")}</Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <ControlDetailSheet
+        controlId={selectedNativeId}
+        onClose={() => setSelectedNativeId(null)}
+        onEdit={(control) => { setSelectedNativeId(null); setStudioControl(control); }}
+      />
+      <ControlTemplateDetail template={selectedTemplate} onClose={() => setSelectedTemplate(null)} />
+      <ControlStudioSheet
+        control={studioControl}
+        open={studioControl !== undefined}
+        onOpenChange={(open) => { if (!open) setStudioControl(undefined); }}
+        onSaved={async (controlId) => { await refresh(controlId); setStudioControl(undefined); setSelectedNativeId(controlId); }}
+      />
     </section>
   );
 }
 
-function LegacyControlTemplatePage({ embedded = false }: { embedded?: boolean }) {
+function FacetFilters({
+  items,
+  sources,
+  rails,
+  implementations,
+  packs,
+  activeFilterCount,
+  onToggleSource,
+  onToggleRail,
+  onToggleImplementation,
+  onTogglePack,
+  onClear,
+  compact = false,
+}: {
+  items: CatalogItem[];
+  sources: Set<CatalogSource>;
+  rails: Set<NativeRailType>;
+  implementations: Set<CatalogImplementation>;
+  packs: Set<string>;
+  activeFilterCount: number;
+  onToggleSource: (value: CatalogSource) => void;
+  onToggleRail: (value: NativeRailType) => void;
+  onToggleImplementation: (value: CatalogImplementation) => void;
+  onTogglePack: (value: string) => void;
+  onClear: () => void;
+  compact?: boolean;
+}) {
   const { t } = useTranslation();
-  const templatesQuery = useQuery({ queryKey: queryKeys.controlTemplates, queryFn: getControlTemplates });
-  const templates = templatesQuery.data?.items ?? EMPTY_TEMPLATES;
-  const [search, setSearch] = useState("");
-  const [detector, setDetector] = useState("all");
-  const [pack, setPack] = useState("all");
-  const [selected, setSelected] = useState<ControlTemplate | null>(null);
-
-  const packs = useMemo(() => {
+  const packOptions = useMemo(() => {
     const values = new Map<string, string>();
-    for (const template of templates) {
-      for (const item of template.packs) values.set(item.id, item.name);
-    }
+    for (const item of items) for (const pack of item.packs) values.set(pack.id, pack.name);
     return [...values].sort((left, right) => left[1].localeCompare(right[1]));
-  }, [templates]);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return templates.filter((template) => {
-      if (detector !== "all" && !template.detector_types.includes(detector as ControlTemplateRule["detector"])) return false;
-      if (pack !== "all" && !template.packs.some((item) => item.id === pack)) return false;
-      if (!query) return true;
-      const haystack = [
-        template.name,
-        template.id,
-        template.description,
-        ...template.tags,
-        ...template.packs.flatMap((item) => [item.name, item.domain]),
-        ...template.rules.flatMap((item) => [item.id, item.name, item.description]),
-      ].join(" ").toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [detector, pack, search, templates]);
-
-  const columns = useMemo(() => columnHelper.columns([
-    columnHelper.accessor("name", {
-      id: "name",
-      header: ({ column }) => <SortableHeader label={t("controlLibrary.controlTemplate")} sorted={column.getIsSorted()} onClick={column.getToggleSortingHandler()} />,
-      cell: ({ row }) => (
-        <button
-          type="button"
-          className="block min-h-11 w-full rounded-md py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setSelected(row.original)}
-        >
-          <span className="block text-sm font-medium text-foreground group-hover:text-primary">{row.original.name}</span>
-          <span className="mt-1 block font-mono text-[11px] text-muted-foreground">{row.original.id}</span>
-        </button>
-      ),
-      sortFn: "text",
-    }),
-    columnHelper.accessor((row) => row.detector_types.join(","), {
-      id: "detectors",
-      header: t("controlLibrary.detector"),
-      cell: ({ row }) => <DetectorBadges detectors={row.original.detector_types} />,
-      sortFn: "text",
-    }),
-    columnHelper.accessor((row) => row.phases.join(","), {
-      id: "phase",
-      header: t("controlLibrary.phase"),
-      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.phases.map((item) => t(`controlLibrary.phases.${item}`)).join(", ")}</span>,
-      sortFn: "text",
-    }),
-    columnHelper.accessor("default_action", {
-      id: "action",
-      header: t("controlLibrary.defaultAction"),
-      cell: ({ getValue }) => <ActionBadge action={getValue()} />,
-      sortFn: "text",
-    }),
-    columnHelper.accessor((row) => row.rules.length, {
-      id: "rules",
-      header: ({ column }) => <SortableHeader label={t("controlLibrary.rules")} sorted={column.getIsSorted()} onClick={column.getToggleSortingHandler()} />,
-      cell: ({ getValue }) => <span className="font-mono text-xs tabular-nums">{getValue()}</span>,
-    }),
-    columnHelper.accessor((row) => row.packs.map((item) => item.name).join(", "), {
-      id: "packs",
-      header: t("controlLibrary.controlPacks"),
-      cell: ({ row }) => (
-        <div className="max-w-60">
-          <span className="block truncate text-xs">{row.original.packs[0]?.name ?? "—"}</span>
-          {row.original.packs.length > 1 ? <span className="mt-1 block text-[11px] text-muted-foreground">{t("controlLibrary.morePacks", { count: row.original.packs.length - 1 })}</span> : null}
-        </div>
-      ),
-      sortFn: "text",
-    }),
-    columnHelper.accessor("version", {
-      id: "version",
-      header: t("controlLibrary.version"),
-      cell: ({ row }) => <div><span className="block font-mono text-xs">{row.original.version}</span><span className="mt-1 block text-[11px] text-muted-foreground">{t("controlLibrary.builtIn")}</span></div>,
-      sortFn: "alphanumeric",
-    }),
-    columnHelper.display({
-      id: "open",
-      header: () => <span className="sr-only">{t("controlLibrary.openDetails")}</span>,
-      cell: ({ row }) => (
-        <Button type="button" size="icon" variant="ghost" aria-label={t("controlLibrary.openNamed", { name: row.original.name })} onClick={() => setSelected(row.original)}>
-          <ChevronRight />
-        </Button>
-      ),
-    }),
-  ]), [t]);
-
-  const table = useTable({
-    features: tableFeatureSet,
-    columns,
-    data: filtered,
-    getRowId: (row) => row.id,
-    initialState: {
-      sorting: [{ id: "name", desc: false }],
-      pagination: { pageIndex: 0, pageSize: 20 },
-    },
-    enableSortingRemoval: false,
-  });
-
-  useEffect(() => {
-    table.resetPageIndex(true);
-  }, [detector, pack, search, table]);
-
-  const pageStart = filtered.length ? table.state.pagination.pageIndex * table.state.pagination.pageSize + 1 : 0;
-  const pageEnd = Math.min(filtered.length, pageStart + table.getRowModel().rows.length - 1);
-  const ruleCount = templates.reduce((total, item) => total + item.rules.length, 0);
+  }, [items]);
 
   return (
-    <section className={cn(!embedded && "py-6 sm:py-8", embedded && "pt-4")}>
-      {!embedded ? <PageHeader
-        eyebrow={t("pages.controlLibrary.eyebrow")}
-        title={t("pages.controlLibrary.title")}
-        description={t("pages.controlLibrary.description")}
-      /> : null}
+    <div className={cn(!compact && "pb-4", compact && "p-4")}>
+      <div className="flex min-h-11 items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">{t("controlLibrary.filters")}</h2>
+        <Button size="sm" variant="ghost" className="px-2 text-muted-foreground shadow-none" disabled={!activeFilterCount} onClick={onClear}>{t("controlLibrary.clearFilters")}</Button>
+      </div>
 
-      {templatesQuery.error ? <div className="mt-5"><ErrorNotice error={templatesQuery.error} /></div> : null}
-      {templatesQuery.isLoading ? <Skeleton className="mt-5 h-[34rem] rounded-xl" /> : null}
+      <FilterGroup title={t("controlLibrary.filterGroups.source")}>
+        {(["custom", "built-in", "template"] as const).map((source) => (
+          <FilterOption
+            key={source}
+            label={t(`controlLibrary.sourceLabels.${source}`)}
+            count={items.filter((item) => item.source === source).length}
+            selected={sources.has(source)}
+            onClick={() => onToggleSource(source)}
+          />
+        ))}
+      </FilterGroup>
 
-      {!templatesQuery.isLoading && !templatesQuery.error ? (
-        <>
-          <section className="mt-5 grid overflow-hidden rounded-xl border bg-card shadow-xs sm:grid-cols-3" aria-label={t("controlLibrary.inventorySummary")}>
-            <InventoryFact icon={ShieldCheck} label={t("controlLibrary.templatesAvailable")} value={templates.length} />
-            <InventoryFact icon={ListTree} label={t("controlLibrary.executableRules")} value={ruleCount} />
-            <InventoryFact icon={PackageOpen} label={t("controlLibrary.controlPacks")} value={packs.length} />
-          </section>
+      <FilterGroup title={t("controlLibrary.filterGroups.rail")}>
+        {RAILS.map((rail) => (
+          <FilterOption
+            key={rail}
+            label={t(`controlStudio.railNames.${rail}`)}
+            count={items.filter((item) => item.rails.includes(rail)).length}
+            selected={rails.has(rail)}
+            onClick={() => onToggleRail(rail)}
+          />
+        ))}
+      </FilterGroup>
 
-          <section className="mt-5 overflow-hidden rounded-xl border bg-card shadow-xs">
-            <div className="grid gap-3 border-b bg-muted/20 p-4 lg:grid-cols-[minmax(18rem,1fr)_13rem_18rem_auto] lg:items-center">
-              <label className="relative block">
-                <span className="sr-only">{t("controlLibrary.searchLabel")}</span>
-                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="min-h-11 bg-card pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("controlLibrary.searchPlaceholder")} />
-              </label>
-              <Select value={detector} onValueChange={setDetector}>
-                <SelectTrigger className="min-h-11 bg-card" aria-label={t("controlLibrary.filterDetector")}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("controlLibrary.allDetectors")}</SelectItem>
-                  <SelectItem value="regex">{t("controlLibrary.detectors.regex")}</SelectItem>
-                  <SelectItem value="keyword">{t("controlLibrary.detectors.keyword")}</SelectItem>
-                  <SelectItem value="category">{t("controlLibrary.detectors.category")}</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={pack} onValueChange={setPack}>
-                <SelectTrigger className="min-h-11 bg-card" aria-label={t("controlLibrary.filterPack")}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("controlLibrary.allPacks")}</SelectItem>
-                  {packs.map(([id, name]) => <SelectItem key={id} value={id}>{name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground lg:text-right" aria-live="polite">{t("controlLibrary.results", { count: filtered.length })}</p>
-            </div>
+      <FilterGroup title={t("controlLibrary.filterGroups.implementation")}>
+        {IMPLEMENTATIONS.map((implementation) => (
+          <FilterOption
+            key={implementation}
+            label={t(`controlLibrary.implementations.${implementation}`)}
+            count={items.filter((item) => item.implementations.includes(implementation)).length}
+            selected={implementations.has(implementation)}
+            onClick={() => onToggleImplementation(implementation)}
+          />
+        ))}
+      </FilterGroup>
 
-            <Table>
-              <TableHeader>
-                {table.getHeaderGroups().map((group) => (
-                  <TableRow key={group.id} className="hover:bg-transparent">
-                    {group.headers.map((header) => (
-                      <TableHead key={header.id} className={columnClass(header.column.id)}>
-                        {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.length ? table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} className="group">
-                    {row.getAllCells().map((cell) => (
-                      <TableCell key={cell.id} className={cn("py-3 whitespace-normal", columnClass(cell.column.id))}>
-                        <table.FlexRender cell={cell} />
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                )) : (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={columns.length} className="h-48 text-center text-sm text-muted-foreground">
-                      {t("controlLibrary.noResults")}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-
-            <div className="flex flex-col gap-3 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-muted-foreground">{t("controlLibrary.range", { start: pageStart, end: pageEnd, total: filtered.length })}</p>
-              <div className="flex items-center gap-2">
-                <Button className="min-h-11" variant="outline" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}><ChevronLeft />{t("common.previous")}</Button>
-                <span className="min-w-20 text-center font-mono text-xs text-muted-foreground">{t("controlLibrary.page", { current: table.state.pagination.pageIndex + 1, total: Math.max(1, table.getPageCount()) })}</span>
-                <Button className="min-h-11" variant="outline" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>{t("common.next")}<ChevronRight /></Button>
-              </div>
-            </div>
-          </section>
-        </>
+      {packOptions.length ? (
+        <FilterGroup title={t("controlLibrary.filterGroups.pack")}>
+          {packOptions.map(([id, name]) => (
+            <FilterOption
+              key={id}
+              label={name}
+              count={items.filter((item) => item.packs.some((pack) => pack.id === id)).length}
+              selected={packs.has(id)}
+              onClick={() => onTogglePack(id)}
+            />
+          ))}
+        </FilterGroup>
       ) : null}
+    </div>
+  );
+}
 
-      <ControlTemplateDetail template={selected} onClose={() => setSelected(null)} />
-    </section>
+function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <details open className="group mt-5 border-t pt-4 first-of-type:mt-3 first-of-type:border-t-0 first-of-type:pt-1">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        {title}<ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="flex flex-wrap gap-2 pb-1">{children}</div>
+    </details>
+  );
+}
+
+function FilterOption({ label, count, selected, onClick }: { label: string; count: number; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex min-h-11 min-w-0 flex-none items-center gap-2 rounded-lg bg-secondary px-3 text-left text-xs text-secondary-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+        selected && "bg-primary/10 text-primary ring-1 ring-primary/25",
+      )}
+      aria-pressed={selected}
+      onClick={onClick}
+    >
+      <span className="min-w-0 max-w-52 truncate">{label}</span>
+      <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{count}</span>
+    </button>
+  );
+}
+
+function ControlCatalogCard({ item, onOpen }: { item: CatalogItem; onOpen: () => void }) {
+  const { t } = useTranslation();
+  const native = item.native;
+  const template = item.template;
+  const Icon = item.source === "custom" ? Braces : item.source === "built-in" ? ShieldCheck : ListTree;
+
+  return (
+    <article className="group flex min-h-64 min-w-0 flex-col rounded-xl border bg-card p-4 shadow-xs transition-[border-color,box-shadow] hover:border-primary/30 hover:shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg border bg-muted/40 text-primary"><Icon className="size-4" /></span>
+        <Badge variant="outline" className="max-w-[10rem] truncate">{t(`controlLibrary.sourceLabels.${item.source}`)}</Badge>
+      </div>
+
+      <div className="mt-4 min-w-0">
+        <h3 className="truncate text-sm font-semibold">{item.name}</h3>
+        <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-muted-foreground">{item.description || t("controlStudio.noDescription")}</p>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {item.rails.slice(0, 3).map((rail) => <Badge key={rail} variant="secondary" className="font-normal">{t(`controlStudio.railNames.${rail}`)}</Badge>)}
+        {item.rails.length > 3 ? <Badge variant="secondary" className="font-normal">+{item.rails.length - 3}</Badge> : null}
+        {item.implementations.slice(0, 2).map((implementation) => <Badge key={implementation} variant="outline" className="font-normal">{t(`controlLibrary.implementations.${implementation}`)}</Badge>)}
+      </div>
+
+      <div className="mt-auto pt-5">
+        {template ? (
+          <>
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="font-medium">{t("controlLibrary.rulesCount", { count: template.rules.length })}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">v{template.version}</span>
+            </div>
+            <RuleTeeth count={template.rules.length} />
+          </>
+        ) : native ? (
+          <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/35 p-3 text-xs">
+            <div><span className="block text-[10px] text-muted-foreground">{t("controlLibrary.railBindings")}</span><strong className="mt-0.5 block font-mono font-medium">{native.draft.rail_bindings.length}</strong></div>
+            <div><span className="block text-[10px] text-muted-foreground">{t("controlLibrary.revisionLabel")}</span><strong className="mt-0.5 block font-mono font-medium">r{native.draft_revision}</strong></div>
+          </div>
+        ) : null}
+
+        <div className="mt-3 flex min-h-11 items-center justify-between gap-3 border-t pt-3">
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{template?.packs[0]?.name ?? native?.owner ?? t("controlLibrary.noPack")}</span>
+          <Button size="sm" variant="ghost" onClick={onOpen}>{t("controlLibrary.details")}<ChevronRight /></Button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function CatalogSkeleton() {
+  return (
+    <div className="mt-5 grid gap-5 lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <Skeleton className="hidden h-[36rem] rounded-xl lg:block" />
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-64 rounded-xl" />)}</div>
+    </div>
+  );
+}
+
+function catalogItems(nativeControls: NativeControl[], templates: ControlTemplate[]): CatalogItem[] {
+  const nativeItems = nativeControls.map((control): CatalogItem => {
+    const rails = [...new Set(control.draft.rail_bindings.map((binding) => binding.rail_type))];
+    return {
+      key: `native:${control.id}`,
+      id: control.id,
+      source: control.source,
+      name: control.name,
+      description: control.description,
+      rails,
+      implementations: ["colang"],
+      packs: [],
+      searchText: [control.id, control.name, control.description, control.owner, ...rails, ...control.draft.action_references.map((action) => action.name)].join(" ").toLowerCase(),
+      native: control,
+    };
+  });
+  const templateItems = templates.map((template): CatalogItem => ({
+    key: `template:${template.id}`,
+    id: template.id,
+    source: "template",
+    name: template.name,
+    description: template.description,
+    rails: template.phases,
+    implementations: template.detector_types,
+    packs: template.packs.map(({ id, name }) => ({ id, name })),
+    searchText: [template.id, template.name, template.description, ...template.tags, ...template.detector_types, ...template.packs.flatMap((pack) => [pack.name, pack.domain]), ...template.rules.flatMap((rule) => [rule.id, rule.name, rule.description])].join(" ").toLowerCase(),
+    template,
+  }));
+  return [...nativeItems, ...templateItems].sort((left, right) => {
+    const sourceOrder: Record<CatalogSource, number> = { custom: 0, "built-in": 1, template: 2 };
+    return sourceOrder[left.source] - sourceOrder[right.source] || left.name.localeCompare(right.name);
+  });
+}
+
+function toggled<T>(current: Set<T>, value: T) {
+  const next = new Set(current);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+function RuleTeeth({ count }: { count: number }) {
+  const { t } = useTranslation();
+  const visible = Math.min(count, 8);
+  return (
+    <div className="mt-2 flex items-center gap-1" aria-label={t("controlLibrary.rulesCount", { count })}>
+      {Array.from({ length: visible }, (_, index) => <span key={index} className="h-2.5 flex-1 rounded-[2px] bg-primary/65" />)}
+      {count > visible ? <span className="ml-1 shrink-0 font-mono text-[10px] text-muted-foreground">+{count - visible}</span> : null}
+      {!count ? <span className="text-[11px] text-muted-foreground">0</span> : null}
+    </div>
   );
 }
 
@@ -410,10 +543,6 @@ function RuleImplementation({ rule }: { rule: ControlTemplateRule }) {
   );
 }
 
-function InventoryFact({ icon: Icon, label, value }: { icon: typeof ShieldCheck; label: string; value: number }) {
-  return <div className="flex min-h-20 items-center gap-3 border-b px-4 py-3 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><Icon className="size-4" /></span><div><p className="font-mono text-lg font-medium tabular-nums">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></div>;
-}
-
 function DetailFact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return <div className="min-w-0 border-r border-b p-3 even:border-r-0 sm:border-b-0 sm:even:border-r sm:last:border-r-0"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className={cn("mt-1.5 break-words text-sm", mono && "font-mono text-xs")}>{value || "—"}</dd></div>;
 }
@@ -431,21 +560,6 @@ function ActionBadge({ action }: { action: string }) {
   const { t } = useTranslation();
   const normalized = action.toUpperCase();
   return <Badge variant="outline" className={cn("font-normal", normalized === "MASK" && "border-amber-200 bg-amber-50 text-amber-700", normalized === "BLOCK" && "border-red-200 bg-red-50 text-red-700")}>{actionLabel(action, t)}</Badge>;
-}
-
-function SortableHeader({ label, sorted, onClick }: { label: string; sorted: false | "asc" | "desc"; onClick?: (event: unknown) => void }) {
-  return <button type="button" className="-ml-2 inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring" onClick={onClick}><span>{label}</span><ArrowUpDown className={cn("size-3.5 text-muted-foreground", sorted && "text-primary")} /></button>;
-}
-
-function columnClass(id: string) {
-  if (id === "name") return "min-w-56 pl-4";
-  if (id === "detectors") return "hidden md:table-cell";
-  if (id === "phase") return "hidden xl:table-cell";
-  if (id === "action" || id === "rules") return "hidden sm:table-cell";
-  if (id === "packs") return "hidden lg:table-cell";
-  if (id === "version") return "hidden 2xl:table-cell";
-  if (id === "open") return "w-12 pr-3";
-  return "";
 }
 
 function actionLabel(action: string, t: ReturnType<typeof useTranslation>["t"]) {

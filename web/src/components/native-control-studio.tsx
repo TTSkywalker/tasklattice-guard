@@ -157,7 +157,7 @@ export function NativeControlInventory({ source }: { source: "built-in" | "custo
   );
 }
 
-function ControlDetailSheet({ controlId, onClose, onEdit }: { controlId: string | null; onClose: () => void; onEdit: (control: NativeControl) => void }) {
+export function ControlDetailSheet({ controlId, onClose, onEdit }: { controlId: string | null; onClose: () => void; onEdit: (control: NativeControl) => void }) {
   const { t } = useTranslation();
   const query = useQuery({ queryKey: queryKeys.nativeControl(controlId ?? ""), queryFn: () => getNativeControl(controlId!), enabled: Boolean(controlId) });
   const control = query.data;
@@ -193,7 +193,7 @@ function ControlDetailSheet({ controlId, onClose, onEdit }: { controlId: string 
   );
 }
 
-function ControlStudioSheet({ control, open, onOpenChange, onSaved }: { control: NativeControl | null | undefined; open: boolean; onOpenChange: (open: boolean) => void; onSaved: (id: string) => Promise<void> }) {
+export function ControlStudioSheet({ control, open, onOpenChange, onSaved }: { control: NativeControl | null | undefined; open: boolean; onOpenChange: (open: boolean) => void; onSaved: (id: string) => Promise<void> }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const actionsQuery = useQuery({ queryKey: queryKeys.actionCatalog, queryFn: getActionCatalog, enabled: open });

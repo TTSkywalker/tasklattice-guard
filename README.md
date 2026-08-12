@@ -18,28 +18,72 @@ Rather than embedding disconnected safety rules in every application, TaskLattic
 
 ## Product Architecture
 
+TaskLattice Guard separates the governance path from the protected-traffic path.
+The control plane determines what has been reviewed and deployed; NVIDIA NeMo
+Guardrails is the single production engine that executes those decisions.
+
 ```text
- Security · Business · AI Teams
-                │
-                ▼
- ┌───────────────────────────────────────────────────┐
- │                 TaskLattice Guard                 │
- │  Define → Evaluate → Version → Deploy → Observe  │
- └─────────────────────────┬─────────────────────────┘
-                           │ reviewed, immutable policy
- AI Apps · Agents · Gateways
-              │            ▼
-              └──────▶ NeMo Guardrails Runtime
-                           │
-                 ┌─────────┼─────────┐
-                 ▼         ▼         ▼
-               Allow    Transform   Block
-                 └─────────┼─────────┘
-                           ▼
-                    Metrics & Evidence
+ GOVERNANCE PATH                                  PROTECTED-TRAFFIC PATH
+
+ Security · Business · AI Teams                   AI Apps · Agents · Gateways
+                │                                               │
+                ▼                                               │ input / output
+ ┌──────────────────────────────────────┐                        ▼
+ │       TaskLattice Control Plane      │        ┌────────────────────────────┐
+ │                                      │        │ Trusted Integration Layer  │
+ │ Define → Evaluate → Version → Deploy │        │ Authenticate · Normalize   │
+ │ Traffic Scopes · Evidence · Overview │        └──────────────┬─────────────┘
+ └──────────────┬───────────────────────┘                       │
+                │                                               ▼
+      reviewed, immutable                             Resolve Deployment
+       Guardrail Version                              + pin exact Version
+                │                                               │
+                ▼                                               ▼
+ ┌───────────────────────────────────────────────────────────────────────────┐
+ │                  Versioned NeMo Runtime Registry                         │
+ │        Prewarmed · Isolated per Version · Safe to Roll Back              │
+ └─────────────────────────────────┬─────────────────────────────────────────┘
+                                   ▼
+ ┌────────────────────── NVIDIA NeMo Guardrails ─────────────────────────────┐
+ │                                                                          │
+ │  Input Rails / Output Rails                                              │
+ │                                                                          │
+ │                NeMo-native Protections + TaskLattice Actions             │
+ │                  Local checks · Safety models · Policy services          │
+ │                                      │                                   │
+ │                                      ▼                                   │
+ │                         Parallel risk evaluation                         │
+ │                                      │                                   │
+ │                                      ▼                                   │
+ │                    Deterministic policy resolution                       │
+ │                 Deadlines · Isolation · Fail-closed                      │
+ └─────────────────────────────────┬─────────────────────────────────────────┘
+                                   ▼
+                         Allow · Transform · Block
+                                   │
+                   Privacy-conscious Metrics & Evidence
+                                   │
+                                   └──────▶ Control Plane Overview / OpenTelemetry
 ```
 
-Teams manage the protection lifecycle in one place. At runtime, TaskLattice selects the reviewed Guardrail Version for each trusted traffic scope and NeMo Guardrails executes it. The result is a consistent decision with the operational metrics and evidence needed for oversight and continuous improvement.
+The architecture is built around six principles:
+
+- **Govern separately, enforce consistently** — Teams manage intent, review,
+  release, and deployment in the control plane while NeMo handles runtime
+  enforcement.
+- **Run exactly what was reviewed** — Every request is pinned to an immutable
+  Guardrail Version, so an input and its matching output cannot drift between
+  policies.
+- **Use one production policy engine** — Native NeMo rails and TaskLattice
+  extensions execute inside the same NeMo lifecycle rather than competing
+  policy pipelines.
+- **Detect in parallel, decide deterministically** — Independent protections can
+  run concurrently, while transformations and enforcement are resolved in a
+  stable order.
+- **Fail safely under pressure** — Prewarmed, version-isolated runtimes combine
+  admission limits and deadlines with fail-closed behavior for required checks.
+- **Observe without retaining model content** — Operational metrics and evidence
+  support improvement and audit without storing request or response bodies.
 
 ## Core Product Concepts
 

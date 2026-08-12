@@ -56,7 +56,6 @@ export function AssignmentsPage() {
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("pages.assignments.eyebrow")}
         title={t("pages.assignments.title")}
         description={t("pages.assignments.description")}
         action={<Button className="min-h-11 self-start" onClick={() => setCreateOpen(true)}><Plus />{t("pages.assignments.add")}</Button>}

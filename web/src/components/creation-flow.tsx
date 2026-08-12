@@ -53,14 +53,14 @@ export function CreationFlow({
       indicators={{ completed: <Check className="size-3.5" /> }}
       className={cn(
         "min-h-full",
-        vertical ? "grid grid-cols-[15rem_minmax(0,1fr)]" : "flex flex-col",
+        vertical ? "grid grid-cols-[13.5rem_minmax(0,1fr)]" : "flex flex-col",
       )}
     >
       <StepperNav
         aria-label={progressLabel}
         className={cn(
           vertical
-            ? "sticky top-0 min-h-full w-full self-start border-r bg-muted/20 px-4 py-5"
+            ? "sticky top-0 min-h-full w-full self-start border-r bg-muted/15 px-4 py-4"
             : "w-full gap-0 overflow-x-auto border-b bg-muted/20 px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         )}
       >
@@ -71,7 +71,9 @@ export function CreationFlow({
             disabled={index > currentStep}
             className={cn(
               "relative justify-start",
-              vertical ? "min-h-[4.75rem] w-full items-start last:min-h-0" : "min-w-28 items-center",
+              vertical
+                ? "min-h-[3.75rem] w-full items-start not-last:flex-none last:min-h-11"
+                : "min-w-28 items-center",
             )}
           >
             <StepperTrigger
@@ -79,13 +81,14 @@ export function CreationFlow({
               className={cn(
                 "relative z-10 min-h-11 text-left transition-colors",
                 vertical
-                  ? "w-full items-start gap-3 rounded-lg px-2 py-2 hover:bg-background/70 data-[state=active]:bg-background data-[state=active]:shadow-xs"
+                  ? "w-full items-start gap-3 rounded-md px-1.5 py-1.5 hover:text-foreground data-[state=active]:text-primary"
                   : "w-full flex-col gap-1.5 rounded-lg px-2 py-1 text-center hover:bg-background/70",
               )}
             >
               <StepperIndicator
                 className={cn(
-                  "size-7 border-2 border-border bg-background font-mono text-[11px] text-muted-foreground",
+                  "border-2 border-border bg-background font-mono text-[10px] text-muted-foreground",
+                  vertical ? "size-5" : "size-7",
                   "data-[state=active]:border-primary data-[state=active]:bg-background data-[state=active]:text-primary",
                   "data-[state=completed]:border-primary data-[state=completed]:bg-primary data-[state=completed]:text-primary-foreground",
                 )}
@@ -97,7 +100,7 @@ export function CreationFlow({
                   {step.label}
                 </StepperTitle>
                 {vertical ? (
-                  <StepperDescription className="mt-1 text-xs leading-4 data-[state=inactive]:text-muted-foreground/65">
+                  <StepperDescription className="mt-0.5 text-[11px] leading-4 data-[state=inactive]:text-muted-foreground/65">
                     {step.description}
                   </StepperDescription>
                 ) : null}
@@ -108,7 +111,7 @@ export function CreationFlow({
                 className={cn(
                   "group-data-[state=completed]/step:bg-primary",
                   vertical
-                    ? "absolute top-9 bottom-0 left-[1.375rem] h-auto w-px -translate-x-1/2"
+                    ? "absolute top-7 -bottom-4 left-4 h-auto w-px -translate-x-1/2"
                     : "absolute top-[1.375rem] left-[calc(50%+1rem)] h-px w-[calc(100%-2rem)] -translate-y-1/2",
                 )}
               />

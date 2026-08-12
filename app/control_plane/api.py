@@ -1023,8 +1023,25 @@ class ControlPlaneAPI:
             return _collection([_decision_payload(item) for item in items])
 
         @router.get("/metrics")
-        def metrics():
-            return _metrics_payload(self._service)
+        def metrics(
+            window: Literal["24h", "7d", "30d"] = "7d",
+            guardrail_id: str | None = None,
+            environment: Literal[
+                "production", "staging", "development", "test"
+            ]
+            | None = None,
+        ):
+            try:
+                if guardrail_id:
+                    self._service.guardrail(guardrail_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _metrics_payload(
+                self._service,
+                window=window,
+                guardrail_id=guardrail_id,
+                environment=environment,
+            )
 
         @router.get("/system-status")
         def system_status():
@@ -1196,11 +1213,49 @@ def _guardrail_id_for_case(service: ControlPlaneService, case_id: str) -> str:
     raise NotFoundError("Test Case was not found.")
 
 
-def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
+def _metrics_payload(
+    service: ControlPlaneService,
+    *,
+    window: Literal["24h", "7d", "30d"] = "7d",
+    guardrail_id: str | None = None,
+    environment: Literal["production", "staging", "development", "test"]
+    | None = None,
+) -> dict[str, object]:
     now = datetime.now(UTC)
-    window_start = now - timedelta(days=7)
-    events = service.runtime_metrics(since=window_start.isoformat())
-    step_events = service.runtime_step_metrics(since=window_start.isoformat())
+    duration = {
+        "24h": timedelta(hours=24),
+        "7d": timedelta(days=7),
+        "30d": timedelta(days=30),
+    }[window]
+    window_start = now - duration
+    comparison_start = window_start - duration
+    integrations = service.integrations()
+    scoped_integration_ids = {
+        item.id for item in integrations if not environment or item.environment == environment
+    }
+
+    def in_scope(item) -> bool:
+        return (
+            (not guardrail_id or item.guardrail_id == guardrail_id)
+            and (not environment or item.integration_id in scoped_integration_ids)
+        )
+
+    all_events = tuple(
+        item
+        for item in service.runtime_metrics(since=comparison_start.isoformat())
+        if in_scope(item)
+    )
+    events = tuple(
+        item for item in all_events if item.created_at >= window_start.isoformat()
+    )
+    previous_events = tuple(
+        item for item in all_events if item.created_at < window_start.isoformat()
+    )
+    step_events = tuple(
+        item
+        for item in service.runtime_step_metrics(since=window_start.isoformat())
+        if in_scope(item)
+    )
     counts = {
         "allow": sum(item.outcome == "allow" for item in events),
         "block": sum(item.outcome == "block" for item in events),
@@ -1214,7 +1269,11 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
             risk_counts[item.risk] = risk_counts.get(item.risk, 0) + 1
 
     today = now.date()
-    days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
+    day_count = max(1, duration.days)
+    days = [
+        today - timedelta(days=offset)
+        for offset in range(day_count - 1, -1, -1)
+    ]
     trend = {
         day.isoformat(): {
             "date": day.isoformat(),
@@ -1238,7 +1297,10 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         bucket["intervened"] += int(item.outcome == "transform")
         bucket["errored"] += int(item.outcome == "error")
 
-    guardrails = service.guardrails()
+    all_guardrails = service.guardrails()
+    guardrails = tuple(
+        item for item in all_guardrails if not guardrail_id or item.id == guardrail_id
+    )
     needs_testing = 0
     for guardrail in guardrails:
         tested_current = any(
@@ -1246,9 +1308,15 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
             for item in service.versions(guardrail.id)
         )
         needs_testing += int(not tested_current)
-    assignments = service.assignments()
-    integrations = service.integrations()
-    test_runs = service.evaluations()
+    assignments = tuple(
+        item
+        for item in service.assignments()
+        if not guardrail_id or item.guardrail_id == guardrail_id
+    )
+    scoped_integrations = tuple(
+        item for item in integrations if not environment or item.environment == environment
+    )
+    test_runs = service.evaluations(guardrail_id)
     latest_test_p95 = test_runs[0].metrics.p95_latency_ms if test_runs else 0
     status = service.summary()
     latency = _runtime_latency(events)
@@ -1328,8 +1396,21 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
     version_distribution = _version_distribution(events, guardrails)
     control_distribution = _control_distribution(step_events, total)
     return {
-        "window": "7d",
+        "window": window,
         "window_start": window_start.isoformat(),
+        "scope": {
+            "guardrail_id": guardrail_id,
+            "guardrail_name": guardrails[0].name if guardrail_id and guardrails else None,
+            "environment": environment,
+        },
+        "comparison": {
+            "previous_total_decisions": len(previous_events),
+            "request_delta_pct": (
+                round((total - len(previous_events)) / len(previous_events) * 100, 1)
+                if previous_events
+                else None
+            ),
+        },
         "total_decisions": total,
         "allowed": counts["allow"],
         "blocked": counts["block"],
@@ -1402,9 +1483,9 @@ def _metrics_payload(service: ControlPlaneService) -> dict[str, object]:
         "guardrails_needing_test": needs_testing,
         "total_guardrails": len(guardrails),
         "degraded_integrations": sum(
-            item.runtime_status == "degraded" for item in integrations
+            item.runtime_status == "degraded" for item in scoped_integrations
         ),
-        "total_integrations": len(integrations),
+        "total_integrations": len(scoped_integrations),
         "risk_counts": [
             {"risk": risk, "count": count}
             for risk, count in sorted(

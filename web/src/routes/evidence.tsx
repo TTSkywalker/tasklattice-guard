@@ -22,7 +22,6 @@ export function EvidencePage() {
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("evidence.eyebrow")}
         title={t("pages.evidence.title")}
         description={t("evidence.description")}
       />

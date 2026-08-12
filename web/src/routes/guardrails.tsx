@@ -86,7 +86,6 @@ export function GuardrailsPage() {
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("guardrails.eyebrow")}
         title={t("pages.guardrails.title")}
         description={t("guardrails.description")}
         action={<Button className="min-h-11 self-start" onClick={() => setCreateOpen(true)}><Plus />{t("guardrails.create")}</Button>}
@@ -208,7 +207,6 @@ function GuardrailDetail({ guardrailId, onRefresh }: { guardrailId: string; onRe
       <GuardrailBackLink />
       <div className="mt-4">
         <PageHeader
-          eyebrow={guardrail.is_default ? t("guardrails.defaultEyebrow") : t("guardrails.definitionEyebrow")}
           title={guardrailDisplayName(guardrail, t)}
           description={guardrailDisplayPurpose(guardrail, t)}
           action={<div className="flex flex-wrap gap-2">

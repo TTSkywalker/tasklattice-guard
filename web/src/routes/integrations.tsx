@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Building2, Cable, ChevronRight, Copy, KeyRound, Plus, ShieldCheck } from "lucide-react";
+import { Cable, ChevronRight, Copy, KeyRound, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -11,49 +11,24 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { queryKeys } from "@/features/query-keys";
-import { createIntegration, getIntegrations, getSystemStatus, type Integration } from "@/lib/api";
+import { createIntegration, getIntegrations, type Integration } from "@/lib/api";
 
 export function IntegrationsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations });
-  const summary = useQuery({ queryKey: queryKeys.systemStatus, queryFn: getSystemStatus, refetchInterval: 15_000 });
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Integration | null>(null);
   const integrations = query.data?.items ?? [];
-  const healthTone = summary.isLoading ? "checking" : summary.error || summary.data?.status === "degraded" ? "degraded" : "healthy";
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("integrations.eyebrow")}
         title={t("pages.integrations.title")}
         description={t("integrations.description")}
         action={<Button className="min-h-11 self-start" onClick={() => setCreateOpen(true)}><Plus />{t("integrations.register")}</Button>}
       />
       {query.error ? <div className="mt-5"><ErrorNotice error={query.error} /></div> : null}
       {query.isLoading ? <Skeleton className="mt-5 h-60 rounded-lg" /> : null}
-
-      <section className="mt-5 overflow-hidden rounded-xl border bg-card">
-        <div className="flex flex-col gap-3 border-b bg-muted/35 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className={`size-2.5 shrink-0 rounded-full ${healthTone === "checking" ? "bg-muted-foreground/40" : healthTone === "degraded" ? "bg-amber-500" : "bg-emerald-500"}`} />
-            <div>
-              <h2 className="text-sm font-semibold">{t("integrations.systemHealth")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t(healthTone === "checking" ? "integrations.healthChecking" : healthTone === "degraded" ? "integrations.healthDegraded" : "integrations.healthHealthy")}</p>
-            </div>
-          </div>
-          <div className="flex gap-5 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5"><Building2 className="size-3.5" />{t("integrations.activeAssignments", { count: summary.data?.active_assignments ?? "—" })}</span>
-            <span className="flex items-center gap-1.5"><Activity className="size-3.5" />{t("integrations.onlineIntegrations", { online: summary.data?.online_integrations ?? "—", total: summary.data?.total_integrations ?? "—" })}</span>
-          </div>
-        </div>
-        <div className="grid gap-px bg-border sm:grid-cols-4">
-          <Capability name={t("integrations.localDetection")} ready />
-          <Capability name={t("integrations.fastSemantic")} ready={Boolean(summary.data?.capabilities.fast_semantic)} />
-          <Capability name={t("integrations.deepJudge")} ready={Boolean(summary.data?.capabilities.deep_judge)} />
-          <Capability name={t("integrations.automatedReasoning")} ready={Boolean(summary.data?.capabilities.automated_reasoning)} />
-        </div>
-      </section>
 
       {integrations.length ? (
         <>
@@ -69,8 +44,6 @@ export function IntegrationsPage() {
     </section>
   );
 }
-
-function Capability({ name, ready }: { name: string; ready: boolean }) { const { t } = useTranslation(); return <div className="flex min-h-20 items-center gap-3 bg-card p-4"><ShieldCheck className="size-4 text-primary" /><div className="min-w-0 flex-1"><p className="text-xs font-medium">{name}</p><p className="mt-1 text-xs text-muted-foreground">{t(ready ? "integrations.available" : "integrations.notConfigured")}</p></div><StateBadge state={ready ? "ready" : "unavailable"} /></div>; }
 
 function IntegrationDetail({ integration, onOpenChange }: { integration: Integration | null; onOpenChange: (open: boolean) => void }) {
   const { t, i18n } = useTranslation();

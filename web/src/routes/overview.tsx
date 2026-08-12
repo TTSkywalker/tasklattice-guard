@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Activity, ArrowRight, Clock3, Gauge, ListFilter, ShieldAlert, ShieldCheck, Workflow } from "lucide-react";
+import { Activity, ArrowRight, Clock3, Gauge, ListFilter, ShieldAlert, ShieldCheck, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +9,7 @@ import { ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell"
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryKeys } from "@/features/query-keys";
@@ -15,8 +17,16 @@ import { getDecisions, getIntegrations, getMetrics, getGuardrails, getAssignment
 
 export function OverviewPage() {
   const { t, i18n } = useTranslation();
-  const metrics = useQuery({ queryKey: queryKeys.metrics, queryFn: getMetrics, refetchInterval: 15_000 });
-  const decisions = useQuery({ queryKey: queryKeys.decisions, queryFn: () => getDecisions({ limit: 8 }), refetchInterval: 15_000 });
+  const [guardrailId, setGuardrailId] = useState("all");
+  const [environment, setEnvironment] = useState("all");
+  const [window, setWindow] = useState<"24h" | "7d" | "30d">("7d");
+  const filters = {
+    guardrailId: guardrailId === "all" ? undefined : guardrailId,
+    environment: environment === "all" ? undefined : environment,
+    window,
+  };
+  const metrics = useQuery({ queryKey: queryKeys.metricsScope(filters), queryFn: () => getMetrics(filters), refetchInterval: 15_000 });
+  const decisions = useQuery({ queryKey: [...queryKeys.decisions, filters.guardrailId ?? "all"], queryFn: () => getDecisions({ limit: 8, guardrailId: filters.guardrailId }), refetchInterval: 15_000 });
   const guardrails = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
   const assignments = useQuery({ queryKey: queryKeys.assignments, queryFn: getAssignments });
   const integrations = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations });
@@ -25,7 +35,6 @@ export function OverviewPage() {
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("overview.eyebrow")}
         title={t("overview.title")}
         description={t("overview.description")}
         action={
@@ -36,36 +45,51 @@ export function OverviewPage() {
         }
       />
 
+      <OverviewScope
+        guardrailId={guardrailId}
+        environment={environment}
+        window={window}
+        guardrails={guardrails.data?.items ?? []}
+        environments={Array.from(new Set((integrations.data?.items ?? []).map((item) => item.environment))).sort()}
+        onGuardrailChange={setGuardrailId}
+        onEnvironmentChange={setEnvironment}
+        onWindowChange={(value) => setWindow(value as typeof window)}
+      />
+
       {error ? <div className="mt-6"><ErrorNotice error={error} /></div> : null}
       {metrics.isLoading ? <OverviewSkeleton /> : null}
       {metrics.data ? (
         <>
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={t("overview.peakConcurrency", { count: metrics.data.peak_active_concurrency })} />
-            <Kpi icon={ShieldAlert} label={t("overview.blockRate")} value={`${metrics.data.block_rate}%`} detail={t("overview.blockedCount", { count: metrics.data.blocked })} tone={metrics.data.block_rate > 10 ? "warning" : "default"} />
-            <Kpi icon={Workflow} label={t("overview.activeAssignments")} value={`${metrics.data.active_assignments}/${metrics.data.total_assignments}`} detail={t("overview.protectedScope")} />
+            <Kpi icon={Activity} label={t("overview.evaluatedRequests")} value={metrics.data.total_decisions.toLocaleString(i18n.language)} detail={requestComparison(metrics.data, t)} />
+            <Kpi icon={ShieldAlert} label={t("overview.interventionRate")} value={`${roundRate(metrics.data)}%`} detail={t("overview.outcomeBreakdown", { allowed: metrics.data.allowed, transformed: metrics.data.intervened, blocked: metrics.data.blocked, errors: metrics.data.errors })} tone={metrics.data.blocked + metrics.data.intervened > 0 ? "warning" : "default"} />
             <Kpi icon={Clock3} label={t("overview.runtimeP95")} value={metrics.data.total_decisions ? `${metrics.data.runtime_p95_ms} ms` : "—"} detail={metrics.data.total_decisions ? t("overview.runtimeSlo", { budget: metrics.data.latency_slo.p95_budget_ms, p99: metrics.data.runtime_p99_ms, breaches: metrics.data.slo_breach_count }) : t("overview.runtimeLatencyEmpty")} tone={metrics.data.latency_slo.p95_status === "breached" ? "warning" : "default"} />
+            <Kpi icon={TriangleAlert} label={t("overview.runtimeFailures")} value={(metrics.data.errors + metrics.data.timeout_count + metrics.data.fail_closed_count).toLocaleString(i18n.language)} detail={t("overview.failureBreakdown", { errors: metrics.data.errors, timeouts: metrics.data.timeout_count, failClosed: metrics.data.fail_closed_count })} tone={metrics.data.errors + metrics.data.timeout_count + metrics.data.fail_closed_count ? "warning" : "default"} />
           </div>
 
-          <GuardrailDistribution metrics={metrics.data} />
+          {guardrailId === "all" ? <GuardrailDistribution metrics={metrics.data} /> : null}
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-2">
-            <RuntimeComponents
-              title={t("overview.railPerformance")}
-              description={t("overview.railPerformanceDescription")}
-              items={metrics.data.rail_metrics}
-            />
-            <RuntimeComponents
-              title={t("overview.actionPerformance")}
-              description={t("overview.actionPerformanceDescription")}
-              items={metrics.data.action_metrics}
-            />
-          </div>
+          {guardrailId !== "all" ? <>
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              <RuntimeComponents
+                title={t("overview.railPerformance")}
+                description={t("overview.railPerformanceDescription")}
+                items={metrics.data.rail_metrics}
+                window={metrics.data.window}
+              />
+              <RuntimeComponents
+                title={t("overview.actionPerformance")}
+                description={t("overview.actionPerformanceDescription")}
+                items={metrics.data.action_metrics}
+                window={metrics.data.window}
+              />
+            </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-2">
-            <ControlDistribution metrics={metrics.data} />
-            <VersionDistribution metrics={metrics.data} />
-          </div>
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              <ControlDistribution metrics={metrics.data} />
+              <VersionDistribution metrics={metrics.data} />
+            </div>
+          </> : null}
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
             <TrafficTrend metrics={metrics.data} />
@@ -95,6 +119,39 @@ export function OverviewPage() {
   );
 }
 
+function OverviewScope({ guardrailId, environment, window, guardrails, environments, onGuardrailChange, onEnvironmentChange, onWindowChange }: {
+  guardrailId: string;
+  environment: string;
+  window: "24h" | "7d" | "30d";
+  guardrails: Array<{ id: string; name: string }>;
+  environments: string[];
+  onGuardrailChange: (value: string) => void;
+  onEnvironmentChange: (value: string) => void;
+  onWindowChange: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <section className="mt-6 flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs lg:flex-row lg:items-end" aria-label={t("overview.scopeTitle")}>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><SlidersHorizontal className="size-4" /></span>
+        <div><h2 className="text-sm font-semibold">{t("overview.scopeTitle")}</h2><p className="mt-0.5 text-xs text-muted-foreground">{t(guardrailId === "all" ? "overview.globalScopeDescription" : "overview.guardrailScopeDescription")}</p></div>
+      </div>
+      <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+        {t("overview.guardrailScope")}
+        <Select value={guardrailId} onValueChange={onGuardrailChange}><SelectTrigger className="min-h-11 w-full bg-card sm:w-64"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("overview.allGuardrails")}</SelectItem>{guardrails.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
+      </label>
+      <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+        {t("overview.environmentScope")}
+        <Select value={environment} onValueChange={onEnvironmentChange}><SelectTrigger className="min-h-11 w-full bg-card sm:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("overview.allEnvironments")}</SelectItem>{environments.map((item) => <SelectItem key={item} value={item}>{item[0]?.toUpperCase()}{item.slice(1)}</SelectItem>)}</SelectContent></Select>
+      </label>
+      <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+        {t("overview.timeWindow")}
+        <Select value={window} onValueChange={onWindowChange}><SelectTrigger className="min-h-11 w-full bg-card sm:w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="24h">{t("overview.last24Hours")}</SelectItem><SelectItem value="7d">{t("overview.last7Days")}</SelectItem><SelectItem value="30d">{t("overview.last30Days")}</SelectItem></SelectContent></Select>
+      </label>
+    </section>
+  );
+}
+
 function Kpi({ icon: Icon, label, value, detail, tone = "default" }: { icon: typeof Gauge; label: string; value: string; detail: string; tone?: "default" | "warning" }) {
   return (
     <Card className="gap-3 py-4">
@@ -114,7 +171,7 @@ function GuardrailDistribution({ metrics }: { metrics: Metrics }) {
       <CardHeader>
         <CardTitle>{t("overview.guardrailDistribution")}</CardTitle>
         <CardDescription>{t("overview.guardrailDistributionDescription")}</CardDescription>
-        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+        <CardAction><span className="text-xs text-muted-foreground">{windowLabel(metrics.window, t)}</span></CardAction>
       </CardHeader>
       <CardContent className="px-0">
         <div className="hidden overflow-x-auto md:block">
@@ -246,14 +303,14 @@ function LatencyDistribution({ item }: { item: GuardrailMetric }) {
   );
 }
 
-function RuntimeComponents({ title, description, items }: { title: string; description: string; items: RuntimeComponentMetric[] }) {
+function RuntimeComponents({ title, description, items, window }: { title: string; description: string; items: RuntimeComponentMetric[]; window: Metrics["window"] }) {
   const { t, i18n } = useTranslation();
   return (
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
-        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+        <CardAction><span className="text-xs text-muted-foreground">{windowLabel(window, t)}</span></CardAction>
       </CardHeader>
       <CardContent className="px-0">
         {items.length ? (
@@ -299,7 +356,7 @@ function ControlDistribution({ metrics }: { metrics: Metrics }) {
       <CardHeader>
         <CardTitle>{t("overview.controlDistribution")}</CardTitle>
         <CardDescription>{t("overview.controlDistributionDescription")}</CardDescription>
-        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+        <CardAction><span className="text-xs text-muted-foreground">{windowLabel(metrics.window, t)}</span></CardAction>
       </CardHeader>
       <CardContent className="px-0">
         {metrics.control_distribution.length ? (
@@ -348,7 +405,7 @@ function VersionDistribution({ metrics }: { metrics: Metrics }) {
       <CardHeader>
         <CardTitle>{t("overview.versionDistribution")}</CardTitle>
         <CardDescription>{t("overview.versionDistributionDescription")}</CardDescription>
-        <CardAction><span className="text-xs text-muted-foreground">{t("overview.sevenDayWindow")}</span></CardAction>
+        <CardAction><span className="text-xs text-muted-foreground">{windowLabel(metrics.window, t)}</span></CardAction>
       </CardHeader>
       <CardContent className="px-0">
         {metrics.version_distribution.length ? (
@@ -388,7 +445,7 @@ function TrafficTrend({ metrics }: { metrics: Metrics }) {
     <Card>
       <CardHeader>
         <CardTitle>{t("overview.trafficTrend")}</CardTitle>
-        <CardDescription>{t("overview.trafficTrendDescription")}</CardDescription>
+        <CardDescription>{t("overview.trafficTrendDescriptionWindow", { window: windowLabel(metrics.window, t) })}</CardDescription>
         <CardAction><StateBadge state={metrics.system_status} /></CardAction>
       </CardHeader>
       <CardContent className="h-64 pl-0 sm:h-72">
@@ -458,6 +515,20 @@ function RecentEvidence({ items }: { items: DecisionEvent[] }) {
 }
 
 function OverviewSkeleton() { return <div className="mt-6 space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-32 rounded-xl" />)}</div><div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]"><Skeleton className="h-96 rounded-xl" /><Skeleton className="h-96 rounded-xl" /></div></div>; }
+
+function requestComparison(metrics: Metrics, t: ReturnType<typeof useTranslation>["t"]) {
+  const delta = metrics.comparison.request_delta_pct;
+  if (delta === null) return t("overview.noPreviousTraffic");
+  return t(delta >= 0 ? "overview.requestIncrease" : "overview.requestDecrease", { value: Math.abs(delta) });
+}
+
+function roundRate(metrics: Metrics) {
+  return metrics.total_decisions ? Math.round((metrics.blocked + metrics.intervened) / metrics.total_decisions * 1_000) / 10 : 0;
+}
+
+function windowLabel(window: Metrics["window"], t: ReturnType<typeof useTranslation>["t"]) {
+  return t(window === "24h" ? "overview.last24Hours" : window === "30d" ? "overview.last30Days" : "overview.last7Days");
+}
 
 function riskLabel(risk: string, t: ReturnType<typeof useTranslation>["t"]) {
   const key = ({ topic_control: "guardrails.riskTopic", pii: "guardrails.riskPii", secrets: "guardrails.riskSecrets", prompt_injection: "guardrails.riskInjection", jailbreak: "guardrails.riskJailbreak", content_safety: "guardrails.riskUnsafe", company_policy: "guardrails.riskCompany", builtin_content_filter: "guardrails.riskBuiltin" } as Record<string, string>)[risk];

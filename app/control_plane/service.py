@@ -1792,19 +1792,21 @@ class ControlPlaneService:
         integrations = self.integrations()
         active = [item for item in self._assignments if item.enabled]
         degraded = any(item.runtime_status == "degraded" for item in integrations)
+        configured_capabilities = {
+            "deterministic": True,
+            "fast_semantic": self._fast_semantic_configured,
+            "deep_judge": self._deep_judge_configured,
+            "automated_reasoning": self._automated_reasoning_configured,
+        }
         return {
             "status": "degraded" if degraded else "healthy",
+            "status_reason": "integration_degraded" if degraded else "runtime_ready",
             "active_assignments": len(active),
             "online_integrations": len(
                 [item for item in integrations if item.runtime_status in {"healthy", "waiting"}]
             ),
             "total_integrations": len(integrations),
-            "capabilities": {
-                "deterministic": True,
-                "fast_semantic": self._fast_semantic_configured,
-                "deep_judge": self._deep_judge_configured,
-                "automated_reasoning": self._automated_reasoning_configured,
-            },
+            "capabilities": configured_capabilities,
             "latency_budget": {
                 "p95_ms": self._runtime_p95_budget_ms,
                 "p99_ms": self._runtime_p99_budget_ms,

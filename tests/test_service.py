@@ -783,6 +783,22 @@ async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_p
             assert response.status_code == 200
         await login_default_admin(client)
         metrics = (await client.get("/api/v1/metrics")).json()
+        scoped_metrics = (
+            await client.get(
+                "/api/v1/metrics",
+                params={
+                    "window": "24h",
+                    "guardrail_id": guardrail.id,
+                    "environment": "test",
+                },
+            )
+        ).json()
+        empty_environment = (
+            await client.get(
+                "/api/v1/metrics",
+                params={"guardrail_id": guardrail.id, "environment": "production"},
+            )
+        ).json()
 
     observed = next(
         item
@@ -796,6 +812,15 @@ async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_p
     assert metrics["allowed"] == 1
     assert metrics["blocked"] == 1
     assert metrics["runtime_p95_ms"] >= 0
+    assert scoped_metrics["window"] == "24h"
+    assert scoped_metrics["scope"] == {
+        "guardrail_id": guardrail.id,
+        "guardrail_name": "Observed Guardrail",
+        "environment": "test",
+    }
+    assert scoped_metrics["total_decisions"] == 2
+    assert scoped_metrics["comparison"]["previous_total_decisions"] == 0
+    assert empty_environment["total_decisions"] == 0
     assert observed["name"] == "Observed Guardrail"
     assert observed["total"] == 2
     assert observed["share"] == 100

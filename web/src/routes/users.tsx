@@ -38,7 +38,6 @@ export function UsersPage() {
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        eyebrow={t("users.eyebrow")}
         title={t("users.title")}
         description={t("users.description")}
         action={<Button size="lg" className="self-start" onClick={() => setCreateOpen(true)}><Plus />{t("users.add")}</Button>}
