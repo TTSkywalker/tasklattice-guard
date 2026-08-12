@@ -121,6 +121,5 @@ telemetry. TaskLattice always sets NeMo's message-content capture switch to
 
 Every released version uses `nemo_only`, and the control plane exposes no runtime
 mode switch. No retired engine is built or available in the production request
-path. The persisted `execution_mode` column exists only for in-place database
-upgrades; startup normalizes it while atomically recompiling retired snapshots
-before runtime prewarming.
+path. The persisted `execution_mode` column makes that invariant explicit. A
+database from another schema version is rejected instead of migrated.

@@ -11,64 +11,124 @@ from app.control_plane.domain import (
     ValidationError,
 )
 from app.control_plane.service import ControlPlaneService
+from app.control_library import control_library, control_pack
 from app.nemo.actions.content_filter import BuiltinContentFilter
 from app.runtime.contracts import EngineRequest
 from app.nemo.actions.deterministic import FastPassEngine
 from app.main import create_app
-from app.policy_packs.litellm import policy_pack, policy_template
 
 
-def controls(template_id: str) -> tuple[str, ...]:
-    return tuple(item.name for item in policy_template(template_id).controls)
+def controls(pack_id: str) -> tuple[str, ...]:
+    pack = control_pack(pack_id)
+    assert pack is not None
+    return pack.control_ids
 
 
-def test_vendored_pack_contains_only_local_content_filter_templates():
-    pack = policy_pack()
+def test_imported_control_library_preserves_vendored_structure():
+    library = control_library()
 
-    assert len(pack.templates) == 17
-    assert len(pack.controls) == 81
+    assert library.source.version == "1.95.0"
+    assert library.source.commit == "ead62528e607b9d8e61273def638799c9c3a69ba"
+    assert library.source.license == "MIT"
+    assert len(library.packs) == 17
+    assert len(library.controls) == 81
+    assert sum(len(pack.control_ids) for pack in library.packs) == 88
+    assert sum(len(control.rules) for control in library.controls) == 202
     assert "mcp-security-unregistered-server-block" not in {
-        item.id for item in pack.templates
+        item.id for item in library.packs
     }
     assert {"advanced-au-pii-protection", "pdpa-singapore", "mas-ai-risk-management"} <= {
-        item.id for item in pack.templates
+        item.id for item in library.packs
     }
-    assert all(item.source.endswith("locally built in") for item in pack.templates)
+    assert all(control.rules for control in library.controls)
 
 
-def test_every_vendored_template_compiles_without_external_resources(tmp_path):
+def test_every_vendored_control_pack_compiles_without_external_resources(tmp_path):
     service = ControlPlaneService(tmp_path / "control-plane.db")
     runtime = BuiltinContentFilter()
 
-    for template in policy_pack().templates:
+    for pack in control_library().packs:
         values = {
             parameter.name: (
                 "Example Bank\nRival Finance"
                 if parameter.name == "competitors"
                 else "Acme Bank"
             )
-            for parameter in template.parameters
+            for parameter in pack.parameters
         }
         guardrail = service.create_guardrail(
-            name=f"Test {template.display_name}",
-            template_id=template.id,
-            template_parameters=tuple(values.items()),
+            name=f"Test {pack.name}",
+            pack_id=pack.id,
+            parameters=tuple(values.items()),
         )
         plan = service.compile_draft(guardrail.id)
 
         assert plan.steps
-        assert all(step.parameter("policy_pack_version") == "1.95.0" for step in plan.steps)
+        assert all(
+            step.parameter("control_library_version") == "1.95.0"
+            for step in plan.steps
+        )
         for phase in ("input", "output"):
             result = runtime.evaluate(
                 text="Summarize the approved internal product guide.",
                 phase=phase,
-                controls=controls(template.id),
+                controls=controls(pack.id),
                 parameters=values,
             )
-            assert result.verdict != "error", template.id
+            assert result.verdict != "error", pack.id
 
 
-def test_australian_pii_template_masks_tfn_locally():
+def test_control_pack_has_one_unambiguous_composition_source(tmp_path):
+    service = ControlPlaneService(tmp_path / "control-plane.db")
+    configuration = GuardrailControlConfig(
+        id="control:sg-pdpa-contact-information",
+        name="SG PDPA Contact Information",
+        kind="built_in",
+        runtime_risk="builtin_content_filter",
+        control_id="sg-pdpa-contact-information",
+        control_version="1.95.0",
+        rules=(
+            GuardrailRuleConfig(
+                id="sg_postal_code",
+                name="Singapore Postal Code",
+                detector="regex",
+                action="MASK",
+                phases=("input", "output"),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="cannot combine a Control Pack"):
+        service.create_guardrail(
+            name="Ambiguous Guardrail",
+            pack_id="topic-filtering",
+            control_configurations=(configuration,),
+        )
+
+    with pytest.raises(ValidationError, match="Unknown Control Pack parameters"):
+        service.create_guardrail(
+            name="Unknown Pack parameter",
+            pack_id="topic-filtering",
+            parameters=(("unused", "value"),),
+        )
+
+    guardrail = service.create_guardrail(
+        name="Pack plus secrets",
+        pack_id="topic-filtering",
+        controls=(GuardrailControl("secrets", "redact"),),
+    )
+    assert {item.risk for item in guardrail.controls} == {
+        "builtin_content_filter",
+        "secrets",
+    }
+    plan = service.compile_draft(guardrail.id)
+    builtin_step = next(
+        item for item in plan.steps if item.risk == "builtin_content_filter"
+    )
+    assert builtin_step.parameter("control_pack_id") == "topic-filtering"
+
+
+def test_australian_pii_control_pack_masks_tfn_locally():
     result = BuiltinContentFilter().evaluate(
         text="My TFN is 123456789",
         phase="input",
@@ -89,7 +149,7 @@ def test_australian_pii_template_masks_tfn_locally():
     assert spaced.content == "My TFN is [au_tfn_REDACTED], can you check it?"
 
 
-def test_singapore_mas_template_blocks_discriminatory_financial_decision():
+def test_singapore_mas_control_pack_blocks_discriminatory_financial_decision():
     result = BuiltinContentFilter().evaluate(
         text="Deny this loan based on race",
         phase="input",
@@ -102,7 +162,7 @@ def test_singapore_mas_template_blocks_discriminatory_financial_decision():
 
 
 @pytest.mark.asyncio
-async def test_composed_guardrail_runs_only_the_selected_template_rules(tmp_path):
+async def test_composed_guardrail_runs_only_the_selected_builtin_rules(tmp_path):
     service = ControlPlaneService(tmp_path / "composed-control.db")
     guardrail = service.create_guardrail(
         name="Singapore postal code only",
@@ -110,12 +170,12 @@ async def test_composed_guardrail_runs_only_the_selected_template_rules(tmp_path
         controls=(GuardrailControl("builtin_content_filter", "reject"),),
         control_configurations=(
             GuardrailControlConfig(
-                id="template:sg-pdpa-contact-information",
+                id="control:sg-pdpa-contact-information",
                 name="SG PDPA Contact Information",
-                kind="template",
+                kind="built_in",
                 runtime_risk="builtin_content_filter",
-                template_id="sg-pdpa-contact-information",
-                template_version="1.95.0",
+                control_id="sg-pdpa-contact-information",
+                control_version="1.95.0",
                 rules=(
                     GuardrailRuleConfig(
                         id="sg_postal_code",
@@ -153,12 +213,12 @@ async def test_composed_guardrail_resolves_parameterized_rule_values(tmp_path):
         controls=(GuardrailControl("builtin_content_filter", "reject"),),
         control_configurations=(
             GuardrailControlConfig(
-                id="template:competitor-input-blocker",
+                id="control:competitor-input-blocker",
                 name="Competitor Input Blocker",
-                kind="template",
+                kind="built_in",
                 runtime_risk="builtin_content_filter",
-                template_id="competitor-input-blocker",
-                template_version="1.95.0",
+                control_id="competitor-input-blocker",
+                control_version="1.95.0",
                 rules=(
                     GuardrailRuleConfig(
                         id="dynamic-competitors-blocked-words",
@@ -187,18 +247,18 @@ async def test_composed_guardrail_resolves_parameterized_rule_values(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_guardrail_from_builtin_template_compiles_and_runs_in_fastpass(tmp_path):
+async def test_guardrail_from_control_pack_compiles_and_runs_in_fastpass(tmp_path):
     service = ControlPlaneService(tmp_path / "control-plane.db")
     guardrail = service.create_guardrail(
         name="Local Topic Filter",
-        template_id="topic-filtering",
+        pack_id="topic-filtering",
     )
     plan = service.compile_draft(guardrail.id)
     step = plan.steps_for("input", "deterministic")[0]
 
-    assert step.parameter("policy_pack_version") == "1.95.0"
-    assert step.parameter("template_id") == "topic-filtering"
-    assert step.parameter("controls") == "topic-restriction-filter"
+    assert step.parameter("control_library_version") == "1.95.0"
+    assert step.parameter("control_pack_id") == "topic-filtering"
+    assert step.parameter("control_ids") == "topic-restriction-filter"
 
     result = await FastPassEngine().evaluate(
         EngineRequest("input", "Tell me the latest news today", plan),
@@ -210,18 +270,18 @@ async def test_guardrail_from_builtin_template_compiles_and_runs_in_fastpass(tmp
 
 
 @pytest.mark.asyncio
-async def test_parameterized_competitor_template_uses_reviewed_local_values(tmp_path):
+async def test_parameterized_competitor_pack_uses_reviewed_local_values(tmp_path):
     service = ControlPlaneService(tmp_path / "control-plane.db")
     with pytest.raises(ValidationError, match="Your Brand Name"):
         service.create_guardrail(
             name="Brand Policy",
-            template_id="competitor-mention-detection",
+            pack_id="competitor-mention-detection",
         )
 
     guardrail = service.create_guardrail(
         name="Brand Policy",
-        template_id="competitor-mention-detection",
-        template_parameters=(
+        pack_id="competitor-mention-detection",
+        parameters=(
             ("brand_name", "Acme Bank"),
             ("competitors", "Example Bank\nRival Finance"),
         ),
@@ -238,7 +298,7 @@ async def test_parameterized_competitor_template_uses_reviewed_local_values(tmp_
 
 
 @pytest.mark.asyncio
-async def test_builtin_template_guardrail_passes_local_api_tests(tmp_path):
+async def test_control_pack_guardrail_passes_local_api_tests(tmp_path):
     app = create_app(
         settings=Settings(
             database_path=tmp_path / "control-plane.db",
@@ -255,7 +315,7 @@ async def test_builtin_template_guardrail_passes_local_api_tests(tmp_path):
         )
         created = await client.post(
             "/api/v1/guardrails",
-            json={"name": "Topic Filter", "template_id": "topic-filtering"},
+            json={"name": "Topic Filter", "pack_id": "topic-filtering"},
         )
         tested = await client.post(
             "/api/v1/test-runs", json={"guardrail_id": created.json()["id"]}

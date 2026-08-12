@@ -146,87 +146,6 @@ class ControlDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class TemplateControl:
-    risk: str
-    action: EnforcementAction
-
-
-@dataclass(frozen=True, slots=True)
-class TemplateParameterDefinition:
-    name: str
-    label: str
-    kind: str
-    required: bool
-    placeholder: str
-    description: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class GuardrailTemplate:
-    id: str
-    name: str
-    description: str
-    purpose: str
-    allowed_topics: tuple[str, ...]
-    restricted_topics: tuple[str, ...]
-    default_controls: tuple[TemplateControl, ...]
-    safety_level: SafetyLevel
-    output_delivery: OutputDeliveryMode
-    source: str = "TaskLattice"
-    version: str = "builtin"
-    domain: str = "Enterprise Safety"
-    collections: tuple[str, ...] = ()
-    tags: tuple[str, ...] = ()
-    limitations: tuple[str, ...] = ()
-    controls: tuple[str, ...] = ()
-    parameters: tuple[TemplateParameterDefinition, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ControlTemplatePackReference:
-    id: str
-    name: str
-    domain: str
-
-
-@dataclass(frozen=True, slots=True)
-class ControlTemplateRule:
-    id: str
-    name: str
-    detector: Literal["regex", "keyword", "category"]
-    action: str
-    description: str = ""
-    expression: str | None = None
-    context_expression: str | None = None
-    redaction: str | None = None
-    severity_threshold: str | None = None
-    identifiers: tuple[str, ...] = ()
-    conditions: tuple[str, ...] = ()
-    keywords: tuple[str, ...] = ()
-    always_block: tuple[str, ...] = ()
-    exceptions: tuple[str, ...] = ()
-    phrase_patterns: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ControlTemplate:
-    id: str
-    name: str
-    description: str
-    source: str
-    version: str
-    status: Literal["built_in", "registered"]
-    phases: tuple[GuardrailPhase, ...]
-    default_action: str
-    allowed_actions: tuple[str, ...]
-    detector_types: tuple[Literal["regex", "keyword", "category"], ...]
-    rules: tuple[ControlTemplateRule, ...]
-    packs: tuple[ControlTemplatePackReference, ...]
-    tags: tuple[str, ...] = ()
-    limitations: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class GuardrailControl:
     risk: str
     action: EnforcementAction
@@ -250,14 +169,14 @@ class GuardrailRuleConfig:
 
 @dataclass(frozen=True, slots=True)
 class GuardrailControlConfig:
-    """A version-pinned Control Template or custom Control in a Guardrail."""
+    """A version-pinned built-in Control or custom Control in a Guardrail."""
 
     id: str
     name: str
-    kind: Literal["template", "custom"]
+    kind: Literal["built_in", "custom"]
     runtime_risk: str
-    template_id: str | None
-    template_version: str | None
+    control_id: str | None
+    control_version: str | None
     rules: tuple[GuardrailRuleConfig, ...]
 
 
@@ -280,8 +199,8 @@ class Guardrail:
     controls: tuple[GuardrailControl, ...]
     safety_level: SafetyLevel
     output_delivery: OutputDeliveryMode
-    source_template_id: str | None
-    template_parameters: tuple[tuple[str, str], ...]
+    source_pack_id: str | None
+    parameters: tuple[tuple[str, str], ...]
     draft_version: int
     active_version: int | None
     updated_at: str
@@ -333,7 +252,6 @@ class Integration:
     protocol: str
     name: str
     description: str
-    environment: str
     enabled: bool
     credential_prefix: str
     verification_status: str

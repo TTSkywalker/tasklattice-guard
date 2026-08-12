@@ -13,12 +13,12 @@ from ..runtime.contracts import (
     ControlVersionSnapshot,
     GuardrailControlBindingSnapshot,
 )
-from ..policy_packs.litellm import LITELLM_POLICY_PACK_VERSION, policy_template
-from .catalog import control
+from ..control_library import control_library, control_pack
+from .catalog import control as runtime_control
 from .domain import PlanCompilationError, Guardrail
 
 
-COMPILER_VERSION = "guardrail-plan-v3"
+COMPILER_VERSION = "guardrail-plan-v4"
 
 _MODULE_TIMEOUT_MS: dict[ControlModule, int] = {
     "data_protection": 750,
@@ -46,7 +46,7 @@ class GuardrailCompiler:
 
         steps: list[GuardrailPlanStep] = []
         for configured in guardrail.controls:
-            definition = control(configured.risk)
+            definition = runtime_control(configured.risk)
             stages = definition.available_stages
             phases = self._phases(guardrail, configured.risk, definition.default_phases)
             parameters = self._guardrail_parameters(guardrail, configured.risk)
@@ -139,7 +139,7 @@ class GuardrailCompiler:
                     step.id
                     for step in steps
                     if phase in step.phases
-                    and control(step.risk).module == module
+                    and runtime_control(step.risk).module == module
                     and step.risk not in {"contextual_grounding", "automated_reasoning"}
                 )
                 if not step_ids:
@@ -259,26 +259,29 @@ class GuardrailCompiler:
     @staticmethod
     def _guardrail_parameters(guardrail: Guardrail, risk: str) -> tuple[tuple[str, str], ...]:
         if risk == "builtin_content_filter":
+            library = control_library()
             composed = tuple(
                 item
                 for item in guardrail.control_configurations
                 if item.runtime_risk == "builtin_content_filter"
             )
             if composed:
-                template_controls = tuple(
-                    item for item in composed if item.kind == "template" and item.template_id
+                built_in_controls = tuple(
+                    item
+                    for item in composed
+                    if item.kind == "built_in" and item.control_id
                 )
                 enabled_rules = {
-                    item.template_id: [
+                    item.control_id: [
                         rule.id
                         for rule in item.rules
                         if rule.enabled and not rule.id.startswith("dynamic-")
                     ]
-                    for item in template_controls
+                    for item in built_in_controls
                 }
                 rule_actions = {
-                    f"{item.template_id}:{rule.id}": rule.action
-                    for item in template_controls
+                    f"{item.control_id}:{rule.id}": rule.action
+                    for item in built_in_controls
                     for rule in item.rules
                     if rule.enabled
                 }
@@ -293,18 +296,18 @@ class GuardrailCompiler:
                         "keywords": list(rule.keywords),
                     }
                     for item in composed
-                    if item.kind == "custom" or item.kind == "template"
                     for rule in item.rules
                     if rule.enabled
                     and rule.detector in {"regex", "keyword"}
                     and (item.kind == "custom" or rule.id.startswith("dynamic-"))
                 ]
                 return (
-                    ("policy_pack_version", LITELLM_POLICY_PACK_VERSION),
-                    ("template_id", "composed-control-library"),
+                    ("control_library_version", library.source.version),
                     (
-                        "controls",
-                        "\n".join(item.template_id or "" for item in template_controls),
+                        "control_ids",
+                        "\n".join(
+                            item.control_id or "" for item in built_in_controls
+                        ),
                     ),
                     (
                         "enabled_rules_json",
@@ -319,31 +322,30 @@ class GuardrailCompiler:
                         json.dumps(custom_rules, sort_keys=True, separators=(",", ":")),
                     ),
                     *tuple(
-                        (f"template_parameter.{key}", value)
-                        for key, value in guardrail.template_parameters
+                        (f"parameter.{key}", value)
+                        for key, value in guardrail.parameters
                     ),
                 )
-            if not guardrail.source_template_id:
+            if not guardrail.source_pack_id:
                 raise PlanCompilationError(
-                    "A built-in content-filter Control requires a source template."
+                    "A built-in content-filter Control requires a source Control Pack."
                 )
-            try:
-                template = policy_template(guardrail.source_template_id)
-            except StopIteration as error:
+            pack = control_pack(guardrail.source_pack_id)
+            if pack is None:
                 raise PlanCompilationError(
-                    f"Unknown built-in template {guardrail.source_template_id!r}."
-                ) from error
+                    f"Unknown Control Pack {guardrail.source_pack_id!r}."
+                )
             return (
-                ("policy_pack_version", LITELLM_POLICY_PACK_VERSION),
-                ("template_id", template.id),
-                ("controls", "\n".join(item.name for item in template.controls)),
+                ("control_library_version", library.source.version),
+                ("control_pack_id", pack.id),
+                ("control_ids", "\n".join(pack.control_ids)),
                 *tuple(
-                    (f"template_parameter.{key}", value)
-                    for key, value in guardrail.template_parameters
+                    (f"parameter.{key}", value)
+                    for key, value in guardrail.parameters
                 ),
             )
         if risk == "contextual_grounding":
-            configured = dict(guardrail.template_parameters)
+            configured = dict(guardrail.parameters)
             thresholds = (
                 ("grounding_threshold", configured.get("grounding_threshold", "0.7")),
                 ("relevance_threshold", configured.get("relevance_threshold", "0.7")),
@@ -432,13 +434,18 @@ class GuardrailCompiler:
             return tuple(
                 phase for phase in ("input", "output") if phase in configured_phases
             )
-        if risk != "builtin_content_filter" or not guardrail.source_template_id:
+        if risk != "builtin_content_filter" or not guardrail.source_pack_id:
             return defaults
-        try:
-            template = policy_template(guardrail.source_template_id)
-        except StopIteration as error:
+        pack = control_pack(guardrail.source_pack_id)
+        if pack is None:
             raise PlanCompilationError(
-                f"Unknown built-in template {guardrail.source_template_id!r}."
-            ) from error
-        phases = {phase for control in template.controls for phase in control.phases}
+                f"Unknown Control Pack {guardrail.source_pack_id!r}."
+            )
+        library = control_library()
+        controls = {item.id: item for item in library.controls}
+        phases = {
+            phase
+            for control_id in pack.control_ids
+            for phase in controls[control_id].phases
+        }
         return tuple(phase for phase in ("input", "output") if phase in phases)

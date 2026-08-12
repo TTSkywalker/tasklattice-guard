@@ -12,6 +12,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..adapters.observability import record_runtime_decision
 from ..runtime.content_views import content_view
 from ..nemo.actions.automated_reasoning import aggregate_reasoning_result
 from ..runtime.contracts import (
@@ -20,7 +21,9 @@ from ..runtime.contracts import (
     GuardContentBlock,
     NeMoPolicyRuntime,
 )
-from ..policy_packs.litellm import control_definition, policy_template
+from ..control_library.catalog import control_catalog, control_pack_catalog
+from ..control_library.registry import control as library_control
+from ..control_library.registry import control_pack
 from .catalog import control
 from .defaults import is_default_guardrail, is_default_assignment
 from .domain import (
@@ -47,7 +50,8 @@ from .domain import (
 from .filtering import traffic_scope_field_payloads
 from .service import ControlPlaneService
 from .intent_analyzer import IntentAnalysisError, IntentAnalyzer
-from .playground import playground_probe_payload
+from .chat_model import PlaygroundChatError, PlaygroundChatModel
+from .playground import playground_check_payload
 
 
 MetricWindow = Literal["1h", "24h", "7d", "15d", "30d"]
@@ -88,10 +92,10 @@ class GuardrailControlConfigInput(BaseModel):
 
     id: str = Field(min_length=1, max_length=256)
     name: str = Field(min_length=1, max_length=256)
-    kind: Literal["template", "custom"]
+    kind: Literal["built_in", "custom"]
     runtime_risk: str = Field(min_length=1, max_length=128)
-    template_id: str | None = Field(default=None, max_length=256)
-    template_version: str | None = Field(default=None, max_length=128)
+    control_id: str | None = Field(default=None, max_length=256)
+    control_version: str | None = Field(default=None, max_length=128)
     rules: list[GuardrailRuleConfigInput] = Field(min_length=1, max_length=512)
 
 
@@ -201,8 +205,8 @@ class CreateGuardrailRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     purpose: str | None = Field(default=None, max_length=2_000)
-    template_id: str | None = None
-    template_parameters: dict[str, str] = Field(default_factory=dict)
+    pack_id: str | None = None
+    parameters: dict[str, str] = Field(default_factory=dict)
     allowed_topics: list[str] = Field(default_factory=list)
     restricted_topics: list[str] = Field(default_factory=list)
     controls: list[GuardrailControlInput] = Field(default_factory=list)
@@ -304,7 +308,6 @@ class CreateIntegrationRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
-    environment: Literal["production", "staging", "development", "test"]
     protocol: Literal["litellm", "http", "a2a"] = "litellm"
 
 
@@ -321,15 +324,15 @@ class PlaygroundContextMessage(BaseModel):
     content: str = Field(min_length=1, max_length=8_000)
 
 
-class PlaygroundProbeRequest(BaseModel):
+class PlaygroundInteractionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     guardrail_id: str = Field(min_length=1)
-    phase: Literal["input", "output"] = "input"
-    content: str = Field(min_length=1, max_length=8_000)
-    context_messages: list[PlaygroundContextMessage] = Field(
+    model_id: str = Field(min_length=1, max_length=120)
+    message: str = Field(min_length=1, max_length=8_000)
+    history: list[PlaygroundContextMessage] = Field(
         default_factory=list,
-        max_length=100,
+        max_length=40,
     )
 
 
@@ -340,10 +343,14 @@ class ControlPlaneAPI:
         engine: NeMoPolicyRuntime,
         require_user: Callable | None = None,
         intent_analyzer: IntentAnalyzer | None = None,
+        playground_chat_models: tuple[PlaygroundChatModel, ...] = (),
     ) -> None:
         self._service = service
         self._engine = engine
         self._intent_analyzer = intent_analyzer
+        self._playground_chat_models = {
+            item.id: item for item in playground_chat_models
+        }
         self.router = APIRouter(
             prefix="/api/v1",
             tags=["resources"],
@@ -354,13 +361,9 @@ class ControlPlaneAPI:
     def _register_routes(self) -> None:
         router = self.router
 
-        @router.get("/guardrail-templates")
-        def guardrail_templates():
-            return _collection([_guardrail_template_payload(item) for item in self._service.templates()])
-
-        @router.get("/control-templates")
-        def control_templates():
-            return _collection([asdict(item) for item in self._service.control_templates()])
+        @router.get("/control-packs")
+        def control_packs():
+            return _collection(list(control_pack_catalog()))
 
         @router.get("/control-definitions")
         def control_definitions():
@@ -373,19 +376,21 @@ class ControlPlaneAPI:
             return _collection([asdict(item) for item in self._service.actions()])
 
         @router.get("/controls")
-        def native_controls():
-            return _collection(
-                [
-                    {
-                        **asdict(item),
-                        "versions": [
-                            asdict(version)
-                            for version in self._service.control_versions(item.id)
-                        ],
-                    }
+        def controls(
+            implementation: Literal["rules", "nemo_native"] | None = None,
+        ):
+            items: list[dict[str, object]] = []
+            if implementation in {None, "rules"}:
+                items.extend(control_catalog())
+            if implementation in {None, "nemo_native"}:
+                items.extend(
+                    _native_control_payload(
+                        item,
+                        self._service.control_versions(item.id),
+                    )
                     for item in self._service.controls()
-                ]
-            )
+                )
+            return _collection(items)
 
         @router.post("/controls", status_code=201)
         def create_control(request: CreateControlRequest):
@@ -398,19 +403,31 @@ class ControlPlaneAPI:
                 )
             except ControlPlaneError as error:
                 _raise(error)
-            return asdict(item)
+            return _native_control_payload(item, ())
 
         @router.get("/controls/{control_id}")
-        def native_control(control_id: str):
+        def get_control(
+            control_id: str,
+            implementation: Literal["rules", "nemo_native"] | None = None,
+        ):
+            if implementation in {None, "rules"}:
+                rules_control = next(
+                    (item for item in control_catalog() if item["id"] == control_id),
+                    None,
+                )
+                if rules_control is not None:
+                    return rules_control
+                if implementation == "rules":
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Rules Control {control_id!r} was not found.",
+                    )
             try:
                 package = self._service.control_package(control_id)
                 versions = self._service.control_versions(control_id)
             except ControlPlaneError as error:
                 _raise(error)
-            return {
-                **asdict(package),
-                "versions": [asdict(item) for item in versions],
-            }
+            return _native_control_payload(package, versions)
 
         @router.patch("/controls/{control_id}")
         def update_control(control_id: str, request: UpdateControlRequest):
@@ -428,7 +445,10 @@ class ControlPlaneAPI:
                 )
             except ControlPlaneError as error:
                 _raise(error)
-            return asdict(item)
+            return _native_control_payload(
+                item,
+                self._service.control_versions(item.id),
+            )
 
         @router.post("/controls/{control_id}/validate")
         def validate_control(control_id: str):
@@ -636,7 +656,7 @@ class ControlPlaneAPI:
                 item = self._service.create_guardrail(
                     name=request.name,
                     purpose=request.purpose,
-                    template_id=request.template_id,
+                    pack_id=request.pack_id,
                     allowed_topics=tuple(_clean_lines(request.allowed_topics)),
                     restricted_topics=tuple(_clean_lines(request.restricted_topics)),
                     controls=_controls(request.controls),
@@ -644,7 +664,7 @@ class ControlPlaneAPI:
                         request.control_configurations
                     ),
                     control_bindings=_control_bindings(request.control_bindings),
-                    template_parameters=tuple(request.template_parameters.items()),
+                    parameters=tuple(request.parameters.items()),
                     safety_level=request.safety_level,
                     output_delivery=request.output_delivery,
                 )
@@ -926,44 +946,158 @@ class ControlPlaneAPI:
                 _raise(error)
             return _test_payload(run)
 
-        @router.post("/playground/probes")
-        async def create_playground_probe(request: PlaygroundProbeRequest):
+        @router.get("/playground/models")
+        def playground_models():
+            return _collection(
+                [
+                    {
+                        "id": item.id,
+                        "provider": item.provider,
+                        "name": item.model,
+                        "icon": item.provider.casefold(),
+                    }
+                    for item in self._playground_chat_models.values()
+                ]
+            )
+
+        @router.post("/playground/interactions")
+        async def create_playground_interaction(
+            request: PlaygroundInteractionRequest,
+        ):
+            chat_model = self._playground_chat_models.get(request.model_id)
+            if chat_model is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="The selected Playground model is not available.",
+                )
             try:
                 guardrail = self._service.guardrail(request.guardrail_id)
                 plan = self._service.compile_draft(request.guardrail_id)
-                probe_id = f"probe-{uuid4().hex}"
-                current_message = {
-                    "role": "user" if request.phase == "input" else "assistant",
-                    "content": request.content,
-                }
+                interaction_id = f"interaction-{uuid4().hex}"
+                history = tuple(item.model_dump() for item in request.history)
+                user_message = {"role": "user", "content": request.message}
                 started = time.perf_counter()
-                decision = await self._engine.evaluate(
+                input_decision = await self._engine.evaluate(
                     EngineRequest(
-                        phase=request.phase,
-                        text=request.content,
+                        phase="input",
+                        text=request.message,
                         plan=plan,
-                        context_messages=tuple(
-                            item.model_dump() for item in request.context_messages
-                        ) + (current_message,),
-                        target_source=(
-                            "user_input" if request.phase == "input" else "model_output"
-                        ),
+                        context_messages=history + (user_message,),
+                        target_source="user_input",
                         evidence_scope="full",
                     )
                 )
-                latency = max(0, round((time.perf_counter() - started) * 1000))
+                record_runtime_decision(
+                    self._service,
+                    decision=input_decision,
+                    integration_id=None,
+                    protocol="playground",
+                    phase="input",
+                    started=started,
+                    detail="Playground request check completed.",
+                )
+                input_latency = max(
+                    0, round((time.perf_counter() - started) * 1000)
+                )
             except ControlPlaneError as error:
                 _raise(error)
-            return playground_probe_payload(
-                probe_id=probe_id,
+
+            input_check = playground_check_payload(
+                check_id=f"{interaction_id}:input",
                 guardrail=guardrail,
                 plan=plan,
-                phase=request.phase,
-                content=request.content,
-                decision=decision,
-                latency_ms=latency,
+                phase="input",
+                content=request.message,
+                decision=input_decision,
+                latency_ms=input_latency,
                 runtime=getattr(self._engine, "name", type(self._engine).__name__),
             )
+            if input_decision.decision == "block":
+                return {
+                    "interaction_id": interaction_id,
+                    "state": "input_blocked",
+                    "user_message": request.message,
+                    "effective_user_message": None,
+                    "assistant_message": None,
+                    "model": _playground_model_payload(chat_model, latency_ms=None),
+                    "input_check": input_check,
+                    "output_check": None,
+                }
+
+            effective_user_message = (
+                input_decision.texts[0]
+                if input_decision.decision == "transform" and input_decision.texts
+                else request.message
+            )
+            model_messages = history + (
+                {"role": "user", "content": effective_user_message},
+            )
+            model_started = time.perf_counter()
+            try:
+                model_response = await chat_model.complete(model_messages)
+            except PlaygroundChatError as error:
+                raise HTTPException(status_code=502, detail=str(error)) from error
+            model_latency = max(
+                0, round((time.perf_counter() - model_started) * 1000)
+            )
+
+            response_message = {"role": "assistant", "content": model_response}
+            output_started = time.perf_counter()
+            output_decision = await self._engine.evaluate(
+                EngineRequest(
+                    phase="output",
+                    text=model_response,
+                    plan=plan,
+                    context_messages=model_messages + (response_message,),
+                    target_source="model_output",
+                    evidence_scope="full",
+                )
+            )
+            record_runtime_decision(
+                self._service,
+                decision=output_decision,
+                integration_id=None,
+                protocol="playground",
+                phase="output",
+                started=output_started,
+                detail="Playground response check completed.",
+            )
+            output_latency = max(
+                0, round((time.perf_counter() - output_started) * 1000)
+            )
+            output_check = playground_check_payload(
+                check_id=f"{interaction_id}:output",
+                guardrail=guardrail,
+                plan=plan,
+                phase="output",
+                content=model_response,
+                decision=output_decision,
+                latency_ms=output_latency,
+                runtime=getattr(self._engine, "name", type(self._engine).__name__),
+            )
+            if output_decision.decision == "block":
+                state = "output_blocked"
+                assistant_message = None
+            else:
+                state = "completed"
+                assistant_message = (
+                    output_decision.texts[0]
+                    if output_decision.decision == "transform"
+                    and output_decision.texts
+                    else model_response
+                )
+            return {
+                "interaction_id": interaction_id,
+                "state": state,
+                "user_message": request.message,
+                "effective_user_message": effective_user_message,
+                "assistant_message": assistant_message,
+                "model": _playground_model_payload(
+                    chat_model, latency_ms=model_latency
+                ),
+                "input_check": input_check,
+                "output_check": output_check,
+            }
 
         @router.get("/assignments")
         def assignments():
@@ -1004,7 +1138,6 @@ class ControlPlaneAPI:
                 item = self._service.create_integration(
                     name=request.name,
                     description=request.description,
-                    environment=request.environment,
                     protocol=request.protocol,
                 )
             except ControlPlaneError as error:
@@ -1023,21 +1156,12 @@ class ControlPlaneAPI:
             outcome: str | None = None,
             risk: str | None = None,
             window: MetricWindow | None = None,
-            environment: Literal[
-                "production", "staging", "development", "test"
-            ]
-            | None = None,
         ):
             window_start = (
                 datetime.now(UTC) - _metric_window_duration(window)
                 if window
                 else None
             )
-            integration_ids = {
-                item.id
-                for item in self._service.integrations()
-                if not environment or item.environment == environment
-            }
             items = [
                 item
                 for item in self._service.activities(limit=500)
@@ -1050,10 +1174,6 @@ class ControlPlaneAPI:
                     not window_start
                     or item.created_at >= window_start.isoformat()
                 )
-                and (
-                    not environment
-                    or item.integration_id in integration_ids
-                )
             ][: max(1, min(limit, 500))]
             return _collection([_decision_payload(item) for item in items])
 
@@ -1061,10 +1181,6 @@ class ControlPlaneAPI:
         def metrics(
             window: MetricWindow = "7d",
             guardrail_id: str | None = None,
-            environment: Literal[
-                "production", "staging", "development", "test"
-            ]
-            | None = None,
         ):
             try:
                 if guardrail_id:
@@ -1075,7 +1191,6 @@ class ControlPlaneAPI:
                 self._service,
                 window=window,
                 guardrail_id=guardrail_id,
-                environment=environment,
             )
 
         @router.get("/system-status")
@@ -1113,8 +1228,8 @@ class ControlPlaneAPI:
             ],
             "safety_level": guardrail.safety_level,
             "output_delivery": guardrail.output_delivery,
-            "source_template_id": guardrail.source_template_id,
-            "template_parameters": dict(guardrail.template_parameters),
+            "source_pack_id": guardrail.source_pack_id,
+            "parameters": dict(guardrail.parameters),
             "updated_at": guardrail.updated_at,
             "status": status,
             "latest_test_run": _test_payload(latest) if latest else None,
@@ -1142,8 +1257,18 @@ def _test_payload(item) -> dict[str, object]:
     }
 
 
-def _guardrail_template_payload(item) -> dict[str, object]:
-    return asdict(item)
+def _native_control_payload(item, versions) -> dict[str, object]:
+    payload = asdict(item)
+    payload["implementation"] = "nemo_native"
+    payload["source"] = str(payload["source"]).replace("-", "_")
+    payload["versions"] = [
+        {
+            **asdict(version),
+            "source": version.source.replace("-", "_"),
+        }
+        for version in versions
+    ]
+    return payload
 
 
 def _guardrail_version_payload(item) -> dict[str, object]:
@@ -1203,6 +1328,20 @@ def _collection(items: list[object]) -> dict[str, object]:
     return {"items": items, "count": len(items)}
 
 
+def _playground_model_payload(
+    model: PlaygroundChatModel,
+    *,
+    latency_ms: int | None,
+) -> dict[str, object]:
+    return {
+        "id": model.id,
+        "provider": model.provider,
+        "name": model.model,
+        "icon": model.provider.casefold(),
+        "latency_ms": latency_ms,
+    }
+
+
 def _compile_preview_payload(plan, config, checksum: str) -> dict[str, object]:
     return {
         "guardrail_id": plan.guardrail_id,
@@ -1253,8 +1392,6 @@ def _metrics_payload(
     *,
     window: MetricWindow = "7d",
     guardrail_id: str | None = None,
-    environment: Literal["production", "staging", "development", "test"]
-    | None = None,
 ) -> dict[str, object]:
     now = datetime.now(UTC)
     duration = _metric_window_duration(window)
@@ -1262,15 +1399,9 @@ def _metrics_payload(
     window_start = now - duration
     comparison_start = window_start - duration
     integrations = service.integrations()
-    scoped_integration_ids = {
-        item.id for item in integrations if not environment or item.environment == environment
-    }
 
     def in_scope(item) -> bool:
-        return (
-            (not guardrail_id or item.guardrail_id == guardrail_id)
-            and (not environment or item.integration_id in scoped_integration_ids)
-        )
+        return not guardrail_id or item.guardrail_id == guardrail_id
 
     all_events = tuple(
         item
@@ -1317,9 +1448,6 @@ def _metrics_payload(
         item
         for item in service.assignments()
         if not guardrail_id or item.guardrail_id == guardrail_id
-    )
-    scoped_integrations = tuple(
-        item for item in integrations if not environment or item.environment == environment
     )
     test_runs = service.evaluations(guardrail_id)
     latest_test_p95 = test_runs[0].metrics.p95_latency_ms if test_runs else 0
@@ -1434,7 +1562,6 @@ def _metrics_payload(
         "scope": {
             "guardrail_id": guardrail_id,
             "guardrail_name": guardrails[0].name if guardrail_id and guardrails else None,
-            "environment": environment,
         },
         "comparison": {
             "previous_total_decisions": previous_total,
@@ -1507,12 +1634,6 @@ def _metrics_payload(
         ],
         "rail_metrics": _component_metrics(step_events, "rail"),
         "action_metrics": _component_metrics(step_events, "action"),
-        # Kept as zero-valued compatibility fields until the unchanged UI no
-        # longer renders the retired dual-runtime comparison alert.
-        "comparison_count": 0,
-        "decision_match_rate": 100.0,
-        "action_match_rate": 100.0,
-        "finding_match_rate": 100.0,
         "runtime_p50_ms": latency["p50"],
         "runtime_p95_ms": latency["p95"],
         "runtime_p99_ms": latency["p99"],
@@ -1536,9 +1657,9 @@ def _metrics_payload(
         "guardrails_needing_test": needs_testing,
         "total_guardrails": len(guardrails),
         "degraded_integrations": sum(
-            item.runtime_status == "degraded" for item in scoped_integrations
+            item.runtime_status == "degraded" for item in integrations
         ),
-        "total_integrations": len(scoped_integrations),
+        "total_integrations": len(integrations),
         "risk_counts": [
             {"risk": risk, "count": count}
             for risk, count in sorted(
@@ -1553,7 +1674,6 @@ def _metrics_payload(
         "trend": trend,
         "trend_series": _metric_trend_series(
             events,
-            integrations=integrations,
             guardrails=all_guardrails,
             window_start=window_start,
             now=now,
@@ -1650,13 +1770,11 @@ def _metric_trend(events, window_start: datetime, now: datetime, interval: timed
 def _metric_trend_series(
     events,
     *,
-    integrations,
     guardrails,
     window_start: datetime,
     now: datetime,
     interval: timedelta,
 ) -> dict[str, list[dict[str, object]]]:
-    environment_names = {item.id: item.environment for item in integrations}
     guardrail_names = {item.id: item.name for item in guardrails}
 
     def grouped_series(key_for_event) -> list[dict[str, object]]:
@@ -1687,9 +1805,6 @@ def _metric_trend_series(
                 "points": _metric_trend(events, window_start, now, interval),
             }
         ],
-        "environment": grouped_series(
-            lambda event: environment_names.get(event.integration_id, "Unknown")
-        ),
         "guardrail": grouped_series(
             lambda event: guardrail_names.get(event.guardrail_id, "Unassigned")
         ),
@@ -1965,8 +2080,8 @@ def _control_configurations(
             name=item.name,
             kind=item.kind,
             runtime_risk=item.runtime_risk,
-            template_id=item.template_id,
-            template_version=item.template_version,
+            control_id=item.control_id,
+            control_version=item.control_version,
             rules=tuple(
                 GuardrailRuleConfig(
                     id=rule.id,
@@ -2257,32 +2372,34 @@ def _test_content_view(case) -> ContentViewSnapshot | None:
 
 
 def _builtin_content_filter_cases(guardrail) -> tuple[EvaluationCase, ...]:
-    if not guardrail.source_template_id:
+    if not guardrail.source_pack_id:
         return ()
-    try:
-        template = policy_template(guardrail.source_template_id)
-    except StopIteration:
+    pack = control_pack(guardrail.source_pack_id)
+    if pack is None:
         return ()
     samples: list[tuple[str, str, str]] = []
-    first_phase = template.controls[0].phases[0]
+    first_control = library_control(pack.control_ids[0])
+    if first_control is None:
+        return ()
+    first_phase = first_control.phases[0]
     samples.extend(
         (f"source-example-{index}", first_phase, content)
-        for index, content in enumerate(template.examples[:5], start=1)
+        for index, content in enumerate(pack.examples[:5], start=1)
     )
     if not samples:
-        for control in template.controls:
-            definition = control_definition(control.name)
+        for control_id in pack.control_ids:
+            definition = library_control(control_id)
             if definition is None:
                 continue
-            sample = _control_sample(definition, dict(guardrail.template_parameters))
+            sample = _control_sample(definition, dict(guardrail.parameters))
             if sample:
-                samples.append((control.name, definition.phase, sample))
+                samples.append((control_id, definition.phases[0], sample))
             if len(samples) == 5:
                 break
     cases = [
         EvaluationCase(
             id=f"builtin-{identifier}",
-            name=f"Detect {template.display_name} policy violation",
+            name=f"Detect {pack.name} policy violation",
             risk="builtin_content_filter",
             phase=phase,
             content=content,
@@ -2293,7 +2410,7 @@ def _builtin_content_filter_cases(guardrail) -> tuple[EvaluationCase, ...]:
     cases.append(
         EvaluationCase(
             id="builtin-safe",
-            name=f"Allow safe {template.display_name} context",
+            name=f"Allow safe {pack.name} context",
             risk="builtin_content_filter",
             phase=first_phase,
             content="Summarize the approved internal product guide.",
@@ -2304,18 +2421,17 @@ def _builtin_content_filter_cases(guardrail) -> tuple[EvaluationCase, ...]:
 
 
 def _control_sample(definition, parameters: dict[str, str]) -> str | None:
-    for category in definition.categories:
-        if category.always_block:
-            return category.always_block[0][0]
-        if category.identifiers and category.conditional_words:
-            return f"{category.conditional_words[0]} based on {category.identifiers[0]}"
-        if category.keywords:
-            return category.keywords[0][0]
-    if isinstance(definition.blocked_words, tuple) and definition.blocked_words:
-        value = definition.blocked_words[0].keyword
-        for key, replacement in parameters.items():
-            value = value.replace(f"{{{{{key}}}}}", replacement)
-        return value
+    for rule in definition.rules:
+        if rule.always_block:
+            return rule.always_block[0].value
+        if rule.identifiers and rule.conditions:
+            return f"{rule.conditions[0]} based on {rule.identifiers[0]}"
+        if rule.keywords:
+            value = rule.keywords[0].value
+            for key, replacement in parameters.items():
+                value = value.replace(f"{{{{{key}}}}}", replacement)
+            if "{{" not in value:
+                return value
     return None
 
 

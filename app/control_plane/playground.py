@@ -9,9 +9,9 @@ from .catalog import control
 from .domain import Guardrail, GuardrailControlConfig, GuardrailRuleConfig
 
 
-def playground_probe_payload(
+def playground_check_payload(
     *,
-    probe_id: str,
+    check_id: str,
     guardrail: Guardrail,
     plan: GuardrailPlanSnapshot,
     phase: str,
@@ -42,7 +42,7 @@ def playground_probe_payload(
     )
     findings = [
         _finding_payload(
-            probe_id=probe_id,
+            probe_id=check_id,
             index=index,
             finding=finding,
             controls=controls,
@@ -61,8 +61,8 @@ def playground_probe_payload(
         if step.verdict == "unsafe" or step.status in {"blocked", "unsafe", "matched"}
     )
     return {
-        "probe_id": probe_id,
-        "trace_id": probe_id,
+        "check_id": check_id,
+        "trace_id": check_id,
         "evidence_id": None,
         "guardrail": {
             "id": guardrail.id,
@@ -71,7 +71,6 @@ def playground_probe_payload(
             "compiler_version": plan.compiler_version,
         },
         "phase": phase,
-        "content": content,
         "decision": decision.decision,
         "action": decision.action,
         "output_content": output_content,
@@ -253,14 +252,17 @@ def _matched_configuration_rule(
     if not relevant:
         return None
     evidence = " ".join(item.evidence for item in relevant).casefold()
-    template_matches = not configuration.template_id or configuration.template_id.casefold() in evidence
+    control_matches = (
+        not configuration.control_id
+        or configuration.control_id.casefold() in evidence
+    )
     for rule in candidates:
         if rule.id.casefold() in evidence or rule.name.casefold() in evidence:
             return rule
     for rule in candidates:
         if _rule_matches_content(rule, content):
             return rule
-    if template_matches and len(candidates) == 1:
+    if control_matches and len(candidates) == 1:
         return candidates[0]
     return None
 

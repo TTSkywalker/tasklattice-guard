@@ -169,7 +169,6 @@ async def test_customer_data_control_runs_create_to_real_http_on_one_version(tmp
             "/api/v1/integrations",
             json={
                 "name": "Customer HTTP ingress",
-                "environment": "test",
                 "protocol": "http",
             },
         )

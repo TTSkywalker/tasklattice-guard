@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.config import Settings
 from app.main import create_engine
+
+
+def test_default_database_path_uses_current_v4_schema(monkeypatch):
+    monkeypatch.delenv("MODEL_GUARDRAILS_DATABASE_PATH", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.database_path.name == "tasklattice-guard-schema-v4.db"
 
 
 def test_settings_reuses_existing_provider_key_variables(monkeypatch):
@@ -36,10 +42,10 @@ def test_settings_reuses_existing_provider_key_variables(monkeypatch):
     assert settings.control_plane_ai_api_key_env_var == "DEEPSEEK_API_KEY"
 
 
-def test_deepseek_fallback_registers_all_deep_judges():
+def test_deepseek_fallback_registers_all_deep_judges(tmp_path):
     settings = Settings(
-        database_path=Path("unused.db"),
-        ui_dist_path=Path("missing-ui"),
+        database_path=tmp_path / "control-plane.db",
+        ui_dist_path=tmp_path / "missing-ui",
         deep_judge_base_url="https://api.deepseek.com",
         deep_judge_model="deepseek-v4-flash",
         deep_judge_api_key_env_var="DEEPSEEK_API_KEY",

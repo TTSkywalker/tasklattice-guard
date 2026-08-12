@@ -1,10 +1,3 @@
-import type { PlaygroundProbeResult } from "@/lib/api";
+import type { PlaygroundInteraction } from "@/lib/api";
 
-export type ProbePhase = "input" | "output";
-
-export type PlaygroundTurn = {
-  id: string;
-  phase: ProbePhase;
-  content: string;
-  result: PlaygroundProbeResult;
-};
+export type PlaygroundTurn = PlaygroundInteraction;

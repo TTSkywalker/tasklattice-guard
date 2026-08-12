@@ -49,7 +49,7 @@ def _plan() -> GuardrailPlanSnapshot:
     return GuardrailPlanSnapshot(
         guardrail_id="guardrail-content",
         guardrail_version=1,
-        compiler_version="guardrail-plan-v3",
+        compiler_version="guardrail-plan-v4",
         safety_level="balanced",
         output_delivery="window_buffered",
         steps=(step,),

@@ -73,7 +73,7 @@ const DEFAULT_COLANG = `flow check_request $text
     $recorded = await TaskLatticeRecordControlAction(flow_name="check_request", safe=True, text=$text)
 `;
 
-export function NativeControlInventory({ source }: { source: "built-in" | "custom" }) {
+export function NativeControlInventory({ source }: { source: "built_in" | "custom" }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const controlsQuery = useQuery({ queryKey: queryKeys.nativeControls, queryFn: getNativeControls });
@@ -89,7 +89,10 @@ export function NativeControlInventory({ source }: { source: "built-in" | "custo
   }, [controls, search]);
 
   async function refresh(controlId?: string) {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.nativeControls });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.controls }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.nativeControls }),
+    ]);
     if (controlId) await queryClient.invalidateQueries({ queryKey: queryKeys.nativeControl(controlId) });
   }
 

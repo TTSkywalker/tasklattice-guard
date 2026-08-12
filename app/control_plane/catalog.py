@@ -1,17 +1,6 @@
 from __future__ import annotations
 
-import re
-
-from ..policy_packs.litellm import policy_pack, policy_templates
-from .domain import (
-    ControlDefinition,
-    ControlTemplate,
-    ControlTemplatePackReference,
-    ControlTemplateRule,
-    GuardrailTemplate,
-    TemplateParameterDefinition,
-    TemplateControl,
-)
+from .domain import ControlDefinition
 
 
 CONTROL_DEFINITIONS: tuple[ControlDefinition, ...] = (
@@ -134,13 +123,13 @@ CONTROL_DEFINITIONS: tuple[ControlDefinition, ...] = (
     ControlDefinition(
         id="builtin_content_filter",
         display_name="Built-in content filter policy",
-        description="Run a locally bundled LiteLLM content-filter policy without Integration-side templates.",
+        description="Run locally bundled, versioned content-filter Controls without an external policy service.",
         domain="Built-in policy",
         default_phases=("input", "output"),
         default_action="reject",
         allowed_actions=("reject",),
         available_stages=("deterministic",),
-        limitations=("Coverage is limited to the patterns, keywords, and categories bundled with the selected template version.",),
+        limitations=("Coverage is limited to the Rules bundled with the selected Control version.",),
         module="interaction_safety",
     ),
 )
@@ -148,187 +137,3 @@ CONTROL_DEFINITIONS: tuple[ControlDefinition, ...] = (
 
 def control(risk: str) -> ControlDefinition:
     return next(item for item in CONTROL_DEFINITIONS if item.id == risk)
-
-
-def guardrail_template(template_id: str) -> GuardrailTemplate:
-    return next(item for item in guardrail_templates() if item.id == template_id)
-
-
-def guardrail_templates() -> tuple[GuardrailTemplate, ...]:
-    return tuple(
-        GuardrailTemplate(
-            id=item.id,
-            name=item.display_name,
-            description=item.description,
-            purpose=item.description,
-            allowed_topics=(),
-            restricted_topics=(),
-            default_controls=(TemplateControl("builtin_content_filter", "reject"),),
-            safety_level="balanced",
-            output_delivery="window_buffered",
-            source=item.source,
-            version=item.version,
-            domain=item.catalog.domain,
-            collections=item.catalog.collections,
-            tags=item.catalog.tags,
-            limitations=item.catalog.limitations,
-            controls=tuple(control.name for control in item.controls),
-            parameters=tuple(
-                TemplateParameterDefinition(
-                    name=parameter.name,
-                    label=parameter.label,
-                    kind=parameter.kind,
-                    required=parameter.required,
-                    placeholder=parameter.placeholder,
-                    description=parameter.description,
-                )
-                for parameter in item.parameters
-            ),
-        )
-        for item in policy_templates()
-    )
-
-
-def control_templates() -> tuple[ControlTemplate, ...]:
-    """Expose each vendored executable control as an auditable library resource."""
-    pack = policy_pack()
-    memberships: dict[str, list[ControlTemplatePackReference]] = {
-        name: [] for name in pack.controls
-    }
-    tags: dict[str, set[str]] = {name: set() for name in pack.controls}
-    limitations: dict[str, set[str]] = {name: set() for name in pack.controls}
-    presentation = {}
-
-    for policy in pack.templates:
-        reference = ControlTemplatePackReference(
-            id=policy.id,
-            name=policy.display_name,
-            domain=policy.catalog.domain,
-        )
-        for template_control in policy.controls:
-            memberships[template_control.name].append(reference)
-            tags[template_control.name].update(policy.catalog.tags)
-            limitations[template_control.name].update(policy.catalog.limitations)
-            presentation.setdefault(template_control.name, template_control)
-
-    resources: list[ControlTemplate] = []
-    for name, definition in pack.controls.items():
-        template_control = presentation[name]
-        rules = _control_template_rules(definition)
-        detector_types = tuple(
-            detector
-            for detector in ("regex", "keyword", "category")
-            if any(rule.detector == detector for rule in rules)
-        )
-        resources.append(
-            ControlTemplate(
-                id=name,
-                name=_control_display_name(name),
-                description=definition.description,
-                source="LiteLLM OSS · locally built in",
-                version=pack.templates[0].version,
-                status="built_in",
-                phases=(definition.phase,),
-                default_action=template_control.default_action,
-                allowed_actions=template_control.allowed_actions,
-                detector_types=detector_types,
-                rules=rules,
-                packs=tuple(sorted(memberships[name], key=lambda item: item.name)),
-                tags=tuple(sorted(tags[name])),
-                limitations=tuple(sorted(limitations[name])),
-            )
-        )
-    return tuple(sorted(resources, key=lambda item: (item.name.lower(), item.id)))
-
-
-def _control_template_rules(definition) -> tuple[ControlTemplateRule, ...]:
-    rules: list[ControlTemplateRule] = []
-    for item in definition.patterns:
-        rules.append(
-            ControlTemplateRule(
-                id=item.name,
-                name=item.display_name or _control_display_name(item.name),
-                detector="regex",
-                action=item.action,
-                description=item.description,
-                expression=item.expression,
-                context_expression=item.keyword_expression,
-                redaction=item.redaction,
-            )
-        )
-
-    if isinstance(definition.blocked_words, tuple):
-        for index, item in enumerate(definition.blocked_words, start=1):
-            rules.append(
-                ControlTemplateRule(
-                    id=f"blocked-word-{index}",
-                    name=item.keyword,
-                    detector="keyword",
-                    action=item.action,
-                    description=item.description,
-                    keywords=(item.keyword,),
-                )
-            )
-    elif definition.blocked_words:
-        parameter = definition.blocked_words.strip("{}")
-        rules.append(
-            ControlTemplateRule(
-                id=f"dynamic-{parameter.replace('_', '-')}",
-                name=_control_display_name(parameter),
-                detector="keyword",
-                action="BLOCK",
-                description="Resolved from reviewed Guardrail template parameters.",
-                keywords=(definition.blocked_words,),
-            )
-        )
-
-    for item in definition.categories:
-        rules.append(
-            ControlTemplateRule(
-                id=item.name,
-                name=_control_display_name(item.name),
-                detector="category",
-                action=item.action,
-                description=item.description,
-                severity_threshold=item.severity_threshold,
-                identifiers=item.identifiers,
-                conditions=item.conditional_words,
-                keywords=tuple(keyword for keyword, _severity in item.keywords),
-                always_block=tuple(keyword for keyword, _severity in item.always_block),
-                exceptions=item.exceptions,
-                phrase_patterns=item.phrase_patterns,
-            )
-        )
-    return tuple(rules)
-
-
-_CONTROL_ACRONYMS = {
-    "ai",
-    "api",
-    "au",
-    "dnc",
-    "eu",
-    "fin",
-    "gdpr",
-    "ip",
-    "llm",
-    "mas",
-    "nric",
-    "nsfw",
-    "owasp",
-    "pdpa",
-    "pii",
-    "sg",
-    "sql",
-    "uae",
-    "uen",
-    "url",
-}
-
-
-def _control_display_name(value: str) -> str:
-    return " ".join(
-        token.upper() if token.lower() in _CONTROL_ACRONYMS else token.capitalize()
-        for token in re.split(r"[-_]+", value)
-        if token
-    )

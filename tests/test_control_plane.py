@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+from app.control_library.catalog import control_catalog
 from app.control_plane.domain import (
     ControlPlaneError,
     EvaluationCaseResult,
@@ -51,7 +52,7 @@ def pass_current_guardrail(service: ControlPlaneService, guardrail_id: str):
 
 
 def test_guardrail_compiles_from_global_enforcement_mode_and_tests_create_version(tmp_path):
-    service = ControlPlaneService(tmp_path / "v2.db")
+    service = ControlPlaneService(tmp_path / "v4.db")
     guardrail = service.create_guardrail(
         name="Finance Safety",
         purpose="Keep the Finance assistant inside approved financial topics.",
@@ -62,7 +63,7 @@ def test_guardrail_compiles_from_global_enforcement_mode_and_tests_create_versio
     plan = service.compile_draft(guardrail.id)
 
     assert {step.stage for step in plan.steps} == {"deterministic", "deep_judge"}
-    assert plan.compiler_version == "guardrail-plan-v3"
+    assert plan.compiler_version == "guardrail-plan-v4"
     assert tuple(module.module for module in plan.modules_for("input")) == (
         "business_assurance",
     )
@@ -77,7 +78,7 @@ def test_guardrail_compiles_from_global_enforcement_mode_and_tests_create_versio
 
 
 def test_assignment_resolves_one_immutable_guardrail_version(tmp_path):
-    service = ControlPlaneService(tmp_path / "v2.db")
+    service = ControlPlaneService(tmp_path / "v4.db")
     baseline = service.create_guardrail(
         name="Company Baseline",
         purpose="Protect internal model interactions from secrets.",
@@ -266,12 +267,13 @@ async def test_default_safe_blocks_locally_without_calling_semantic_stages(tmp_p
     await engine.shutdown()
 
 
-def test_incompatible_database_schema_is_rejected_without_migration(tmp_path):
+def test_v3_database_schema_is_rejected_without_migration(tmp_path):
     database_path = tmp_path / "incompatible.db"
     ControlPlaneService(database_path)
     with sqlite3.connect(database_path) as connection:
         connection.execute(
-            "UPDATE control_plane_meta SET value = 'obsolete-schema' WHERE key = 'schema_version'"
+            "UPDATE control_plane_meta SET value = 'tasklattice-guard-schema-v3' "
+            "WHERE key = 'schema_version'"
         )
         connection.commit()
 
@@ -299,6 +301,9 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         integration_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(integrations)")
         }
+        schema_version = connection.execute(
+            "SELECT value FROM control_plane_meta WHERE key = 'schema_version'"
+        ).fetchone()[0]
 
     assert {
         "guardrails",
@@ -311,10 +316,25 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         "evidence_events",
     } <= tables
     assert {"safes", "safe_revisions", "workloads", "adapter_instances"}.isdisjoint(tables)
-    assert {"controls_json", "draft_version", "active_version"} <= guardrail_columns
+    assert {
+        "controls_json",
+        "source_pack_id",
+        "parameters_json",
+        "draft_version",
+        "active_version",
+    } <= guardrail_columns
     assert {"guardrail_id", "guardrail_version", "traffic_scope_json"} <= assignment_columns
-    assert {"protocol", "environment", "enabled"} <= integration_columns
-    assert {"protections_json", "filters_json", "profile_id", "safe_id"}.isdisjoint(
+    assert {"protocol", "enabled"} <= integration_columns
+    assert "environment" not in integration_columns
+    assert schema_version == "tasklattice-guard-schema-v4"
+    assert {
+        "protections_json",
+        "filters_json",
+        "profile_id",
+        "safe_id",
+        "source_template_id",
+        "template_parameters_json",
+    }.isdisjoint(
         guardrail_columns | assignment_columns
     )
 
@@ -388,33 +408,38 @@ def test_impossible_and_filter_is_rejected_with_or_recovery(tmp_path):
         )
 
 
-def test_catalog_supports_guardrail_creation_without_exposing_evaluator_configuration(tmp_path):
-    service = ControlPlaneService(tmp_path / "v2.db")
+def test_control_packs_support_guardrail_creation_without_evaluator_configuration(tmp_path):
+    service = ControlPlaneService(tmp_path / "v4.db")
 
-    assert {item.id for item in service.templates()} >= {
+    packs = service.control_packs()
+    assert {item.id for item in packs} >= {
         "topic-filtering",
         "mas-ai-risk-management",
         "advanced-au-pii-protection",
     }
-    assert len(service.templates()) == 17
+    assert len(packs) == 17
     assert {item.id for item in service.control_definitions()} >= {"secrets", "pii", "company_policy"}
-    assert all(item.purpose for item in service.templates())
+    assert all(item.description and item.control_ids for item in packs)
     assert all(
-        set(item.__dataclass_fields__) == {"risk", "action"}
-        for template in service.templates()
-        for item in template.default_controls
+        {"catalog", "collections", "domain", "limitations", "tags"}.isdisjoint(
+            item.__dataclass_fields__
+        )
+        for item in packs
     )
 
 
 def test_control_library_exposes_auditable_rules_and_pack_membership(tmp_path):
     service = ControlPlaneService(tmp_path / "control-library.db")
 
-    templates = service.control_templates()
+    controls = service.library_controls()
     contact = next(
-        item for item in templates if item.id == "sg-pdpa-contact-information"
+        item for item in controls if item.id == "sg-pdpa-contact-information"
+    )
+    contact_payload = next(
+        item for item in control_catalog() if item["id"] == contact.id
     )
 
-    assert len(templates) == 81
+    assert len(controls) == 81
     assert contact.name == "SG PDPA Contact Information"
     assert contact.detector_types == ("regex",)
     assert contact.default_action == "MASK"
@@ -424,5 +449,5 @@ def test_control_library_exposes_auditable_rules_and_pack_membership(tmp_path):
         "email",
     }
     assert {item.action for item in contact.rules} == {"MASK"}
-    assert {item.id for item in contact.packs} == {"pdpa-singapore"}
-    assert all(item.rules for item in templates)
+    assert {item["id"] for item in contact_payload["packs"]} == {"pdpa-singapore"}
+    assert all(item.rules for item in controls)

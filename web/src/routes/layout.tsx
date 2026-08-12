@@ -79,7 +79,7 @@ export function ControlPlaneLayout() {
               <RuntimeHealthMenu loading={systemStatus.isLoading} status={systemStatus.data} />
             </div>
           </header>
-          <main className="mx-auto w-full max-w-[1600px] min-w-0 flex-1 px-4 pb-12 transition-[max-width] duration-200 ease-linear motion-reduce:transition-none sm:px-6 lg:px-8 group-has-[[data-state=collapsed]]/sidebar-wrapper:max-w-full">
+          <main className="w-full min-w-0 flex-1 px-4 pb-12 sm:px-6 lg:px-8">
             <Outlet />
           </main>
         </SidebarInset>

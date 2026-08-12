@@ -59,10 +59,10 @@ export type GuardrailRuleConfig = {
 export type GuardrailControlConfig = {
   id: string;
   name: string;
-  kind: "template" | "custom";
+  kind: "built_in" | "custom";
   runtime_risk: string;
-  template_id: string | null;
-  template_version: string | null;
+  control_id: string | null;
+  control_version: string | null;
   rules: GuardrailRuleConfig[];
 };
 
@@ -153,7 +153,7 @@ export type TestRun = {
   created_at: string;
 };
 
-export type PlaygroundProbeControl = {
+export type PlaygroundCheckControl = {
   id: string;
   name: string;
   risk: string;
@@ -161,7 +161,7 @@ export type PlaygroundProbeControl = {
   duration_ms: number;
 };
 
-export type PlaygroundProbeFinding = {
+export type PlaygroundCheckFinding = {
   id: string;
   severity: "high" | "medium" | "low";
   title: string;
@@ -172,8 +172,8 @@ export type PlaygroundProbeFinding = {
   rule_id: string | null;
 };
 
-export type PlaygroundProbeResult = {
-  probe_id: string;
+export type PlaygroundCheckResult = {
+  check_id: string;
   trace_id: string;
   evidence_id: string | null;
   guardrail: {
@@ -183,7 +183,6 @@ export type PlaygroundProbeResult = {
     compiler_version: string;
   };
   phase: "input" | "output";
-  content: string;
   decision: "allow" | "transform" | "block";
   action: string;
   output_content: string;
@@ -192,10 +191,28 @@ export type PlaygroundProbeResult = {
   runtime: string;
   triggered_control: { id: string; name: string } | null;
   triggered_rule: { id: string; name: string } | null;
-  controls: PlaygroundProbeControl[];
-  findings: PlaygroundProbeFinding[];
+  controls: PlaygroundCheckControl[];
+  findings: PlaygroundCheckFinding[];
   trace_summary: { steps: number; matched_steps: number };
   trace: EvaluationTraceStep[];
+};
+
+export type PlaygroundModel = {
+  id: string;
+  provider: string;
+  name: string;
+  icon: string;
+};
+
+export type PlaygroundInteraction = {
+  interaction_id: string;
+  state: "completed" | "input_blocked" | "output_blocked";
+  user_message: string;
+  effective_user_message: string | null;
+  assistant_message: string | null;
+  model: PlaygroundModel & { latency_ms: number | null };
+  input_check: PlaygroundCheckResult;
+  output_check: PlaygroundCheckResult | null;
 };
 
 export type TestCase = {
@@ -270,8 +287,8 @@ export type Guardrail = {
   control_bindings: GuardrailNativeControlBinding[];
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
-  source_template_id: string | null;
-  template_parameters: Record<string, string>;
+  source_pack_id: string | null;
+  parameters: Record<string, string>;
   updated_at: string;
   status: "needs_testing" | "ready" | "protected";
   latest_test_run: TestRun | null;
@@ -297,24 +314,14 @@ export type GuardrailVersion = {
   execution_mode: "nemo_only";
 };
 
-export type GuardrailTemplate = {
+export type ControlPack = {
   id: string;
   name: string;
   description: string;
-  purpose: string;
-  allowed_topics: string[];
-  restricted_topics: string[];
-  default_controls: GuardrailControl[];
-  safety_level: SafetyLevel;
-  output_delivery: OutputDelivery;
-  source?: string;
-  version?: string;
-  domain?: string;
-  collections?: string[];
-  tags?: string[];
-  limitations?: string[];
-  controls?: string[];
-  parameters?: Array<{
+  source: string;
+  version: string;
+  control_ids: string[];
+  parameters: Array<{
     name: string;
     label: string;
     kind: string;
@@ -322,13 +329,22 @@ export type GuardrailTemplate = {
     placeholder: string;
     description: string;
   }>;
+  examples: string[];
+  safety_level: SafetyLevel;
+  output_delivery: OutputDelivery;
 };
 
-export type ControlTemplateRule = {
+export type ControlRuleKeyword = {
+  value: string;
+  severity: string;
+};
+
+export type ControlRule = {
   id: string;
   name: string;
   detector: "regex" | "keyword" | "category";
   action: "MASK" | "BLOCK" | string;
+  phases: Array<"input" | "output">;
   description: string;
   expression: string | null;
   context_expression: string | null;
@@ -336,39 +352,35 @@ export type ControlTemplateRule = {
   severity_threshold: string | null;
   identifiers: string[];
   conditions: string[];
-  keywords: string[];
-  always_block: string[];
+  keywords: ControlRuleKeyword[];
+  always_block: ControlRuleKeyword[];
   exceptions: string[];
   phrase_patterns: string[];
 };
 
-export type ControlTemplate = {
+export type RulesControl = {
+  implementation: "rules";
   id: string;
   name: string;
   description: string;
-  source: string;
+  source: "built_in";
   version: string;
-  status: "built_in" | "registered";
   phases: Array<"input" | "output">;
   default_action: "MASK" | "BLOCK" | "POLICY" | string;
   allowed_actions: string[];
-  detector_types: Array<ControlTemplateRule["detector"]>;
-  rules: ControlTemplateRule[];
-  packs: Array<{ id: string; name: string; domain: string }>;
-  tags: string[];
-  limitations: string[];
+  detector_types: Array<ControlRule["detector"]>;
+  rules: ControlRule[];
+  packs: Array<{ id: string; name: string }>;
 };
 
 export type ControlDefinition = {
   id: string;
   display_name: string;
   description: string;
-  domain: string;
   default_phases: Array<"input" | "output">;
   default_action: string;
   allowed_actions: string[];
   available_stages: string[];
-  limitations: string[];
 };
 
 export type NativeRailType = "input" | "output" | "retrieval" | "dialog" | "execution";
@@ -419,23 +431,26 @@ export type NativeControlVersion = Omit<NativeControlDraft, "execution_contract"
   version: number;
   name: string;
   description: string;
-  source: "built-in" | "custom";
+  source: "built_in" | "custom";
   owner: string;
   execution_contract: Array<[string, string]>;
   checksum: string;
   published_at: string;
 };
 export type NativeControl = {
+  implementation: "nemo_native";
   id: string;
   name: string;
   description: string;
-  source: "built-in" | "custom";
+  source: "built_in" | "custom";
   owner: string;
   draft: NativeControlDraft;
   draft_revision: number;
   updated_at: string;
   versions?: NativeControlVersion[];
 };
+
+export type Control = RulesControl | NativeControl;
 export type ActionDefinition = {
   name: string;
   version: string;
@@ -499,7 +514,6 @@ export type Integration = {
   protocol: "litellm" | "http" | "a2a";
   name: string;
   description: string;
-  environment: string;
   enabled: boolean;
   credential_prefix: string;
   verification_status: string;
@@ -563,7 +577,6 @@ export type Metrics = {
   scope: {
     guardrail_id: string | null;
     guardrail_name: string | null;
-    environment: string | null;
   };
   comparison: {
     previous_total_decisions: number;
@@ -602,10 +615,6 @@ export type Metrics = {
   runtime_engine_counts: Array<{ runtime_engine: string; count: number }>;
   rail_metrics: RuntimeComponentMetric[];
   action_metrics: RuntimeComponentMetric[];
-  comparison_count: number;
-  decision_match_rate: number;
-  action_match_rate: number;
-  finding_match_rate: number;
   runtime_p50_ms: number;
   runtime_p95_ms: number;
   runtime_p99_ms: number;
@@ -687,7 +696,6 @@ export type Metrics = {
   trend: MetricTrendPoint[];
   trend_series: {
     none: MetricTrendSeries[];
-    environment: MetricTrendSeries[];
     guardrail: MetricTrendSeries[];
   };
   system_status: "healthy" | "degraded";
@@ -771,24 +779,25 @@ export const updateUser = (id: string, input: { display_name?: string; role?: Id
 
 export const getGuardrails = () => read<Collection<Guardrail>>("/api/v1/guardrails");
 export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
-export const createGuardrail = (input: { name: string; purpose?: string; template_id?: string; template_parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; control_configurations?: GuardrailControlConfig[]; control_bindings?: GuardrailNativeControlBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
+export const createGuardrail = (input: { name: string; purpose?: string; pack_id?: string; parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; control_configurations?: GuardrailControlConfig[]; control_bindings?: GuardrailNativeControlBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
 export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "controls" | "control_configurations" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
 export const rollbackGuardrail = (guardrailId: string, version: number) => mutate<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/rollback/${version}`, "POST");
 
-export const getGuardrailTemplates = () => read<Collection<GuardrailTemplate>>("/api/v1/guardrail-templates");
-export const getControlTemplates = () => read<Collection<ControlTemplate>>("/api/v1/control-templates");
+export const getControlPacks = () => read<Collection<ControlPack>>("/api/v1/control-packs");
 export const getControlDefinitions = () => read<Collection<ControlDefinition>>("/api/v1/control-definitions");
-export const getNativeControls = () => read<Collection<NativeControl>>("/api/v1/controls");
-export const getNativeControl = (id: string) => read<NativeControl>(`/api/v1/controls/${encodeURIComponent(id)}`);
+export const getControls = () => read<Collection<Control>>("/api/v1/controls");
+export const getRuleControls = () => read<Collection<RulesControl>>("/api/v1/controls?implementation=rules");
+export const getNativeControls = () => read<Collection<NativeControl>>("/api/v1/controls?implementation=nemo_native");
+export const getNativeControl = (id: string) => read<NativeControl>(`/api/v1/controls/${encodeURIComponent(id)}?implementation=nemo_native`);
 export const getActionCatalog = () => read<Collection<ActionDefinition>>("/api/v1/actions");
 const nativeControlInput = (input: { name?: string; description?: string; owner?: string; draft?: NativeControlDraft }) => input.draft ? { ...input, draft: { ...input.draft, execution_contract: Object.fromEntries(input.draft.execution_contract) } } : input;
-export const createNativeControl = (input: { name: string; description: string; owner: string; draft: NativeControlDraft }) => mutate<NativeControl>("/api/v1/controls", "POST", nativeControlInput(input));
-export const updateNativeControl = (id: string, input: { name?: string; description?: string; owner?: string; draft?: NativeControlDraft }) => mutate<NativeControl>(`/api/v1/controls/${encodeURIComponent(id)}`, "PATCH", nativeControlInput(input));
-export const validateNativeControl = (id: string) => mutate<ControlValidation>(`/api/v1/controls/${encodeURIComponent(id)}/validate`, "POST");
-export const runNativeControlTests = (id: string) => mutate<ControlTestRun>(`/api/v1/controls/${encodeURIComponent(id)}/test-runs`, "POST");
-export const getLatestNativeControlTest = (id: string) => read<ControlTestRun>(`/api/v1/controls/${encodeURIComponent(id)}/test-runs/latest`);
-export const publishNativeControl = (id: string) => mutate<NativeControlVersion>(`/api/v1/controls/${encodeURIComponent(id)}/publish`, "POST");
+export const createNativeControl = (input: { name: string; description: string; owner: string; draft: NativeControlDraft }) => mutate<NativeControl>("/api/v1/controls?implementation=nemo_native", "POST", nativeControlInput(input));
+export const updateNativeControl = (id: string, input: { name?: string; description?: string; owner?: string; draft?: NativeControlDraft }) => mutate<NativeControl>(`/api/v1/controls/${encodeURIComponent(id)}?implementation=nemo_native`, "PATCH", nativeControlInput(input));
+export const validateNativeControl = (id: string) => mutate<ControlValidation>(`/api/v1/controls/${encodeURIComponent(id)}/validate?implementation=nemo_native`, "POST");
+export const runNativeControlTests = (id: string) => mutate<ControlTestRun>(`/api/v1/controls/${encodeURIComponent(id)}/test-runs?implementation=nemo_native`, "POST");
+export const getLatestNativeControlTest = (id: string) => read<ControlTestRun>(`/api/v1/controls/${encodeURIComponent(id)}/test-runs/latest?implementation=nemo_native`);
+export const publishNativeControl = (id: string) => mutate<NativeControlVersion>(`/api/v1/controls/${encodeURIComponent(id)}/publish?implementation=nemo_native`, "POST");
 export const getGuardrailCompilePreview = (id: string) => read<GuardrailCompilePreview>(`/api/v1/guardrails/${encodeURIComponent(id)}/compile-preview`);
 export const previewGuardrailCandidate = (input: { name: string; purpose: string; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; control_configurations?: GuardrailControlConfig[]; control_bindings?: GuardrailNativeControlBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<GuardrailCompilePreview>("/api/v1/guardrail-compile-previews", "POST", input);
 export const getIntentAnalysisStatus = () => read<IntentAnalysisStatus>("/api/v1/intent-analysis-status");
@@ -797,14 +806,15 @@ export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" 
 export const createTestRun = (guardrailId: string) => mutate<TestRun>("/api/v1/test-runs", "POST", { guardrail_id: guardrailId });
 export const getTestRuns = (guardrailId?: string) => read<Collection<TestRun>>(`/api/v1/test-runs${query({ guardrail_id: guardrailId })}`);
 export const getTestRun = (runId: string) => read<TestRun>(`/api/v1/test-runs/${encodeURIComponent(runId)}`);
-export const createPlaygroundProbe = (
+export const getPlaygroundModels = () => read<Collection<PlaygroundModel>>("/api/v1/playground/models");
+export const createPlaygroundInteraction = (
   guardrailId: string,
   input: {
-    phase: "input" | "output";
-    content: string;
-    context_messages?: { role: "user" | "assistant"; content: string }[];
+    model_id: string;
+    message: string;
+    history?: { role: "user" | "assistant"; content: string }[];
   },
-) => mutate<PlaygroundProbeResult>("/api/v1/playground/probes", "POST", { guardrail_id: guardrailId, ...input });
+) => mutate<PlaygroundInteraction>("/api/v1/playground/interactions", "POST", { guardrail_id: guardrailId, ...input });
 export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
 export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "risk" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
 export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");
@@ -814,7 +824,7 @@ export const getTrafficScopeFields = () => read<Collection<TrafficScopeField>>("
 export const createAssignment = (input: { name: string; guardrail_id: string; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<GuardrailAssignment>("/api/v1/assignments", "POST", input);
 export const setAssignmentEnabled = (id: string, enabled: boolean) => mutate<GuardrailAssignment>(`/api/v1/assignments/${encodeURIComponent(id)}`, "PATCH", { enabled });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
-export const createIntegration = (input: { name: string; protocol: Integration["protocol"] }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", { ...input, environment: "production" });
-export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; kind?: string; outcome?: string; risk?: string; environment?: string; window?: MetricWindow } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, environment: filters.environment, window: filters.window })}`);
-export const getMetrics = (filters: { guardrailId?: string; environment?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, environment: filters.environment, window: filters.window })}`);
+export const createIntegration = (input: { name: string; protocol: Integration["protocol"] }) => mutate<{ integration: Integration; credential: string }>("/api/v1/integrations", "POST", input);
+export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);
+export const getMetrics = (filters: { guardrailId?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

@@ -2,10 +2,10 @@ import { CheckCircle2, ChevronDown, CircleAlert, ListTree, SearchCheck, ShieldAl
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { PlaygroundProbeResult } from "@/lib/api";
+import type { PlaygroundCheckResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export function TriggeredControlsPanel({ result }: { result: PlaygroundProbeResult | null }) {
+export function TriggeredControlsPanel({ result }: { result: PlaygroundCheckResult | null }) {
   const { t } = useTranslation();
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-xs">
@@ -25,7 +25,7 @@ export function TriggeredControlsPanel({ result }: { result: PlaygroundProbeResu
   );
 }
 
-export function FindingsPanel({ result }: { result: PlaygroundProbeResult | null }) {
+export function FindingsPanel({ result }: { result: PlaygroundCheckResult | null }) {
   const { t } = useTranslation();
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-xs">
@@ -35,7 +35,7 @@ export function FindingsPanel({ result }: { result: PlaygroundProbeResult | null
   );
 }
 
-export function ExecutionTracePanel({ result }: { result: PlaygroundProbeResult | null }) {
+export function ExecutionTracePanel({ result }: { result: PlaygroundCheckResult | null }) {
   const { t } = useTranslation();
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-xs">

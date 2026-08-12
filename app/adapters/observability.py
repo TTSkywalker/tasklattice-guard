@@ -10,7 +10,7 @@ def record_runtime_decision(
     control_plane: ControlPlaneService,
     *,
     decision: EvaluationDecision,
-    integration_id: str,
+    integration_id: str | None,
     protocol: str,
     phase: str,
     started: float,

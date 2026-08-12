@@ -10,6 +10,10 @@ from .adapters.http import HTTPAdapter
 from .adapters.litellm import LiteLLMAdapter
 from .config import Settings
 from .control_plane.api import ControlPlaneAPI
+from .control_plane.chat_model import (
+    OpenAICompatibleChatModel,
+    PlaygroundChatModel,
+)
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
 from .control_plane.nemo_compiler import NeMoConfigCompiler
 from .control_plane.service import ControlPlaneService
@@ -126,6 +130,7 @@ def create_app(
     settings: Settings | None = None,
     engine: NeMoPolicyRuntime | None = None,
     intent_analyzer: IntentAnalyzer | None = None,
+    playground_chat_models: tuple[PlaygroundChatModel, ...] | None = None,
 ) -> FastAPI:
     configured = settings or Settings.from_env()
     tracer_provider = _configure_telemetry(configured)
@@ -145,11 +150,17 @@ def create_app(
     litellm = LiteLLMAdapter(service, control_plane)
     http_adapter = HTTPAdapter(service, control_plane)
     configured_intent_analyzer = intent_analyzer or _intent_analyzer(configured)
+    configured_playground_models = (
+        playground_chat_models
+        if playground_chat_models is not None
+        else _playground_chat_models(configured)
+    )
     control_plane_api = ControlPlaneAPI(
         control_plane,
         runtime_engine,
         require_user=identity_api.require_user,
         intent_analyzer=configured_intent_analyzer,
+        playground_chat_models=configured_playground_models,
     )
 
     @asynccontextmanager
@@ -208,6 +219,52 @@ def _intent_analyzer(settings: Settings) -> IntentAnalyzer | None:
         model=settings.control_plane_ai_model,
         api_key_env_var=settings.control_plane_ai_api_key_env_var,
     )
+
+
+def _playground_chat_models(settings: Settings) -> tuple[PlaygroundChatModel, ...]:
+    candidates = (
+        (
+            "deep-judge",
+            settings.deep_judge_base_url,
+            settings.deep_judge_model,
+            settings.deep_judge_api_key_env_var,
+        ),
+        (
+            "control-plane-ai",
+            settings.control_plane_ai_base_url,
+            settings.control_plane_ai_model,
+            settings.control_plane_ai_api_key_env_var,
+        ),
+    )
+    models: list[PlaygroundChatModel] = []
+    configured: set[tuple[str, str, str]] = set()
+    for model_id, base_url, model, api_key_env_var in candidates:
+        if (
+            not base_url
+            or not model
+            or not os.environ.get(api_key_env_var, "").strip()
+        ):
+            continue
+        identity = (base_url, model, api_key_env_var)
+        if identity in configured:
+            continue
+        configured.add(identity)
+        provider = (
+            "DeepSeek"
+            if urlsplit(base_url).hostname == "api.deepseek.com"
+            else "OpenAI compatible"
+        )
+        models.append(
+            OpenAICompatibleChatModel(
+                model_id=model_id,
+                provider=provider,
+                base_url=base_url,
+                model=model,
+                api_key_env_var=api_key_env_var,
+                request_options=_deepseek_options(base_url),
+            )
+        )
+    return tuple(models)
 
 
 def _create_control_plane(settings: Settings) -> ControlPlaneService:

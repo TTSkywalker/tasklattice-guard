@@ -25,21 +25,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryKeys } from "@/features/query-keys";
 import {
-  getControlTemplates,
-  getNativeControls,
-  type ControlTemplate,
-  type ControlTemplateRule,
+  getControls,
+  type Control,
+  type ControlRule,
   type NativeControl,
   type NativeRailType,
+  type RulesControl,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const EMPTY_TEMPLATES: ControlTemplate[] = [];
-const EMPTY_CONTROLS: NativeControl[] = [];
+const EMPTY_CONTROLS: Control[] = [];
 const RAILS: NativeRailType[] = ["input", "output", "retrieval", "dialog", "execution"];
 const IMPLEMENTATIONS = ["colang", "regex", "keyword", "category"] as const;
 
-type CatalogSource = "custom" | "built-in" | "template";
+type CatalogSource = "custom" | "built_in";
 type CatalogImplementation = typeof IMPLEMENTATIONS[number];
 type CatalogItem = {
   key: string;
@@ -52,26 +51,24 @@ type CatalogItem = {
   packs: Array<{ id: string; name: string }>;
   searchText: string;
   native?: NativeControl;
-  template?: ControlTemplate;
+  rulesControl?: RulesControl;
 };
 
 export function ControlLibraryPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const nativeQuery = useQuery({ queryKey: queryKeys.nativeControls, queryFn: getNativeControls });
-  const templateQuery = useQuery({ queryKey: queryKeys.controlTemplates, queryFn: getControlTemplates });
-  const nativeControls = nativeQuery.data?.items ?? EMPTY_CONTROLS;
-  const templates = templateQuery.data?.items ?? EMPTY_TEMPLATES;
+  const controlsQuery = useQuery({ queryKey: queryKeys.controls, queryFn: getControls });
+  const controls = controlsQuery.data?.items ?? EMPTY_CONTROLS;
   const [search, setSearch] = useState("");
   const [sources, setSources] = useState<Set<CatalogSource>>(new Set());
   const [rails, setRails] = useState<Set<NativeRailType>>(new Set());
   const [implementations, setImplementations] = useState<Set<CatalogImplementation>>(new Set());
   const [packs, setPacks] = useState<Set<string>>(new Set());
   const [selectedNativeId, setSelectedNativeId] = useState<string | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState<ControlTemplate | null>(null);
+  const [selectedRulesControl, setSelectedRulesControl] = useState<RulesControl | null>(null);
   const [studioControl, setStudioControl] = useState<NativeControl | null | undefined>(undefined);
 
-  const items = useMemo(() => catalogItems(nativeControls, templates), [nativeControls, templates]);
+  const items = useMemo(() => catalogItems(controls), [controls]);
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return items.filter((item) => {
@@ -84,7 +81,7 @@ export function ControlLibraryPage() {
   }, [implementations, items, packs, rails, search, sources]);
 
   const activeFilterCount = sources.size + rails.size + implementations.size + packs.size;
-  const loading = nativeQuery.isLoading || templateQuery.isLoading;
+  const loading = controlsQuery.isLoading;
 
   function clearFilters() {
     setSources(new Set());
@@ -94,7 +91,10 @@ export function ControlLibraryPage() {
   }
 
   async function refresh(controlId?: string) {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.nativeControls });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.controls }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.nativeControls }),
+    ]);
     if (controlId) await queryClient.invalidateQueries({ queryKey: queryKeys.nativeControl(controlId) });
   }
 
@@ -131,8 +131,7 @@ export function ControlLibraryPage() {
         </p>
       </div>
 
-      {nativeQuery.error ? <div className="mt-5"><ErrorNotice error={nativeQuery.error} /></div> : null}
-      {templateQuery.error ? <div className="mt-5"><ErrorNotice error={templateQuery.error} /></div> : null}
+      {controlsQuery.error ? <div className="mt-5"><ErrorNotice error={controlsQuery.error} /></div> : null}
 
       {loading ? <CatalogSkeleton /> : (
         <div className="mt-5 grid min-w-0 gap-5 lg:grid-cols-[19rem_minmax(0,1fr)] lg:items-start">
@@ -157,7 +156,7 @@ export function ControlLibraryPage() {
                   <ControlCatalogCard
                     key={item.key}
                     item={item}
-                    onOpen={() => item.native ? setSelectedNativeId(item.native.id) : setSelectedTemplate(item.template ?? null)}
+                    onOpen={() => item.native ? setSelectedNativeId(item.native.id) : setSelectedRulesControl(item.rulesControl ?? null)}
                   />
                 ))}
               </div>
@@ -178,7 +177,7 @@ export function ControlLibraryPage() {
         onClose={() => setSelectedNativeId(null)}
         onEdit={(control) => { setSelectedNativeId(null); setStudioControl(control); }}
       />
-      <ControlTemplateDetail template={selectedTemplate} onClose={() => setSelectedTemplate(null)} />
+      <RulesControlDetail control={selectedRulesControl} onClose={() => setSelectedRulesControl(null)} />
       <ControlStudioSheet
         control={studioControl}
         open={studioControl !== undefined}
@@ -231,7 +230,7 @@ function FacetFilters({
       </div>
 
       <FilterGroup title={t("controlLibrary.filterGroups.source")}>
-        {(["custom", "built-in", "template"] as const).map((source) => (
+        {(["custom", "built_in"] as const).map((source) => (
           <FilterOption
             key={source}
             label={t(`controlLibrary.sourceLabels.${source}`)}
@@ -314,8 +313,8 @@ function FilterOption({ label, count, selected, onClick }: { label: string; coun
 function ControlCatalogCard({ item, onOpen }: { item: CatalogItem; onOpen: () => void }) {
   const { t } = useTranslation();
   const native = item.native;
-  const template = item.template;
-  const Icon = item.source === "custom" ? Braces : item.source === "built-in" ? ShieldCheck : ListTree;
+  const rulesControl = item.rulesControl;
+  const Icon = item.source === "custom" ? Braces : native ? ShieldCheck : ListTree;
 
   return (
     <article className="group flex min-h-64 min-w-0 flex-col rounded-xl border bg-card p-4 shadow-xs transition-[border-color,box-shadow] hover:border-primary/30 hover:shadow-sm">
@@ -336,13 +335,13 @@ function ControlCatalogCard({ item, onOpen }: { item: CatalogItem; onOpen: () =>
       </div>
 
       <div className="mt-auto pt-5">
-        {template ? (
+        {rulesControl ? (
           <>
             <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="font-medium">{t("controlLibrary.rulesCount", { count: template.rules.length })}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">v{template.version}</span>
+              <span className="font-medium">{t("controlLibrary.rulesCount", { count: rulesControl.rules.length })}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">v{rulesControl.version}</span>
             </div>
-            <RuleTeeth count={template.rules.length} />
+            <RuleTeeth count={rulesControl.rules.length} />
           </>
         ) : native ? (
           <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/35 p-3 text-xs">
@@ -352,7 +351,7 @@ function ControlCatalogCard({ item, onOpen }: { item: CatalogItem; onOpen: () =>
         ) : null}
 
         <div className="mt-3 flex min-h-11 items-center justify-between gap-3 border-t pt-3">
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{template?.packs[0]?.name ?? native?.owner ?? t("controlLibrary.noPack")}</span>
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{rulesControl?.packs[0]?.name ?? native?.owner ?? t("controlLibrary.noPack")}</span>
           <Button size="sm" variant="ghost" onClick={onOpen}>{t("controlLibrary.details")}<ChevronRight /></Button>
         </div>
       </div>
@@ -369,36 +368,51 @@ function CatalogSkeleton() {
   );
 }
 
-function catalogItems(nativeControls: NativeControl[], templates: ControlTemplate[]): CatalogItem[] {
-  const nativeItems = nativeControls.map((control): CatalogItem => {
-    const rails = [...new Set(control.draft.rail_bindings.map((binding) => binding.rail_type))];
+function catalogItems(controls: Control[]): CatalogItem[] {
+  const items = controls.map((control): CatalogItem => {
+    if (control.implementation === "nemo_native") {
+      const rails = [...new Set(control.draft.rail_bindings.map((binding) => binding.rail_type))];
+      return {
+        key: `nemo-native:${control.id}`,
+        id: control.id,
+        source: control.source,
+        name: control.name,
+        description: control.description,
+        rails,
+        implementations: ["colang"],
+        packs: [],
+        searchText: [control.id, control.name, control.description, control.owner, ...rails, ...control.draft.action_references.map((action) => action.name)].join(" ").toLowerCase(),
+        native: control,
+      };
+    }
     return {
-      key: `native:${control.id}`,
+      key: `rules:${control.id}`,
       id: control.id,
       source: control.source,
       name: control.name,
       description: control.description,
-      rails,
-      implementations: ["colang"],
-      packs: [],
-      searchText: [control.id, control.name, control.description, control.owner, ...rails, ...control.draft.action_references.map((action) => action.name)].join(" ").toLowerCase(),
-      native: control,
+      rails: control.phases,
+      implementations: control.detector_types,
+      packs: control.packs,
+      searchText: [
+        control.id,
+        control.name,
+        control.description,
+        ...control.detector_types,
+        ...control.packs.map((pack) => pack.name),
+        ...control.rules.flatMap((rule) => [
+          rule.id,
+          rule.name,
+          rule.description,
+          ...rule.keywords.map((keyword) => keyword.value),
+          ...rule.always_block.map((keyword) => keyword.value),
+        ]),
+      ].join(" ").toLowerCase(),
+      rulesControl: control,
     };
   });
-  const templateItems = templates.map((template): CatalogItem => ({
-    key: `template:${template.id}`,
-    id: template.id,
-    source: "template",
-    name: template.name,
-    description: template.description,
-    rails: template.phases,
-    implementations: template.detector_types,
-    packs: template.packs.map(({ id, name }) => ({ id, name })),
-    searchText: [template.id, template.name, template.description, ...template.tags, ...template.detector_types, ...template.packs.flatMap((pack) => [pack.name, pack.domain]), ...template.rules.flatMap((rule) => [rule.id, rule.name, rule.description])].join(" ").toLowerCase(),
-    template,
-  }));
-  return [...nativeItems, ...templateItems].sort((left, right) => {
-    const sourceOrder: Record<CatalogSource, number> = { custom: 0, "built-in": 1, template: 2 };
+  return items.sort((left, right) => {
+    const sourceOrder: Record<CatalogSource, number> = { custom: 0, built_in: 1 };
     return sourceOrder[left.source] - sourceOrder[right.source] || left.name.localeCompare(right.name);
   });
 }
@@ -422,48 +436,50 @@ function RuleTeeth({ count }: { count: number }) {
   );
 }
 
-function ControlTemplateDetail({ template, onClose }: { template: ControlTemplate | null; onClose: () => void }) {
+function RulesControlDetail({ control, onClose }: { control: RulesControl | null; onClose: () => void }) {
   const { t } = useTranslation();
   const [expandedRule, setExpandedRule] = useState<string | null>(null);
 
-  useEffect(() => setExpandedRule(null), [template?.id]);
+  useEffect(() => setExpandedRule(null), [control?.id]);
 
   return (
     <EntitySheet
-      open={Boolean(template)}
+      open={Boolean(control)}
       onOpenChange={(open) => { if (!open) onClose(); }}
       eyebrow={t("controlLibrary.auditEyebrow")}
-      title={template?.name ?? t("controlLibrary.controlTemplate")}
-      description={template?.description ?? ""}
+      title={control?.name ?? t("controlLibrary.control")}
+      description={control?.description ?? ""}
       width="xl"
       footer={<Button type="button" variant="outline" onClick={onClose}>{t("common.close")}</Button>}
     >
-      {template ? (
+      {control ? (
         <div className="space-y-5">
           <section className="overflow-hidden rounded-xl border bg-card">
             <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0"><p className="text-xs font-medium text-muted-foreground">{t("controlLibrary.templateId")}</p><code className="mt-1 block truncate text-xs">{template.id}</code></div>
-              <div className="flex flex-wrap gap-1.5"><Badge variant="outline">{t(`controlLibrary.statuses.${template.status}`)}</Badge><Badge variant="outline" className="font-mono">v{template.version}</Badge></div>
+              <div className="min-w-0"><p className="text-xs font-medium text-muted-foreground">{t("controlLibrary.controlId")}</p><code className="mt-1 block truncate text-xs">{control.id}</code></div>
+              <div className="flex flex-wrap gap-1.5"><Badge variant="outline">{t("controlLibrary.builtIn")}</Badge><Badge variant="outline" className="font-mono">v{control.version}</Badge></div>
             </div>
             <dl className="grid grid-cols-2 sm:grid-cols-4">
-              <DetailFact label={t("controlLibrary.detector")} value={template.detector_types.map((item) => t(`controlLibrary.detectors.${item}`)).join(", ")} />
-              <DetailFact label={t("controlLibrary.phase")} value={template.phases.map((item) => t(`controlLibrary.phases.${item}`)).join(", ")} />
-              <DetailFact label={t("controlLibrary.defaultAction")} value={actionLabel(template.default_action, t)} />
-              <DetailFact label={t("controlLibrary.ruleCount")} value={String(template.rules.length)} mono />
+              <DetailFact label={t("controlLibrary.detector")} value={control.detector_types.map((item) => t(`controlLibrary.detectors.${item}`)).join(", ")} />
+              <DetailFact label={t("controlLibrary.phase")} value={control.phases.map((item) => t(`controlLibrary.phases.${item}`)).join(", ")} />
+              <DetailFact label={t("controlLibrary.defaultAction")} value={actionLabel(control.default_action, t)} />
+              <DetailFact label={t("controlLibrary.ruleCount")} value={String(control.rules.length)} mono />
             </dl>
-            <p className="border-t px-4 py-2.5 text-xs text-muted-foreground"><span className="font-medium text-foreground">{t("controlLibrary.source")}:</span> {template.source}</p>
+            <p className="border-t px-4 py-2.5 text-xs text-muted-foreground"><span className="font-medium text-foreground">{t("controlLibrary.source")}:</span> {t("controlLibrary.builtIn")}</p>
           </section>
 
-          <section className="rounded-xl border bg-card p-4">
-            <h3 className="text-sm font-medium">{t("controlLibrary.includedIn")}</h3>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {template.packs.map((item) => <Badge key={item.id} variant="outline" className="h-auto whitespace-normal py-1"><PackageOpen />{item.name}</Badge>)}
-            </div>
-          </section>
+          {control.packs.length ? (
+            <section className="rounded-xl border bg-card p-4">
+              <h3 className="text-sm font-medium">{t("controlLibrary.includedIn")}</h3>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {control.packs.map((item) => <Badge key={item.id} variant="outline" className="h-auto whitespace-normal py-1"><PackageOpen />{item.name}</Badge>)}
+              </div>
+            </section>
+          ) : null}
 
           <section className="overflow-hidden rounded-xl border bg-card">
             <div className="border-b bg-muted/30 px-4 py-3">
-              <h3 className="text-sm font-medium">{t("controlLibrary.rulesCount", { count: template.rules.length })}</h3>
+              <h3 className="text-sm font-medium">{t("controlLibrary.rulesCount", { count: control.rules.length })}</h3>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("controlLibrary.rulesDescription")}</p>
             </div>
             <Table>
@@ -476,7 +492,7 @@ function ControlTemplateDetail({ template, onClose }: { template: ControlTemplat
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {template.rules.map((rule) => {
+                {control.rules.map((rule) => {
                   const expanded = expandedRule === rule.id;
                   return (
                     <Fragment key={rule.id}>
@@ -498,27 +514,23 @@ function ControlTemplateDetail({ template, onClose }: { template: ControlTemplat
             </Table>
           </section>
 
-          {template.limitations.length ? (
-            <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-              <h3 className="text-sm font-medium text-amber-900">{t("controlLibrary.limitations")}</h3>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-amber-900/75">{template.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
-            </section>
-          ) : null}
         </div>
       ) : null}
     </EntitySheet>
   );
 }
 
-function RuleImplementation({ rule }: { rule: ControlTemplateRule }) {
+function RuleImplementation({ rule }: { rule: ControlRule }) {
   const { t } = useTranslation();
-  const lists = [
+  const textLists = [
     ["identifiers", rule.identifiers],
     ["conditions", rule.conditions],
-    ["keywords", rule.keywords],
-    ["alwaysBlock", rule.always_block],
     ["exceptions", rule.exceptions],
     ["phrasePatterns", rule.phrase_patterns],
+  ] as const;
+  const keywordLists = [
+    ["keywords", rule.keywords],
+    ["alwaysBlock", rule.always_block],
   ] as const;
   return (
     <div className="grid min-w-0 gap-4">
@@ -529,12 +541,25 @@ function RuleImplementation({ rule }: { rule: ControlTemplateRule }) {
         {rule.redaction ? <CodeValue label={t("controlLibrary.redactionFormat")} value={rule.redaction} /> : null}
         {rule.severity_threshold ? <CodeValue label={t("controlLibrary.severityThreshold")} value={rule.severity_threshold} /> : null}
       </div>
-      {lists.some(([, values]) => values.length) ? (
+      {textLists.some(([, values]) => values.length) || keywordLists.some(([, values]) => values.length) ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          {lists.map(([key, values]) => values.length ? (
+          {textLists.map(([key, values]) => values.length ? (
             <div key={key}>
               <p className="text-xs font-medium text-muted-foreground">{t(`controlLibrary.${key}`)}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">{values.map((value) => <Badge key={value} variant="secondary" className="h-auto max-w-full whitespace-normal py-1 font-normal">{value}</Badge>)}</div>
+            </div>
+          ) : null)}
+          {keywordLists.map(([key, values]) => values.length ? (
+            <div key={key}>
+              <p className="text-xs font-medium text-muted-foreground">{t(`controlLibrary.${key}`)}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {values.map((keyword) => (
+                  <Badge key={`${keyword.value}:${keyword.severity}`} variant="secondary" className="h-auto max-w-full gap-1.5 whitespace-normal py-1 font-normal">
+                    <span>{keyword.value}</span>
+                    <span className="font-mono text-[9px] uppercase text-muted-foreground">{keyword.severity}</span>
+                  </Badge>
+                ))}
+              </div>
             </div>
           ) : null)}
         </div>
@@ -551,7 +576,7 @@ function CodeValue({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0"><p className="text-xs font-medium text-muted-foreground">{label}</p><code className="mt-1.5 block w-full max-w-full overflow-x-auto rounded-lg border bg-background p-3 text-[11px] leading-5 text-foreground">{value}</code></div>;
 }
 
-function DetectorBadges({ detectors }: { detectors: ControlTemplateRule["detector"][] }) {
+function DetectorBadges({ detectors }: { detectors: ControlRule["detector"][] }) {
   const { t } = useTranslation();
   return <div className="flex flex-wrap gap-1.5">{detectors.map((item) => <Badge key={item} variant="outline" className="font-normal">{t(`controlLibrary.detectors.${item}`)}</Badge>)}</div>;
 }

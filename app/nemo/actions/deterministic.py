@@ -50,13 +50,13 @@ class FastPassEngine:
         if builtin_step:
             controls = tuple(
                 item.strip()
-                for item in (builtin_step.parameter("controls") or "").splitlines()
+                for item in (builtin_step.parameter("control_ids") or "").splitlines()
                 if item.strip()
             )
             parameters = {
-                key.removeprefix("template_parameter."): value
+                key.removeprefix("parameter."): value
                 for key, value in builtin_step.parameters
-                if key.startswith("template_parameter.")
+                if key.startswith("parameter.")
             }
             enabled_rules = json.loads(
                 builtin_step.parameter("enabled_rules_json") or "{}"

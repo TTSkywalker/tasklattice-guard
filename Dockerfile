@@ -1,32 +1,52 @@
+# syntax=docker/dockerfile:1
+
 FROM node:24-alpine AS ui-build
 
 WORKDIR /build/web
 
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 COPY web ./
 RUN npm run build
 
 
-FROM python:3.12-slim
+FROM python:3.12-slim AS python-dependencies
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
+
+ENV UV_LINK_MODE=copy \
+    UV_NO_DEV=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/tasklattice/venv \
+    UV_PYTHON_DOWNLOADS=0
+
+WORKDIR /build
+
+# This layer changes only when the dependency contract changes. Application
+# source is intentionally copied later so normal code edits reuse the venv.
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-install-project
+
+
+FROM python:3.12-slim AS runtime
+
+ENV PATH="/opt/tasklattice/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    MODEL_GUARDRAILS_DATABASE_PATH=/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v2.db \
+    MODEL_GUARDRAILS_DATABASE_PATH=/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v4.db \
     MODEL_GUARDRAILS_UI_DIST_PATH=/opt/tasklattice/model-guardrails/web/dist
 
 WORKDIR /opt/tasklattice/model-guardrails
 
-COPY pyproject.toml README.md THIRD_PARTY_NOTICES.md ./
-COPY app ./app
-
-RUN pip install . \
-    && useradd --system --uid 65532 --no-create-home tasklattice \
+RUN useradd --system --uid 65532 --no-create-home tasklattice \
     && mkdir -p /var/lib/tasklattice/model-guardrails \
     && chown -R 65532:65532 /var/lib/tasklattice/model-guardrails
 
+COPY --from=python-dependencies /opt/tasklattice/venv /opt/tasklattice/venv
+COPY README.md THIRD_PARTY_NOTICES.md ./
+COPY app ./app
 COPY --from=ui-build /build/web/dist ./web/dist
 
 USER 65532:65532

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sqlite3
 import time
-from dataclasses import asdict
 
 import pytest
 import yaml
@@ -210,8 +208,8 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
         controls=controls,
         safety_level="strict",
         output_delivery="full_buffered",
-        source_template_id="prompt-injection-protection",
-        template_parameters=(),
+        source_pack_id="prompt-injection-protection",
+        parameters=(),
         draft_version=1,
         active_version=None,
         updated_at="2026-08-12T00:00:00+00:00",
@@ -620,50 +618,6 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
     assert restarted.assignment(assignment.id).guardrail_version == 1
     assert restarted.versions(guardrail.id)[-1].execution_mode == "nemo_only"
     await engine.shutdown()
-
-
-def test_startup_atomically_migrates_every_released_snapshot_to_current_nemo(
-    tmp_path,
-):
-    database = tmp_path / "snapshot-migration.db"
-    service = ControlPlaneService(database)
-    plan = service.resolve(RequestContext("test")).plan
-    current = service.nemo_config(plan.guardrail_id, plan.guardrail_version)
-    retired_payload = asdict(current)
-    retired_payload["compiler_version"] = "tasklattice-nemo-config-v3"
-    retired_payload["colang_content"] = (
-        "flow retired_compatibility\n"
-        "  $result = await TaskLatticeEvaluateStepAction(text=$text)\n"
-    )
-    with sqlite3.connect(database) as connection:
-        connection.execute(
-            "UPDATE guardrail_versions SET nemo_config_json = ?, "
-            "compiler_version = ?, config_checksum = ?, execution_mode = ? "
-            "WHERE guardrail_id = ? AND version = ?",
-            (
-                json.dumps(retired_payload),
-                "tasklattice-nemo-config-v3",
-                "retired-checksum",
-                "compare",
-                plan.guardrail_id,
-                plan.guardrail_version,
-            ),
-        )
-        connection.commit()
-
-    restarted = ControlPlaneService(database)
-    migrated = restarted.nemo_config(plan.guardrail_id, plan.guardrail_version)
-    version = restarted.versions(plan.guardrail_id)[0]
-
-    assert migrated.compiler_version == "tasklattice-nemo-config-v5"
-    assert "EvaluateStep" not in migrated.colang_content
-    assert version.compiler_version == migrated.compiler_version
-    assert version.config_checksum == NeMoConfigCompiler.checksum(migrated)
-    assert version.execution_mode == "nemo_only"
-    assert any(
-        item.kind == "system.nemo_snapshots.migrated"
-        for item in restarted.activities()
-    )
 
 
 @pytest.mark.asyncio

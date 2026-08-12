@@ -23,7 +23,7 @@ def _plan(
     return GuardrailPlanSnapshot(
         guardrail_id="guardrail-dag",
         guardrail_version=2,
-        compiler_version="guardrail-plan-v3",
+        compiler_version="guardrail-plan-v4",
         safety_level="balanced",
         output_delivery="window_buffered",
         steps=steps,

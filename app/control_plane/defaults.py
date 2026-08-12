@@ -9,7 +9,7 @@ DEFAULT_GUARDRAIL_PURPOSE = (
     "prompt-injection, SQL-injection, and code-injection checks without calling "
     "an external model."
 )
-DEFAULT_GUARDRAIL_TEMPLATE_ID = "prompt-injection-protection"
+DEFAULT_GUARDRAIL_PACK_ID = "prompt-injection-protection"
 
 DEFAULT_ASSIGNMENT_ID = "assignment-default"
 DEFAULT_ASSIGNMENT_NAME = "Default Assignment"

@@ -33,21 +33,21 @@ from ..nemo.action_registry import (
     BUILTIN_ACTION_CATALOG,
     action_name_for,
 )
-from .catalog import (
-    CONTROL_DEFINITIONS,
-    control,
-    control_templates,
-    guardrail_template,
-    guardrail_templates,
+from ..control_library import (
+    control as library_control,
+    control_pack,
+    control_packs as library_control_packs,
+    controls as library_controls,
 )
+from .catalog import CONTROL_DEFINITIONS, control
 from .compiler import GuardrailCompiler
-from .nemo_compiler import NEMO_COMPILER_VERSION, NeMoConfigCompiler
+from .nemo_compiler import NeMoConfigCompiler
 from .defaults import (
     DEFAULT_GUARDRAIL_ID,
     DEFAULT_GUARDRAIL_NAME,
     DEFAULT_GUARDRAIL_PURPOSE,
     DEFAULT_GUARDRAIL_VERSION,
-    DEFAULT_GUARDRAIL_TEMPLATE_ID,
+    DEFAULT_GUARDRAIL_PACK_ID,
     DEFAULT_ASSIGNMENT_ID,
     DEFAULT_ASSIGNMENT_NAME,
     is_default_guardrail,
@@ -97,7 +97,7 @@ from .filtering import (
 )
 
 
-SCHEMA_VERSION = "tasklattice-guard-schema-v2"
+SCHEMA_VERSION = "tasklattice-guard-schema-v4"
 
 
 class ControlPlaneService:
@@ -140,11 +140,11 @@ class ControlPlaneService:
     # Creation resources. These support the Guardrail workflow but are not
     # first-class navigation objects.
 
-    def templates(self):
-        return guardrail_templates()
+    def control_packs(self):
+        return library_control_packs()
 
-    def control_templates(self):
-        return control_templates()
+    def library_controls(self):
+        return library_controls()
 
     def control_definitions(self):
         return CONTROL_DEFINITIONS
@@ -380,8 +380,8 @@ class ControlPlaneService:
             controls=(),
             safety_level="balanced",
             output_delivery="window_buffered",
-            source_template_id=None,
-            template_parameters=(),
+            source_pack_id=None,
+            parameters=(),
             draft_version=revision,
             active_version=None,
             updated_at=package.updated_at,
@@ -505,48 +505,59 @@ class ControlPlaneService:
         *,
         name: str,
         purpose: str | None = None,
-        template_id: str | None = None,
+        pack_id: str | None = None,
         allowed_topics: tuple[str, ...] = (),
         restricted_topics: tuple[str, ...] = (),
         controls: tuple[GuardrailControl, ...] = (),
         control_configurations: tuple[GuardrailControlConfig, ...] = (),
         control_bindings: tuple[GuardrailControlBinding, ...] = (),
-        template_parameters: tuple[tuple[str, str], ...] = (),
+        parameters: tuple[tuple[str, str], ...] = (),
         safety_level: str = "balanced",
         output_delivery: str = "window_buffered",
     ) -> Guardrail:
         clean_name = name.strip()
         if not clean_name:
             raise ValidationError("Guardrail name is required.")
-        if template_id:
-            try:
-                template = guardrail_template(template_id)
-            except StopIteration as error:
-                raise ValidationError("Unknown Guardrail Template.") from error
-            purpose = purpose.strip() if purpose and purpose.strip() else template.purpose
-            allowed_topics = allowed_topics or template.allowed_topics
-            restricted_topics = restricted_topics or template.restricted_topics
-            controls = controls or tuple(
-                GuardrailControl(item.risk, item.action)
-                for item in template.default_controls
+        parameters = tuple(
+            sorted(
+                (key.strip(), value.strip())
+                for key, value in parameters
+                if key.strip() and value.strip()
             )
-            safety_level = template.safety_level
-            output_delivery = template.output_delivery
-            template_parameters = tuple(
-                sorted(
-                    (key.strip(), value.strip())
-                    for key, value in template_parameters
-                    if key.strip() and value.strip()
+        )
+        if pack_id:
+            if control_configurations:
+                raise ValidationError(
+                    "A Guardrail cannot combine a Control Pack with explicit "
+                    "Control configurations."
                 )
-            )
-            supplied = dict(template_parameters)
+            pack = control_pack(pack_id)
+            if pack is None:
+                raise ValidationError("Unknown Control Pack.")
+            purpose = purpose.strip() if purpose and purpose.strip() else pack.description
+            if not any(
+                item.risk == "builtin_content_filter" for item in controls
+            ):
+                controls = (
+                    *controls,
+                    GuardrailControl("builtin_content_filter", "reject"),
+                )
+            safety_level = pack.safety_level
+            output_delivery = pack.output_delivery
+            supplied = dict(parameters)
+            supported_parameters = {item.name for item in pack.parameters}
+            unknown = sorted(set(supplied).difference(supported_parameters))
+            if unknown:
+                raise ValidationError(
+                    "Unknown Control Pack parameters: " + ", ".join(unknown) + "."
+                )
             missing = [
                 item.label
-                for item in template.parameters
+                for item in pack.parameters
                 if item.required and not supplied.get(item.name, "").strip()
             ]
             if missing:
-                raise ValidationError(f"Template requires: {', '.join(missing)}.")
+                raise ValidationError(f"Control Pack requires: {', '.join(missing)}.")
         control_bindings = _native_control_bindings(controls, control_bindings)
         self._validate_guardrail_fields(
             purpose or "",
@@ -564,8 +575,8 @@ class ControlPlaneService:
                 """
                 INSERT INTO guardrails
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
-                     controls_json, safety_level, output_delivery, source_template_id,
-                     template_parameters_json, control_configurations_json,
+                     controls_json, safety_level, output_delivery, source_pack_id,
+                     parameters_json, control_configurations_json,
                      control_bindings_json,
                      draft_version, active_version, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
@@ -579,8 +590,8 @@ class ControlPlaneService:
                     _controls_json(controls),
                     safety_level,
                     output_delivery,
-                    template_id,
-                    _json(dict(template_parameters)),
+                    pack_id,
+                    _json(dict(parameters)),
                     _control_configurations_json(control_configurations),
                     _json([asdict(item) for item in control_bindings]),
                     now,
@@ -782,8 +793,8 @@ class ControlPlaneService:
             controls=controls,
             safety_level=safety_level,
             output_delivery=output_delivery,
-            source_template_id=None,
-            template_parameters=(),
+            source_pack_id=None,
+            parameters=(),
             draft_version=1,
             active_version=None,
             updated_at=_now(),
@@ -1452,13 +1463,10 @@ class ControlPlaneService:
         *,
         name: str,
         description: str,
-        environment: str,
         protocol: str = "litellm",
     ) -> IntegrationRegistration:
         if not name.strip():
             raise ValidationError("Integration name is required.")
-        if environment not in {"production", "staging", "development", "test"}:
-            raise ValidationError("Unsupported Integration environment.")
         if protocol not in {"litellm", "http", "a2a"}:
             raise ValidationError("Unsupported Integration protocol.")
         integration_id = f"integration-{uuid.uuid4().hex[:12]}"
@@ -1468,10 +1476,10 @@ class ControlPlaneService:
             connection.execute(
                 """
                 INSERT INTO integrations
-                    (id, protocol, name, description, environment, enabled, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                    (id, protocol, name, description, enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, ?, ?)
                 """,
-                (integration_id, protocol, name.strip(), description.strip(), environment, now, now),
+                (integration_id, protocol, name.strip(), description.strip(), now, now),
             )
             self._insert_credential(connection, integration_id, credential, "generated")
             self._insert_activity(
@@ -1844,17 +1852,11 @@ class ControlPlaneService:
                     raise ControlPlaneError(
                         "This database is incompatible with the current TaskLattice Guard schema; initialize a new database."
                     )
-            self._ensure_guardrail_composition_schema(connection)
-            self._ensure_nemo_config_schema(connection)
-            self._ensure_runtime_metrics_schema(connection)
             self._ensure_builtin_controls(connection)
             # Released system Controls must be visible to the snapshot compiler,
             # which resolves them through the same read path as normal requests.
             connection.commit()
             self._ensure_product_defaults(connection)
-            self._migrate_guardrail_bindings(connection)
-            connection.commit()
-            self._migrate_released_snapshots(connection)
             connection.commit()
         self._reload_runtime()
 
@@ -1873,8 +1875,8 @@ class ControlPlaneService:
                 controls_json TEXT NOT NULL,
                 safety_level TEXT NOT NULL,
                 output_delivery TEXT NOT NULL,
-                source_template_id TEXT,
-                template_parameters_json TEXT NOT NULL,
+                source_pack_id TEXT,
+                parameters_json TEXT NOT NULL,
                 control_configurations_json TEXT NOT NULL DEFAULT '[]',
                 control_bindings_json TEXT NOT NULL DEFAULT '[]',
                 draft_version INTEGER NOT NULL,
@@ -1930,7 +1932,6 @@ class ControlPlaneService:
                 protocol TEXT NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
-                environment TEXT NOT NULL,
                 enabled INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -2033,258 +2034,7 @@ class ControlPlaneService:
                 ON runtime_metric_events(created_at);
             CREATE INDEX runtime_metric_events_guardrail_created_at_idx
                 ON runtime_metric_events(guardrail_id, created_at);
-            CREATE TABLE users (
-                id TEXT PRIMARY KEY,
-                display_name TEXT NOT NULL,
-                email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-                role TEXT NOT NULL,
-                password_salt TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                enabled INTEGER NOT NULL,
-                preferred_language TEXT NOT NULL DEFAULT 'en',
-                last_login_at TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE user_sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-            """
-        )
-        connection.execute(
-            "INSERT INTO control_plane_meta (key, value) VALUES ('schema_version', ?)",
-            (SCHEMA_VERSION,),
-        )
-
-    @staticmethod
-    def _ensure_guardrail_composition_schema(connection: sqlite3.Connection) -> None:
-        columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(guardrails)").fetchall()
-        }
-        if "control_configurations_json" not in columns:
-            connection.execute(
-                "ALTER TABLE guardrails ADD COLUMN control_configurations_json "
-                "TEXT NOT NULL DEFAULT '[]'"
-            )
-        if "control_bindings_json" not in columns:
-            connection.execute(
-                "ALTER TABLE guardrails ADD COLUMN control_bindings_json "
-                "TEXT NOT NULL DEFAULT '[]'"
-            )
-        test_case_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(test_cases)").fetchall()
-        }
-        test_case_additions = {
-            "case_type": "TEXT NOT NULL DEFAULT 'unit'",
-            "required": "INTEGER NOT NULL DEFAULT 1",
-            "expected_failure": "TEXT",
-            "concurrency_group": "TEXT",
-        }
-        for name, definition in test_case_additions.items():
-            if name not in test_case_columns:
-                connection.execute(
-                    f"ALTER TABLE test_cases ADD COLUMN {name} {definition}"
-                )
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS control_packages (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL,
-                source TEXT NOT NULL,
-                owner TEXT NOT NULL,
-                draft_json TEXT NOT NULL,
-                draft_revision INTEGER NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS control_versions (
-                control_id TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                version_json TEXT NOT NULL,
-                checksum TEXT NOT NULL,
-                published_at TEXT NOT NULL,
-                PRIMARY KEY (control_id, version),
-                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS control_test_runs (
-                id TEXT PRIMARY KEY,
-                control_id TEXT NOT NULL,
-                draft_revision INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                results_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
-            );
-            """
-        )
-
-    @staticmethod
-    def _ensure_nemo_config_schema(connection: sqlite3.Connection) -> None:
-        columns = {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(guardrail_versions)"
-            ).fetchall()
-        }
-        if "nemo_config_json" not in columns:
-            connection.execute(
-                "ALTER TABLE guardrail_versions ADD COLUMN nemo_config_json TEXT"
-            )
-        if "runtime_engine" not in columns:
-            connection.execute(
-                "ALTER TABLE guardrail_versions ADD COLUMN runtime_engine "
-                "TEXT NOT NULL DEFAULT 'nemo'"
-            )
-        if "config_checksum" not in columns:
-            connection.execute(
-                "ALTER TABLE guardrail_versions ADD COLUMN config_checksum TEXT"
-            )
-        if "execution_mode" not in columns:
-            connection.execute(
-                "ALTER TABLE guardrail_versions ADD COLUMN execution_mode "
-                "TEXT NOT NULL DEFAULT 'nemo_only'"
-            )
-
-    def _migrate_guardrail_bindings(self, connection: sqlite3.Connection) -> None:
-        """Add immutable built-in Control bindings without changing policy intent."""
-        for row in connection.execute("SELECT * FROM guardrails").fetchall():
-            guardrail = _guardrail_from_row(row)
-            bindings = _native_control_bindings(
-                guardrail.controls,
-                guardrail.control_bindings,
-            )
-            if bindings == guardrail.control_bindings:
-                continue
-            connection.execute(
-                "UPDATE guardrails SET control_bindings_json = ? WHERE id = ?",
-                (
-                    _json([asdict(item) for item in bindings]),
-                    guardrail.id,
-                ),
-            )
-
-    def _migrate_released_snapshots(self, connection: sqlite3.Connection) -> None:
-        """Atomically replace retired artifacts with auditable native snapshots."""
-        rows = connection.execute(
-            "SELECT guardrail_id, version, guardrail_json, plan_json, "
-            "nemo_config_json, compiler_version, config_checksum, execution_mode "
-            "FROM guardrail_versions"
-        ).fetchall()
-        migrated = 0
-        for row in rows:
-            guardrail = _guardrail_from_payload(json.loads(str(row[2])))
-            bindings = _native_control_bindings(
-                guardrail.controls,
-                guardrail.control_bindings,
-            )
-            native_guardrail = replace(guardrail, control_bindings=bindings)
-            stored_plan = _plan_from_payload(json.loads(str(row[3])))
-            stored_config = (
-                json.loads(str(row[4])) if row[4] is not None else None
-            )
-            stored_config_version = (
-                str(stored_config.get("compiler_version", ""))
-                if isinstance(stored_config, dict)
-                else ""
-            )
-            expected_bindings = {
-                (item.control_id, item.control_version) for item in bindings
-            }
-            stored_bindings = {
-                (item.control_id, item.control_version)
-                for item in stored_plan.control_bindings
-            }
-            if (
-                row[4] is not None
-                and row[6] is not None
-                and str(row[5]) == NEMO_COMPILER_VERSION
-                and stored_config_version == NEMO_COMPILER_VERSION
-                and str(row[7]) == "nemo_only"
-                and stored_bindings == expected_bindings
-            ):
-                continue
-            plan = self._compile_guardrail(native_guardrail, int(row[1]))
-            config = self._nemo_compiler.compile(plan)
-            checksum = self._nemo_compiler.checksum(config)
-            connection.execute(
-                "UPDATE guardrail_versions SET guardrail_json = ?, plan_json = ?, "
-                "nemo_config_json = ?, "
-                "compiler_version = ?, plan_checksum = ?, runtime_engine = ?, "
-                "config_checksum = ?, execution_mode = 'nemo_only' "
-                "WHERE guardrail_id = ? AND version = ?",
-                (
-                    _json(asdict(native_guardrail)),
-                    _json(asdict(plan)),
-                    _json(asdict(config)),
-                    config.compiler_version,
-                    checksum,
-                    config.runtime_engine,
-                    checksum,
-                    str(row[0]),
-                    int(row[1]),
-                ),
-            )
-            migrated += 1
-        if migrated:
-            self._insert_activity(
-                connection,
-                kind="system.nemo_snapshots.migrated",
-                outcome="success",
-                detail=(
-                    f"Migrated {migrated} released Guardrail Version(s) to "
-                    f"{NEMO_COMPILER_VERSION} and nemo_only execution."
-                ),
-            )
-
-    @staticmethod
-    def _ensure_runtime_metrics_schema(connection: sqlite3.Connection) -> None:
-        evidence_columns = {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(evidence_events)"
-            ).fetchall()
-        }
-        if "integration_id" not in evidence_columns:
-            connection.execute("ALTER TABLE evidence_events ADD COLUMN integration_id TEXT")
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS runtime_metric_events (
-                id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                guardrail_id TEXT,
-                guardrail_version INTEGER,
-                assignment_id TEXT,
-                integration_id TEXT,
-                protocol TEXT NOT NULL,
-                phase TEXT NOT NULL,
-                outcome TEXT NOT NULL,
-                action TEXT NOT NULL,
-                risk TEXT,
-                latency_ms INTEGER NOT NULL,
-                timed_out INTEGER NOT NULL,
-                module_invocations INTEGER NOT NULL,
-                evaluator_invocations INTEGER NOT NULL,
-                rail_invocations INTEGER NOT NULL DEFAULT 0,
-                action_invocations INTEGER NOT NULL DEFAULT 0,
-                model_invocations INTEGER NOT NULL DEFAULT 0,
-                queue_latency_ms INTEGER NOT NULL DEFAULT 0,
-                cache_hits INTEGER NOT NULL DEFAULT 0,
-                cache_misses INTEGER NOT NULL DEFAULT 0,
-                runtime_engine TEXT NOT NULL DEFAULT '',
-                config_checksum TEXT NOT NULL DEFAULT '',
-                fail_closed INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS runtime_metric_events_created_at_idx
-                ON runtime_metric_events(created_at);
-            CREATE INDEX IF NOT EXISTS runtime_metric_events_guardrail_created_at_idx
-                ON runtime_metric_events(guardrail_id, created_at);
-            CREATE TABLE IF NOT EXISTS runtime_step_metric_events (
+            CREATE TABLE runtime_step_metric_events (
                 id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
                 guardrail_id TEXT NOT NULL,
@@ -2312,59 +2062,36 @@ class ControlPlaneService:
                 timeout_ms INTEGER,
                 provider_latency_ms INTEGER NOT NULL DEFAULT 0
             );
-            CREATE INDEX IF NOT EXISTS runtime_step_metric_events_created_at_idx
+            CREATE INDEX runtime_step_metric_events_created_at_idx
                 ON runtime_step_metric_events(created_at);
-            CREATE INDEX IF NOT EXISTS runtime_step_metric_events_guardrail_created_at_idx
+            CREATE INDEX runtime_step_metric_events_guardrail_created_at_idx
                 ON runtime_step_metric_events(guardrail_id, created_at);
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                role TEXT NOT NULL,
+                password_salt TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                preferred_language TEXT NOT NULL DEFAULT 'en',
+                last_login_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE user_sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             """
         )
-        columns = {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(runtime_metric_events)"
-            ).fetchall()
-        }
-        additions = {
-            "rail_invocations": "INTEGER NOT NULL DEFAULT 0",
-            "action_invocations": "INTEGER NOT NULL DEFAULT 0",
-            "model_invocations": "INTEGER NOT NULL DEFAULT 0",
-            "queue_latency_ms": "INTEGER NOT NULL DEFAULT 0",
-            "cache_hits": "INTEGER NOT NULL DEFAULT 0",
-            "cache_misses": "INTEGER NOT NULL DEFAULT 0",
-            "runtime_engine": "TEXT NOT NULL DEFAULT ''",
-            "config_checksum": "TEXT NOT NULL DEFAULT ''",
-            "fail_closed": "INTEGER NOT NULL DEFAULT 0",
-            "active_concurrency": "INTEGER NOT NULL DEFAULT 0",
-            "provider_latency_ms": "INTEGER NOT NULL DEFAULT 0",
-            "slo_breached": "INTEGER NOT NULL DEFAULT 0",
-        }
-        for name, definition in additions.items():
-            if name not in columns:
-                connection.execute(
-                    f"ALTER TABLE runtime_metric_events ADD COLUMN {name} {definition}"
-                )
-        step_columns = {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(runtime_step_metric_events)"
-            ).fetchall()
-        }
-        step_additions = {
-            "control_id": "TEXT",
-            "control_version": "INTEGER",
-            "rail_type": "TEXT",
-            "flow_name": "TEXT",
-            "action_name": "TEXT",
-            "action_version": "TEXT",
-            "parallel_group": "TEXT",
-            "timeout_ms": "INTEGER",
-            "provider_latency_ms": "INTEGER NOT NULL DEFAULT 0",
-        }
-        for name, definition in step_additions.items():
-            if name not in step_columns:
-                connection.execute(
-                    f"ALTER TABLE runtime_step_metric_events ADD COLUMN {name} {definition}"
-                )
+        connection.execute(
+            "INSERT INTO control_plane_meta (key, value) VALUES ('schema_version', ?)",
+            (SCHEMA_VERSION,),
+        )
 
     def _seed(self, connection: sqlite3.Connection) -> None:
         self._insert_activity(
@@ -2494,8 +2221,8 @@ class ControlPlaneService:
                 controls=controls,
                 safety_level="balanced",
                 output_delivery="window_buffered",
-                source_template_id=DEFAULT_GUARDRAIL_TEMPLATE_ID,
-                template_parameters=(),
+                source_pack_id=DEFAULT_GUARDRAIL_PACK_ID,
+                parameters=(),
                 draft_version=1,
                 active_version=DEFAULT_GUARDRAIL_VERSION,
                 updated_at=now,
@@ -2515,8 +2242,8 @@ class ControlPlaneService:
                 """
                 INSERT INTO guardrails
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
-                     controls_json, safety_level, output_delivery, source_template_id,
-                     template_parameters_json, control_configurations_json,
+                     controls_json, safety_level, output_delivery, source_pack_id,
+                     parameters_json, control_configurations_json,
                      control_bindings_json, draft_version, active_version, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, 1, ?, ?)
                 """,
@@ -2529,7 +2256,7 @@ class ControlPlaneService:
                     _controls_json(guardrail.controls),
                     guardrail.safety_level,
                     guardrail.output_delivery,
-                    guardrail.source_template_id,
+                    guardrail.source_pack_id,
                     _json({}),
                     _json([asdict(item) for item in control_bindings]),
                     DEFAULT_GUARDRAIL_VERSION,
@@ -2686,7 +2413,6 @@ class ControlPlaneService:
             protocol=str(row["protocol"]),
             name=str(row["name"]),
             description=str(row["description"]),
-            environment=str(row["environment"]),
             enabled=enabled,
             credential_prefix=str(row["credential_prefix"]),
             verification_status="verified" if last_seen else "waiting",
@@ -2899,7 +2625,6 @@ class ControlPlaneService:
     ) -> None:
         if len({item.id for item in configurations}) != len(configurations):
             raise ValidationError("A Control may only be configured once.")
-        templates = {item.id: item for item in control_templates()}
         known_risks = {item.id for item in CONTROL_DEFINITIONS}
         for configuration in configurations:
             if configuration.runtime_risk not in known_risks:
@@ -2918,19 +2643,31 @@ class ControlPlaneService:
                 raise ValidationError(
                     f"Control {configuration.name!r} contains duplicate Rules."
                 )
-            if configuration.kind == "template":
-                template = templates.get(configuration.template_id or "")
-                if template is None:
-                    raise ValidationError("Unknown Control Template.")
-                if configuration.template_version != template.version:
+            if configuration.kind == "built_in":
+                built_in = library_control(configuration.control_id or "")
+                if built_in is None:
+                    raise ValidationError("Unknown built-in Control.")
+                if configuration.control_version != built_in.version:
                     raise ValidationError(
-                        f"Control Template {template.id!r} must pin version {template.version}."
+                        f"Control {built_in.id!r} must pin version {built_in.version}."
                     )
-                available = {rule.id for rule in template.rules}
+                available = {rule.id for rule in built_in.rules}
                 if any(rule.id not in available for rule in configuration.rules):
                     raise ValidationError(
                         f"Control {configuration.name!r} references an unknown Rule."
                     )
+            elif configuration.kind == "custom":
+                if (
+                    configuration.control_id is not None
+                    or configuration.control_version is not None
+                ):
+                    raise ValidationError(
+                        "A custom Control cannot reference a built-in Control version."
+                    )
+            else:
+                raise ValidationError(
+                    f"Unsupported Control kind {configuration.kind!r}."
+                )
             for rule in configuration.rules:
                 if not rule.phases or any(
                     phase not in {"input", "output"} for phase in rule.phases
@@ -2955,7 +2692,7 @@ class ControlPlaneService:
                             f"Custom Keyword Rule {rule.name!r} requires a keyword."
                         )
                 if (
-                    configuration.kind == "template"
+                    configuration.kind == "built_in"
                     and rule.enabled
                     and rule.id.startswith("dynamic-")
                     and (
@@ -3165,11 +2902,11 @@ def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
         ),
         safety_level=str(row["safety_level"]),
         output_delivery=str(row["output_delivery"]),
-        source_template_id=(
-            str(row["source_template_id"]) if row["source_template_id"] else None
+        source_pack_id=(
+            str(row["source_pack_id"]) if row["source_pack_id"] else None
         ),
-        template_parameters=tuple(
-            sorted(json.loads(str(row["template_parameters_json"])).items())
+        parameters=tuple(
+            sorted(json.loads(str(row["parameters_json"])).items())
         ),
         draft_version=int(row["draft_version"]),
         active_version=(
@@ -3182,12 +2919,12 @@ def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
                 name=str(item["name"]),
                 kind=str(item["kind"]),
                 runtime_risk=str(item["runtime_risk"]),
-                template_id=(
-                    str(item["template_id"]) if item.get("template_id") else None
+                control_id=(
+                    str(item["control_id"]) if item.get("control_id") else None
                 ),
-                template_version=(
-                    str(item["template_version"])
-                    if item.get("template_version")
+                control_version=(
+                    str(item["control_version"])
+                    if item.get("control_version")
                     else None
                 ),
                 rules=tuple(
@@ -3221,91 +2958,6 @@ def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
                 enabled_rails=tuple(item.get("enabled_rails", ("input", "output"))),
             )
             for item in raw_bindings
-        ),
-    )
-
-
-def _guardrail_from_payload(payload: dict[str, object]) -> Guardrail:
-    return Guardrail(
-        id=str(payload["id"]),
-        name=str(payload["name"]),
-        purpose=str(payload["purpose"]),
-        allowed_topics=tuple(payload.get("allowed_topics", ())),
-        restricted_topics=tuple(payload.get("restricted_topics", ())),
-        controls=tuple(
-            GuardrailControl(
-                risk=str(item["risk"]),
-                action=str(item["action"]),
-                reasoning_policy=_reasoning_binding(item.get("reasoning_policy")),
-            )
-            for item in payload.get("controls", ())
-        ),
-        safety_level=str(payload["safety_level"]),
-        output_delivery=str(payload["output_delivery"]),
-        source_template_id=(
-            str(payload["source_template_id"])
-            if payload.get("source_template_id") is not None
-            else None
-        ),
-        template_parameters=tuple(
-            tuple(item) for item in payload.get("template_parameters", ())
-        ),
-        draft_version=int(payload["draft_version"]),
-        active_version=(
-            int(payload["active_version"])
-            if payload.get("active_version") is not None
-            else None
-        ),
-        updated_at=str(payload["updated_at"]),
-        control_configurations=tuple(
-            GuardrailControlConfig(
-                id=str(item["id"]),
-                name=str(item["name"]),
-                kind=str(item["kind"]),
-                runtime_risk=str(item["runtime_risk"]),
-                template_id=(
-                    str(item["template_id"])
-                    if item.get("template_id") is not None
-                    else None
-                ),
-                template_version=(
-                    str(item["template_version"])
-                    if item.get("template_version") is not None
-                    else None
-                ),
-                rules=tuple(
-                    GuardrailRuleConfig(
-                        id=str(rule["id"]),
-                        name=str(rule["name"]),
-                        detector=str(rule["detector"]),
-                        action=str(rule["action"]),
-                        phases=tuple(rule["phases"]),
-                        enabled=bool(rule.get("enabled", True)),
-                        description=str(rule.get("description", "")),
-                        expression=(
-                            str(rule["expression"])
-                            if rule.get("expression") is not None
-                            else None
-                        ),
-                        keywords=tuple(rule.get("keywords", ())),
-                    )
-                    for rule in item.get("rules", ())
-                ),
-            )
-            for item in payload.get("control_configurations", ())
-        ),
-        control_bindings=tuple(
-            GuardrailControlBinding(
-                control_id=str(item["control_id"]),
-                control_version=int(item["control_version"]),
-                parameter_values=tuple(
-                    tuple(value) for value in item.get("parameter_values", ())
-                ),
-                enabled_rails=tuple(
-                    item.get("enabled_rails", ("input", "output"))
-                ),
-            )
-            for item in payload.get("control_bindings", ())
         ),
     )
 
@@ -3425,13 +3077,13 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
                 ),
                 action_name=(
                     str(item["action_name"])
-                    if item.get("action_name")
-                    else _legacy_action_name(str(item["risk"]), str(item["stage"]))
+                    if item["action_name"] is not None
+                    else None
                 ),
                 action_version=(
                     str(item["action_version"])
-                    if item.get("action_version")
-                    else "1.0.0"
+                    if item["action_version"] is not None
+                    else None
                 ),
                 parallel_group=(
                     str(item["parallel_group"])
@@ -3458,26 +3110,6 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
             payload.get("estimated_critical_path_ms", 0)
         ),
     )
-
-
-def _legacy_action_name(risk: str, stage: str) -> str:
-    if stage == "deterministic":
-        return {
-            "secrets": "TaskLatticeSecretsAction",
-            "pii": "TaskLatticePiiAction",
-            "builtin_content_filter": "TaskLatticeBuiltinContentFilterAction",
-            "topic_control": "TaskLatticeTopicDeterministicAction",
-        }.get(risk, "TaskLatticeBuiltinContentFilterAction")
-    if stage == "fast_semantic":
-        return "TaskLatticePromptSecurityFastAction"
-    return {
-        "prompt_injection": "TaskLatticePromptSecurityJudgeAction",
-        "jailbreak": "TaskLatticePromptSecurityJudgeAction",
-        "topic_control": "TaskLatticeTopicJudgeAction",
-        "company_policy": "TaskLatticeTopicJudgeAction",
-        "contextual_grounding": "TaskLatticeGroundingAction",
-        "automated_reasoning": "TaskLatticeAutomatedReasoningAction",
-    }.get(risk, "TaskLatticePromptSecurityJudgeAction")
 
 
 def _reasoning_binding(value: object) -> AutomatedReasoningPolicyBinding | None:
