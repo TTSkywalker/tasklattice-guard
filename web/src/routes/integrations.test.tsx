@@ -45,11 +45,9 @@ vi.mock("react-i18next", () => ({
         "integrations.configureLiteLLMYaml": "Configure LiteLLM config.yaml",
         "integrations.configureLiteLLMYamlDescription": "Set the generated environment variables, paste the YAML into the Gateway config, then restart or redeploy.",
         "integrations.protocolShort.litellm": "LiteLLM",
-        "integrations.litellmConfigurationMethodTitle": "Configuration method: config.yaml",
-        "integrations.litellmConfigurationMethodDescription": "Use the generated YAML below as the source of truth.",
-        "integrations.litellmAdminUiLabel": "Admin UI mapping:",
-        "integrations.litellmAdminUiPath": "Provider → Generic Guardrail API",
-        "integrations.litellmAdminUiWarning": "Do not select Custom or another provider.",
+        "integrations.litellmConfigurationMethodTitle": "Use config.yaml (recommended)",
+        "integrations.litellmConfigurationMethodDescription": "You do not need to select a Provider in the LiteLLM Admin UI.",
+        "integrations.litellmAdminUiNote": "Custom creates inline code and is not this HTTP adapter.",
         "integrations.apiBaseUrl": "TaskLattice API base URL",
         "integrations.apiBaseEnvironmentVariable": "API base environment assignment",
         "integrations.configurationTemplate": "Adapter configuration",
@@ -184,8 +182,8 @@ describe("Integration onboarding", () => {
     expect(screen.getByText("tali_••••8NzQ")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reveal credential" })).toBeTruthy();
     expect(screen.getByText("Configure LiteLLM config.yaml")).toBeTruthy();
-    expect(screen.getByText("Provider → Generic Guardrail API")).toBeTruthy();
-    expect(screen.getByText("Do not select Custom or another provider.")).toBeTruthy();
+    expect(screen.getByText("You do not need to select a Provider in the LiteLLM Admin UI.")).toBeTruthy();
+    expect(screen.getByText("Custom creates inline code and is not this HTTP adapter.")).toBeTruthy();
     expect(screen.getByText("LiteLLM config.yaml snippet")).toBeTruthy();
     expect(screen.getByText(`TASKLATTICE_GUARD_API_BASE=${item.setup.api_base_url}`)).toBeTruthy();
     expect(screen.getByText(/guardrail_name: tasklattice-guard/)).toBeTruthy();

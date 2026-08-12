@@ -552,7 +552,7 @@ export function SetupChecklist({
           : t("integrations.configureAdapterDescription")}
         complete={configurationCopied}
       >
-        <div className="grid gap-4">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
           {integration.protocol === "litellm" ? <LiteLLMConfigurationMethodNotice /> : null}
           <CopyField label={t("integrations.apiBaseUrl")} value={integration.setup.api_base_url} />
           <EnvironmentAssignment label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
@@ -609,7 +609,7 @@ function SetupStep({
           {complete ? <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700"><Check />{t("integrations.complete")}</Badge> : null}
         </div>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-        <div className="mt-4">{children}</div>
+        <div className="mt-4 min-w-0">{children}</div>
       </div>
     </li>
   );
@@ -623,7 +623,7 @@ function SetupConfiguration({ integration }: { integration: Integration }) {
         <h3 className="text-sm font-semibold">{t("integrations.setupConfiguration")}</h3>
         <p className="mt-1 text-xs text-muted-foreground">{t("integrations.setupConfigurationDescription")}</p>
       </div>
-      <div className="grid gap-4 p-4">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 p-4">
         <CopyField label={t("integrations.apiBaseUrl")} value={integration.setup.api_base_url} />
         <CopyField label={t("integrations.callbackUrl")} value={integration.setup.callback_url} />
         <div className="grid gap-4 sm:grid-cols-2">
@@ -664,12 +664,8 @@ function LiteLLMConfigurationMethodNotice() {
   const { t } = useTranslation();
   return (
     <InfoNotice title={t("integrations.litellmConfigurationMethodTitle")}>
-      <p>{t("integrations.litellmConfigurationMethodDescription")}</p>
-      <p className="mt-2 font-medium text-foreground">
-        {t("integrations.litellmAdminUiLabel")}{" "}
-        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-xs">{t("integrations.litellmAdminUiPath")}</code>
-      </p>
-      <p className="mt-2">{t("integrations.litellmAdminUiWarning")}</p>
+      <p className="font-medium text-foreground">{t("integrations.litellmConfigurationMethodDescription")}</p>
+      <p className="mt-2">{t("integrations.litellmAdminUiNote")}</p>
     </InfoNotice>
   );
 }
@@ -783,12 +779,12 @@ function CodeBlock({ label, value, onCopied }: { label: string; value: string; o
     if (await copy(value, label)) onCopied?.();
   }
   return (
-    <div>
+    <div className="min-w-0">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
         <Button type="button" size="sm" variant="outline" onClick={handleCopy}><Copy />{t("integrations.copyTemplate")}</Button>
       </div>
-      <pre className="max-h-80 overflow-auto rounded-lg border bg-muted/30 p-4 font-mono text-xs leading-5 text-foreground"><code>{value}</code></pre>
+      <pre className="max-h-80 min-w-0 max-w-full overflow-auto rounded-lg border bg-muted/30 p-4 font-mono text-xs leading-5 text-foreground"><code>{value}</code></pre>
     </div>
   );
 }
