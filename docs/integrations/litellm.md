@@ -52,6 +52,16 @@ Do not commit the key to `config.yaml`, a container image, or source control.
 
 ## 3. Configure LiteLLM
 
+The generated `config.yaml` snippet is the canonical setup path. TaskLattice is
+not a vendor name in LiteLLM's provider list:
+
+- If the LiteLLM Admin UI offers **Provider → Generic Guardrail API**, that is
+  the matching provider type.
+- Do not select **Custom**. That creates a custom-code guardrail inside LiteLLM;
+  it does not configure this remote API integration.
+- Do not substitute another vendor provider. If **Generic Guardrail API** is not
+  available in the installed LiteLLM version, use `config.yaml` as shown below.
+
 Add this guardrail to the Gateway's `config.yaml`:
 
 ```yaml

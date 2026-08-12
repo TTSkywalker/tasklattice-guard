@@ -36,12 +36,24 @@ vi.mock("react-i18next", () => ({
         "integrations.oneTimeCredentialDescription": "Shown once.",
         "integrations.copyCredential": "Copy credential",
         "integrations.credentialStoredConfirmation": "I stored this credential in a secure location",
+        "integrations.credentialSaved": "Credential saved",
+        "integrations.credentialSavedDescription": "The complete value is hidden. Only its non-secret hint remains.",
+        "integrations.revealCredential": "Reveal credential",
+        "integrations.hideCredential": "Hide credential",
         "integrations.configureAdapter": "Configure {{adapter}}",
         "integrations.configureAdapterDescription": "Deploy the generated configuration.",
+        "integrations.configureLiteLLMYaml": "Configure LiteLLM config.yaml",
+        "integrations.configureLiteLLMYamlDescription": "Set the generated environment variables, paste the YAML into the Gateway config, then restart or redeploy.",
         "integrations.protocolShort.litellm": "LiteLLM",
+        "integrations.litellmConfigurationMethodTitle": "Configuration method: config.yaml",
+        "integrations.litellmConfigurationMethodDescription": "Use the generated YAML below as the source of truth.",
+        "integrations.litellmAdminUiLabel": "Admin UI mapping:",
+        "integrations.litellmAdminUiPath": "Provider → Generic Guardrail API",
+        "integrations.litellmAdminUiWarning": "Do not select Custom or another provider.",
         "integrations.apiBaseUrl": "TaskLattice API base URL",
         "integrations.apiBaseEnvironmentVariable": "API base environment assignment",
         "integrations.configurationTemplate": "Adapter configuration",
+        "integrations.litellmConfigSnippet": "LiteLLM config.yaml snippet",
         "integrations.copyTemplate": "Copy configuration",
         "integrations.copyItem": "Copy {{item}}",
         "integrations.modes": "Recommended modes",
@@ -168,11 +180,47 @@ describe("Integration onboarding", () => {
     );
 
     expect(screen.getByRole("list", { name: "Gateway setup checklist" })).toBeTruthy();
-    expect(screen.getByText("tali_integration_one_time_value")).toBeTruthy();
+    expect(screen.queryByText("tali_integration_one_time_value")).toBeNull();
+    expect(screen.getByText("tali_••••8NzQ")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reveal credential" })).toBeTruthy();
+    expect(screen.getByText("Configure LiteLLM config.yaml")).toBeTruthy();
+    expect(screen.getByText("Provider → Generic Guardrail API")).toBeTruthy();
+    expect(screen.getByText("Do not select Custom or another provider.")).toBeTruthy();
+    expect(screen.getByText("LiteLLM config.yaml snippet")).toBeTruthy();
     expect(screen.getByText(`TASKLATTICE_GUARD_API_BASE=${item.setup.api_base_url}`)).toBeTruthy();
     expect(screen.getByText(/guardrail_name: tasklattice-guard/)).toBeTruthy();
     expect(screen.getByText("Both callback directions have been received. This Gateway connection is verified.")).toBeTruthy();
     expect(screen.getAllByText("Complete").length).toBe(3);
+  });
+
+  it("hides a saved credential and supports explicit reveal and hide without clearing the saved state", async () => {
+    const result = registration();
+    createIntegrationMock.mockResolvedValue(result);
+    getIntegrationMock.mockResolvedValue(result.integration);
+
+    renderWithProviders(<CreateIntegrationSheet open onOpenChange={vi.fn()} onCreated={vi.fn().mockResolvedValue(undefined)} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Corporate AI Gateway"), { target: { value: "Beijing primary" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add integration" }));
+
+    expect(await screen.findByText("tali_integration_one_time_value")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "I stored this credential in a secure location" }));
+
+    expect(screen.queryByText("tali_integration_one_time_value")).toBeNull();
+    expect(screen.getByText("tali_••••8NzQ")).toBeTruthy();
+    expect(screen.getByText("The complete value is hidden. Only its non-secret hint remains.")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "I stored this credential in a secure location" })).toBeNull();
+    expect(screen.getAllByText("Complete")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal credential" }));
+    expect(screen.getByText("tali_integration_one_time_value")).toBeTruthy();
+    expect(screen.getByText("Credential saved")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "I stored this credential in a secure location" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide credential" }));
+    expect(screen.queryByText("tali_integration_one_time_value")).toBeNull();
+    expect(screen.getByRole("button", { name: "Reveal credential" })).toBeTruthy();
+    expect(screen.getAllByText("Complete")).toHaveLength(1);
   });
 
   it("protects the one-time credential when creation is closed before it is marked as saved", async () => {

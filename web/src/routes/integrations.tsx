@@ -7,6 +7,8 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  Eye,
+  EyeOff,
   KeyRound,
   Plus,
   RefreshCw,
@@ -542,14 +544,23 @@ export function SetupChecklist({
       </SetupStep>
       <SetupStep
         number={2}
-        title={t("integrations.configureAdapter", { adapter: t(`integrations.protocolShort.${integration.protocol}`) })}
-        description={t("integrations.configureAdapterDescription")}
+        title={integration.protocol === "litellm"
+          ? t("integrations.configureLiteLLMYaml")
+          : t("integrations.configureAdapter", { adapter: t(`integrations.protocolShort.${integration.protocol}`) })}
+        description={integration.protocol === "litellm"
+          ? t("integrations.configureLiteLLMYamlDescription")
+          : t("integrations.configureAdapterDescription")}
         complete={configurationCopied}
       >
         <div className="grid gap-4">
+          {integration.protocol === "litellm" ? <LiteLLMConfigurationMethodNotice /> : null}
           <CopyField label={t("integrations.apiBaseUrl")} value={integration.setup.api_base_url} />
           <EnvironmentAssignment label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
-          <CodeBlock label={t("integrations.configurationTemplate")} value={integration.setup.yaml_template} onCopied={onConfigurationCopied} />
+          <CodeBlock
+            label={integration.protocol === "litellm" ? t("integrations.litellmConfigSnippet") : t("integrations.configurationTemplate")}
+            value={integration.setup.yaml_template}
+            onCopied={onConfigurationCopied}
+          />
           {integration.protocol === "litellm" ? <LiteLLMBaseUrlNotice /> : null}
           <SetupFacts integration={integration} />
         </div>
@@ -649,6 +660,20 @@ function LiteLLMBaseUrlNotice() {
   );
 }
 
+function LiteLLMConfigurationMethodNotice() {
+  const { t } = useTranslation();
+  return (
+    <InfoNotice title={t("integrations.litellmConfigurationMethodTitle")}>
+      <p>{t("integrations.litellmConfigurationMethodDescription")}</p>
+      <p className="mt-2 font-medium text-foreground">
+        {t("integrations.litellmAdminUiLabel")}{" "}
+        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-xs">{t("integrations.litellmAdminUiPath")}</code>
+      </p>
+      <p className="mt-2">{t("integrations.litellmAdminUiWarning")}</p>
+    </InfoNotice>
+  );
+}
+
 function OneTimeCredentialCard({
   credential,
   saved,
@@ -664,17 +689,48 @@ function OneTimeCredentialCard({
 }) {
   const { t } = useTranslation();
   const checkboxId = `credential-saved-${credential.id}`;
+  const [revealedSavedCredentialId, setRevealedSavedCredentialId] = useState<string | null>(null);
+  const revealed = !saved || revealedSavedCredentialId === credential.id;
+
+  if (!revealed) {
+    return (
+      <div className={cn("rounded-lg border border-emerald-200 bg-emerald-50/60", compact ? "p-4" : "p-5")} aria-live="polite">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-xs font-medium text-emerald-700"><CheckCircle2 className="size-4" aria-hidden="true" />{t("integrations.credentialSaved")}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("integrations.credentialSavedDescription")}</p>
+            <code className="mt-2 block break-all font-mono text-xs text-foreground">{credential.key_hint}</code>
+          </div>
+          <Button type="button" variant="outline" className="min-h-11 shrink-0 bg-background" onClick={() => setRevealedSavedCredentialId(credential.id)}>
+            <Eye aria-hidden="true" />
+            {t("integrations.revealCredential")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("rounded-lg border border-primary/20 bg-primary/5", compact ? "p-4" : "p-5")}>
-      <p className="flex items-center gap-2 text-xs font-medium text-primary"><KeyRound className="size-4" />{t("integrations.oneTimeCredential")}</p>
+      <p className="flex items-center gap-2 text-xs font-medium text-primary"><KeyRound className="size-4" aria-hidden="true" />{t("integrations.oneTimeCredential")}</p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("integrations.oneTimeCredentialDescription")}</p>
       <code className="mt-3 block break-all rounded-md border bg-card p-4 font-mono text-xs leading-6">{credential.value}</code>
       <div className="mt-3 flex flex-wrap items-center gap-4">
-        <Button variant="outline" className="min-h-11" onClick={onCopy}><Copy />{t("integrations.copyCredential")}</Button>
-        <Label htmlFor={checkboxId} className="min-h-11 cursor-pointer gap-3 text-xs leading-5">
-          <Checkbox id={checkboxId} checked={saved} onCheckedChange={(checked) => onSavedChange(checked === true)} />
-          {t("integrations.credentialStoredConfirmation")}
-        </Label>
+        <Button type="button" variant="outline" className="min-h-11" onClick={onCopy}><Copy />{t("integrations.copyCredential")}</Button>
+        {saved ? (
+          <>
+            <span className="flex min-h-11 items-center gap-2 text-xs font-medium text-emerald-700"><CheckCircle2 className="size-4" aria-hidden="true" />{t("integrations.credentialSaved")}</span>
+            <Button type="button" variant="ghost" className="min-h-11" onClick={() => setRevealedSavedCredentialId(null)}>
+              <EyeOff aria-hidden="true" />
+              {t("integrations.hideCredential")}
+            </Button>
+          </>
+        ) : (
+          <Label htmlFor={checkboxId} className="min-h-11 cursor-pointer gap-3 text-xs leading-5">
+            <Checkbox id={checkboxId} checked={saved} onCheckedChange={(checked) => onSavedChange(checked === true)} />
+            {t("integrations.credentialStoredConfirmation")}
+          </Label>
+        )}
       </div>
     </div>
   );
