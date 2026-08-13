@@ -39,12 +39,12 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `persistence.enabled` | `true` | Persist SQLite control-plane state |
 | `persistence.existingClaim` | empty | Existing PVC override; otherwise the chart creates `tali-guard` |
 | `persistence.retain` | `true` | Retain the PVC after uninstall |
-| `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v6.db` | Persistent Guardrail, Assignment, evidence, and identity database |
+| `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-policy-schema-v3.db` | Persistent Policy, Guardrail, Deployment, Evidence, and identity database |
 | `runtime.publicBaseUrl` | `http://localhost:38081` | Stable public origin used to generate per-Integration callback URLs |
-| `evaluators.nvidia.baseUrl` | empty | Enable model-backed evaluators |
-| `evaluators.nvidia.groundingModel` | empty | OpenAI-compatible model used for contextual grounding evidence |
-| `evaluators.deepJudge.model` | empty | Provider-neutral fallback model for prompt security, Topic Control, and contextual grounding |
-| `evaluators.deepJudge.existingSecret` | empty | Existing Secret containing the Deep Judge API key |
+| `evaluators.nvidia.baseUrl` | empty | Base URL for optional NVIDIA Guard Models |
+| `evaluators.nvidia.groundingModel` | empty | NVIDIA-hosted Guard Model used for contextual-grounding evidence |
+| `evaluators.deepJudge.model` | empty | Provider-neutral runtime Policy Judge model for prompt security, Topic Safety, and contextual grounding |
+| `evaluators.deepJudge.existingSecret` | empty | Existing Secret containing the runtime Policy Judge API key |
 | `evaluators.automatedReasoning.endpointUrl` | empty | Formal-reasoning provider endpoint returning detection-only findings |
 | `evaluators.automatedReasoning.existingSecret` | empty | Existing Secret containing the reasoning provider API key |
 | `evaluators.jailbreakDetection.nimBaseUrl` | empty | Optional NeMo Jailbreak Detection NIM base URL |
@@ -57,20 +57,20 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `controlPlaneAgent.deepseek.model` | `deepseek-v4-flash` | Model used only to structure policy intent |
 | `controlPlaneAgent.deepseek.existingSecret` | empty | Existing Secret containing the DeepSeek API key |
 
-Schema v6 adds Control test provenance to the v5 early-development schema.
-The service migrates v5 databases additively; older schemas must use a fresh
-database file.
-Integration records no longer carry
-an `environment` field; they persist an adapter ID and per-instance setup state.
+The current early-development database contract is Policy schema v3. The
+project has not launched and does not provide historical schema compatibility;
+use a fresh database when the schema identifier changes.
 
 TaskLattice Guard currently uses SQLite, so `replicaCount` is restricted to
 `1`. Integration credentials are generated only when an Integration is
 registered in the UI. NVIDIA evaluator settings remain optional.
 
-The runtime Deep Judge and optional control-plane assistant can safely share an
-existing DeepSeek Secret. The assistant does not inspect runtime traffic; it
-only turns business intent into an editable rule draft. Configure both without
-placing the key in Helm history by creating a Secret and referencing it:
+A runtime Policy Judge and the optional control-plane assistant may safely
+share an existing DeepSeek Secret, but they remain separate capabilities. The
+Judge backs NeMo runtime Actions for selected Policies. The assistant only turns
+business intent into an editable Policy draft and never inspects runtime
+traffic. Configure both without placing the key in Helm history by creating a
+Secret and referencing it:
 
 ```sh
 kubectl --namespace tali create secret generic tasklattice-guard-deepseek \

@@ -23,16 +23,16 @@ The artifact also records the derived `runtime_engine` (`iorails` or
 `runtime_profile`; it does not infer the profile from Colang syntax and it does
 not fall back between engines.
 
-This split is based on orchestration capability, not the name of a risk or
-Control.
+This split is based on orchestration capability, not the name of a Policy or
+Rule.
 
 ## Profile admission
 
 | Profile | Admit | Reject from this profile |
 | --- | --- | --- |
 | `iorails_native` | Only IORails-supported NeMo library flows, with no dynamically registered custom Action. On the pinned NeMo 0.23 baseline this profile is restricted to a NeMo-owned generation lifecycle. | Standalone HTTP/LiteLLM checks, Python Actions, unsupported flows, or any custom orchestration. |
-| `llmrails_colang1_standard` | Standalone input/output checks; secrets and PII detection; the vendored LiteLLM Content Filter; deterministic topic checks; one-step prompt-security or judge Actions; independent block-only Actions; at most one content modifier. | Escalation, dependency waves, more than one possible modifier, cross-content aggregation, or custom Colang 2 behavior. |
-| `llmrails_colang2_programmable` | Fast-to-deep escalation, module dependencies and waves, multiple transforms with conflict resolution, Grounding, Automated Reasoning, cross-content aggregation, custom Controls/events/state, and resolver-dependent policies. | A configuration is not promoted out of this profile until a semantic and load-test gate proves that its simpler shape is equivalent in Colang 1. |
+| `llmrails_colang1_standard` | Standalone input/output checks; secrets and PII detection; built-in content Rules; deterministic topic checks; one-step prompt-security or judge Actions; independent block-only Actions; at most one content modifier. | Escalation, dependency waves, more than one possible modifier, cross-content aggregation, or custom Colang 2 behavior. |
+| `llmrails_colang2_programmable` | Fast-to-deep escalation, module dependencies and waves, multiple transforms with conflict resolution, Grounding, Automated Reasoning, cross-content aggregation, custom Flows/events/state, and resolver-dependent Policies. | A configuration is not promoted out of this profile until a semantic and load-test gate proves that its simpler shape is equivalent in Colang 1. |
 
 Admission is conservative. If the compiler cannot prove that a configuration
 fits IORails or the standard Colang 1 contract, it selects
@@ -46,12 +46,12 @@ Colang owns lifecycle, ordering, parallel rail activation, blocking, message
 mutation, and the final runtime result. Python owns deterministic rule matching
 and external provider calls.
 
-In particular, the imported LiteLLM Content Filter remains:
+In particular, built-in deterministic content Policies remain:
 
 ```text
-vendored LiteLLM YAML/JSON
+TaskLattice Policy asset
         ↓
-versioned Control / Control Pack
+versioned Policy / Rule
         ↓
 BuiltinContentFilter Python implementation
         ↓
@@ -90,7 +90,7 @@ aggregation.
 - Programmable artifacts use Colang 2 so `start`, `await`, `match`, events, and
   state express complex orchestration inside NeMo.
 - Colang 2 does not accept dots in executable flow identifiers. TaskLattice
-  preserves the canonical audit identifier `tl.<control>.<version>.<flow>` and
+  preserves the canonical audit identifier `tl.<policy>.<version>.<flow>` and
   compiles it to an equivalent collision-free executable identifier.
 - Independent block-only checks may run in parallel. A standard profile may
   have at most one mutating Action, avoiding nondeterministic message writes.
@@ -109,7 +109,7 @@ The compatibility matrix is pinned to `nemoguardrails[tracing]==0.23.0`:
 | `llmrails_colang1_standard` | Enabled through the OpenTelemetry adapter, content capture disabled | Disabled | Activated rails, Action spans, `output_vars`, and the generation log are the runtime evidence source. |
 | `llmrails_colang2_programmable` | Disabled | Disabled | NeMo 0.23's Colang 2 tracing path is incompatible with the required log behavior. Re-enable only after an upgrade-specific acceptance test. |
 
-TaskLattice enterprise audit events, assignment/version evidence, and bounded
+TaskLattice enterprise audit events, Deployment/version evidence, and bounded
 SLO metrics are retained for all profiles. They serve a different purpose from
 NeMo runtime traces. Synthetic NeMo runtime traces are not created for IORails
 or the standard profile; missing native telemetry is reported as unavailable,
@@ -129,9 +129,9 @@ snapshots are never recompiled or mutated in place. Promotion requires:
 2. semantic equivalence for decision, action, transformed text, and findings;
 3. input/output lifecycle and fail-open/fail-closed tests;
 4. representative 1/10/100 KB load tests at concurrency 1/32/128; and
-5. evaluation, approval, deployment, and a reversible Assignment switch.
+5. a passing Validation Run, approval, Deployment, and a reversible version switch.
 
-Migration proceeds from the least complex policies: LiteLLM Content Filter,
+Migration proceeds from the least complex Policies: built-in content Rules,
 secrets, and PII first; then simple prompt-security/topic/judge Actions. Grounding,
 Automated Reasoning, escalation, dependencies, multiple modifiers, and
 cross-content aggregation remain programmable until their policy shape changes.

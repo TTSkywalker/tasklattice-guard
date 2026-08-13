@@ -54,7 +54,7 @@ helm-install: image helm-lint
 					--set-string evaluators.nvidia.contentSafetyModel=$(NVIDIA_CONTENT_SAFETY_MODEL) \
 					--set-string evaluators.nvidia.existingSecret=$(LOCAL_PROVIDER_SECRET) \
 					--set-string evaluators.nvidia.secretKey=NVAPI_API_KEY"; \
-				echo "Enabling NVIDIA fast-semantic evaluator from .env"; \
+				echo "Configuring NVIDIA guard model from .env: content_safety=$(NVIDIA_CONTENT_SAFETY_MODEL)"; \
 			fi; \
 			if grep -Eq '^DEEPSEEK_API_KEY=.+$$' .env; then \
 				provider_configured=true; \
@@ -67,7 +67,8 @@ helm-install: image helm-lint
 					--set-string controlPlaneAgent.deepseek.model=$(DEEP_JUDGE_MODEL) \
 					--set-string controlPlaneAgent.deepseek.existingSecret=$(LOCAL_PROVIDER_SECRET) \
 					--set-string controlPlaneAgent.deepseek.secretKey=DEEPSEEK_API_KEY"; \
-				echo "Enabling Deep Judge and the control-plane assistant from .env"; \
+				echo "Configuring runtime Policy Judges from .env: provider=DeepSeek capabilities=prompt_security,topic_control,contextual_grounding"; \
+				echo "Configuring control-plane assistant from .env: provider=DeepSeek runtime_traffic=false"; \
 			fi; \
 			if [ "$$provider_configured" = true ]; then \
 				kubectl create namespace $(DEV_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f - >/dev/null; \

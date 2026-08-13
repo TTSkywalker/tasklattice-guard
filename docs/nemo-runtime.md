@@ -18,7 +18,7 @@ HTTP / LiteLLM
 Authenticate and normalize trusted request facts
       │
       ▼
-Resolve Assignment → Guardrail ID + immutable Version
+Resolve Deployment → Guardrail ID + immutable Version
       │
       ▼
 Acquire prewarmed NeMo instance by ID + Version + Checksum
@@ -36,12 +36,32 @@ Use NeMo's final Allow / Transform / Block result
 Product response + enterprise audit + bounded SLO metrics
 ```
 
-An input request with a call ID pins its Assignment and immutable Guardrail
+An input request with a call ID pins its Deployment and immutable Guardrail
 Version for the matching output request. LiteLLM uses `litellm_call_id`; the HTTP
 API returns a generated `call_id` when the caller does not provide one. The
 LiteLLM adapter remains responsible only for authentication, trusted-fact
 normalization, protocol conversion, and mapping the final result to `NONE`,
 `BLOCKED`, or `GUARDRAIL_INTERVENED`.
+
+## Three independent runtime dimensions
+
+Do not treat the word "three" as one shared execution model. TaskLattice has
+three separate dimensions with different concurrency semantics:
+
+| Dimension | Members | Runtime relationship |
+| --- | --- | --- |
+| NeMo runtime profile | `iorails_native`, `llmrails_colang1_standard`, `llmrails_colang2_programmable` | One immutable Guardrail Version selects exactly one profile. Profiles never run in parallel or fall back into one another. |
+| Policy Module | Data Protection, Interaction Safety, Business Assurance | Independent modules in the same dependency wave may run concurrently. Grounding and Automated Reasoning wait for required upstream results such as masking. |
+| Detection depth | Local Rule matcher, Guard Model, Policy Judge | Checks for the same Rule run in an ordered route. A later check runs only when the compiled escalation mode requires it, for example after an uncertain result or in strict mode. |
+
+Parallelism therefore exists between independent Policy Modules, Policies, and
+Rules. It does not mean that local matching, a Guard Model, and a Policy Judge
+always run as three parallel evaluators.
+
+Provider names describe implementation, not orchestration. NVIDIA models are
+Guard Models for configured capabilities. A provider-neutral model such as
+DeepSeek may back several runtime Policy Judge Actions. The control-plane
+assistant is a separate authoring aid and never inspects production traffic.
 
 ## Runtime profiles
 
@@ -68,13 +88,13 @@ profile when it can prove all of the following:
 - no cross-content-block final aggregation is required; and
 - no custom Colang 2 events, state, or resolver behavior is required.
 
-Secrets, deterministic PII, the vendored LiteLLM Content Filter, deterministic
+Secrets, deterministic PII, built-in content policies, deterministic
 topic checks, one-step prompt-security checks, and simple single judges are
 eligible when their concrete configuration satisfies these constraints.
 
 Any fast-to-deep escalation, `depends_on` relationship, multi-wave graph,
 multiple possible transforms, Grounding, Automated Reasoning, cross-content
-aggregation, custom Colang 2 Control, or resolver-dependent result selects the
+aggregation, custom Colang 2 Flow, or resolver-dependent result selects the
 programmable profile. Admission is based on the compiled orchestration shape,
 not only on the risk name.
 
@@ -84,10 +104,10 @@ All policy implementations are registered as Python Actions for both LLMRails
 profiles. The programmable profile additionally registers only those Actions
 needed for Colang 2 event recording and final resolution.
 
-The imported LiteLLM Content Filter is not translated rule-by-rule into Colang.
-Its versioned YAML/JSON remains the source, `BuiltinContentFilter` remains the
-Python matching implementation, and
-`TaskLatticeBuiltinContentFilterAction` is its NeMo entry point. The same
+Built-in regex, keyword, and category Rules are not translated rule-by-rule
+into Colang. Their versioned Policy asset remains the source,
+`BuiltinContentFilter` remains the Python matching implementation, and
+`TaskLatticeBuiltinContentFilterAction` is the NeMo entry point. The same
 boundary applies to deterministic and external-provider checks: Python detects;
 Colang owns the rail lifecycle.
 
@@ -115,23 +135,23 @@ The product layer maps that NeMo result to its response DTO. It does not recover
 standard-lane results from process-local result/decision side channels and does
 not independently re-resolve the policy.
 
-## Control mapping
+## Policy implementation mapping
 
-| Control | NeMo execution |
+| Policy capability | NeMo execution |
 | --- | --- |
 | Content Safety | Native input/output content-safety flow when admitted to IORails; otherwise the configured LLMRails Action/flow. |
 | Personal information | Version-pinned Python detection/masking Action in the standard lane unless a complex composition requires Colang 2. |
-| Topic Control | Native topic-safety flow for an IORails-compatible NeMo-owned generation; deterministic or single-judge Python Action in the standard lane; escalation in the programmable lane. |
+| Topic Safety | Native topic-safety flow for an IORails-compatible NeMo-owned generation; deterministic or single-judge Python Action in the standard lane; escalation in the programmable lane. |
 | Jailbreak | Native model flow when IORails-compatible; fast/judge Actions otherwise. |
 | Prompt Injection | Fast or judge Python Actions because NeMo 0.23's injection library flow does not represent the product's input contract; escalation remains programmable. |
 | Secrets | Deterministic Python Action, normally standard. |
-| Built-in Content Filter | Versioned Python Action over the unchanged vendored LiteLLM rules, normally standard. |
+| Built-in content policies | Versioned Python Actions over TaskLattice Policy Rules, normally standard. |
 | Organization Policy | A single Policy Judge may be standard; escalation or dependent policy is programmable. |
 | Contextual Grounding | Programmable full-output Action over query and source Content Blocks. |
 | Automated Reasoning | Programmable full-output Action bound to an immutable external policy ID/version. |
 
-Built-in prompt assets live with their owning Control under
-`app/nemo/builtin_controls/<control>/v<version>`. They are copied into the
+Built-in prompt assets live with their owning Policy implementation under
+`app/nemo/builtin_policies/<policy>/v<version>`. They are copied into the
 immutable NeMo snapshot at compile time. Runtime initialization does not read a
 process-wide mutable profile directory.
 
@@ -139,7 +159,7 @@ process-wide mutable profile directory.
 
 Activation compiles and validates a new immutable `NeMoConfigSnapshot`, computes
 its SHA-256 checksum, constructs the exact profile runtime, and only then commits
-the version and Assignment switch. Active versions stay resident in the
+the version and Deployment switch. Active versions stay resident in the
 registry; inactive versions are kept in a bounded LRU. Initialization is
 serialized and deduplicated, so production traffic does not construct a runtime
 on the hot path.
@@ -149,31 +169,20 @@ or telemetry configuration always creates a new Guardrail Version and checksum.
 Never recompile or patch the persisted snapshot of a historical version.
 
 Rollback validates and prewarms the selected historical snapshot, then updates
-the Guardrail and every bound Assignment in one SQLite transaction. Calls
+the Guardrail and every bound Deployment in one SQLite transaction. Calls
 already pinned at input continue on their original version; new calls use the
 rolled-back version.
 
 The migration sequence is deliberately narrow:
 
 1. create the standard profile without changing policy semantics;
-2. migrate LiteLLM Content Filter, secrets, and PII Actions;
+2. migrate built-in content, secrets, and PII Actions;
 3. prove input and output allow/mask/block equivalence against the existing
    programmable version;
 4. load-test, evaluate, approve, and deploy a new version;
 5. migrate simple prompt-security/topic/judge Actions only after that gate; and
 6. retain Grounding, Automated Reasoning, escalation, dependency graphs,
    multiple modifiers, and cross-block aggregation in Colang 2.
-
-### Upgrade guard for pre-v6 IORails artifacts
-
-The standalone service deliberately refuses to report ready when an historical
-pre-v6 artifact resolves to `iorails_native`. NeMo 0.23 does not expose a public
-rails-only verdict API for IORails, so accepting that artifact would make the
-service look healthy while every standalone check fails closed. Before rolling
-out this compiler/runtime version, publish an equivalent
-`llmrails_colang1_standard` Guardrail Version and switch its Assignments. Keep
-the historical IORails snapshot immutable for audit and rollback only on an
-owned-generation host.
 
 ## Concurrency and admission control
 
@@ -222,9 +231,9 @@ as unavailable. Reconsider the limitation only with an upgrade-specific real
 runtime test.
 
 The product metrics store records outcomes and latencies plus Guardrail and
-Control Version, Rail/Flow/Action identity, queue/rail/Action/provider latency,
+Policy Version, Rail/Flow/Action identity, queue/rail/Action/provider latency,
 parallel group, active concurrency, SLO breach, timeout, cache result, engine,
-and checksum. The evaluation usage/trace and released Guardrail Version expose
+and checksum. Runtime usage/trace and the released Guardrail Version expose
 the explicit profile; persisted metric rows join to it by immutable Guardrail
 Version and checksum. Prompt, response, user ID, credential, and raw URL are not
 metric labels.
@@ -265,7 +274,7 @@ Each target URL must accept the manifest payload and return the TaskLattice
 decision DTO. The standard and programmable targets can use the public
 `/v1/guardrails/evaluate` endpoint. The IORails target must be a controlled
 benchmark facade around its NeMo-owned generation call; do not attach an
-`iorails_native` artifact to a standalone production Assignment merely to make
+`iorails_native` artifact to a standalone production Deployment merely to make
 the comparison. A partial C1/C2 manifest remains directly runnable against the
 current public API without `--require-full-matrix`.
 
@@ -305,13 +314,13 @@ agreed SLO and a statistically meaningful baseline.
 
 Use at least three interleaved rounds after warmup. Record alongside the result:
 
-- image, NeMo, compiler, Control, provider/model, and artifact versions;
+- image, NeMo, compiler, Policy, provider/model, and artifact versions;
 - Guardrail ID/version/checksum for every target;
 - node type, CPU quota, memory limit, replica count, and admission limit;
 - collector/exporter configuration and observed span/drop counts; and
 - server CPU/RSS time series covering the complete run.
 
-Archive that evidence with Evaluation/Approval/Deployment records. Do not claim
+Archive that evidence with Validation Run, approval, and Deployment records. Do not claim
 a performance improvement from a single developer-machine sample.
 
 ## NeMo-only invariant

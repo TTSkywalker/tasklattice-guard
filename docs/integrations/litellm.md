@@ -132,7 +132,7 @@ Gateway B -> /runtime/v1/integrations/22222222-2222-4222-8222-222222222222 + Sec
 
 TaskLattice rejects mixed pairs such as Gateway A's Endpoint with Secret B.
 The Integration ID is also available as `integration.id` in Traffic Scope, so
-Assignments can select different Guardrails for different Gateways.
+Deployments can select different Guardrails for different Gateways.
 
 Reusing a LiteLLM `litellm_call_id` in two Gateways is safe. TaskLattice
 namespaces call context by Integration, so input/output state does not cross

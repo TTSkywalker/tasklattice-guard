@@ -96,10 +96,10 @@ app.kubernetes.io/part-of: tali
 {{- fail "evaluators.deepJudge.baseUrl and evaluators.deepJudge.model must be configured together" }}
 {{- end }}
 {{- if and (or .Values.evaluators.deepJudge.baseUrl .Values.evaluators.deepJudge.model) (not (or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret)) }}
-{{- fail "a Deep Judge credential is required when evaluators.deepJudge is configured" }}
+{{- fail "a runtime Policy Judge credential is required when evaluators.deepJudge is configured" }}
 {{- end }}
 {{- if and (or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret) (not (and .Values.evaluators.deepJudge.baseUrl .Values.evaluators.deepJudge.model)) }}
-{{- fail "evaluators.deepJudge.baseUrl and evaluators.deepJudge.model are required when a Deep Judge credential is configured" }}
+{{- fail "evaluators.deepJudge.baseUrl and evaluators.deepJudge.model are required when a runtime Policy Judge credential is configured" }}
 {{- end }}
 {{- if and .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret }}
 {{- fail "set either evaluators.automatedReasoning.apiKey or evaluators.automatedReasoning.existingSecret, not both" }}
