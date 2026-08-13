@@ -5,14 +5,15 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CreationFlow } from "@/components/creation-flow";
+import { ComplianceDocumentImport } from "@/components/compliance-document-import";
 import { EntitySheet } from "@/components/entity-sheet";
-import { PolicyBindingEditor } from "@/components/policy-binding-editor";
+import { PolicyBindingEditor, defaultPolicyBinding } from "@/components/policy-binding-editor";
 import { ErrorNotice, InfoNotice } from "@/components/product-shell";
+import { RuntimePostureFields } from "@/components/runtime-posture-fields";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { queryKeys } from "@/features/query-keys";
@@ -24,6 +25,7 @@ import {
   getPolicies,
   previewGuardrailCandidate,
   type GuardrailPolicyBinding,
+  type ComplianceDocumentAnalysis,
   type OutputDelivery,
   type Policy,
   type SafetyLevel,
@@ -53,6 +55,7 @@ export function CreateGuardrailWizard({
   const [bindings, setBindings] = useState<GuardrailPolicyBinding[]>([]);
   const [safetyLevel, setSafetyLevel] = useState<SafetyLevel>("balanced");
   const [outputDelivery, setOutputDelivery] = useState<OutputDelivery>("window_buffered");
+  const [documentImportReset, setDocumentImportReset] = useState(0);
 
   const steps = [
     { label: t("guardrailWizard.steps.details"), description: t("guardrailWizard.steps.detailsDescription") },
@@ -71,6 +74,7 @@ export function CreateGuardrailWizard({
     setBindings([]);
     setSafetyLevel("balanced");
     setOutputDelivery("window_buffered");
+    setDocumentImportReset((current) => current + 1);
   }, [open]);
 
   const language = user?.preferred_language ?? (i18n.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en");
@@ -110,6 +114,22 @@ export function CreateGuardrailWizard({
     onError: (error) => notifyError(error, t("guardrailWizard.operationFailed")),
   });
 
+  function applyDocumentAnalysis(analysis: ComplianceDocumentAnalysis) {
+    setPurpose(analysis.summary);
+    setAllowed(analysis.allowed_topics.join("\n"));
+    setRestricted(analysis.restricted_topics.join("\n"));
+    setBindings((current) => {
+      const selected = new Set(current.map((binding) => binding.policy_id));
+      const recommended = analysis.recommended_policy_ids
+        .map((id) => policies.find((policy) => policy.id === id))
+        .filter((policy): policy is Policy => Boolean(policy && (policy.source === "built_in" || policy.version !== "0")))
+        .filter((policy) => !selected.has(policy.id))
+        .map(defaultPolicyBinding);
+      return [...current, ...recommended];
+    });
+    toast.success(t("guardrailWizard.documentAppliedMessage"));
+  }
+
   const stepValid = [
     Boolean(name.trim() && purpose.trim()),
     bindingsValid(bindings, policies),
@@ -144,8 +164,17 @@ export function CreateGuardrailWizard({
       <CreationFlow orientation="sidebar" currentStep={step} onStepChange={setStep} progressLabel={t("guardrailWizard.title")} steps={steps}>
         {step === 0 ? (
           <WizardSection title={t("guardrailWizard.detailsTitle")} description={t("guardrailWizard.detailsDescription")}>
-            <div className="grid gap-5">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
               <Field label={`${t("guardrailWizard.name")} *`}><Input autoFocus className="min-h-11 bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("guardrailWizard.namePlaceholder")} /></Field>
+              <ComplianceDocumentImport
+                available={Boolean(intentStatusQuery.data?.available)}
+                analystProvider={intentStatusQuery.data?.provider}
+                analystModel={intentStatusQuery.data?.model}
+                language={language}
+                policies={policies}
+                resetKey={documentImportReset}
+                onApply={applyDocumentAnalysis}
+              />
               <Field label={`${t("guardrailWizard.purpose")} *`} hint={t("guardrailWizard.purposeHint")}><Textarea className="min-h-32 bg-card" value={purpose} onChange={(event) => setPurpose(event.target.value)} placeholder={t("guardrailWizard.purposePlaceholder")} /></Field>
               <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/20 p-4">
                 <div className="min-w-0 flex-1"><p className="text-sm font-medium">{t("guardrailWizard.intentTitle")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.intentDescription")}</p></div>
@@ -168,10 +197,12 @@ export function CreateGuardrailWizard({
 
         {step === 2 ? (
           <WizardSection title={t("guardrailWizard.runtimeTitle")} description={t("guardrailWizard.runtimeDescription")}>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label={t("guardrailWizard.safetyLevel")}><Select value={safetyLevel} onValueChange={(next) => setSafetyLevel(next as SafetyLevel)}><SelectTrigger className="min-h-11 bg-card"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="balanced">{t("guardrails.balanced")}</SelectItem><SelectItem value="strict">{t("guardrails.strict")}</SelectItem></SelectContent></Select></Field>
-              <Field label={t("guardrailWizard.outputDelivery")}><Select value={outputDelivery} onValueChange={(next) => setOutputDelivery(next as OutputDelivery)}><SelectTrigger className="min-h-11 bg-card"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="interruptible">{t("guardrails.outputRealtime")}</SelectItem><SelectItem value="window_buffered">{t("guardrails.outputWindow")}</SelectItem><SelectItem value="full_buffered">{t("guardrails.outputFull")}</SelectItem></SelectContent></Select></Field>
-            </div>
+            <RuntimePostureFields
+              safetyLevel={safetyLevel}
+              outputDelivery={outputDelivery}
+              onSafetyLevelChange={setSafetyLevel}
+              onOutputDeliveryChange={setOutputDelivery}
+            />
             <InfoNotice title={t("guardrailWizard.deploymentSeparateTitle")}>{t("guardrailWizard.deploymentSeparate")}</InfoNotice>
           </WizardSection>
         ) : null}

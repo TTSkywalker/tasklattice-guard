@@ -57,32 +57,21 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
   const locale = i18n.language;
 
   return (
-    <Card className="min-w-0 shadow-none">
-      <CardHeader className="gap-4 border-b pb-5">
-        <div className="flex min-w-0 items-start justify-between gap-4">
+    <Card size="sm" className="min-w-0 gap-0 py-0 shadow-none">
+      <CardHeader className="flex min-h-16 flex-col items-stretch justify-between gap-3 border-b px-4 py-3 xl:flex-row xl:items-center">
+        <div className="flex min-w-0 items-center gap-1">
           <div className="min-w-0">
-            <CardTitle>{t("dashboard.runtimeMetric")}</CardTitle>
-            <CardDescription className="mt-1 flex items-center gap-1.5">
-              <span>{t("dashboard.runtimeMetricDescription")}</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button type="button" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" aria-label={t("dashboard.metricDefinition")}>
-                    <Info className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-72">{definition}</TooltipContent>
-              </Tooltip>
-            </CardDescription>
+            <CardTitle className="text-sm">{t("dashboard.runtimeMetric")}</CardTitle>
+            <CardDescription className="mt-0.5 text-xs">{t("dashboard.runtimeMetricDescription")}</CardDescription>
           </div>
-          <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
-            {t("dashboard.autoResolution", { interval: getMetricInterval(metrics.window) })}
-          </span>
+          <Tooltip><TooltipTrigger asChild><button type="button" className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" aria-label={t("dashboard.metricDefinition")}><Info className="size-3.5" /></button></TooltipTrigger><TooltipContent className="max-w-72">{definition}</TooltipContent></Tooltip>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <span className="hidden shrink-0 text-xs text-muted-foreground 2xl:block">{t("dashboard.autoResolution", { interval: getMetricInterval(metrics.window) })}</span>
           <label className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
             {t("dashboard.metric")}
             <Select value={metric} onValueChange={(value) => setMetric(value as RuntimeMetricKey)}>
-              <SelectTrigger className="min-h-11 min-w-0 flex-1 bg-card sm:w-48"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 min-w-0 flex-1 bg-card sm:w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {metricKeys.map((key) => <SelectItem key={key} value={key}>{t(`dashboard.metrics.${key}`)}</SelectItem>)}
               </SelectContent>
@@ -91,7 +80,7 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
           <label className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
             {t("dashboard.groupBy")}
             <Select value={groupBy} onValueChange={(value) => setGroupBy(value as GroupBy)}>
-              <SelectTrigger className="min-h-11 min-w-0 flex-1 bg-card sm:w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 min-w-0 flex-1 bg-card sm:w-32"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">{t("dashboard.group.none")}</SelectItem>
                 <SelectItem value="guardrail">{t("dashboard.group.guardrail")}</SelectItem>
@@ -100,11 +89,11 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
           </label>
         </div>
       </CardHeader>
-      <CardContent className="pt-5">
+      <CardContent className="px-2 pt-1 pb-2 sm:px-4">
         {!metrics.total_decisions ? <RuntimeMetricEmpty /> : (
-          <div className="h-[310px] w-full" aria-label={t("dashboard.runtimeMetricChartLabel")}>
+          <div className="h-[220px] w-full" aria-label={t("dashboard.runtimeMetricChartLabel")}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chart.data} margin={{ top: 8, right: 12, left: -12, bottom: 2 }}>
+              <LineChart data={chart.data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeDasharray="3 4" />
                 <XAxis
                   dataKey="timestamp"
@@ -117,13 +106,13 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  width={52}
+                  width={48}
                   tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                   tickFormatter={(value) => formatCompact(Number(value), locale)}
                 />
                 <RechartsTooltip
                   cursor={{ stroke: "var(--input)", strokeDasharray: "3 3" }}
-                  contentStyle={{ borderColor: "var(--border)", borderRadius: 10, background: "var(--card)", boxShadow: "var(--shadow-overlay)" }}
+                  contentStyle={{ borderColor: "var(--border)", borderRadius: "var(--radius-control)", background: "var(--card)", boxShadow: "var(--shadow-overlay)" }}
                   labelFormatter={(value) => new Date(String(value)).toLocaleString(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   formatter={(value, name) => [`${formatMetricValue(Number(value), metric, locale)}${unit ? ` ${unit}` : ""}`, String(name)]}
                 />
@@ -154,11 +143,11 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
 function RuntimeMetricEmpty() {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-[310px] flex-col items-center justify-center px-5 text-center">
-      <span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground"><Activity className="size-5" /></span>
-      <h3 className="mt-4 text-sm font-semibold">{t("dashboard.noTrafficTitle")}</h3>
+    <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center">
+      <span className="grid size-8 place-items-center rounded-md bg-muted text-muted-foreground"><Activity className="size-4" /></span>
+      <h3 className="mt-3 text-sm font-semibold">{t("dashboard.noTrafficTitle")}</h3>
       <p className="mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">{t("dashboard.noTrafficDescription")}</p>
-      <Button className="mt-5" variant="outline" asChild><Link to="/deployments">{t("dashboard.manageDeployments")}<ArrowRight /></Link></Button>
+      <Button className="mt-4" variant="outline" asChild><Link to="/deployments">{t("dashboard.manageDeployments")}<ArrowRight /></Link></Button>
     </div>
   );
 }

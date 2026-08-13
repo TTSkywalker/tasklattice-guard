@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   CheckCircle2,
   ChevronDown,
@@ -30,6 +31,8 @@ const EMPTY_POLICIES: Policy[] = [];
 
 export function PolicyLibraryPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const searchParams = useSearch({ strict: false }) as { policy?: string };
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.policies, queryFn: getPolicies });
   const policies = query.data?.items ?? EMPTY_POLICIES;
@@ -37,6 +40,25 @@ export function PolicyLibraryPage() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Policy | null>(null);
   const [studioPolicy, setStudioPolicy] = useState<ProgrammablePolicy | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!searchParams.policy) {
+      setSelected(null);
+      return;
+    }
+    const policy = policies.find((item) => item.id === searchParams.policy);
+    if (policy) setSelected(policy);
+  }, [policies, searchParams.policy]);
+
+  function openPolicy(policy: Policy) {
+    setSelected(policy);
+    navigate({ to: "/policy-library", search: { policy: policy.id }, replace: true });
+  }
+
+  function closePolicy() {
+    setSelected(null);
+    navigate({ to: "/policy-library", search: { policy: undefined }, replace: true });
+  }
 
   const facets = useMemo(() => tagFacets(policies), [policies]);
   const filtered = useMemo(() => {
@@ -98,7 +120,7 @@ export function PolicyLibraryPage() {
 
             {filtered.length ? (
               <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3" aria-label={t("policyLibrary.catalogLabel")}>
-                {filtered.map((policy) => <PolicyCard key={policy.id} policy={policy} onOpen={() => setSelected(policy)} />)}
+                {filtered.map((policy) => <PolicyCard key={policy.id} policy={policy} onOpen={() => openPolicy(policy)} />)}
               </div>
             ) : (
               <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed bg-card px-6 text-center">
@@ -114,9 +136,9 @@ export function PolicyLibraryPage() {
 
       <PolicyDetail
         policy={selected}
-        onClose={() => setSelected(null)}
+        onClose={closePolicy}
         onEdit={(policy) => {
-          setSelected(null);
+          closePolicy();
           setStudioPolicy(policy.implementation_detail);
         }}
       />
@@ -129,6 +151,7 @@ export function PolicyLibraryPage() {
           setStudioPolicy(undefined);
           const next = await queryClient.fetchQuery({ queryKey: queryKeys.policy(policyId), queryFn: () => getPolicy(policyId) });
           setSelected(next);
+          navigate({ to: "/policy-library", search: { policy: policyId }, replace: true });
         }}
       />
     </section>
@@ -223,11 +246,13 @@ export function PolicyDetail({ policy, onClose, onEdit }: { policy: Policy | nul
         {policy.tags.map((tag) => <Badge key={tag.id} variant={tag.source === "derived" ? "outline" : "secondary"}>{tag.label}</Badge>)}
       </div>
       <Tabs key={policy.id} defaultValue="policy" className="mt-5">
-        <TabsList aria-label={t("policyLibrary.detailViews")} className="w-full sm:w-fit">
-          <TabsTrigger value="policy">{t("policyLibrary.tabs.policy")}</TabsTrigger>
-          <TabsTrigger value="validation">{t("policyLibrary.tabs.testCases")}</TabsTrigger>
-          <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto">
+          <TabsList aria-label={t("policyLibrary.detailViews")} className="min-w-max">
+            <TabsTrigger value="policy">{t("policyLibrary.tabs.policy")}</TabsTrigger>
+            <TabsTrigger value="validation">{t("policyLibrary.tabs.testCases")}</TabsTrigger>
+            <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
+          </TabsList>
+        </div>
         <TabsContent value="policy" className="pt-3 sm:pt-4"><RuleList policy={policy} /></TabsContent>
         <TabsContent value="validation" className="pt-3 sm:pt-4"><PolicyTestCases policy={policy} /></TabsContent>
         <TabsContent value="implementation" className="pt-3 sm:pt-4"><Implementation policy={policy} /></TabsContent>

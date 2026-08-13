@@ -72,10 +72,7 @@ export function ControlPlaneLayout() {
                 </BreadcrumbList>
               </Breadcrumb>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex"><Building2 className="size-4" />{t("nav.enterpriseSafety")}</div>
-              <RuntimeHealthMenu loading={systemStatus.isLoading} status={systemStatus.data} />
-            </div>
+            <RuntimeHealthMenu loading={systemStatus.isLoading} status={systemStatus.data} />
           </header>
           <main className="w-full min-w-0 flex-1 px-4 pb-12 sm:px-6 lg:px-8">
             <Outlet />

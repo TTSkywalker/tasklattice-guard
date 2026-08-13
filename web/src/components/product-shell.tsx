@@ -34,7 +34,7 @@ export function PageHeader({
   );
 }
 
-export function StateBadge({ state }: { state: string }) {
+export function StateBadge({ state, label }: { state: string; label?: string }) {
   const { t, i18n } = useTranslation();
   const normalized = state.toLowerCase();
   const positive = ["active", "passed", "ready", "healthy", "allow", "pass", "safe", "enabled", "configured", "protected", "local", "success"].includes(normalized);
@@ -45,7 +45,7 @@ export function StateBadge({ state }: { state: string }) {
     <Badge
       variant={negative ? "destructive" : "outline"}
       className={cn(
-        "h-6 rounded-md px-2 text-[11px] font-medium capitalize",
+        "h-5 rounded-sm px-2 text-[11px] font-medium capitalize",
         positive && "border-emerald-200 bg-emerald-50 text-emerald-700",
         warning && "border-amber-200 bg-amber-50 text-amber-700",
       )}
@@ -58,7 +58,7 @@ export function StateBadge({ state }: { state: string }) {
           warning && "bg-amber-500",
         )}
       />
-      {i18n.exists(`states.${normalized}`) ? t(`states.${normalized}`) : state.replaceAll("_", " ")}
+      {label ?? (i18n.exists(`states.${normalized}`) ? t(`states.${normalized}`) : state.replaceAll("_", " "))}
     </Badge>
   );
 }

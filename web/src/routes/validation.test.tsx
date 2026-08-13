@@ -1,9 +1,10 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { TestCaseResult } from "@/lib/api";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { TestCaseResultRow } from "./validation";
+import { DetailFact, TestCaseResultRow, ValidationCaseResults } from "./validation";
 
 vi.mock("@/routes/guardrails", () => ({ AddTestCaseSheet: () => null }));
 vi.mock("react-i18next", () => ({
@@ -16,6 +17,17 @@ vi.mock("react-i18next", () => ({
       "validation.coveredRules": "Contract Rules",
       "validation.matchedRules": "Actually matched Rules",
       "validation.noRulesMatched": "No covered Rule matched",
+      "validation.metricDefinition": "Pass rate definition",
+      "validation.caseResults": "Case results",
+      "validation.failuresFirst": "Failed cases are highlighted and listed first.",
+      "validation.filterCaseResults": "Filter Case results",
+      "validation.caseFilters.all": "All",
+      "validation.caseFilters.failed": "Failed",
+      "validation.caseFilters.passed": "Passed",
+      "validation.whyCaseFailed": "Why this Case failed",
+      "validation.decisionMismatch": "Decision mismatch",
+      "validation.ruleMismatch": "Rule contract mismatch",
+      "validation.validationContractMismatch": "Validation contract mismatch",
       "guardrails.expectedDecision": "Expected decision",
       "guardrails.actualDecision": "Actual decision",
     } as Record<string, string>)[key] ?? key,
@@ -58,15 +70,59 @@ const result: TestCaseResult = {
 };
 
 describe("Validation Run acceptance evidence", () => {
+  beforeAll(() => {
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+  });
+  afterAll(() => vi.unstubAllGlobals());
   afterEach(cleanup);
 
   it("shows the pinned contract and actual Rule match", () => {
-    render(<TestCaseResultRow result={result} />);
+    const { container } = render(<TestCaseResultRow result={result} />);
 
+    expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
     expect(screen.getByText("Policy scenario")).toBeTruthy();
     expect(screen.getByText("Acceptance provenance")).toBeTruthy();
     expect(screen.getByText("competitor-comparison-input-filter@1.95.0")).toBeTruthy();
     expect(screen.getByText("competitor-comparison-002")).toBeTruthy();
     expect(screen.getAllByText("competitor-comparison-intent")).toHaveLength(2);
+  });
+
+  it("only expands execution errors automatically", () => {
+    const { container } = render(<TestCaseResultRow result={{ ...result, actual_failure: "provider_failure" }} />);
+
+    expect(container.querySelector("details")?.hasAttribute("open")).toBe(true);
+  });
+
+  it("defaults a failed run to failed Cases and can reveal every result", () => {
+    const passed = { ...result, case_id: "validation-case-2", name: "Passing case", passed: true };
+    render(<ValidationCaseResults results={[result, passed]} defaultFilter="failed" />);
+
+    expect(screen.getByText("Competitor comparison")).toBeTruthy();
+    expect(screen.queryByText("Passing case")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /All/ }));
+
+    expect(screen.getByText("Passing case")).toBeTruthy();
+  });
+
+  it("marks a failed Case and explains decision and Rule-contract mismatches", () => {
+    render(<TestCaseResultRow result={{ ...result, expected_decision: "block", actual_decision: "transform", covered_rule_ids: ["credentials/aws_access_key"], matched_rule_ids: ["contact/br_phone_landline"] }} />);
+
+    expect(screen.getByText("Competitor comparison").className).toContain("text-destructive");
+    expect(screen.getByText("Why this Case failed")).toBeTruthy();
+    expect(screen.getByText("Decision mismatch")).toBeTruthy();
+    expect(screen.getByText("Rule contract mismatch")).toBeTruthy();
+  });
+
+  it("explains a Validation metric from its compact Tips icon", () => {
+    render(<TooltipProvider><dl><DetailFact label="Pass rate" value="55.9%" definition="Cases whose actual result satisfied the expected decision." /></dl></TooltipProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pass rate definition" }));
+
+    expect(screen.getByRole("tooltip").textContent).toContain("Cases whose actual result satisfied the expected decision.");
   });
 });

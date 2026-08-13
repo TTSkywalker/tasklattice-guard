@@ -40,7 +40,10 @@ ENV PATH="/opt/tasklattice/venv/bin:$PATH" \
 
 WORKDIR /opt/tasklattice/model-guardrails
 
-RUN useradd --system --uid 65532 --no-create-home tasklattice \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends antiword \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 65532 --no-create-home tasklattice \
     && mkdir -p /var/lib/tasklattice/model-guardrails \
     && chown -R 65532:65532 /var/lib/tasklattice/model-guardrails
 

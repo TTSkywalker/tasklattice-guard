@@ -74,6 +74,31 @@ The Policy Library detail view has three product views:
 This makes a Rule's acceptance contract inspectable before the Policy is added
 to a Guardrail.
 
+## Document-assisted Guardrail drafting
+
+The first step of guided Guardrail creation can extract a review draft from up
+to three compliance documents. The initial supported formats are legacy Word
+(`.doc`), modern Word (`.docx`), and plain text (`.txt`); PDF is intentionally
+not accepted in this release. Each file is limited to 5 MB and one request is
+limited to 10 MB in total.
+
+The server extracts bounded text sections, assigns stable source references,
+and asks the configured policy analyst for:
+
+- a proposed business purpose and topic boundaries;
+- individual allow, block, transform, or review requirements with source
+  references; and
+- recommendations drawn only from Policy IDs that already exist in the Policy
+  Library.
+
+Document text is treated as untrusted source material rather than as
+instructions. Extracted text is sent to the configured policy analyst; the UI
+identifies its provider and model before analysis. The API returns hashes and
+extraction metadata but does not store or return the original file or its full
+text. Analysis results stay in the creation draft until the user explicitly
+applies them, and all extracted requirements remain visible for review before
+the Guardrail is saved.
+
 ## Guardrail materialization
 
 A Guardrail stores a `GuardrailPolicyBinding` for every selected Policy. The

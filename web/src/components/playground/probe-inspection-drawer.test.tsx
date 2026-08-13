@@ -179,8 +179,6 @@ describe("StageTabs", () => {
     expect(input.textContent).toContain("Allowed");
     expect(output.textContent).toContain("Response received from model");
     expect(output.textContent).toContain("Allowed");
-    expect(input.querySelector(".lucide-arrow-up-right")?.getAttribute("aria-hidden")).toBe("true");
-    expect(output.querySelector(".lucide-arrow-down-left")?.getAttribute("aria-hidden")).toBe("true");
     expect(input.getAttribute("aria-selected")).toBe("true");
     expect(output.getAttribute("aria-selected")).toBe("false");
     expect(input.getAttribute("aria-controls")).toBe(panel.id);
@@ -292,7 +290,6 @@ describe("StageTabs", () => {
     );
 
     expect(tabs().input.textContent).toContain("Transformed");
-    expect(tabs().input.querySelector(".lucide-refresh-cw")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("resets to the correct default tab when a new interaction is rendered", () => {

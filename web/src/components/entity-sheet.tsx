@@ -19,6 +19,7 @@ const widthClasses = {
 export function EntitySheet({
   bodyClassName,
   children,
+  density = "default",
   description,
   eyebrow,
   footer,
@@ -29,6 +30,7 @@ export function EntitySheet({
 }: {
   bodyClassName?: string;
   children: ReactNode;
+  density?: "default" | "compact";
   description: ReactNode;
   eyebrow: string;
   footer: ReactNode;
@@ -46,9 +48,9 @@ export function EntitySheet({
           widthClasses[width],
         )}
       >
-        <SheetHeader className="shrink-0 gap-1.5 border-b bg-card px-4 py-5 pr-14 sm:px-6 sm:pr-16">
+        <SheetHeader className={cn("shrink-0 gap-1.5 border-b bg-card px-4 pr-14 sm:px-6 sm:pr-16", density === "compact" ? "py-4" : "py-5")}>
           <p className="text-xs font-medium text-primary">{eyebrow}</p>
-          <SheetTitle className="font-display text-2xl font-semibold tracking-[-0.015em] text-foreground">
+          <SheetTitle className={cn("font-display font-semibold tracking-[-0.015em] text-foreground", density === "compact" ? "text-xl" : "text-2xl")}>
             {title}
           </SheetTitle>
           <SheetDescription className="max-w-2xl leading-5 text-muted-foreground">
@@ -58,14 +60,15 @@ export function EntitySheet({
 
         <div
           className={cn(
-            "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6",
+            "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6",
+            density === "compact" ? "py-3" : "py-5",
             bodyClassName,
           )}
         >
           {children}
         </div>
 
-        <SheetFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t bg-card px-4 py-4 sm:px-6 [&_[data-slot=button]]:min-h-11">
+        <SheetFooter className={cn("shrink-0 flex-row items-center justify-end gap-2 border-t bg-card px-4 sm:px-6 [&_[data-slot=button]]:min-h-11", density === "compact" ? "py-3" : "py-4")}>
           {footer}
         </SheetFooter>
       </SheetContent>

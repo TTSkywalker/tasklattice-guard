@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..adapters.observability import record_runtime_decision
@@ -52,6 +53,14 @@ from .domain import (
 from .filtering import traffic_scope_field_payloads
 from .service import ControlPlaneService
 from .intent_analyzer import IntentAnalysisError, IntentAnalyzer
+from .document_ingestion import (
+    MAX_DOCUMENT_BYTES,
+    MAX_DOCUMENTS,
+    MAX_TOTAL_BYTES,
+    SUPPORTED_EXTENSIONS,
+    DocumentIngestionError,
+    extract_documents,
+)
 from .chat_model import PlaygroundChatError, PlaygroundChatModel
 from .playground import playground_check_payload
 
@@ -604,6 +613,74 @@ class ControlPlaneAPI:
                 raise HTTPException(status_code=502, detail=str(error)) from error
             return asdict(result)
 
+        @router.post("/compliance-document-analyses")
+        async def analyze_compliance_documents(
+            files: Annotated[list[UploadFile], File(...)],
+            language: Annotated[Literal["en", "zh-CN"], Form()] = "en",
+        ):
+            if self._intent_analyzer is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="The control-plane assistant is not configured.",
+                )
+            if not files or len(files) > MAX_DOCUMENTS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Upload between 1 and {MAX_DOCUMENTS} documents.",
+                )
+            uploads: list[tuple[str, bytes]] = []
+            total_bytes = 0
+            try:
+                for upload in files:
+                    filename = upload.filename or "document"
+                    if not filename.casefold().endswith(SUPPORTED_EXTENSIONS):
+                        raise HTTPException(
+                            status_code=415,
+                            detail=(
+                                "Unsupported document type. Upload Word "
+                                "(.doc or .docx) or plain text (.txt)."
+                            ),
+                        )
+                    content = await _read_upload(upload, MAX_DOCUMENT_BYTES)
+                    total_bytes += len(content)
+                    if total_bytes > MAX_TOTAL_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="The combined document size exceeds 10 MB.",
+                        )
+                    uploads.append((filename, content))
+            finally:
+                for upload in files:
+                    await upload.close()
+            try:
+                documents = extract_documents(tuple(uploads))
+                analyzer = getattr(self._intent_analyzer, "analyze_documents", None)
+                if analyzer is None:
+                    raise IntentAnalysisError(
+                        "The configured control-plane assistant does not support document analysis."
+                    )
+                policies = tuple(
+                    (
+                        str(item["id"]),
+                        str(item["name"]),
+                        str(item["description"]),
+                    )
+                    for item in policy_catalog()
+                )
+                result = await analyzer(
+                    documents=documents,
+                    policies=policies,
+                    language=language,
+                )
+            except DocumentIngestionError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            except IntentAnalysisError as error:
+                raise HTTPException(status_code=502, detail=str(error)) from error
+            return {
+                **asdict(result),
+                "sources": [item.public_payload() for item in documents],
+            }
+
         @router.get("/guardrails")
         def guardrails():
             return _collection([self._guardrail_payload(item.id) for item in self._service.guardrails()])
@@ -703,6 +780,25 @@ class ControlPlaneAPI:
                     for item in versions
                 ]
             )
+
+        @router.get("/guardrail-versions/{guardrail_id}/{version}")
+        def guardrail_version(guardrail_id: str, version: int):
+            try:
+                item = next(
+                    (
+                        candidate
+                        for candidate in self._service.versions(guardrail_id)
+                        if candidate.version == version
+                    ),
+                    None,
+                )
+                if item is None:
+                    raise NotFoundError("Guardrail Version was not found.")
+                plan = self._service.plan(guardrail_id, version)
+                config = self._service.nemo_config(guardrail_id, version)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _guardrail_version_detail_payload(item, plan, config)
 
         @router.post("/guardrails/{guardrail_id}/rollback/{version}")
         def rollback_guardrail(guardrail_id: str, version: int):
@@ -1276,7 +1372,8 @@ class ControlPlaneAPI:
             "allowed_topics": guardrail.allowed_topics,
             "restricted_topics": guardrail.restricted_topics,
             "policy_bindings": [
-                asdict(item) for item in guardrail.policy_bindings
+                _guardrail_policy_binding_payload(item)
+                for item in guardrail.policy_bindings
             ],
             "safety_level": guardrail.safety_level,
             "output_delivery": guardrail.output_delivery,
@@ -1292,6 +1389,23 @@ class ControlPlaneAPI:
         }
         payload["coverage"] = _coverage(guardrail, latest)
         return payload
+
+
+def _guardrail_policy_binding_payload(item) -> dict[str, object]:
+    return {
+        "policy_id": item.policy_id,
+        "policy_version": item.policy_version,
+        "action": item.action,
+        "parameter_values": dict(item.parameter_values),
+        "enabled_rule_ids": list(item.enabled_rule_ids),
+        "rule_actions": dict(item.rule_actions),
+        "enabled_rails": list(item.enabled_rails),
+        "reasoning_policy": (
+            asdict(item.reasoning_policy)
+            if item.reasoning_policy is not None
+            else None
+        ),
+    }
 
 
 def _validation_run_payload(item) -> dict[str, object]:
@@ -1440,6 +1554,86 @@ def _guardrail_version_payload(item) -> dict[str, object]:
     return asdict(item)
 
 
+def _guardrail_version_detail_payload(item, plan, config) -> dict[str, object]:
+    dependencies = [
+        {"kind": kind, "name": name, "version": version}
+        for kind, name, version in config.dependency_manifest
+    ]
+    artifacts = [
+        {
+            "path": "config.yml",
+            "language": "yaml",
+            "content": config.config_yaml,
+        },
+        {
+            "path": "rails.co",
+            "language": "colang",
+            "content": config.colang_content,
+        },
+    ]
+    if config.prompts_yaml:
+        artifacts.append(
+            {
+                "path": "prompts.yml",
+                "language": "yaml",
+                "content": config.prompts_yaml,
+            }
+        )
+    artifacts.extend(
+        [
+            {
+                "path": "execution-plan.json",
+                "language": "json",
+                "content": json.dumps(asdict(plan), ensure_ascii=False, indent=2),
+            },
+            {
+                "path": "dependency-manifest.json",
+                "language": "json",
+                "content": json.dumps(
+                    {"dependencies": dependencies}, ensure_ascii=False, indent=2
+                ),
+            },
+        ]
+    )
+    return {
+        **_guardrail_version_payload(item),
+        "safety_level": plan.safety_level,
+        "output_delivery": plan.output_delivery,
+        "runtime_profile": config.runtime_profile,
+        "colang_version": config.colang_version,
+        "rails": [
+            {"rail_type": rail_type, "flow": flow}
+            for rail_type, flow in config.rail_flows
+        ],
+        "actions": [
+            {
+                "name": binding.action_name or binding.id,
+                "version": binding.action_version,
+                "flow": binding.flow_name,
+                "phases": list(binding.phases),
+                "timeout_ms": binding.timeout_ms,
+                "failure_mode": binding.failure_mode,
+            }
+            for binding in config.action_bindings
+        ],
+        "models": list(config.required_models),
+        "features": list(config.required_features),
+        "dependencies": dependencies,
+        "estimated_critical_path_ms": config.estimated_critical_path_ms,
+        "policy_bindings": [
+            {
+                "policy_id": binding.policy_id,
+                "policy_version": binding.policy_version,
+                "action": binding.action,
+                "enabled_rule_ids": list(binding.enabled_rule_ids),
+                "enabled_rails": list(binding.enabled_rails),
+            }
+            for binding in plan.policy_bindings
+        ],
+        "artifacts": artifacts,
+    }
+
+
 def _deployment_payload(item) -> dict[str, object]:
     return {
         "id": item.id,
@@ -1489,6 +1683,23 @@ def _integration_payload(
 
 def _evidence_record_payload(item) -> dict[str, object]:
     return asdict(item)
+
+
+async def _read_upload(upload: UploadFile, maximum_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(min(64 * 1024, maximum_bytes + 1 - total))
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > maximum_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{upload.filename or 'Document'} exceeds the 5 MB file limit.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _collection(items: list[object]) -> dict[str, object]:
@@ -1837,6 +2048,11 @@ def _metrics_payload(
             )
         ],
         "guardrail_distribution": guardrail_distribution,
+        "caller_distribution": _caller_distribution(
+            events,
+            integrations=integrations,
+            deployments=service.deployments(),
+        ),
         "version_distribution": version_distribution,
         "policy_distribution": policy_distribution,
         "unassigned_requests": sum(item.guardrail_id is None for item in events),
@@ -2092,6 +2308,67 @@ def _version_distribution(events, guardrails) -> list[dict[str, object]]:
             -int(item["requests"]),
             str(item["guardrail_name"]),
             -int(item["guardrail_version"]),
+        )
+    )
+    return distribution
+
+
+def _caller_distribution(events, *, integrations, deployments) -> list[dict[str, object]]:
+    """Aggregate privacy-safe runtime callers without request content or user identity."""
+    integration_names = {item.id: item.name for item in integrations}
+    deployment_names = {item.id: item.name for item in deployments}
+    groups: dict[tuple[str | None, str | None, str], list] = {}
+    for item in events:
+        groups.setdefault(
+            (item.integration_id, item.deployment_id, item.protocol), []
+        ).append(item)
+
+    total = len(events)
+    distribution = []
+    for (integration_id, deployment_id, protocol), items in groups.items():
+        latency = _runtime_latency(items)
+        counts = {
+            "allowed": sum(item.outcome == "allow" for item in items),
+            "blocked": sum(item.outcome == "block" for item in items),
+            "intervened": sum(item.outcome == "transform" for item in items),
+            "errors": sum(item.outcome == "error" for item in items),
+        }
+        distribution.append(
+            {
+                "integration_id": integration_id,
+                "integration_name": integration_names.get(
+                    integration_id, integration_id or "Direct runtime"
+                ),
+                "deployment_id": deployment_id,
+                "deployment_name": deployment_names.get(
+                    deployment_id, deployment_id or "Unassigned traffic"
+                ),
+                "protocol": protocol,
+                "requests": len(items),
+                "share": round(len(items) / total * 100, 1) if total else 0,
+                **counts,
+                "intervention_rate": round(
+                    (counts["blocked"] + counts["intervened"])
+                    / len(items)
+                    * 100,
+                    1,
+                ),
+                "error_rate": round(counts["errors"] / len(items) * 100, 1),
+                "p95_latency_ms": latency["p95"],
+                "guardrail_versions": sorted(
+                    {
+                        item.guardrail_version
+                        for item in items
+                        if item.guardrail_version is not None
+                    }
+                ),
+            }
+        )
+    distribution.sort(
+        key=lambda item: (
+            -int(item["requests"]),
+            str(item["integration_name"]),
+            str(item["deployment_name"]),
         )
     )
     return distribution

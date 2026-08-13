@@ -1,14 +1,14 @@
-import { useMemo, useState } from "react";
-import { CheckCircle2, ChevronDown, Search, ShieldCheck } from "lucide-react";
+import { useMemo } from "react";
+import { ChevronDown, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MultiSelectCombobox, type MultiSelectOption } from "@/components/ui/multi-select-combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { EnforcementAction, GuardrailPolicyBinding, Policy } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 const ACTIONS: EnforcementAction[] = [
   "reject",
@@ -31,23 +31,35 @@ export function PolicyBindingEditor({
   onChange: (next: GuardrailPolicyBinding[]) => void;
 }) {
   const { t } = useTranslation();
-  const [search, setSearch] = useState("");
-  const selectedIds = new Set(value.map((binding) => binding.policy_id));
-  const filtered = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase();
-    if (!term) return policies;
-    return policies.filter((policy) => [
-      policy.name,
-      policy.description,
-      policy.id,
-      ...policy.tags.map((tag) => tag.label),
-      ...policy.rules.map((rule) => rule.name),
-    ].join(" ").toLocaleLowerCase().includes(term));
-  }, [policies, search]);
+  const selectedIds = value.map((binding) => binding.policy_id);
+  const options = useMemo<MultiSelectOption[]>(() => policies.map((policy) => {
+    const bindable = policy.source === "built_in" || policy.version !== "0";
+    return {
+      value: policy.id,
+      label: policy.name,
+      description: policy.description,
+      disabled: !bindable,
+      keywords: [
+        policy.id,
+        ...policy.tags.map((tag) => tag.label),
+        ...policy.rules.map((rule) => rule.name),
+      ],
+      meta: [
+        `v${policy.version}`,
+        t("policyLibrary.ruleCount", { count: policy.rules.length }),
+        t("policyLibrary.testCount", { count: policy.test_count }),
+        ...(!bindable ? [t("guardrailWizard.publishPolicyFirst")] : []),
+      ].join(" · "),
+    };
+  }), [policies, t]);
 
-  function toggle(policy: Policy, checked: boolean) {
-    if (checked) onChange([...value, defaultPolicyBinding(policy)]);
-    else onChange(value.filter((binding) => binding.policy_id !== policy.id));
+  function selectPolicies(nextIds: string[]) {
+    onChange(nextIds.map((policyId) => {
+      const existing = value.find((binding) => binding.policy_id === policyId);
+      if (existing) return existing;
+      const policy = policies.find((item) => item.id === policyId);
+      return policy ? defaultPolicyBinding(policy) : null;
+    }).filter((binding): binding is GuardrailPolicyBinding => binding !== null));
   }
 
   function update(policyId: string, patch: Partial<GuardrailPolicyBinding>) {
@@ -55,56 +67,25 @@ export function PolicyBindingEditor({
   }
 
   return (
-    <div className="space-y-5">
-      <label className="relative block">
-        <span className="sr-only">{t("guardrailWizard.searchPolicies")}</span>
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="min-h-11 bg-card pl-9"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={t("guardrailWizard.searchPolicies")}
+    <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-2">
+        <MultiSelectCombobox
+          ariaLabel={t("guardrailWizard.selectPolicies")}
+          value={selectedIds}
+          options={options}
+          placeholder={t("guardrailWizard.selectPolicies")}
+          searchPlaceholder={t("guardrailWizard.searchPolicies")}
+          emptyMessage={t("guardrailWizard.noMatchingPolicies")}
+          emptyDescription={t("guardrailWizard.noMatchingPoliciesDescription")}
+          noOptionsMessage={t("guardrailWizard.noPublishedPolicies")}
+          noOptionsDescription={t("guardrailWizard.noPublishedPoliciesDescription")}
+          onValueChange={selectPolicies}
         />
-      </label>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        {filtered.map((policy) => {
-          const checked = selectedIds.has(policy.id);
-          const bindable = policy.source === "built_in" || policy.version !== "0";
-          return (
-            <label
-              key={policy.id}
-              className={cn(
-                "grid min-h-28 cursor-pointer grid-cols-[1.5rem_minmax(0,1fr)] gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-primary/35",
-                checked && "border-primary/40 bg-primary/[0.035] ring-1 ring-primary/10",
-                !bindable && "cursor-not-allowed opacity-60",
-              )}
-            >
-              <Checkbox
-                className="mt-0.5"
-                checked={checked}
-                disabled={!bindable}
-                onCheckedChange={(next) => toggle(policy, Boolean(next))}
-              />
-              <span className="min-w-0">
-                <span className="flex flex-wrap items-center gap-2">
-                  <strong className="text-sm">{policy.name}</strong>
-                  <Badge variant="outline" className="font-mono text-[10px]">v{policy.version}</Badge>
-                </span>
-                <span className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{policy.description}</span>
-                <span className="mt-2 flex flex-wrap gap-1.5">
-                  <Badge variant="secondary">{t("policyLibrary.ruleCount", { count: policy.rules.length })}</Badge>
-                  <Badge variant="secondary">{t("policyLibrary.testCount", { count: policy.test_count })}</Badge>
-                  {!bindable ? <Badge variant="outline">{t("guardrailWizard.publishPolicyFirst")}</Badge> : null}
-                </span>
-              </span>
-            </label>
-          );
-        })}
+        <p className="text-xs leading-5 text-muted-foreground">{t("guardrailWizard.policyPickerHint")}</p>
       </div>
 
       {value.length ? (
-        <section className="overflow-hidden rounded-xl border bg-card">
+        <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
           <header className="border-b bg-muted/25 px-4 py-3">
             <h3 className="text-sm font-semibold">{t("guardrailWizard.boundPolicies", { count: value.length })}</h3>
             <p className="mt-1 text-xs text-muted-foreground">{t("guardrailWizard.boundPoliciesDescription")}</p>
@@ -114,8 +95,17 @@ export function PolicyBindingEditor({
               const policy = policies.find((item) => item.id === binding.policy_id);
               if (!policy) return null;
               return (
-                <details key={binding.policy_id} open className="group">
-                  <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                <details key={binding.policy_id} className="group">
+                  <summary
+                    aria-label={t("guardrailWizard.boundPolicyDetails", { name: policy.name })}
+                    className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
+                    onKeyDown={(event) => {
+                      if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
+                      event.preventDefault();
+                      const details = event.currentTarget.closest("details");
+                      if (details) details.open = !details.open;
+                    }}
+                  >
                     <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><ShieldCheck className="size-4" /></span>
                     <span className="min-w-0 flex-1"><strong className="block truncate text-sm">{policy.name}</strong><span className="font-mono text-xs text-muted-foreground">{binding.policy_id}@{binding.policy_version}</span></span>
                     <Badge variant="outline">{t("guardrailWizard.enabledRuleCount", { count: binding.enabled_rule_ids.length })}</Badge>
@@ -186,7 +176,7 @@ export function PolicyBindingEditor({
           </div>
         </section>
       ) : (
-        <div className="rounded-xl border border-dashed bg-card p-8 text-center"><CheckCircle2 className="mx-auto size-7 text-muted-foreground" /><p className="mt-2 text-sm font-medium">{t("guardrailWizard.noPolicies")}</p><p className="mt-1 text-xs text-muted-foreground">{t("guardrailWizard.noPoliciesDescription")}</p></div>
+        <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-3"><p className="text-sm font-medium">{t("guardrailWizard.noPolicies")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.noPoliciesDescription")}</p></div>
       )}
     </div>
   );

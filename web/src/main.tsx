@@ -24,7 +24,8 @@ const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", com
 const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: DashboardPage });
 const guardrailsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails", component: GuardrailsPage });
 const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails/$guardrailId", component: GuardrailDetailPage });
-const policyLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/policy-library", component: PolicyLibraryPage });
+const policyLibrarySearch = (search: Record<string, unknown>) => ({ policy: typeof search.policy === "string" ? search.policy : undefined });
+const policyLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/policy-library", validateSearch: policyLibrarySearch, component: PolicyLibraryPage });
 const guardrailSearch = (search: Record<string, unknown>) => ({ guardrail: typeof search.guardrail === "string" ? search.guardrail : undefined });
 const playgroundRoute = createRoute({ getParentRoute: () => rootRoute, path: "/playground", validateSearch: guardrailSearch, component: PlaygroundPage });
 const validationRoute = createRoute({ getParentRoute: () => rootRoute, path: "/validation", validateSearch: guardrailSearch, component: ValidationPage });

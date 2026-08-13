@@ -16,7 +16,11 @@ from app.control_plane.domain import (
 )
 from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_DEPLOYMENT_ID
 from app.control_plane.catalog import builtin_policy_id
-from app.control_plane.intent_analyzer import IntentAnalysis
+from app.control_plane.intent_analyzer import (
+    ComplianceDocumentAnalysis,
+    ComplianceRequirement,
+    IntentAnalysis,
+)
 from app.integrations import (
     A2A_GUARD_ADAPTER_ID,
     GENERIC_HTTP_GUARD_ADAPTER_ID,
@@ -169,6 +173,28 @@ class StubIntentAnalyzer:
             allowed_topics=("SQL 数据分析", "Python 与 R 数据分析"),
             restricted_topics=("生物医药研究", "Rust 与 Go 软件开发"),
             review_notes=("确认是否允许通用统计学问题。",),
+        )
+
+    async def analyze_documents(self, *, documents, policies, language):
+        assert language == "zh-CN"
+        assert documents[0].name == "compliance.txt"
+        assert "客户数据" in documents[0].analysis_text()
+        assert "baseline-pii-protection" in {item[0] for item in policies}
+        reference = documents[0].sections[0].reference
+        return ComplianceDocumentAnalysis(
+            summary="客服人员使用 AI 分析客户问题，同时保护个人与账户数据。",
+            allowed_topics=("客户服务分析",),
+            restricted_topics=("未经授权的个人数据披露",),
+            requirements=(
+                ComplianceRequirement(
+                    title="保护客户数据",
+                    description="不得向模型披露个人与账户数据。",
+                    effect="block",
+                    source_refs=(reference,),
+                ),
+            ),
+            recommended_policy_ids=("baseline-pii-protection",),
+            review_notes=("确认账户标识符的完整范围。",),
         )
 
 
@@ -372,6 +398,75 @@ async def test_control_plane_agent_returns_reviewable_rules_without_saving_guard
 
 
 @pytest.mark.asyncio
+async def test_compliance_document_upload_returns_cited_review_draft_without_saving_files(
+    tmp_path,
+):
+    app = create_app(
+        settings=settings(tmp_path),
+        engine=Engine(),
+        intent_analyzer=StubIntentAnalyzer(),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        result = await client.post(
+            "/api/v1/compliance-document-analyses",
+            data={"language": "zh-CN"},
+            files=[
+                (
+                    "files",
+                    (
+                        "compliance.txt",
+                        "客户数据只能用于客服分析，不得向模型披露个人与账户数据。".encode(),
+                        "text/plain",
+                    ),
+                )
+            ],
+        )
+
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["recommended_policy_ids"] == ["baseline-pii-protection"]
+    assert payload["requirements"][0]["source_refs"] == ["document-1:lines-1-1"]
+    assert payload["sources"][0]["name"] == "compliance.txt"
+    assert payload["sources"][0]["character_count"] > 20
+    assert len(payload["sources"][0]["sha256"]) == 64
+    assert "content" not in payload["sources"][0]
+
+
+@pytest.mark.asyncio
+async def test_compliance_document_upload_rejects_pdf_and_more_than_three_files(
+    tmp_path,
+):
+    app = create_app(
+        settings=settings(tmp_path),
+        engine=Engine(),
+        intent_analyzer=StubIntentAnalyzer(),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        pdf = await client.post(
+            "/api/v1/compliance-document-analyses",
+            data={"language": "en"},
+            files=[("files", ("policy.pdf", b"%PDF-1.7", "application/pdf"))],
+        )
+        too_many = await client.post(
+            "/api/v1/compliance-document-analyses",
+            data={"language": "en"},
+            files=[
+                ("files", (f"policy-{index}.txt", b"A sufficiently long policy document.", "text/plain"))
+                for index in range(4)
+            ],
+        )
+
+    assert pdf.status_code == 415
+    assert too_many.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_tests_create_a_deployable_guardrail_version(tmp_path):
     app = create_app(settings=settings(tmp_path))
     async with httpx.AsyncClient(
@@ -397,6 +492,9 @@ async def test_tests_create_a_deployable_guardrail_version(tmp_path):
             "/api/v1/validation-runs", json={"guardrail_id": guardrail_id}
         )
         guardrail = await client.get(f"/api/v1/guardrails/{guardrail_id}")
+        immutable = await client.get(
+            f"/api/v1/guardrail-versions/{guardrail_id}/1"
+        )
         added_after_pass = await client.post(
             "/api/v1/test-cases",
             json={
@@ -420,6 +518,17 @@ async def test_tests_create_a_deployable_guardrail_version(tmp_path):
     assert "draft_version" not in guardrail.json()
     assert "active_version" not in guardrail.json()
     assert guardrail.json()["status"] == "ready"
+    assert immutable.status_code == 200
+    assert immutable.json()["version"] == 1
+    assert immutable.json()["active"] is True
+    assert immutable.json()["safety_level"] == "balanced"
+    assert immutable.json()["policy_bindings"][0]["policy_id"] == "topic-filtering"
+    assert {item["path"] for item in immutable.json()["artifacts"]} >= {
+        "config.yml",
+        "rails.co",
+        "execution-plan.json",
+        "dependency-manifest.json",
+    }
     assert added_after_pass.status_code == 201
     assert stale_guardrail.json()["status"] == "needs_validation"
 
@@ -461,6 +570,43 @@ async def test_guardrail_combines_pack_checks_with_custom_intent_controls(tmp_pa
         "builtin-topic-safety",
         "builtin-secrets",
     ]
+
+
+@pytest.mark.asyncio
+async def test_guardrail_policy_bindings_can_round_trip_when_one_is_removed(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Editable finance boundary",
+                "purpose": "Protect reviewed financial workflows.",
+                "policy_bindings": [
+                    {
+                        "policy_id": "topic-filtering",
+                        "policy_version": "1.95.0",
+                    },
+                    policy_binding_payload("secrets", "reject"),
+                ],
+            },
+        )
+        guardrail = created.json()
+        remaining_binding = guardrail["policy_bindings"][0]
+        updated = await client.patch(
+            f"/api/v1/guardrails/{guardrail['id']}",
+            json={"policy_bindings": [remaining_binding]},
+        )
+
+    assert created.status_code == 201
+    assert remaining_binding["parameter_values"] == {}
+    assert remaining_binding["rule_actions"] == {}
+    assert updated.status_code == 200, updated.text
+    assert [
+        item["policy_id"] for item in updated.json()["policy_bindings"]
+    ] == ["topic-filtering"]
 
 
 @pytest.mark.asyncio
@@ -1065,7 +1211,7 @@ async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_p
         ),
     )
     version = control_plane.activate_tested_version(guardrail.id).version.version
-    control_plane.create_deployment(
+    deployment = control_plane.create_deployment(
         name="Observed traffic",
         guardrail_id=guardrail.id,
         traffic_scope=filter_expression(filter_rule("protocol", "equals", "litellm")),
@@ -1116,6 +1262,7 @@ async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_p
         if item["guardrail_id"] == guardrail.id
     )
     events = control_plane.runtime_metrics(since="1970-01-01T00:00:00+00:00")
+    caller = scoped_metrics["caller_distribution"][0]
 
     assert metrics["window"] == "7d"
     assert metrics["total_decisions"] == 2
@@ -1129,6 +1276,14 @@ async def test_runtime_metrics_capture_privacy_safe_guardrail_distribution(tmp_p
     }
     assert scoped_metrics["total_decisions"] == 2
     assert scoped_metrics["comparison"]["previous_total_decisions"] == 0
+    assert caller["integration_id"] == registration.integration.id
+    assert caller["integration_name"] == "Observed LiteLLM"
+    assert caller["deployment_id"] == deployment.id
+    assert caller["deployment_name"] == "Observed traffic"
+    assert caller["protocol"] == "litellm"
+    assert caller["requests"] == 2
+    assert caller["share"] == 100
+    assert caller["guardrail_versions"] == [version]
     assert hourly_metrics["window"] == "1h"
     assert hourly_metrics["interval"] == "1m"
     assert "environment" not in hourly_metrics["trend_series"]

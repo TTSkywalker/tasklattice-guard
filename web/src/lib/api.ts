@@ -304,6 +304,40 @@ export type GuardrailVersion = {
   execution_mode: "nemo_only";
 };
 
+export type GuardrailVersionArtifact = {
+  path: string;
+  language: "yaml" | "colang" | "json" | string;
+  content: string;
+};
+
+export type GuardrailVersionDetail = GuardrailVersion & {
+  safety_level: SafetyLevel;
+  output_delivery: OutputDelivery;
+  runtime_profile: string;
+  colang_version: string;
+  rails: Array<{ rail_type: NativeRailType; flow: string }>;
+  actions: Array<{
+    name: string;
+    version: string | null;
+    flow: string | null;
+    phases: Array<"input" | "output">;
+    timeout_ms: number;
+    failure_mode: string;
+  }>;
+  models: string[];
+  features: string[];
+  dependencies: Array<{ kind: string; name: string; version: string }>;
+  estimated_critical_path_ms: number;
+  policy_bindings: Array<{
+    policy_id: string;
+    policy_version: string;
+    action: string | null;
+    enabled_rule_ids: string[];
+    enabled_rails: NativeRailType[];
+  }>;
+  artifacts: GuardrailVersionArtifact[];
+};
+
 export type PolicyTag = {
   id: string;
   namespace: string;
@@ -720,6 +754,23 @@ export type Metrics = {
     config_checksums: string[];
     versions: number[];
   }>;
+  caller_distribution: Array<{
+    integration_id: string | null;
+    integration_name: string;
+    deployment_id: string | null;
+    deployment_name: string;
+    protocol: string;
+    requests: number;
+    share: number;
+    allowed: number;
+    blocked: number;
+    intervened: number;
+    errors: number;
+    intervention_rate: number;
+    error_rate: number;
+    p95_latency_ms: number;
+    guardrail_versions: number[];
+  }>;
   version_distribution: Array<{
     guardrail_id: string;
     guardrail_name: string;
@@ -796,6 +847,26 @@ export type IdentityUser = {
 export type AuthStatus = { authenticated: boolean; user: IdentityUser | null };
 export type IntentAnalysisStatus = { available: boolean; provider: string | null; model: string | null };
 export type IntentAnalysis = { summary: string; allowed_topics: string[]; restricted_topics: string[]; review_notes: string[] };
+export type ComplianceDocumentSource = {
+  id: string;
+  name: string;
+  format: "doc" | "docx" | "txt";
+  size_bytes: number;
+  sha256: string;
+  character_count: number;
+  section_count: number;
+};
+export type ComplianceRequirement = {
+  title: string;
+  description: string;
+  effect: "allow" | "block" | "transform" | "review";
+  source_refs: string[];
+};
+export type ComplianceDocumentAnalysis = IntentAnalysis & {
+  requirements: ComplianceRequirement[];
+  recommended_policy_ids: string[];
+  sources: ComplianceDocumentSource[];
+};
 
 async function read<T>(path: string): Promise<T> { return parse<T>(await fetch(path)); }
 async function mutate<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -812,9 +883,32 @@ async function parse<T>(response: Response): Promise<T> {
     if (response.status === 401 && !response.url.endsWith("/api/v1/session")) {
       window.dispatchEvent(new CustomEvent("tasklattice:unauthorized"));
     }
-    throw new Error(payload.detail || `Request failed with status ${response.status}.`);
+    throw new Error(apiErrorMessage(payload.detail, response.status));
   }
   return payload as T;
+}
+
+function apiErrorMessage(detail: unknown, status: number): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      if (typeof item === "string") return item;
+      if (!item || typeof item !== "object") return "";
+      const issue = item as { loc?: unknown; msg?: unknown; message?: unknown };
+      const message = typeof issue.msg === "string" ? issue.msg : typeof issue.message === "string" ? issue.message : "";
+      const location = Array.isArray(issue.loc)
+        ? issue.loc.filter((part) => part !== "body").map(String).join(".")
+        : "";
+      return message ? `${location ? `${location}: ` : ""}${message}` : "";
+    }).filter(Boolean);
+    if (messages.length) return messages.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    const issue = detail as { msg?: unknown; message?: unknown };
+    if (typeof issue.msg === "string" && issue.msg) return issue.msg;
+    if (typeof issue.message === "string" && issue.message) return issue.message;
+  }
+  return `Request failed with status ${status}.`;
 }
 
 const query = (params: Record<string, string | number | undefined>) => {
@@ -838,6 +932,7 @@ export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/
 export const createGuardrail = (input: { name: string; purpose?: string; allowed_topics?: string[]; restricted_topics?: string[]; policy_bindings: GuardrailPolicyBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
 export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "policy_bindings" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
+export const getGuardrailVersion = (guardrailId: string, version: number) => read<GuardrailVersionDetail>(`/api/v1/guardrail-versions/${encodeURIComponent(guardrailId)}/${version}`);
 export const rollbackGuardrail = (guardrailId: string, version: number) => mutate<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/rollback/${version}`, "POST");
 
 export const getPolicies = () => read<Collection<Policy>>("/api/v1/policies");
@@ -854,6 +949,12 @@ export const getGuardrailCompilePreview = (id: string) => read<GuardrailCompileP
 export const previewGuardrailCandidate = (input: { name: string; purpose: string; allowed_topics?: string[]; restricted_topics?: string[]; policy_bindings: GuardrailPolicyBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<GuardrailCompilePreview>("/api/v1/guardrail-compile-previews", "POST", input);
 export const getIntentAnalysisStatus = () => read<IntentAnalysisStatus>("/api/v1/intent-analysis-status");
 export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" | "zh-CN" }) => mutate<IntentAnalysis>("/api/v1/intent-analyses", "POST", input);
+export const analyzeComplianceDocuments = async (files: File[], language: "en" | "zh-CN") => {
+  const body = new FormData();
+  files.forEach((file) => body.append("files", file));
+  body.append("language", language);
+  return parse<ComplianceDocumentAnalysis>(await fetch("/api/v1/compliance-document-analyses", { method: "POST", body }));
+};
 
 export const createValidationRun = (guardrailId: string) => mutate<ValidationRun>("/api/v1/validation-runs", "POST", { guardrail_id: guardrailId });
 export const getValidationRuns = (guardrailId?: string) => read<Collection<ValidationRun>>(`/api/v1/validation-runs${query({ guardrail_id: guardrailId })}`);

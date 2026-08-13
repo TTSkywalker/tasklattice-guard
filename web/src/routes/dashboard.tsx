@@ -17,6 +17,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { RuntimeMetricChart } from "@/components/dashboard/runtime-metric-chart";
+import { RuntimeHealthAlert } from "@/components/dashboard/runtime-health-alert";
 import { ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,7 +66,7 @@ export function DashboardPage() {
       {dashboard.metrics.isLoading ? <DashboardSkeleton /> : null}
       {dashboard.metrics.data ? (
         <div className="mt-5 space-y-4">
-          <HealthBanner metrics={dashboard.metrics.data} />
+          <RuntimeHealthAlert metrics={dashboard.metrics.data} />
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <OverviewMetricCard
@@ -142,24 +143,6 @@ function DashboardFilters({ guardrailId, window, guardrails, onGuardrailChange, 
         </SelectContent>
       </Select>
       <Button className="min-h-11 w-full sm:w-auto" asChild><Link to="/deployments"><Settings2 />{t("dashboard.manage")}</Link></Button>
-    </div>
-  );
-}
-
-function HealthBanner({ metrics }: { metrics: Metrics }) {
-  const { t } = useTranslation();
-  const degraded = metrics.system_status === "degraded" || metrics.latency_slo.p95_status === "breached" || metrics.fail_closed_count > 0;
-  const detailKey = metrics.fail_closed_count
-    ? "dashboard.healthFailClosed"
-    : metrics.latency_slo.p95_status === "breached"
-      ? "dashboard.healthLatency"
-      : metrics.degraded_integrations
-        ? "dashboard.healthIntegration"
-        : "dashboard.healthNormal";
-  return (
-    <div className={cn("flex min-h-11 items-center gap-3 rounded-lg border px-4 py-2.5 text-sm", degraded ? "border-amber-200 bg-amber-50/70 text-amber-950" : "border-emerald-200 bg-emerald-50/60 text-emerald-950")} role="status">
-      <span className={cn("size-2 shrink-0 rounded-full", degraded ? "bg-amber-500" : "bg-emerald-500")} />
-      <p><span className="font-semibold">{t(degraded ? "dashboard.degraded" : "dashboard.healthy")}</span><span className="text-current/70"> — {t(detailKey, { count: metrics.degraded_integrations })}</span></p>
     </div>
   );
 }
@@ -331,7 +314,7 @@ function RecentEvents({ items, loading, guardrails }: { items: EvidenceRecord[];
 }
 
 function DashboardSkeleton() {
-  return <div className="mt-5 space-y-4"><Skeleton className="h-11 rounded-lg" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-32 rounded-xl" />)}</div><div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]"><Skeleton className="h-[430px] rounded-xl" /><Skeleton className="h-[430px] rounded-xl" /></div><Skeleton className="h-44 rounded-xl" /><Skeleton className="h-72 rounded-xl" /></div>;
+  return <div className="mt-5 space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-32 rounded-xl" />)}</div><div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]"><Skeleton className="h-[430px] rounded-xl" /><Skeleton className="h-[430px] rounded-xl" /></div><Skeleton className="h-44 rounded-xl" /><Skeleton className="h-72 rounded-xl" /></div>;
 }
 
 function formatCompactCount(value: number) {
