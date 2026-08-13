@@ -9,25 +9,27 @@ import pytest
 import yaml
 
 from app.control_plane.api import _metrics_payload
+from app.control_plane.catalog import builtin_policy_id
 from app.control_plane.compiler import GuardrailCompiler
 from app.control_plane.domain import (
     AutomatedReasoningPolicyBinding,
-    EvaluationCaseResult,
-    EvaluationMetrics,
+    TestCaseResult,
+    ValidationMetrics,
     Guardrail,
-    GuardrailControl,
+    GuardrailPolicyBinding,
     PlanCompilationError,
+    ResolvedPolicyCapability,
     TrafficScopeExpression,
-    TrafficScopeRule,
+    TrafficCondition,
     ValidationError,
 )
 from app.control_plane.nemo_compiler import NeMoConfigCompiler
 from app.control_plane.service import ControlPlaneService
 from app.runtime.contracts import (
     EngineRequest,
-    EvaluationDecision,
-    EvaluationRequest,
-    EvaluationTraceStep,
+    ProtectionDecision,
+    ProtectionRequest,
+    RuntimeTraceStep,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
@@ -39,7 +41,7 @@ from app.runtime.contracts import (
 )
 from app.nemo.actions.deterministic import FastPassEngine
 from app.nemo.action_registry import runtime_action_registry
-from app.nemo.builtin_controls.content_safety import prompts_yaml
+from app.nemo.builtin_policies.content_safety import prompts_yaml
 from app.nemo.runtime import (
     NeMoActionExecutor,
     NeMoGuardrailsEngine,
@@ -52,19 +54,32 @@ from app.runtime.service import ModelGuardrailsEngineService
 from app.main import _otlp_trace_endpoint
 
 
+def _policy(
+    risk: str,
+    action: str,
+    reasoning_policy: AutomatedReasoningPolicyBinding | None = None,
+) -> GuardrailPolicyBinding:
+    return GuardrailPolicyBinding(
+        policy_id=builtin_policy_id(risk),
+        policy_version="1",
+        action=action,
+        reasoning_policy=reasoning_policy,
+    )
+
+
 def _pass_current_draft(service: ControlPlaneService, guardrail_id: str) -> None:
     guardrail = service.guardrail(guardrail_id)
-    service.save_evaluation(
+    service.save_validation_run(
         guardrail_id=guardrail_id,
         guardrail_version=None,
         source_draft_version=guardrail.draft_version,
         status="passed",
-        metrics=EvaluationMetrics(1, 1, 100, 0, 0, 0, 1),
+        metrics=ValidationMetrics(1, 1, 100, 0, 0, 0, 1),
         results=(
-            EvaluationCaseResult(
+            TestCaseResult(
                 "release-gate",
                 "Release gate",
-                guardrail.controls[0].risk,
+                guardrail.policy_bindings[0].policy_id,
                 "allow",
                 "allow",
                 True,
@@ -208,9 +223,9 @@ async def test_default_deterministic_golden_corpus_runs_through_nemo(tmp_path):
         )
         assert decision.trace[0].name == "NeMo Guardrails"
         assert any(
-            step.kind == "control"
-            and step.control_id
-            and step.control_version == 1
+            step.kind == "policy"
+            and step.policy_id
+            and step.policy_version == "1"
             and step.flow_name
             for step in decision.trace
         )
@@ -253,39 +268,50 @@ async def test_default_deterministic_golden_corpus_runs_through_nemo(tmp_path):
     await engine.shutdown()
 
 
-def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
-    controls = (
-        GuardrailControl("content_safety", "reject"),
-        GuardrailControl("pii", "redact"),
-        GuardrailControl("topic_control", "redirect"),
-        GuardrailControl("jailbreak", "reject"),
-        GuardrailControl("prompt_injection", "reject"),
-        GuardrailControl("secrets", "reject"),
-        GuardrailControl("builtin_content_filter", "reject"),
-        GuardrailControl("company_policy", "reject"),
-        GuardrailControl("contextual_grounding", "regenerate"),
-        GuardrailControl(
+def test_all_ten_policy_execution_paths_compile_into_native_rails_or_nemo_actions():
+    resolved_policies = (
+        ResolvedPolicyCapability("content_safety", "reject"),
+        ResolvedPolicyCapability("pii", "redact"),
+        ResolvedPolicyCapability("topic_control", "redirect"),
+        ResolvedPolicyCapability("jailbreak", "reject"),
+        ResolvedPolicyCapability("prompt_injection", "reject"),
+        ResolvedPolicyCapability("secrets", "reject"),
+        ResolvedPolicyCapability("builtin_content_filter", "reject"),
+        ResolvedPolicyCapability("company_policy", "reject"),
+        ResolvedPolicyCapability("contextual_grounding", "regenerate"),
+        ResolvedPolicyCapability(
             "automated_reasoning",
             "rewrite",
             AutomatedReasoningPolicyBinding("finance-policy", "2026-08"),
         ),
     )
     guardrail = Guardrail(
-        id="all-controls",
-        name="All controls",
-        purpose="Protect an enterprise assistant with every supported Control.",
+        id="all-policies",
+        name="All policies",
+        purpose="Protect an enterprise assistant with every supported Policy path.",
         allowed_topics=("Approved business work",),
         restricted_topics=("Unapproved activity",),
-        controls=controls,
+        policy_bindings=(
+            *tuple(
+                _policy(item.risk, item.action, item.reasoning_policy)
+                for item in resolved_policies
+                if item.risk != "builtin_content_filter"
+            ),
+            GuardrailPolicyBinding(
+                "prompt-injection-protection",
+                "1.95.0",
+                action="reject",
+            ),
+        ),
         safety_level="strict",
         output_delivery="full_buffered",
-        source_pack_id="prompt-injection-protection",
-        parameters=(),
         draft_version=1,
         active_version=None,
         updated_at="2026-08-12T00:00:00+00:00",
     )
-    plan = GuardrailCompiler(deep_judge_configured=True).compile(guardrail, 1)
+    plan = GuardrailCompiler(deep_judge_configured=True).compile(
+        guardrail, 1, resolved_policies=resolved_policies
+    )
     prompts = prompts_yaml()
     compiler = NeMoConfigCompiler(
         models=(
@@ -330,7 +356,7 @@ def test_all_ten_controls_compile_into_native_rails_or_nemo_actions():
     # topic/jailbreak multi-stage chains instead of silently collapsing them to
     # one native check. Content Safety is the only single terminal native flow.
     assert native_risks == {"content_safety"}
-    assert {item.risk for item in controls} == native_risks | action_risks
+    assert {item.risk for item in resolved_policies} == native_risks | action_risks
     assert {
         "secrets",
         "prompt_injection",
@@ -543,15 +569,15 @@ async def test_colang1_fast_stop_marks_cancelled_sibling_as_uncovered():
 
 @pytest.mark.asyncio
 async def test_colang2_keeps_distinct_results_from_one_custom_control():
-    plan = _plan("custom-control-results")
+    plan = _plan("custom-policy-results")
     unsafe_binding = NeMoActionBinding(
         id="tl.custom.v1.unsafe",
-        risk="custom-control",
+        risk="custom-policy",
         stage="deterministic",
         phases=("input",),
         on_unsafe="reject",
-        control_id="custom-control",
-        control_version=1,
+        policy_id="custom-policy",
+        policy_version=1,
         flow_name="unsafe_flow",
         action_name="CustomAction",
         action_version="1.0.0",
@@ -585,7 +611,7 @@ async def test_colang2_keeps_distinct_results_from_one_custom_control():
                     "request",
                     (
                         RiskFinding(
-                            risk="custom-control",
+                            risk="custom-policy",
                             verdict="unsafe",
                             confidence=1.0,
                             evidence="Unsafe custom flow.",
@@ -740,22 +766,22 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
     guardrail = control_plane.create_guardrail(
         name="Versioned protection",
         purpose="Protect routed HTTP traffic.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(_policy("secrets", "reject"),),
     )
     _pass_current_draft(control_plane, guardrail.id)
     version_one = control_plane.activate_tested_version(guardrail.id)
-    assignment = control_plane.create_assignment(
+    deployment = control_plane.create_deployment(
         name="HTTP traffic",
         guardrail_id=guardrail.id,
         traffic_scope=TrafficScopeExpression(
-            "and", (TrafficScopeRule("protocol", "equals", "http"),)
+            "and", (TrafficCondition("protocol", "equals", "http"),)
         ),
     )
     snapshot_one = version_one.nemo_config
     assert snapshot_one is not None
 
     input_one = await service.evaluate(
-        EvaluationRequest(
+        ProtectionRequest(
             "input",
             ("Safe input.",),
             RequestContext("http", fields=(("protocol", "http"),)),
@@ -764,14 +790,14 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
     )
     control_plane.update_guardrail(
         guardrail.id,
-        controls=(GuardrailControl("pii", "redact"),),
+        policy_bindings=(_policy("pii", "redact"),),
     )
     _pass_current_draft(control_plane, guardrail.id)
     version_two = control_plane.activate_tested_version(guardrail.id)
     snapshot_two = version_two.nemo_config
     assert snapshot_two is not None
     input_two = await service.evaluate(
-        EvaluationRequest(
+        ProtectionRequest(
             "input",
             ("Safe input.",),
             RequestContext("http", fields=(("protocol", "http"),)),
@@ -779,7 +805,7 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
         )
     )
     pinned_output = await service.evaluate(
-        EvaluationRequest(
+        ProtectionRequest(
             "output",
             ("Safe output.",),
             RequestContext("http", fields=(("protocol", "http"),)),
@@ -795,7 +821,7 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
 
     rolled_back = control_plane.rollback_guardrail(guardrail.id, 1)
     input_after_rollback = await service.evaluate(
-        EvaluationRequest(
+        ProtectionRequest(
             "input",
             ("Safe input.",),
             RequestContext("http", fields=(("protocol", "http"),)),
@@ -804,13 +830,13 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
     )
     assert rolled_back.active is True
     assert input_after_rollback.guardrail_version == 1
-    assert control_plane.assignment(assignment.id).guardrail_version == 1
+    assert control_plane.deployment(deployment.id).guardrail_version == 1
 
     control_plane.update_guardrail(
         guardrail.id,
-        controls=(
-            GuardrailControl("secrets", "reject"),
-            GuardrailControl("pii", "redact"),
+        policy_bindings=(
+            _policy("secrets", "reject"),
+            _policy("pii", "redact"),
         ),
     )
     candidate_three = control_plane.compile_draft(guardrail.id)
@@ -824,13 +850,13 @@ async def test_activation_snapshot_version_pinning_and_atomic_rollback(tmp_path)
     assert [item.version for item in control_plane.versions(guardrail.id)] == [3, 2, 1]
     assert control_plane.nemo_config(guardrail.id, 1) == snapshot_one
     assert control_plane.nemo_config(guardrail.id, 2) == snapshot_two
-    assert control_plane.assignment(assignment.id).guardrail_version == 3
+    assert control_plane.deployment(deployment.id).guardrail_version == 3
 
     restarted = ControlPlaneService(database)
     assert restarted.nemo_config(guardrail.id, 1) == snapshot_one
     assert restarted.nemo_config(guardrail.id, 2) == snapshot_two
     assert all(item.runtime_profile for item in restarted.versions(guardrail.id))
-    assert restarted.assignment(assignment.id).guardrail_version == 3
+    assert restarted.deployment(deployment.id).guardrail_version == 3
     assert restarted.versions(guardrail.id)[-1].execution_mode == "nemo_only"
     await engine.shutdown()
 
@@ -843,7 +869,7 @@ async def test_activation_rejects_a_missing_required_nemo_action_provider(tmp_pa
     guardrail = service.create_guardrail(
         name="Organization policy",
         purpose="Enforce reviewed organization policy.",
-        controls=(GuardrailControl("company_policy", "reject"),),
+        policy_bindings=(_policy("company_policy", "reject"),),
     )
     _pass_current_draft(service, guardrail.id)
 
@@ -875,7 +901,7 @@ def test_rail_and_action_metrics_store_outcomes_and_latency_without_content(tmp_
     config = service.nemo_config(plan.guardrail_id, plan.guardrail_version)
     checksum = NeMoConfigCompiler.checksum(config)
     trace = (
-        EvaluationTraceStep(
+        RuntimeTraceStep(
             "nemo:rail:0",
             "rail",
             "content safety check input",
@@ -884,7 +910,7 @@ def test_rail_and_action_metrics_store_outcomes_and_latency_without_content(tmp_
             duration_ms=12,
             risk="content_safety",
         ),
-        EvaluationTraceStep(
+        RuntimeTraceStep(
             "nemo:action:secrets:deterministic",
             "evaluator",
             "secrets:deterministic",
@@ -899,7 +925,7 @@ def test_rail_and_action_metrics_store_outcomes_and_latency_without_content(tmp_
         outcome="allow",
         guardrail_id=plan.guardrail_id,
         guardrail_version=plan.guardrail_version,
-        assignment_id="assignment-default",
+        deployment_id="default-deployment",
         integration_id="integration-test",
         protocol="http",
         phase="input",
@@ -915,7 +941,7 @@ def test_rail_and_action_metrics_store_outcomes_and_latency_without_content(tmp_
     service.record_runtime_steps(
         guardrail_id=plan.guardrail_id,
         guardrail_version=plan.guardrail_version,
-        assignment_id="assignment-default",
+        deployment_id="default-deployment",
         integration_id="integration-test",
         protocol="http",
         phase="input",

@@ -4,46 +4,54 @@ import sqlite3
 
 import pytest
 
-from app.control_library.catalog import control_catalog
 from app.control_plane.domain import (
     ControlPlaneError,
-    EvaluationCaseResult,
-    EvaluationMetrics,
-    GuardrailControl,
+    TestCaseResult,
+    ValidationMetrics,
+    GuardrailPolicyBinding,
     ValidationError,
     TrafficScopeExpression,
-    TrafficScopeRule,
+    TrafficCondition,
 )
-from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_ASSIGNMENT_ID
+from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_DEPLOYMENT_ID
+from app.control_plane.catalog import builtin_policy_id
 from app.control_plane.service import ControlPlaneService
 from app.runtime.contracts import EngineRequest, RequestContext, StageResult
 from app.nemo.actions.deterministic import FastPassEngine
 from tests.nemo_helpers import nemo_engine
 
 
+def policy_binding(risk: str, action: str) -> GuardrailPolicyBinding:
+    return GuardrailPolicyBinding(
+        policy_id=builtin_policy_id(risk),
+        policy_version="1",
+        action=action,
+    )
+
+
 def filter_rule(
     field: str, operator: str, value: str, *, key: str = ""
-) -> TrafficScopeRule:
-    return TrafficScopeRule(field=field, operator=operator, value=value, key=key)
+) -> TrafficCondition:
+    return TrafficCondition(field=field, operator=operator, value=value, key=key)
 
 
 def filter_expression(
-    *rules: TrafficScopeRule | TrafficScopeExpression,
+    *conditions: TrafficCondition | TrafficScopeExpression,
     combinator: str = "and",
 ) -> TrafficScopeExpression:
-    return TrafficScopeExpression(combinator=combinator, rules=rules)
+    return TrafficScopeExpression(combinator=combinator, conditions=conditions)
 
 
 def pass_current_guardrail(service: ControlPlaneService, guardrail_id: str):
     guardrail = service.guardrail(guardrail_id)
-    service.save_evaluation(
+    service.save_validation_run(
         guardrail_id=guardrail.id,
         guardrail_version=None,
         source_draft_version=guardrail.draft_version,
         status="passed",
-        metrics=EvaluationMetrics(1, 1, 100, 0, 0, 5, 10),
+        metrics=ValidationMetrics(1, 1, 100, 0, 0, 5, 10),
         results=(
-            EvaluationCaseResult(
+            TestCaseResult(
                 "case", "case", "secrets", "block", "block", True, "deterministic", 1, "blocked"
             ),
         ),
@@ -58,7 +66,7 @@ def test_guardrail_compiles_from_global_enforcement_mode_and_tests_create_versio
         purpose="Keep the Finance assistant inside approved financial topics.",
         allowed_topics=("Financial analysis",),
         restricted_topics=("Biomedical research",),
-        controls=(GuardrailControl("topic_control", "redirect"),),
+        policy_bindings=(policy_binding("topic_control", "redirect"),),
     )
     plan = service.compile_draft(guardrail.id)
 
@@ -77,16 +85,16 @@ def test_guardrail_compiles_from_global_enforcement_mode_and_tests_create_versio
     assert tested.version.plan_checksum
 
 
-def test_assignment_resolves_one_immutable_guardrail_version(tmp_path):
+def test_deployment_resolves_one_immutable_guardrail_version(tmp_path):
     service = ControlPlaneService(tmp_path / "v4.db")
     baseline = service.create_guardrail(
         name="Company Baseline",
         purpose="Protect internal model interactions from secrets.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(policy_binding("secrets", "reject"),),
     )
     pass_current_guardrail(service, baseline.id)
     baseline = service.guardrail(baseline.id)
-    assignment = service.create_assignment(
+    deployment = service.create_deployment(
         name="Finance Knowledge Assistant",
         guardrail_id=baseline.id,
         traffic_scope=filter_expression(
@@ -103,7 +111,7 @@ def test_assignment_resolves_one_immutable_guardrail_version(tmp_path):
         )
     )
 
-    assert resolution.assignment_id == assignment.id
+    assert resolution.deployment_id == deployment.id
     assert resolution.plan.guardrail_id == baseline.id
     assert resolution.plan.guardrail_version == baseline.active_version
 
@@ -116,7 +124,7 @@ def test_assignment_resolves_one_immutable_guardrail_version(tmp_path):
             fields=(("model", "qwen/chat"),),
         )
     )
-    assert pinned.plan.guardrail_version == assignment.guardrail_version
+    assert pinned.plan.guardrail_version == deployment.guardrail_version
 
 
 @pytest.mark.parametrize(
@@ -132,10 +140,10 @@ def test_traffic_scopes_match_http_litellm_and_a2a_facts(tmp_path, filter, conte
     guardrail = service.create_guardrail(
         name=f"Safe for {context.protocol}",
         purpose="Protect a distinct trusted traffic identity.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(policy_binding("secrets", "reject"),),
     )
     pass_current_guardrail(service, guardrail.id)
-    assignment = service.create_assignment(
+    deployment = service.create_deployment(
         name=f"Workload for {context.protocol}",
         guardrail_id=guardrail.id,
         traffic_scope=filter,
@@ -143,7 +151,7 @@ def test_traffic_scopes_match_http_litellm_and_a2a_facts(tmp_path, filter, conte
 
     resolution = service.resolve(context)
 
-    assert resolution.assignment_id == assignment.id
+    assert resolution.deployment_id == deployment.id
     assert resolution.plan.guardrail_id == guardrail.id
 
 
@@ -152,10 +160,10 @@ def test_unrelated_request_fields_resolve_to_the_local_default(tmp_path):
     guardrail = service.create_guardrail(
         name="Cluster Safe",
         purpose="Protect a technical runtime cluster.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(policy_binding("secrets", "reject"),),
     )
     pass_current_guardrail(service, guardrail.id)
-    service.create_assignment(
+    service.create_deployment(
         name="Scheduler cluster",
         guardrail_id=guardrail.id,
         traffic_scope=filter_expression(filter_rule("http.header", "equals", "scheduler-cluster", key="x-cluster-id")),
@@ -169,24 +177,24 @@ def test_unrelated_request_fields_resolve_to_the_local_default(tmp_path):
         )
     )
 
-    assert resolution.assignment_id == DEFAULT_ASSIGNMENT_ID
+    assert resolution.deployment_id == DEFAULT_DEPLOYMENT_ID
     assert resolution.plan.guardrail_id == DEFAULT_GUARDRAIL_ID
 
 
-def test_equally_specific_assignment_matches_fail_closed(tmp_path):
+def test_equally_specific_deployment_matches_fail_closed(tmp_path):
     service = ControlPlaneService(tmp_path / "ambiguous.db")
     guardrail = service.create_guardrail(
         name="Ambiguous Safe",
         purpose="Protect ambiguous filter tests.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(policy_binding("secrets", "reject"),),
     )
     pass_current_guardrail(service, guardrail.id)
-    service.create_assignment(
+    service.create_deployment(
         name="Agent filter",
         guardrail_id=guardrail.id,
         traffic_scope=filter_expression(filter_rule("http.header", "equals", "finance-agent", key="x-app-id")),
     )
-    service.create_assignment(
+    service.create_deployment(
         name="Client filter",
         guardrail_id=guardrail.id,
         traffic_scope=filter_expression(filter_rule("litellm.api_key_alias", "equals", "batch-client")),
@@ -207,26 +215,26 @@ def test_new_control_plane_starts_with_an_always_on_local_default(tmp_path):
     service = ControlPlaneService(tmp_path / "v5.db")
 
     default_safe = service.guardrail(DEFAULT_GUARDRAIL_ID)
-    default_assignment = service.assignment(DEFAULT_ASSIGNMENT_ID)
+    default_deployment = service.deployment(DEFAULT_DEPLOYMENT_ID)
     plan = service.plan(DEFAULT_GUARDRAIL_ID, default_safe.active_version or 0)
 
-    assert {item.risk for item in default_safe.controls} == {
-        "secrets",
-        "pii",
-        "builtin_content_filter",
+    assert {item.policy_id for item in default_safe.policy_bindings} == {
+        "builtin-secrets",
+        "builtin-pii",
+        "prompt-injection-protection",
     }
     assert {step.stage for step in plan.steps} == {"deterministic"}
-    assert default_assignment.guardrail_id == DEFAULT_GUARDRAIL_ID
-    assert default_assignment.enabled is True
-    assert default_assignment.traffic_scope.rules == ()
+    assert default_deployment.guardrail_id == DEFAULT_GUARDRAIL_ID
+    assert default_deployment.enabled is True
+    assert default_deployment.traffic_scope.conditions == ()
     assert service.integrations() == ()
 
     with pytest.raises(ValidationError, match="managed by TaskLattice"):
         service.update_guardrail(DEFAULT_GUARDRAIL_ID, name="Changed")
     with pytest.raises(ValidationError, match="always enabled"):
-        service.set_assignment_enabled(DEFAULT_ASSIGNMENT_ID, False)
-    with pytest.raises(ValidationError, match="reserved for the Default Assignment"):
-        service.create_assignment(
+        service.set_deployment_enabled(DEFAULT_DEPLOYMENT_ID, False)
+    with pytest.raises(ValidationError, match="reserved for the Default Deployment"):
+        service.create_deployment(
             name="Duplicate baseline",
             guardrail_id=DEFAULT_GUARDRAIL_ID,
             traffic_scope=filter_expression(filter_rule("protocol", "equals", "http")),
@@ -295,8 +303,8 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         guardrail_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(guardrails)")
         }
-        assignment_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(assignments)")
+        deployment_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(deployments)")
         }
         integration_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(integrations)")
@@ -305,6 +313,9 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
             row[1]
             for row in connection.execute("PRAGMA table_info(integration_credentials)")
         }
+        test_case_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(test_cases)")
+        }
         schema_version = connection.execute(
             "SELECT value FROM control_plane_meta WHERE key = 'schema_version'"
         ).fetchone()[0]
@@ -312,22 +323,20 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
     assert {
         "guardrails",
         "guardrail_versions",
-        "assignments",
+        "deployments",
         "integrations",
         "integration_credentials",
         "test_cases",
-        "test_runs",
-        "evidence_events",
+        "validation_runs",
+        "evidence_records",
     } <= tables
     assert {"safes", "safe_revisions", "workloads", "adapter_instances"}.isdisjoint(tables)
     assert {
-        "controls_json",
-        "source_pack_id",
-        "parameters_json",
+        "policy_bindings_json",
         "draft_version",
         "active_version",
     } <= guardrail_columns
-    assert {"guardrail_id", "guardrail_version", "traffic_scope_json"} <= assignment_columns
+    assert {"guardrail_id", "guardrail_version", "traffic_scope_json"} <= deployment_columns
     assert {
         "adapter_id",
         "enabled",
@@ -341,7 +350,9 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
     assert {"protocol", "environment"}.isdisjoint(integration_columns)
     assert "key_hint" in credential_columns
     assert "secret_prefix" not in credential_columns
-    assert schema_version == "tasklattice-guard-schema-v6"
+    assert schema_version == "tasklattice-guard-policy-schema-v3"
+    assert "source_case_id" in test_case_columns
+    assert "source_suite_id" not in test_case_columns
     assert {
         "protections_json",
         "filters_json",
@@ -350,40 +361,22 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         "source_template_id",
         "template_parameters_json",
     }.isdisjoint(
-        guardrail_columns | assignment_columns
+        guardrail_columns | deployment_columns
     )
 
 
-def test_schema_v5_is_migrated_additively_for_control_test_provenance(tmp_path):
-    database_path = tmp_path / "upgrade.db"
+def test_pre_policy_schema_is_rejected_instead_of_implicitly_migrated(tmp_path):
+    database_path = tmp_path / "legacy.db"
     ControlPlaneService(database_path)
-    provenance_columns = (
-        "source_control_id",
-        "source_control_version",
-        "source_suite_id",
-        "source_case_id",
-        "covered_rule_ids_json",
-    )
     with sqlite3.connect(database_path) as connection:
-        for column in provenance_columns:
-            connection.execute(f"ALTER TABLE test_cases DROP COLUMN {column}")
         connection.execute(
             "UPDATE control_plane_meta SET value = 'tasklattice-guard-schema-v5' "
             "WHERE key = 'schema_version'"
         )
         connection.commit()
 
-    ControlPlaneService(database_path)
-
-    with sqlite3.connect(database_path) as connection:
-        columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(test_cases)")
-        }
-        version = connection.execute(
-            "SELECT value FROM control_plane_meta WHERE key = 'schema_version'"
-        ).fetchone()[0]
-    assert set(provenance_columns) <= columns
-    assert version == "tasklattice-guard-schema-v6"
+    with pytest.raises(ControlPlaneError, match="incompatible"):
+        ControlPlaneService(database_path)
 
 
 def test_nonempty_database_without_schema_metadata_is_rejected(tmp_path):
@@ -400,10 +393,10 @@ def test_nested_traffic_scope_matches_either_trusted_finance_identity(tmp_path):
     guardrail = service.create_guardrail(
         name="Finance identities",
         purpose="Protect finance HTTP callers selected from verified request facts.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(policy_binding("secrets", "reject"),),
     )
     pass_current_guardrail(service, guardrail.id)
-    assignment = service.create_assignment(
+    deployment = service.create_deployment(
         name="Finance callers",
         guardrail_id=guardrail.id,
         traffic_scope=filter_expression(
@@ -431,8 +424,8 @@ def test_nested_traffic_scope_matches_either_trusted_finance_identity(tmp_path):
         )
     )
 
-    assert header_resolution.assignment_id == assignment.id
-    assert claim_resolution.assignment_id == assignment.id
+    assert header_resolution.deployment_id == deployment.id
+    assert claim_resolution.deployment_id == deployment.id
 
 
 def test_impossible_and_filter_is_rejected_with_or_recovery(tmp_path):
@@ -440,12 +433,12 @@ def test_impossible_and_filter_is_rejected_with_or_recovery(tmp_path):
     guardrail = service.create_guardrail(
         name="Protocol Guardrail",
         purpose="Protect requests selected by their protocol.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(policy_binding("secrets", "reject"),),
     )
     pass_current_guardrail(service, guardrail.id)
 
     with pytest.raises(ValidationError, match="use an OR group"):
-        service.create_assignment(
+        service.create_deployment(
             name="Impossible protocol filter",
             guardrail_id=guardrail.id,
             traffic_scope=filter_expression(
@@ -455,46 +448,16 @@ def test_impossible_and_filter_is_rejected_with_or_recovery(tmp_path):
         )
 
 
-def test_control_packs_support_guardrail_creation_without_evaluator_configuration(tmp_path):
-    service = ControlPlaneService(tmp_path / "v4.db")
+def test_policy_library_exposes_rules_and_executable_test_cases(tmp_path):
+    service = ControlPlaneService(tmp_path / "policy-library.db")
 
-    packs = service.control_packs()
-    assert {item.id for item in packs} >= {
+    policies = service.library_policies()
+
+    assert len(policies) == 17
+    assert {item.id for item in policies} >= {
         "topic-filtering",
         "mas-ai-risk-management",
         "advanced-au-pii-protection",
     }
-    assert len(packs) == 17
-    assert {item.id for item in service.control_definitions()} >= {"secrets", "pii", "company_policy"}
-    assert all(item.description and item.control_ids for item in packs)
-    assert all(
-        {"catalog", "collections", "domain", "limitations", "tags"}.isdisjoint(
-            item.__dataclass_fields__
-        )
-        for item in packs
-    )
-
-
-def test_control_library_exposes_auditable_rules_and_pack_membership(tmp_path):
-    service = ControlPlaneService(tmp_path / "control-library.db")
-
-    controls = service.library_controls()
-    contact = next(
-        item for item in controls if item.id == "sg-pdpa-contact-information"
-    )
-    contact_payload = next(
-        item for item in control_catalog() if item["id"] == contact.id
-    )
-
-    assert len(controls) == 81
-    assert contact.name == "SG PDPA Contact Information"
-    assert contact.detector_types == ("regex",)
-    assert contact.default_action == "MASK"
-    assert {item.id for item in contact.rules} == {
-        "sg_phone",
-        "sg_postal_code",
-        "email",
-    }
-    assert {item.action for item in contact.rules} == {"MASK"}
-    assert {item["id"] for item in contact_payload["packs"]} == {"pdpa-singapore"}
-    assert all(item.rules for item in controls)
+    assert all(item.rules and item.test_cases for item in policies)
+    assert all(item.test_count for item in policies)

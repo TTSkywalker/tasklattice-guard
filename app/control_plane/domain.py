@@ -6,19 +6,19 @@ from typing import Literal
 from ..runtime.contracts import (
     AutomatedReasoningResult,
     EnforcementAction,
-    EvaluationTraceStep,
+    RuntimeTraceStep,
     GuardrailPhase,
     GuardrailPlanSnapshot,
     NeMoConfigSnapshot,
     OutputDeliveryMode,
-    ControlModule,
+    PolicyModule,
     SafetyLevel,
     RailType,
 )
 
 
-GuardrailStatus = Literal["needs_testing", "ready", "protected"]
-EvaluationRunStatus = Literal["passed", "failed", "incomplete"]
+GuardrailStatus = Literal["needs_validation", "ready", "protected"]
+ValidationRunStatus = Literal["passed", "failed", "incomplete"]
 TestCaseOrigin = Literal["generated", "custom"]
 TestTargetSource = Literal[
     "user_input",
@@ -26,19 +26,19 @@ TestTargetSource = Literal[
     "tool_output",
     "model_output",
 ]
-ControlSourceKind = Literal["built-in", "custom"]
-ControlVersionStatus = Literal["draft", "published"]
+PolicySourceKind = Literal["built-in", "custom"]
+PolicyVersionStatus = Literal["draft", "published"]
 IntegrationSetupStatus = Literal["awaiting_callback", "verified", "disabled"]
 
 
 @dataclass(frozen=True, slots=True)
-class ControlSourceFile:
+class PolicySourceFile:
     path: str
     content: str
 
 
 @dataclass(frozen=True, slots=True)
-class ControlParameterDefinition:
+class PolicyParameterDefinition:
     name: str
     kind: str
     required: bool = False
@@ -48,7 +48,7 @@ class ControlParameterDefinition:
 
 @dataclass(frozen=True, slots=True)
 class RailBinding:
-    rail_type: RailType
+    rail_type: GuardrailPhase
     flow_name: str
     execution_mode: Literal["detect", "mutate"]
     on_unsafe: EnforcementAction
@@ -67,74 +67,89 @@ class ActionReference:
 
 
 @dataclass(frozen=True, slots=True)
-class ControlTestDefinition:
+class PolicyTestCaseDefinition:
     name: str
-    rail_type: RailType
+    rail_type: GuardrailPhase
     content: str
     expected_decision: str
+    covered_rule_ids: tuple[str, ...]
+    id: str = ""
+    description: str = ""
     case_type: str = "unit"
     required: bool = True
     expected_failure: str | None = None
     concurrency_group: str | None = None
+    trusted_instruction: str = ""
+    use_guardrail_instruction: bool = False
+    for_each: Literal["allowed_topics", "restricted_topics"] | None = None
+    target_source: TestTargetSource = "user_input"
+    query: str = ""
+    grounding_sources: tuple[str, ...] = ()
+    expected_reasoning_result: AutomatedReasoningResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class ControlDraft:
+class PolicyDraft:
     colang_version: str
-    sources: tuple[ControlSourceFile, ...]
-    parameter_schema: tuple[ControlParameterDefinition, ...]
+    sources: tuple[PolicySourceFile, ...]
+    parameter_schema: tuple[PolicyParameterDefinition, ...]
     rail_bindings: tuple[RailBinding, ...]
     action_references: tuple[ActionReference, ...]
     model_dependencies: tuple[str, ...] = ()
     prompt_dependencies: tuple[str, ...] = ()
     execution_contract: tuple[tuple[str, str], ...] = ()
-    tests: tuple[ControlTestDefinition, ...] = ()
+    test_cases: tuple[PolicyTestCaseDefinition, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class ControlPackage:
+class PolicyRecord:
     id: str
     name: str
     description: str
-    source: ControlSourceKind
+    source: PolicySourceKind
     owner: str
-    draft: ControlDraft
+    draft: PolicyDraft
     draft_revision: int
     updated_at: str
 
 
 @dataclass(frozen=True, slots=True)
-class ControlVersion:
-    control_id: str
+class PolicyVersion:
+    policy_id: str
     version: int
     name: str
     description: str
-    source: ControlSourceKind
+    source: PolicySourceKind
     owner: str
     colang_version: str
-    sources: tuple[ControlSourceFile, ...]
-    parameter_schema: tuple[ControlParameterDefinition, ...]
+    sources: tuple[PolicySourceFile, ...]
+    parameter_schema: tuple[PolicyParameterDefinition, ...]
     rail_bindings: tuple[RailBinding, ...]
     action_references: tuple[ActionReference, ...]
     model_dependencies: tuple[str, ...]
     prompt_dependencies: tuple[str, ...]
     execution_contract: tuple[tuple[str, str], ...]
-    tests: tuple[ControlTestDefinition, ...]
+    test_cases: tuple[PolicyTestCaseDefinition, ...]
     checksum: str
     published_at: str
 
 
 @dataclass(frozen=True, slots=True)
-class GuardrailControlBinding:
-    control_id: str
-    control_version: int
+class GuardrailPolicyBinding:
+    policy_id: str
+    policy_version: str
+    action: EnforcementAction | None = None
     parameter_values: tuple[tuple[str, str], ...] = ()
-    enabled_rails: tuple[RailType, ...] = ("input", "output")
+    enabled_rule_ids: tuple[str, ...] = ()
+    rule_actions: tuple[tuple[str, str], ...] = ()
+    enabled_rails: tuple[RailType, ...] = ()
+    reasoning_policy: AutomatedReasoningPolicyBinding | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class ControlDefinition:
+class RuntimeCapability:
     id: str
+    policy_id: str | None
     display_name: str
     description: str
     domain: str
@@ -143,42 +158,16 @@ class ControlDefinition:
     allowed_actions: tuple[EnforcementAction, ...]
     available_stages: tuple[str, ...]
     limitations: tuple[str, ...]
-    module: ControlModule
+    module: PolicyModule
 
 
 @dataclass(frozen=True, slots=True)
-class GuardrailControl:
+class ResolvedPolicyCapability:
+    """Compiler-only capability resolved from a product Policy binding."""
+
     risk: str
     action: EnforcementAction
     reasoning_policy: AutomatedReasoningPolicyBinding | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class GuardrailRuleConfig:
-    """A reviewed Rule enabled inside one Guardrail Control instance."""
-
-    id: str
-    name: str
-    detector: str
-    action: str
-    phases: tuple[GuardrailPhase, ...]
-    enabled: bool = True
-    description: str = ""
-    expression: str | None = None
-    keywords: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class GuardrailControlConfig:
-    """A version-pinned built-in Control or custom Control in a Guardrail."""
-
-    id: str
-    name: str
-    kind: Literal["built_in", "custom"]
-    runtime_risk: str
-    control_id: str | None
-    control_version: str | None
-    rules: tuple[GuardrailRuleConfig, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,16 +186,12 @@ class Guardrail:
     purpose: str
     allowed_topics: tuple[str, ...]
     restricted_topics: tuple[str, ...]
-    controls: tuple[GuardrailControl, ...]
     safety_level: SafetyLevel
     output_delivery: OutputDeliveryMode
-    source_pack_id: str | None
-    parameters: tuple[tuple[str, str], ...]
     draft_version: int
     active_version: int | None
     updated_at: str
-    control_configurations: tuple[GuardrailControlConfig, ...] = ()
-    control_bindings: tuple[GuardrailControlBinding, ...] = ()
+    policy_bindings: tuple[GuardrailPolicyBinding, ...] = ()
 
 @dataclass(frozen=True, slots=True)
 class GuardrailVersion:
@@ -224,7 +209,7 @@ class GuardrailVersion:
 
 
 @dataclass(frozen=True, slots=True)
-class TrafficScopeRule:
+class TrafficCondition:
     field: str
     operator: str
     value: str
@@ -234,11 +219,11 @@ class TrafficScopeRule:
 @dataclass(frozen=True, slots=True)
 class TrafficScopeExpression:
     combinator: str
-    rules: tuple[TrafficScopeRule | TrafficScopeExpression, ...]
+    conditions: tuple[TrafficCondition | TrafficScopeExpression, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class GuardrailAssignment:
+class Deployment:
     id: str
     name: str
     guardrail_id: str
@@ -293,10 +278,10 @@ class IntegrationRegistration:
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationCase:
+class GuardrailTestCaseSpec:
     id: str
     name: str
-    risk: str
+    policy_id: str
     phase: GuardrailPhase
     content: str
     expected_decision: str
@@ -309,9 +294,8 @@ class EvaluationCase:
     required: bool = True
     expected_failure: str | None = None
     concurrency_group: str | None = None
-    source_control_id: str | None = None
-    source_control_version: str | None = None
-    source_suite_id: str | None = None
+    source_policy_id: str | None = None
+    source_policy_version: str | None = None
     source_case_id: str | None = None
     covered_rule_ids: tuple[str, ...] = ()
 
@@ -321,7 +305,7 @@ class GuardrailTestCase:
     id: str
     guardrail_id: str
     name: str
-    risk: str
+    policy_id: str
     phase: GuardrailPhase
     content: str
     expected_decision: str
@@ -336,18 +320,17 @@ class GuardrailTestCase:
     required: bool = True
     expected_failure: str | None = None
     concurrency_group: str | None = None
-    source_control_id: str | None = None
-    source_control_version: str | None = None
-    source_suite_id: str | None = None
+    source_policy_id: str | None = None
+    source_policy_version: str | None = None
     source_case_id: str | None = None
     covered_rule_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationCaseResult:
+class TestCaseResult:
     case_id: str
     name: str
-    risk: str
+    policy_id: str
     expected_decision: str
     actual_decision: str
     passed: bool
@@ -371,16 +354,20 @@ class EvaluationCaseResult:
     expected_failure: str | None = None
     actual_failure: str | None = None
     concurrency_group: str | None = None
-    source_control_id: str | None = None
-    source_control_version: str | None = None
-    source_suite_id: str | None = None
+    source_policy_id: str | None = None
+    source_policy_version: str | None = None
     source_case_id: str | None = None
     covered_rule_ids: tuple[str, ...] = ()
     matched_rule_ids: tuple[str, ...] = ()
 
 
+# The product name intentionally starts with ``Test``; keep pytest from
+# mistaking this data contract for a test class when imported by test modules.
+TestCaseResult.__test__ = False
+
+
 @dataclass(frozen=True, slots=True)
-class EvaluationMetrics:
+class ValidationMetrics:
     total: int
     passed: int
     compliance_rate: float
@@ -391,25 +378,25 @@ class EvaluationMetrics:
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationRun:
+class ValidationRun:
     id: str
     guardrail_id: str
     guardrail_version: int | None
     source_draft_version: int
-    status: EvaluationRunStatus
-    metrics: EvaluationMetrics
-    results: tuple[EvaluationCaseResult, ...]
+    status: ValidationRunStatus
+    metrics: ValidationMetrics
+    results: tuple[TestCaseResult, ...]
     created_at: str
 
 
 @dataclass(frozen=True, slots=True)
-class DecisionEvent:
+class EvidenceRecord:
     id: str
     created_at: str
     kind: str
     outcome: str
     guardrail_id: str | None
-    assignment_id: str | None
+    deployment_id: str | None
     risk: str | None
     detail: str
     integration_id: str | None = None
@@ -417,13 +404,13 @@ class DecisionEvent:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeMetricEvent:
-    """Privacy-safe dimensions for one Guardrail runtime evaluation."""
+    """Privacy-safe dimensions for one Guardrail runtime decision."""
 
     id: str
     created_at: str
     guardrail_id: str | None
     guardrail_version: int | None
-    assignment_id: str | None
+    deployment_id: str | None
     integration_id: str | None
     protocol: str
     phase: str
@@ -456,7 +443,7 @@ class RuntimeStepMetricEvent:
     created_at: str
     guardrail_id: str
     guardrail_version: int
-    assignment_id: str | None
+    deployment_id: str | None
     integration_id: str | None
     protocol: str
     phase: str
@@ -469,8 +456,8 @@ class RuntimeStepMetricEvent:
     timed_out: bool
     runtime_engine: str
     config_checksum: str
-    control_id: str | None = None
-    control_version: int | None = None
+    policy_id: str | None = None
+    policy_version: str | None = None
     rail_type: str | None = None
     flow_name: str | None = None
     action_name: str | None = None
@@ -478,17 +465,6 @@ class RuntimeStepMetricEvent:
     parallel_group: str | None = None
     timeout_ms: int | None = None
     provider_latency_ms: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class GuardrailEvaluation:
-    decision: str
-    action: str
-    content: str
-    reason: str
-    latency_ms: int
-    findings: tuple[dict[str, object], ...]
-    trace: tuple[EvaluationTraceStep, ...]
 
 
 class ControlPlaneError(RuntimeError):

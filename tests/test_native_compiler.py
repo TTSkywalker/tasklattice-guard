@@ -8,16 +8,17 @@ import yaml
 from app.control_plane.nemo_compiler import NeMoConfigCompiler
 from app.control_plane.domain import (
     ActionReference,
-    ControlDraft,
-    ControlParameterDefinition,
-    ControlSourceFile,
-    GuardrailControlBinding,
+    PolicyDraft,
+    PolicyParameterDefinition,
+    PolicySourceFile,
+    PolicyTestCaseDefinition,
+    GuardrailPolicyBinding,
     PlanCompilationError,
     RailBinding,
     ValidationError,
 )
 from app.control_plane.service import ControlPlaneService
-from app.nemo.builtin_controls.content_safety import prompts_yaml
+from app.nemo.builtin_policies.content_safety import prompts_yaml
 from app.runtime.contracts import (
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
@@ -31,36 +32,58 @@ def _draft(
     bindings: tuple[RailBinding, ...] | None = None,
     actions: tuple[ActionReference, ...] = (),
     **changes,
-) -> ControlDraft:
-    value = ControlDraft(
+) -> PolicyDraft:
+    selected_bindings = bindings or (
+        RailBinding("input", "check_input", "detect", "reject"),
+    )
+    value = PolicyDraft(
         colang_version="2.x",
-        sources=(ControlSourceFile("main.co", source),),
+        sources=(PolicySourceFile("main.co", source),),
         parameter_schema=(),
-        rail_bindings=bindings
-        or (RailBinding("input", "check_input", "detect", "reject"),),
+        rail_bindings=selected_bindings,
         action_references=actions,
+        test_cases=tuple(
+            PolicyTestCaseDefinition(
+                id=f"{binding.flow_name}-allow",
+                name=f"Allow a reviewed request through {binding.flow_name}",
+                rail_type=binding.rail_type,
+                content="ordinary safe content",
+                expected_decision="allow",
+                covered_rule_ids=(
+                    f"flow/{binding.rail_type}/{binding.flow_name}",
+                ),
+            )
+            for binding in selected_bindings
+        ),
     )
     return replace(value, **changes)
 
 
-def _publish(service: ControlPlaneService, draft: ControlDraft):
-    package = service.create_control(
-        name="Compiler Control",
+def _publish(service: ControlPlaneService, draft: PolicyDraft):
+    record = service.create_policy(
+        name="Compiler Policy",
         description="Exercise native compiler validation.",
         owner="compiler-tests",
         draft=draft,
     )
-    return package, service.publish_control(package.id)
+    service.validate_policy(record.id)
+    service.save_policy_validation_run(
+        policy_id=record.id,
+        draft_revision=record.draft_revision,
+        status="passed",
+        results=(),
+    )
+    return record, service.publish_policy(record.id)
 
 
 def test_compiler_snapshot_is_deterministic_and_self_describing(tmp_path):
     service = ControlPlaneService(tmp_path / "compiler.db")
-    package, version = _publish(service, _draft())
+    record, version = _publish(service, _draft())
     guardrail = service.create_guardrail(
         name="Compiler preview",
         purpose="Read immutable runtime facts without re-inferring the draft.",
-        control_bindings=(
-            GuardrailControlBinding(package.id, version.version, enabled_rails=("input",)),
+        policy_bindings=(
+            GuardrailPolicyBinding(record.id, version.version, enabled_rails=("input",)),
         ),
     )
 
@@ -73,8 +96,8 @@ def test_compiler_snapshot_is_deterministic_and_self_describing(tmp_path):
     assert first.runtime_engine == "llmrails"
     assert first.colang_version == "2.x"
     assert first.runtime_profile == "llmrails_colang2_programmable"
-    assert first.rail_flows == (("input", f"tl.{package.id}.v1.check_input"),)
-    assert ("control", package.id, f"v1:{version.checksum}") in first.dependency_manifest
+    assert first.rail_flows == (("input", f"tl.{record.id}.v1.check_input"),)
+    assert ("policy", record.id, f"v1:{version.checksum}") in first.dependency_manifest
     assert any(item[0] == "source" for item in first.dependency_manifest)
     assert first.estimated_critical_path_ms == 2_000
 
@@ -86,8 +109,8 @@ def test_compiler_snapshot_is_deterministic_and_self_describing(tmp_path):
             _draft(
                 "flow duplicate $text\n  pass",
                 sources=(
-                    ControlSourceFile("one.co", "flow duplicate $text\n  pass"),
-                    ControlSourceFile("two.co", "flow duplicate $text\n  pass"),
+                    PolicySourceFile("one.co", "flow duplicate $text\n  pass"),
+                    PolicySourceFile("two.co", "flow duplicate $text\n  pass"),
                 ),
                 bindings=(RailBinding("input", "duplicate", "detect", "reject"),),
             ),
@@ -121,24 +144,24 @@ def test_compiler_snapshot_is_deterministic_and_self_describing(tmp_path):
 )
 def test_compiler_rejects_unsafe_or_incomplete_colang(tmp_path, draft, message):
     service = ControlPlaneService(tmp_path / "invalid.db")
-    package = service.create_control(
+    record = service.create_policy(
         name="Invalid compiler input",
         description="Saved as a draft but cannot be published.",
         owner="compiler-tests",
         draft=draft,
     )
     with pytest.raises(PlanCompilationError, match=message):
-        service.publish_control(package.id)
+        service.publish_policy(record.id)
 
 
 def test_required_parameters_are_resolved_into_the_immutable_plan(tmp_path):
     service = ControlPlaneService(tmp_path / "parameters.db")
-    package, version = _publish(
+    record, version = _publish(
         service,
         _draft(
             parameter_schema=(
-                ControlParameterDefinition("tenant", "string", required=True),
-                ControlParameterDefinition("region", "string", default="eu-west"),
+                PolicyParameterDefinition("tenant", "string", required=True),
+                PolicyParameterDefinition("region", "string", default="eu-west"),
             )
         ),
     )
@@ -146,15 +169,15 @@ def test_required_parameters_are_resolved_into_the_immutable_plan(tmp_path):
         service.create_guardrail(
             name="Missing parameter",
             purpose="Required parameters must be supplied before compilation.",
-            control_bindings=(GuardrailControlBinding(package.id, version.version),),
+            policy_bindings=(GuardrailPolicyBinding(record.id, version.version),),
         )
 
     guardrail = service.create_guardrail(
         name="Resolved parameters",
         purpose="Defaults and explicit values are fixed in the plan.",
-        control_bindings=(
-            GuardrailControlBinding(
-                package.id,
+        policy_bindings=(
+            GuardrailPolicyBinding(
+                record.id,
                 version.version,
                 parameter_values=(("tenant", "acme"),),
                 enabled_rails=("input",),
@@ -162,15 +185,15 @@ def test_required_parameters_are_resolved_into_the_immutable_plan(tmp_path):
         ),
     )
     plan = service.compile_draft(guardrail.id)
-    assert dict(plan.control_bindings[0].parameter_values) == {
+    assert dict(plan.policy_bindings[0].parameter_values) == {
         "region": "eu-west",
         "tenant": "acme",
     }
 
 
-def test_full_buffered_control_cannot_compile_for_interruptible_output(tmp_path):
+def test_full_buffered_policy_cannot_compile_for_interruptible_output(tmp_path):
     service = ControlPlaneService(tmp_path / "delivery.db")
-    package, version = _publish(
+    record, version = _publish(
         service,
         _draft(execution_contract=(("output_delivery", "full_buffered"),)),
     )
@@ -178,8 +201,8 @@ def test_full_buffered_control_cannot_compile_for_interruptible_output(tmp_path)
         name="Wrong delivery",
         purpose="Reject incompatible output delivery before release.",
         output_delivery="interruptible",
-        control_bindings=(
-            GuardrailControlBinding(package.id, version.version, enabled_rails=("input",)),
+        policy_bindings=(
+            GuardrailPolicyBinding(record.id, version.version, enabled_rails=("input",)),
         ),
     )
     with pytest.raises(PlanCompilationError, match="requires full-buffered"):

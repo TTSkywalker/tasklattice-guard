@@ -82,13 +82,13 @@ async def test_independent_modules_execute_concurrently():
     stage = ConcurrentStage()
     selected_plan = _plan((first, second), modules)
     engine = nemo_engine(selected_plan, stage)
-    evaluation = asyncio.create_task(
+    runtime_check = asyncio.create_task(
         engine.evaluate(EngineRequest("input", "request", selected_plan))
     )
 
     await asyncio.wait_for(stage.all_entered.wait(), timeout=1)
     stage.release.set()
-    result = await asyncio.wait_for(evaluation, timeout=1)
+    result = await asyncio.wait_for(runtime_check, timeout=1)
 
     assert result.decision == "allow"
     assert tuple(item.module_id for item in result.assessments) == ("one", "two")

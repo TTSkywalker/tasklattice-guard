@@ -14,54 +14,52 @@ from pathlib import Path
 
 from ..runtime.contracts import (
     AutomatedReasoningPolicySnapshot,
-    EvaluationTraceStep,
+    RuntimeTraceStep,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
     NeMoActionBinding,
     NeMoConfigSnapshot,
+    flow_rule_id,
+    ENFORCEMENT_ACTIONS,
     PlanResolution,
     RequestContext,
-    ControlActionReferenceSnapshot,
-    ControlRailBindingSnapshot,
-    ControlSourceSnapshot,
-    ControlVersionSnapshot,
-    GuardrailControlBindingSnapshot,
+    PolicyActionReferenceSnapshot,
+    PolicyRailBindingSnapshot,
+    PolicySourceSnapshot,
+    PolicyVersionSnapshot,
+    GuardrailPolicyBindingSnapshot,
 )
 from ..nemo.action_registry import (
     ActionCatalog,
     BUILTIN_ACTION_CATALOG,
     action_name_for,
 )
-from ..control_library import (
-    control as library_control,
-    control_pack,
-    control_packs as library_control_packs,
-    controls as library_controls,
-)
+from ..policy_library import policy as library_policy, policies as library_policies
 from ..integrations import adapter_definition
-from .catalog import CONTROL_DEFINITIONS, control
+from .catalog import BUILTIN_POLICY_CAPABILITIES, runtime_capability
 from .compiler import GuardrailCompiler
 from .nemo_compiler import NeMoConfigCompiler
+from .policy_tests import tests_for_builtin_policy
 from .defaults import (
     DEFAULT_GUARDRAIL_ID,
     DEFAULT_GUARDRAIL_NAME,
     DEFAULT_GUARDRAIL_PURPOSE,
     DEFAULT_GUARDRAIL_VERSION,
-    DEFAULT_GUARDRAIL_PACK_ID,
-    DEFAULT_ASSIGNMENT_ID,
-    DEFAULT_ASSIGNMENT_NAME,
+    DEFAULT_GUARDRAIL_POLICY_ID,
+    DEFAULT_DEPLOYMENT_ID,
+    DEFAULT_DEPLOYMENT_NAME,
     is_default_guardrail,
-    is_default_assignment,
+    is_default_deployment,
 )
 from .domain import (
     AutomatedReasoningPolicyBinding,
     ConflictError,
     ControlPlaneError,
-    DecisionEvent,
-    EvaluationCaseResult,
-    EvaluationMetrics,
-    EvaluationRun,
+    EvidenceRecord,
+    TestCaseResult,
+    ValidationMetrics,
+    ValidationRun,
     Integration,
     IntegrationAuthenticationError,
     IntegrationCredential,
@@ -71,24 +69,22 @@ from .domain import (
     RuntimeMetricEvent,
     RuntimeStepMetricEvent,
     GuardrailVersion,
-    GuardrailControl,
-    GuardrailControlConfig,
-    GuardrailRuleConfig,
+    ResolvedPolicyCapability,
     GuardrailTestCase,
-    GuardrailAssignment,
-    EvaluationCase,
+    Deployment,
+    GuardrailTestCaseSpec,
     TrafficScopeExpression,
     Guardrail,
     TestedGuardrailVersion,
     ValidationError,
     ActionReference,
-    ControlDraft,
-    ControlPackage,
-    ControlParameterDefinition,
-    ControlSourceFile,
-    ControlTestDefinition,
-    ControlVersion,
-    GuardrailControlBinding,
+    PolicyDraft,
+    PolicyRecord,
+    PolicyParameterDefinition,
+    PolicySourceFile,
+    PolicyTestCaseDefinition,
+    PolicyVersion,
+    GuardrailPolicyBinding,
     RailBinding,
 )
 from .filtering import (
@@ -96,17 +92,16 @@ from .filtering import (
     traffic_scope_matches,
     traffic_scope_signature,
     traffic_scope_specificity,
-    traffic_scope_rule_count,
+    traffic_condition_count,
     normalize_traffic_scope,
 )
 
 
-SCHEMA_VERSION = "tasklattice-guard-schema-v6"
-PREVIOUS_SCHEMA_VERSION = "tasklattice-guard-schema-v5"
+SCHEMA_VERSION = "tasklattice-guard-policy-schema-v3"
 
 
 class ControlPlaneService:
-    """Persist Guardrail intent, tested versions, and Assignment state."""
+    """Persist Policies, Guardrail versions, Deployments, and audit Evidence."""
 
     def __init__(
         self,
@@ -140,70 +135,64 @@ class ControlPlaneService:
         self._write_lock = threading.Lock()
         self._plans: dict[tuple[str, int], GuardrailPlanSnapshot] = {}
         self._nemo_configs: dict[tuple[str, int], NeMoConfigSnapshot] = {}
-        self._assignments: tuple[GuardrailAssignment, ...] = ()
+        self._deployments: tuple[Deployment, ...] = ()
         self._credential_index: dict[str, str] = {}
         self._initialize()
 
     # Creation resources. These support the Guardrail workflow but are not
     # first-class navigation objects.
 
-    def control_packs(self):
-        return library_control_packs()
-
-    def library_controls(self):
-        return library_controls()
-
-    def control_definitions(self):
-        return CONTROL_DEFINITIONS
+    def library_policies(self):
+        return library_policies()
 
     def actions(self):
         return self._action_catalog.definitions()
 
-    # Native Control packages
+    # Programmable Policies
 
-    def controls(self) -> tuple[ControlPackage, ...]:
+    def policies(self) -> tuple[PolicyRecord, ...]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM control_packages ORDER BY name COLLATE NOCASE, id"
+                "SELECT * FROM policy_records ORDER BY name COLLATE NOCASE, id"
             ).fetchall()
-        return tuple(_control_package_from_row(row) for row in rows)
+        return tuple(_policy_record_from_row(row) for row in rows)
 
-    def control_package(self, control_id: str) -> ControlPackage:
+    def policy_record(self, policy_id: str) -> PolicyRecord:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM control_packages WHERE id = ?", (control_id,)
+                "SELECT * FROM policy_records WHERE id = ?", (policy_id,)
             ).fetchone()
         if row is None:
-            raise NotFoundError(f"Control {control_id!r} was not found.")
-        return _control_package_from_row(row)
+            raise NotFoundError(f"Policy {policy_id!r} was not found.")
+        return _policy_record_from_row(row)
 
-    def create_control(
+    def create_policy(
         self,
         *,
         name: str,
         description: str,
         owner: str,
-        draft: ControlDraft,
+        draft: PolicyDraft,
         source: str = "custom",
-    ) -> ControlPackage:
+    ) -> PolicyRecord:
         clean_name = name.strip()
         if not clean_name:
-            raise ValidationError("Control name is required.")
+            raise ValidationError("Policy name is required.")
         if source not in {"built-in", "custom"}:
-            raise ValidationError("Control source must be built-in or custom.")
-        control_id = f"control-{uuid.uuid4().hex[:12]}"
+            raise ValidationError("Policy source must be built-in or custom.")
+        policy_id = f"policy-{uuid.uuid4().hex[:12]}"
         now = _now()
-        self._validate_control_draft(control_id, draft, validate_dependencies=False)
+        self._validate_policy_draft(policy_id, draft, validate_dependencies=False)
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO control_packages
+                INSERT INTO policy_records
                     (id, name, description, source, owner, draft_json,
                      draft_revision, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 1, ?)
                 """,
                 (
-                    control_id,
+                    policy_id,
                     clean_name,
                     description.strip(),
                     source,
@@ -212,38 +201,38 @@ class ControlPlaneService:
                     now,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
-                kind="control.created",
+                kind="policy.created",
                 outcome="success",
-                detail=f"Created Control {clean_name}.",
+                detail=f"Created Policy {clean_name}.",
             )
             connection.commit()
-        return self.control_package(control_id)
+        return self.policy_record(policy_id)
 
-    def update_control_draft(
+    def update_policy_draft(
         self,
-        control_id: str,
+        policy_id: str,
         *,
         name: str | None = None,
         description: str | None = None,
         owner: str | None = None,
-        draft: ControlDraft | None = None,
-    ) -> ControlPackage:
-        current = self.control_package(control_id)
+        draft: PolicyDraft | None = None,
+    ) -> PolicyRecord:
+        current = self.policy_record(policy_id)
         next_draft = current.draft if draft is None else draft
         if current.source == "built-in":
-            raise ValidationError("Built-in Controls are system managed.")
-        self._validate_control_draft(
-            control_id, next_draft, validate_dependencies=False
+            raise ValidationError("Built-in Policies are system managed.")
+        self._validate_policy_draft(
+            policy_id, next_draft, validate_dependencies=False
         )
         next_name = current.name if name is None else name.strip()
         if not next_name:
-            raise ValidationError("Control name is required.")
+            raise ValidationError("Policy name is required.")
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
-                UPDATE control_packages
+                UPDATE policy_records
                 SET name = ?, description = ?, owner = ?, draft_json = ?,
                     draft_revision = draft_revision + 1, updated_at = ?
                 WHERE id = ?
@@ -254,50 +243,50 @@ class ControlPlaneService:
                     current.owner if owner is None else owner.strip() or "unknown",
                     _json(asdict(next_draft)),
                     _now(),
-                    control_id,
+                    policy_id,
                 ),
             )
             connection.commit()
-        return self.control_package(control_id)
+        return self.policy_record(policy_id)
 
-    def validate_control(self, control_id: str) -> dict[str, object]:
-        package = self.control_package(control_id)
-        self._validate_control_draft(
-            control_id, package.draft, validate_dependencies=True
+    def validate_policy(self, policy_id: str) -> dict[str, object]:
+        record = self.policy_record(policy_id)
+        self._validate_policy_draft(
+            policy_id, record.draft, validate_dependencies=True
         )
-        self._nemo_compiler.validate_control(control_id, package.draft)
+        self._nemo_compiler.validate_policy(policy_id, record.draft)
         return {
             "valid": True,
-            "control_id": control_id,
-            "draft_revision": package.draft_revision,
-            "colang_version": package.draft.colang_version,
-            "rails": tuple(item.rail_type for item in package.draft.rail_bindings),
+            "policy_id": policy_id,
+            "draft_revision": record.draft_revision,
+            "colang_version": record.draft.colang_version,
+            "rails": tuple(item.rail_type for item in record.draft.rail_bindings),
         }
 
-    def publish_control(self, control_id: str) -> ControlVersion:
-        package = self.control_package(control_id)
-        self.validate_control(control_id)
-        if package.source == "custom" and package.draft.tests:
-            latest = self.latest_control_test_run(control_id)
+    def publish_policy(self, policy_id: str) -> PolicyVersion:
+        record = self.policy_record(policy_id)
+        self.validate_policy(policy_id)
+        if record.source == "custom" and record.draft.test_cases:
+            latest = self.latest_policy_validation_run(policy_id)
             if (
                 latest is None
-                or int(latest["draft_revision"]) != package.draft_revision
+                or int(latest["draft_revision"]) != record.draft_revision
                 or latest["status"] != "passed"
             ):
                 raise ValidationError(
-                    "The current Control draft must pass Evaluation before publishing."
+                    "The current Policy draft must pass validation before publishing."
                 )
-        versions = self.control_versions(control_id)
+        versions = self.policy_versions(policy_id)
         version_number = max((item.version for item in versions), default=0) + 1
         published_at = _now()
         version_payload = {
-            "control_id": package.id,
+            "policy_id": record.id,
             "version": version_number,
-            "name": package.name,
-            "description": package.description,
-            "source": package.source,
-            "owner": package.owner,
-            **asdict(package.draft),
+            "name": record.name,
+            "description": record.description,
+            "source": record.source,
+            "owner": record.owner,
+            **asdict(record.draft),
             "published_at": published_at,
         }
         checksum = hashlib.sha256(
@@ -306,37 +295,37 @@ class ControlPlaneService:
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO control_versions
-                    (control_id, version, version_json, checksum, published_at)
+                INSERT INTO policy_versions
+                    (policy_id, version, version_json, checksum, published_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (
-                    control_id,
+                    policy_id,
                     version_number,
                     _json(version_payload),
                     checksum,
                     published_at,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
-                kind="control.version.published",
+                kind="policy.version.published",
                 outcome="success",
-                detail=f"Published Control {package.name} version {version_number}.",
+                detail=f"Published Policy {record.name} version {version_number}.",
             )
             connection.commit()
-        return self.control_version(control_id, version_number)
+        return self.policy_version(policy_id, version_number)
 
-    def compile_control_draft(
-        self, control_id: str
+    def compile_policy_draft(
+        self, policy_id: str
     ) -> tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot]:
-        """Compile one draft through the production NeMo compiler for Evaluation."""
-        package = self.control_package(control_id)
-        self.validate_control(control_id)
-        revision = package.draft_revision
-        draft = package.draft
+        """Compile one Policy draft through the production NeMo compiler for validation."""
+        record = self.policy_record(policy_id)
+        self.validate_policy(policy_id)
+        revision = record.draft_revision
+        draft = record.draft
         checksum_payload = {
-            "control_id": package.id,
+            "policy_id": record.id,
             "draft_revision": revision,
             **asdict(draft),
         }
@@ -345,13 +334,13 @@ class ControlPlaneService:
                 checksum_payload, sort_keys=True, separators=(",", ":")
             ).encode()
         ).hexdigest()
-        candidate = ControlVersion(
-            control_id=package.id,
+        candidate = PolicyVersion(
+            policy_id=record.id,
             version=revision,
-            name=package.name,
-            description=package.description,
-            source=package.source,
-            owner=package.owner,
+            name=record.name,
+            description=record.description,
+            source=record.source,
+            owner=record.owner,
             colang_version=draft.colang_version,
             sources=draft.sources,
             parameter_schema=draft.parameter_schema,
@@ -360,13 +349,13 @@ class ControlPlaneService:
             model_dependencies=draft.model_dependencies,
             prompt_dependencies=draft.prompt_dependencies,
             execution_contract=draft.execution_contract,
-            tests=draft.tests,
+            test_cases=draft.test_cases,
             checksum=checksum,
             published_at="",
         )
-        binding = GuardrailControlBindingSnapshot(
-            control_id=package.id,
-            control_version=revision,
+        binding = GuardrailPolicyBindingSnapshot(
+            policy_id=record.id,
+            policy_version=str(revision),
             parameter_values=tuple(
                 sorted(
                     (item.name, item.default)
@@ -379,23 +368,20 @@ class ControlPlaneService:
             ),
         )
         guardrail = Guardrail(
-            id=f"control-preview-{package.id}",
-            name=package.name,
-            purpose=package.description or f"Evaluate {package.name}.",
+            id=f"policy-preview-{record.id}",
+            name=record.name,
+            purpose=record.description or f"Evaluate {record.name}.",
             allowed_topics=(),
             restricted_topics=(),
-            controls=(),
             safety_level="balanced",
             output_delivery="window_buffered",
-            source_pack_id=None,
-            parameters=(),
             draft_version=revision,
             active_version=None,
-            updated_at=package.updated_at,
-            control_bindings=(
-                GuardrailControlBinding(
-                    control_id=package.id,
-                    control_version=revision,
+            updated_at=record.updated_at,
+            policy_bindings=(
+                GuardrailPolicyBinding(
+                    policy_id=record.id,
+                    policy_version=str(revision),
                     enabled_rails=binding.enabled_rails,
                 ),
             ),
@@ -403,33 +389,50 @@ class ControlPlaneService:
         plan = self._compiler.compile(
             guardrail,
             revision,
-            control_versions=(_control_version_snapshot(candidate),),
-            control_bindings=(binding,),
+            resolved_policies=tuple(
+                ResolvedPolicyCapability(
+                    native_risk,
+                    next(
+                        (
+                            rail.on_unsafe
+                            for rail in draft.rail_bindings
+                            if rail.rail_type in binding.enabled_rails
+                        ),
+                        "reject",
+                    ),
+                )
+                for native_risk in (
+                    dict(draft.execution_contract).get("native_risk"),
+                )
+                if native_risk
+            ),
+            policy_versions=(_policy_version_snapshot(candidate),),
+            policy_bindings=(binding,),
         )
         config = self._nemo_compiler.compile(plan)
         self._nemo_configs[(plan.guardrail_id, plan.guardrail_version)] = config
         return plan, config
 
-    def save_control_test_run(
+    def save_policy_validation_run(
         self,
         *,
-        control_id: str,
+        policy_id: str,
         draft_revision: int,
         status: str,
         results: tuple[dict[str, object], ...],
     ) -> dict[str, object]:
-        run_id = f"control-test-{uuid.uuid4().hex[:12]}"
+        run_id = f"policy-test-{uuid.uuid4().hex[:12]}"
         created_at = _now()
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO control_test_runs
-                    (id, control_id, draft_revision, status, results_json, created_at)
+                INSERT INTO policy_validation_runs
+                    (id, policy_id, draft_revision, status, results_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
-                    control_id,
+                    policy_id,
                     draft_revision,
                     status,
                     _json(results),
@@ -439,55 +442,55 @@ class ControlPlaneService:
             connection.commit()
         return {
             "id": run_id,
-            "control_id": control_id,
+            "policy_id": policy_id,
             "draft_revision": draft_revision,
             "status": status,
             "results": list(results),
             "created_at": created_at,
         }
 
-    def latest_control_test_run(
-        self, control_id: str
+    def latest_policy_validation_run(
+        self, policy_id: str
     ) -> dict[str, object] | None:
-        self.control_package(control_id)
+        self.policy_record(policy_id)
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM control_test_runs WHERE control_id = ? "
+                "SELECT * FROM policy_validation_runs WHERE policy_id = ? "
                 "ORDER BY created_at DESC, id DESC LIMIT 1",
-                (control_id,),
+                (policy_id,),
             ).fetchone()
         if row is None:
             return None
         return {
             "id": str(row["id"]),
-            "control_id": str(row["control_id"]),
+            "policy_id": str(row["policy_id"]),
             "draft_revision": int(row["draft_revision"]),
             "status": str(row["status"]),
             "results": json.loads(str(row["results_json"])),
             "created_at": str(row["created_at"]),
         }
 
-    def control_versions(self, control_id: str) -> tuple[ControlVersion, ...]:
-        self.control_package(control_id)
+    def policy_versions(self, policy_id: str) -> tuple[PolicyVersion, ...]:
+        self.policy_record(policy_id)
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM control_versions WHERE control_id = ? "
+                "SELECT * FROM policy_versions WHERE policy_id = ? "
                 "ORDER BY version DESC",
-                (control_id,),
+                (policy_id,),
             ).fetchall()
-        return tuple(_control_version_from_row(row) for row in rows)
+        return tuple(_policy_version_from_row(row) for row in rows)
 
-    def control_version(self, control_id: str, version: int) -> ControlVersion:
+    def policy_version(self, policy_id: str, version: int) -> PolicyVersion:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM control_versions WHERE control_id = ? AND version = ?",
-                (control_id, version),
+                "SELECT * FROM policy_versions WHERE policy_id = ? AND version = ?",
+                (policy_id, version),
             ).fetchone()
         if row is None:
             raise NotFoundError(
-                f"Control Version {control_id}@{version} was not found."
+                f"Policy Version {policy_id}@{version} was not found."
             )
-        return _control_version_from_row(row)
+        return _policy_version_from_row(row)
 
     # Guardrails
 
@@ -512,69 +515,22 @@ class ControlPlaneService:
         *,
         name: str,
         purpose: str | None = None,
-        pack_id: str | None = None,
         allowed_topics: tuple[str, ...] = (),
         restricted_topics: tuple[str, ...] = (),
-        controls: tuple[GuardrailControl, ...] = (),
-        control_configurations: tuple[GuardrailControlConfig, ...] = (),
-        control_bindings: tuple[GuardrailControlBinding, ...] = (),
-        parameters: tuple[tuple[str, str], ...] = (),
+        policy_bindings: tuple[GuardrailPolicyBinding, ...] = (),
         safety_level: str = "balanced",
         output_delivery: str = "window_buffered",
     ) -> Guardrail:
         clean_name = name.strip()
         if not clean_name:
             raise ValidationError("Guardrail name is required.")
-        parameters = tuple(
-            sorted(
-                (key.strip(), value.strip())
-                for key, value in parameters
-                if key.strip() and value.strip()
-            )
-        )
-        if pack_id:
-            if control_configurations:
-                raise ValidationError(
-                    "A Guardrail cannot combine a Control Pack with explicit "
-                    "Control configurations."
-                )
-            pack = control_pack(pack_id)
-            if pack is None:
-                raise ValidationError("Unknown Control Pack.")
-            purpose = purpose.strip() if purpose and purpose.strip() else pack.description
-            if not any(
-                item.risk == "builtin_content_filter" for item in controls
-            ):
-                controls = (
-                    *controls,
-                    GuardrailControl("builtin_content_filter", "reject"),
-                )
-            safety_level = pack.safety_level
-            output_delivery = pack.output_delivery
-            supplied = dict(parameters)
-            supported_parameters = {item.name for item in pack.parameters}
-            unknown = sorted(set(supplied).difference(supported_parameters))
-            if unknown:
-                raise ValidationError(
-                    "Unknown Control Pack parameters: " + ", ".join(unknown) + "."
-                )
-            missing = [
-                item.label
-                for item in pack.parameters
-                if item.required and not supplied.get(item.name, "").strip()
-            ]
-            if missing:
-                raise ValidationError(f"Control Pack requires: {', '.join(missing)}.")
-        control_bindings = _native_control_bindings(controls, control_bindings)
         self._validate_guardrail_fields(
             purpose or "",
-            controls,
             safety_level,
             output_delivery,
-            control_configurations,
-            control_bindings,
+            policy_bindings,
         )
-        self._validate_guardrail_control_bindings(control_bindings)
+        self._validate_guardrail_policy_bindings(policy_bindings)
         guardrail_id = f"guardrail-{uuid.uuid4().hex[:12]}"
         now = _now()
         with self._write_lock, self._connect() as connection:
@@ -582,11 +538,9 @@ class ControlPlaneService:
                 """
                 INSERT INTO guardrails
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
-                     controls_json, safety_level, output_delivery, source_pack_id,
-                     parameters_json, control_configurations_json,
-                     control_bindings_json,
+                     safety_level, output_delivery, policy_bindings_json,
                      draft_version, active_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
                 """,
                 (
                     guardrail_id,
@@ -594,17 +548,13 @@ class ControlPlaneService:
                     (purpose or "").strip(),
                     _json(allowed_topics),
                     _json(restricted_topics),
-                    _controls_json(controls),
                     safety_level,
                     output_delivery,
-                    pack_id,
-                    _json(dict(parameters)),
-                    _control_configurations_json(control_configurations),
-                    _json([asdict(item) for item in control_bindings]),
+                    _json([asdict(item) for item in policy_bindings]),
                     now,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="guardrail.created",
                 outcome="success",
@@ -622,9 +572,7 @@ class ControlPlaneService:
         purpose: str | None = None,
         allowed_topics: tuple[str, ...] | None = None,
         restricted_topics: tuple[str, ...] | None = None,
-        controls: tuple[GuardrailControl, ...] | None = None,
-        control_configurations: tuple[GuardrailControlConfig, ...] | None = None,
-        control_bindings: tuple[GuardrailControlBinding, ...] | None = None,
+        policy_bindings: tuple[GuardrailPolicyBinding, ...] | None = None,
         safety_level: str | None = None,
         output_delivery: str | None = None,
     ) -> Guardrail:
@@ -633,18 +581,8 @@ class ControlPlaneService:
         current = self.guardrail(guardrail_id)
         next_name = current.name if name is None else name.strip()
         next_purpose = current.purpose if purpose is None else purpose.strip()
-        next_controls = current.controls if controls is None else controls
-        next_control_configurations = (
-            current.control_configurations
-            if control_configurations is None
-            else control_configurations
-        )
-        next_control_bindings = (
-            current.control_bindings if control_bindings is None else control_bindings
-        )
-        next_control_bindings = _native_control_bindings(
-            next_controls,
-            next_control_bindings,
+        next_policy_bindings = (
+            current.policy_bindings if policy_bindings is None else policy_bindings
         )
         next_level = current.safety_level if safety_level is None else safety_level
         next_delivery = current.output_delivery if output_delivery is None else output_delivery
@@ -652,21 +590,18 @@ class ControlPlaneService:
             raise ValidationError("Guardrail name is required.")
         self._validate_guardrail_fields(
             next_purpose,
-            next_controls,
             next_level,
             next_delivery,
-            next_control_configurations,
-            next_control_bindings,
+            next_policy_bindings,
         )
-        self._validate_guardrail_control_bindings(next_control_bindings)
+        self._validate_guardrail_policy_bindings(next_policy_bindings)
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
                 UPDATE guardrails
                 SET name = ?, purpose = ?, allowed_topics_json = ?,
-                    restricted_topics_json = ?, controls_json = ?, safety_level = ?,
-                    output_delivery = ?, control_configurations_json = ?,
-                    control_bindings_json = ?,
+                    restricted_topics_json = ?, safety_level = ?,
+                    output_delivery = ?, policy_bindings_json = ?,
                     draft_version = draft_version + 1,
                     updated_at = ?
                 WHERE id = ?
@@ -680,16 +615,14 @@ class ControlPlaneService:
                         if restricted_topics is None
                         else restricted_topics
                     ),
-                    _controls_json(next_controls),
                     next_level,
                     next_delivery,
-                    _control_configurations_json(next_control_configurations),
-                    _json([asdict(item) for item in next_control_bindings]),
+                    _json([asdict(item) for item in next_policy_bindings]),
                     _now(),
                     guardrail_id,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="guardrail.updated",
                 outcome="success",
@@ -704,49 +637,91 @@ class ControlPlaneService:
         guardrail: Guardrail,
         version: int,
     ) -> GuardrailPlanSnapshot:
-        resolved_versions: list[ControlVersionSnapshot] = []
-        resolved_bindings: list[GuardrailControlBindingSnapshot] = []
-        native_controls = list(guardrail.controls)
-        for binding in guardrail.control_bindings:
-            control_version = self.control_version(
-                binding.control_id, binding.control_version
-            )
-            resolved_versions.append(_control_version_snapshot(control_version))
-            if control_version.source == "built-in":
-                native_risk = dict(control_version.execution_contract).get(
-                    "native_risk"
-                )
-                if native_risk and native_risk not in {
-                    item.risk for item in native_controls
-                }:
-                    action = next(
-                        (
-                            item.on_unsafe
-                            for item in control_version.rail_bindings
-                            if item.rail_type in binding.enabled_rails
-                        ),
-                        "reject",
+        resolved_versions: list[PolicyVersionSnapshot] = []
+        resolved_bindings: list[GuardrailPolicyBindingSnapshot] = []
+        resolved_policies: list[ResolvedPolicyCapability] = []
+        for binding in guardrail.policy_bindings:
+            static_policy = library_policy(binding.policy_id)
+            if static_policy is not None:
+                if binding.policy_version != static_policy.version:
+                    raise ValidationError(
+                        f"Policy {binding.policy_id!r} must pin version "
+                        f"{static_policy.version}."
                     )
-                    native_controls.append(GuardrailControl(native_risk, action))
+                enabled_rails = binding.enabled_rails or static_policy.stages
+                if not any(item.risk == "builtin_content_filter" for item in resolved_policies):
+                    resolved_policies.append(
+                        ResolvedPolicyCapability(
+                            "builtin_content_filter",
+                            binding.action or "reject",
+                        )
+                    )
+                resolved_bindings.append(
+                    GuardrailPolicyBindingSnapshot(
+                        policy_id=binding.policy_id,
+                        policy_version=binding.policy_version,
+                        action=binding.action,
+                        parameter_values=binding.parameter_values,
+                        enabled_rule_ids=binding.enabled_rule_ids,
+                        rule_actions=binding.rule_actions,
+                        enabled_rails=enabled_rails,
+                    )
+                )
+                continue
+
+            try:
+                stored_version = int(binding.policy_version)
+            except ValueError as error:
+                raise ValidationError(
+                    f"Policy {binding.policy_id!r} requires a numeric published version."
+                ) from error
+            policy_version = self.policy_version(binding.policy_id, stored_version)
+            enabled_rails = binding.enabled_rails or tuple(
+                dict.fromkeys(item.rail_type for item in policy_version.rail_bindings)
+            )
+            resolved_versions.append(_policy_version_snapshot(policy_version))
+            native_risk = dict(policy_version.execution_contract).get("native_risk")
+            if native_risk and native_risk not in {
+                item.risk for item in resolved_policies
+            }:
+                action = binding.action or next(
+                    (
+                        item.on_unsafe
+                        for item in policy_version.rail_bindings
+                        if item.rail_type in enabled_rails
+                    ),
+                    "reject",
+                )
+                resolved_policies.append(
+                    ResolvedPolicyCapability(
+                        native_risk,
+                        action,
+                        binding.reasoning_policy,
+                    )
+                )
             resolved_parameters = {
                 item.name: item.default
-                for item in control_version.parameter_schema
+                for item in policy_version.parameter_schema
                 if item.default is not None
             }
             resolved_parameters.update(dict(binding.parameter_values))
             resolved_bindings.append(
-                GuardrailControlBindingSnapshot(
-                    control_id=binding.control_id,
-                    control_version=binding.control_version,
+                GuardrailPolicyBindingSnapshot(
+                    policy_id=binding.policy_id,
+                    policy_version=binding.policy_version,
+                    action=binding.action,
                     parameter_values=tuple(sorted(resolved_parameters.items())),
-                    enabled_rails=binding.enabled_rails,
+                    enabled_rule_ids=binding.enabled_rule_ids,
+                    rule_actions=binding.rule_actions,
+                    enabled_rails=enabled_rails,
                 )
             )
         return self._compiler.compile(
-            replace(guardrail, controls=tuple(native_controls)),
+            guardrail,
             version,
-            control_versions=tuple(resolved_versions),
-            control_bindings=tuple(resolved_bindings),
+            resolved_policies=tuple(resolved_policies),
+            policy_versions=tuple(resolved_versions),
+            policy_bindings=tuple(resolved_bindings),
         )
 
     def compile_draft(self, guardrail_id: str) -> GuardrailPlanSnapshot:
@@ -754,7 +729,7 @@ class ControlPlaneService:
         plan = self._compile_guardrail(
             guardrail, self._next_guardrail_version(guardrail_id)
         )
-        # Draft evaluation uses the same compiler/runtime as released traffic,
+        # Draft validation uses the same compiler/runtime as released traffic,
         # without making the candidate deployable or durable.
         self._nemo_configs[(plan.guardrail_id, plan.guardrail_version)] = (
             self._nemo_compiler.compile(plan)
@@ -775,38 +750,30 @@ class ControlPlaneService:
         purpose: str,
         allowed_topics: tuple[str, ...] = (),
         restricted_topics: tuple[str, ...] = (),
-        controls: tuple[GuardrailControl, ...] = (),
-        control_configurations: tuple[GuardrailControlConfig, ...] = (),
-        control_bindings: tuple[GuardrailControlBinding, ...] = (),
+        policy_bindings: tuple[GuardrailPolicyBinding, ...] = (),
         safety_level: str = "balanced",
         output_delivery: str = "window_buffered",
     ) -> tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot, str]:
         """Compile a creation-flow candidate without persisting a Guardrail."""
         self._validate_guardrail_fields(
             purpose,
-            controls,
             safety_level,
             output_delivery,
-            control_configurations,
-            control_bindings,
+            policy_bindings,
         )
-        self._validate_guardrail_control_bindings(control_bindings)
+        self._validate_guardrail_policy_bindings(policy_bindings)
         guardrail = Guardrail(
             id="guardrail-candidate-preview",
             name=name.strip() or "Guardrail candidate",
             purpose=purpose.strip(),
             allowed_topics=allowed_topics,
             restricted_topics=restricted_topics,
-            controls=controls,
             safety_level=safety_level,
             output_delivery=output_delivery,
-            source_pack_id=None,
-            parameters=(),
             draft_version=1,
             active_version=None,
             updated_at=_now(),
-            control_configurations=control_configurations,
-            control_bindings=control_bindings,
+            policy_bindings=policy_bindings,
         )
         plan = self._compile_guardrail(guardrail, 1)
         config = self._nemo_compiler.compile(plan)
@@ -823,9 +790,9 @@ class ControlPlaneService:
         self._nemo_runtime_reloader = reloader
 
     def activate_tested_version(self, guardrail_id: str) -> TestedGuardrailVersion:
-        """Create the immutable deployable snapshot after a passing test run."""
+        """Create the immutable deployable snapshot after a passing Validation Run."""
         guardrail = self.guardrail(guardrail_id)
-        latest = self.latest_evaluation(guardrail_id)
+        latest = self.latest_validation_run(guardrail_id)
         if (
             latest is None
             or latest.source_draft_version != guardrail.draft_version
@@ -845,7 +812,7 @@ class ControlPlaneService:
             if latest.guardrail_version != existing.version:
                 with self._write_lock, self._connect() as connection:
                     connection.execute(
-                        "UPDATE test_runs SET guardrail_version = ? WHERE id = ?",
+                        "UPDATE validation_runs SET guardrail_version = ? WHERE id = ?",
                         (existing.version, latest.id),
                     )
                     connection.commit()
@@ -897,15 +864,15 @@ class ControlPlaneService:
                 (next_version, created_at, guardrail_id),
             )
             connection.execute(
-                "UPDATE assignments SET guardrail_version = ?, updated_at = ? "
+                "UPDATE deployments SET guardrail_version = ?, updated_at = ? "
                 "WHERE guardrail_id = ?",
                 (next_version, created_at, guardrail_id),
             )
             connection.execute(
-                "UPDATE test_runs SET guardrail_version = ? WHERE id = ?",
+                "UPDATE validation_runs SET guardrail_version = ? WHERE id = ?",
                 (next_version, latest.id),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="guardrail.version.created",
                 outcome="passed",
@@ -995,11 +962,11 @@ class ControlPlaneService:
                 (version, now, guardrail_id),
             )
             connection.execute(
-                "UPDATE assignments SET guardrail_version = ?, updated_at = ? "
+                "UPDATE deployments SET guardrail_version = ?, updated_at = ? "
                 "WHERE guardrail_id = ?",
                 (version, now, guardrail_id),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="guardrail.version.rolled_back",
                 outcome="success",
@@ -1045,29 +1012,29 @@ class ControlPlaneService:
         return tuple(
             dict.fromkeys(
                 (item.guardrail_id, item.guardrail_version)
-                for item in self._assignments
+                for item in self._deployments
                 if item.enabled
             )
         )
 
     # Test evidence
 
-    def save_evaluation(
+    def save_validation_run(
         self,
         *,
         guardrail_id: str,
         guardrail_version: int | None,
         source_draft_version: int,
         status: str,
-        metrics: EvaluationMetrics,
-        results: tuple[EvaluationCaseResult, ...],
-    ) -> EvaluationRun:
-        run_id = f"test-{uuid.uuid4().hex[:12]}"
+        metrics: ValidationMetrics,
+        results: tuple[TestCaseResult, ...],
+    ) -> ValidationRun:
+        run_id = f"validation-{uuid.uuid4().hex[:12]}"
         created_at = _now()
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO test_runs
+                INSERT INTO validation_runs
                     (id, guardrail_id, guardrail_version, source_draft_version,
                      status, metrics_json, results_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1083,18 +1050,18 @@ class ControlPlaneService:
                     created_at,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
-                kind="guardrail.test.completed",
+                kind="guardrail.validation.completed",
                 outcome=status,
                 guardrail_id=guardrail_id,
-                detail=f"Guardrail tests completed with {metrics.compliance_rate:.1f}% compliance.",
+                detail=f"Guardrail validation completed with {metrics.compliance_rate:.1f}% compliance.",
             )
             connection.commit()
-        return self.evaluation(run_id)
+        return self.validation_run(run_id)
 
-    def evaluations(self, guardrail_id: str | None = None) -> tuple[EvaluationRun, ...]:
-        query = "SELECT * FROM test_runs"
+    def validation_runs(self, guardrail_id: str | None = None) -> tuple[ValidationRun, ...]:
+        query = "SELECT * FROM validation_runs"
         params: tuple[object, ...] = ()
         if guardrail_id:
             query += " WHERE guardrail_id = ?"
@@ -1102,19 +1069,19 @@ class ControlPlaneService:
         query += " ORDER BY created_at DESC, id DESC"
         with self._connect() as connection:
             rows = connection.execute(query, params).fetchall()
-        return tuple(_evaluation_from_row(row) for row in rows)
+        return tuple(_validation_run_from_row(row) for row in rows)
 
-    def evaluation(self, run_id: str) -> EvaluationRun:
+    def validation_run(self, run_id: str) -> ValidationRun:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM test_runs WHERE id = ?", (run_id,)
+                "SELECT * FROM validation_runs WHERE id = ?", (run_id,)
             ).fetchone()
         if row is None:
-            raise NotFoundError("Guardrail test run was not found.")
-        return _evaluation_from_row(row)
+            raise NotFoundError("Validation Run was not found.")
+        return _validation_run_from_row(row)
 
-    def latest_evaluation(self, guardrail_id: str) -> EvaluationRun | None:
-        runs = self.evaluations(guardrail_id)
+    def latest_validation_run(self, guardrail_id: str) -> ValidationRun | None:
+        runs = self.validation_runs(guardrail_id)
         return runs[0] if runs else None
 
     def test_cases(self, guardrail_id: str) -> tuple[GuardrailTestCase, ...]:
@@ -1134,7 +1101,7 @@ class ControlPlaneService:
     def sync_generated_test_cases(
         self,
         guardrail_id: str,
-        cases: tuple[EvaluationCase, ...],
+        cases: tuple[GuardrailTestCaseSpec, ...],
     ) -> tuple[GuardrailTestCase, ...]:
         """Refresh generated cases while keeping reviewed custom cases intact."""
         guardrail = self.guardrail(guardrail_id)
@@ -1148,7 +1115,7 @@ class ControlPlaneService:
                 self._validate_test_case(
                     guardrail,
                     str(case.name),
-                    str(case.risk),
+                    str(case.policy_id),
                     str(case.phase),
                     str(case.content),
                     str(case.expected_decision),
@@ -1160,18 +1127,18 @@ class ControlPlaneService:
                 connection.execute(
                     """
                     INSERT INTO test_cases
-                        (id, guardrail_id, name, risk, phase, content,
+                        (id, guardrail_id, name, policy_id, phase, content,
                          trusted_instruction, target_source, expected_decision,
                          query_content, grounding_sources_json,
                          expected_reasoning_result,
                          case_type, required, expected_failure, concurrency_group,
-                         source_control_id, source_control_version, source_suite_id,
+                         source_policy_id, source_policy_version,
                          source_case_id, covered_rule_ids_json,
                          origin, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
                     """,
                     (
-                        str(case.id), guardrail_id, str(case.name), str(case.risk),
+                        str(case.id), guardrail_id, str(case.name), str(case.policy_id),
                         str(case.phase), str(case.content),
                         case.trusted_instruction,
                         case.target_source,
@@ -1183,9 +1150,8 @@ class ControlPlaneService:
                         int(case.required),
                         case.expected_failure,
                         case.concurrency_group,
-                        case.source_control_id,
-                        case.source_control_version,
-                        case.source_suite_id,
+                        case.source_policy_id,
+                        case.source_policy_version,
                         case.source_case_id,
                         _json(case.covered_rule_ids),
                         now,
@@ -1199,7 +1165,7 @@ class ControlPlaneService:
         guardrail_id: str,
         *,
         name: str,
-        risk: str,
+        policy_id: str,
         phase: str,
         content: str,
         expected_decision: str,
@@ -1213,7 +1179,7 @@ class ControlPlaneService:
         self._validate_test_case(
             guardrail,
             name,
-            risk,
+            policy_id,
             phase,
             content,
             expected_decision,
@@ -1228,7 +1194,7 @@ class ControlPlaneService:
             connection.execute(
                 """
                 INSERT INTO test_cases
-                    (id, guardrail_id, name, risk, phase, content,
+                    (id, guardrail_id, name, policy_id, phase, content,
                      trusted_instruction, target_source, expected_decision,
                      query_content, grounding_sources_json,
                      expected_reasoning_result,
@@ -1237,7 +1203,7 @@ class ControlPlaneService:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unit', 1, NULL, NULL, 'custom', ?)
                 """,
                 (
-                    case_id, guardrail_id, name.strip(), risk, phase,
+                    case_id, guardrail_id, name.strip(), policy_id, phase,
                     content.strip(), trusted_instruction.strip(), target_source,
                     expected_decision, query.strip(),
                     _json(tuple(item.strip() for item in grounding_sources if item.strip())),
@@ -1249,13 +1215,14 @@ class ControlPlaneService:
                 "UPDATE guardrails SET draft_version = draft_version + 1, updated_at = ? WHERE id = ?",
                 (now, guardrail_id),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="guardrail.test_case.created",
                 outcome="success",
                 guardrail_id=guardrail_id,
-                risk=risk,
-                detail=f"Added reviewed test case {name.strip()}.",
+                detail=(
+                    f"Added reviewed Test Case {name.strip()} for Policy {policy_id}."
+                ),
             )
             connection.commit()
         return next(item for item in self.test_cases(guardrail_id) if item.id == case_id)
@@ -1277,7 +1244,7 @@ class ControlPlaneService:
                 "UPDATE guardrails SET draft_version = draft_version + 1, updated_at = ? WHERE id = ?",
                 (_now(), guardrail_id),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="guardrail.test_case.deleted",
                 outcome="success",
@@ -1286,72 +1253,72 @@ class ControlPlaneService:
             )
             connection.commit()
 
-    # Assignments
+    # Deployments
 
-    def assignments(self) -> tuple[GuardrailAssignment, ...]:
+    def deployments(self) -> tuple[Deployment, ...]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM assignments ORDER BY name COLLATE NOCASE, id"
+                "SELECT * FROM deployments ORDER BY name COLLATE NOCASE, id"
             ).fetchall()
-        return tuple(_assignment_from_row(row) for row in rows)
+        return tuple(_deployment_from_row(row) for row in rows)
 
-    def assignment(self, assignment_id: str) -> GuardrailAssignment:
-        item = next((item for item in self.assignments() if item.id == assignment_id), None)
+    def deployment(self, deployment_id: str) -> Deployment:
+        item = next((item for item in self.deployments() if item.id == deployment_id), None)
         if item is None:
-            raise NotFoundError("Assignment was not found.")
+            raise NotFoundError("Deployment was not found.")
         return item
 
-    def create_assignment(
+    def create_deployment(
         self,
         *,
         name: str,
         guardrail_id: str,
         traffic_scope: TrafficScopeExpression,
         enabled: bool = True,
-    ) -> GuardrailAssignment:
+    ) -> Deployment:
         guardrail = self.guardrail(guardrail_id)
         if is_default_guardrail(guardrail_id):
             raise ValidationError(
-                "The Default Guardrail is reserved for the Default Assignment."
+                "The Default Guardrail is reserved for the Default Deployment."
             )
         tested_current = any(
             item.source_draft_version == guardrail.draft_version
             for item in self.versions(guardrail_id)
         )
         if guardrail.active_version is None or not tested_current:
-            raise ValidationError("Test the current Guardrail before creating an Assignment.")
+            raise ValidationError("Validate the current Guardrail before creating a Deployment.")
         if not name.strip():
-            raise ValidationError("Assignment name is required.")
+            raise ValidationError("Deployment name is required.")
         normalized = normalize_traffic_scope(traffic_scope)
-        if not normalized.rules:
+        if not normalized.conditions:
             raise ValidationError(
-                "Unmatched traffic is already covered by the Default Assignment."
+                "Unmatched traffic is already covered by the Default Deployment."
             )
         signature = traffic_scope_signature(normalized)
         duplicate = next(
             (
                 item
-                for item in self.assignments()
+                for item in self.deployments()
                 if traffic_scope_signature(item.traffic_scope) == signature
             ),
             None,
         )
         if duplicate is not None:
             raise ValidationError(
-                f"This Traffic Scope is already assigned to {duplicate.name}."
+                f"This Traffic Scope is already used by Deployment {duplicate.name}."
             )
 
-        assignment_id = f"assignment-{uuid.uuid4().hex[:12]}"
+        deployment_id = f"deployment-{uuid.uuid4().hex[:12]}"
         now = _now()
         with self._write_lock, self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO assignments
+                INSERT INTO deployments
                     (id, name, guardrail_id, guardrail_version, traffic_scope_json, enabled, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    assignment_id,
+                    deployment_id,
                     name.strip(),
                     guardrail_id,
                     guardrail.active_version,
@@ -1360,40 +1327,40 @@ class ControlPlaneService:
                     now,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
-                kind="assignment.created",
+                kind="deployment.created",
                 outcome="success",
                 guardrail_id=guardrail_id,
-                assignment_id=assignment_id,
-                detail=f"Created Assignment {name.strip()}.",
+                deployment_id=deployment_id,
+                detail=f"Created Deployment {name.strip()}.",
             )
             connection.commit()
         self._reload_runtime()
-        return self.assignment(assignment_id)
+        return self.deployment(deployment_id)
 
-    def set_assignment_enabled(self, assignment_id: str, enabled: bool) -> GuardrailAssignment:
-        current = self.assignment(assignment_id)
-        if is_default_assignment(assignment_id):
+    def set_deployment_enabled(self, deployment_id: str, enabled: bool) -> Deployment:
+        current = self.deployment(deployment_id)
+        if is_default_deployment(deployment_id):
             if not enabled:
-                raise ValidationError("The Default Assignment is always enabled.")
+                raise ValidationError("The Default Deployment is always enabled.")
             return current
         with self._write_lock, self._connect() as connection:
             connection.execute(
-                "UPDATE assignments SET enabled = ?, updated_at = ? WHERE id = ?",
-                (int(enabled), _now(), assignment_id),
+                "UPDATE deployments SET enabled = ?, updated_at = ? WHERE id = ?",
+                (int(enabled), _now(), deployment_id),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
-                kind="assignment.updated",
+                kind="deployment.updated",
                 outcome="success",
                 guardrail_id=current.guardrail_id,
-                assignment_id=assignment_id,
-                detail=f"Assignment {current.name} {'enabled' if enabled else 'paused'}.",
+                deployment_id=deployment_id,
+                detail=f"Deployment {current.name} {'enabled' if enabled else 'paused'}.",
             )
             connection.commit()
         self._reload_runtime()
-        return self.assignment(assignment_id)
+        return self.deployment(deployment_id)
 
     # Runtime resolution
 
@@ -1401,13 +1368,13 @@ class ControlPlaneService:
         integration = self.integration(context.integration_id) if context.integration_id else None
         candidates = [
             item
-            for item in self._assignments
+            for item in self._deployments
             if item.enabled
             and traffic_scope_matches(item.traffic_scope, context)
             and (item.guardrail_id, item.guardrail_version) in self._plans
         ]
         if not candidates:
-            raise ControlPlaneError("No Assignment matches this model interaction.")
+            raise ControlPlaneError("No Deployment matches this model interaction.")
         ranked = sorted(
             candidates,
             key=lambda item: tuple(-value for value in traffic_scope_specificity(item.traffic_scope)) + (item.id,),
@@ -1435,16 +1402,16 @@ class ControlPlaneService:
                     "Resolved without an external Integration Adapter.",
                 )
             )
-        selected_default = is_default_assignment(selected.id)
+        selected_default = is_default_deployment(selected.id)
         trace.extend((
             _resolution_step(
-                "assignment",
+                "deployment",
                 selected.name,
                 (
-                    "No explicit Assignment matched; selected the system-managed baseline."
+                    "No explicit Deployment matched; selected the system-managed baseline."
                     if selected_default
-                    else f"Matched {len(candidates)} Assignment Traffic Scope(s); selected "
-                    f"{traffic_scope_rule_count(selected.traffic_scope)} rule(s) by specificity."
+                    else f"Matched {len(candidates)} Deployment Traffic Scope(s); selected "
+                    f"{traffic_condition_count(selected.traffic_scope)} condition(s) by specificity."
                 ),
             ),
             _resolution_step(
@@ -1455,7 +1422,7 @@ class ControlPlaneService:
         ))
         return PlanResolution(
             plan=plan,
-            assignment_id=selected.id,
+            deployment_id=selected.id,
             integration_id=integration.id if integration else None,
             trace=tuple(trace),
         )
@@ -1513,7 +1480,7 @@ class ControlPlaneService:
                 (integration_id, adapter.id, name.strip(), description.strip(), now, now),
             )
             credential = self._insert_credential(connection, integration_id, "generated")
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="integration.registered",
                 outcome="success",
@@ -1533,7 +1500,7 @@ class ControlPlaneService:
                 "UPDATE integrations SET enabled = ?, updated_at = ? WHERE id = ?",
                 (int(enabled), _now(), integration_id),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="integration.updated",
                 outcome="success",
@@ -1551,7 +1518,7 @@ class ControlPlaneService:
             credential = self._insert_credential(
                 connection, integration_id, "rotated"
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="integration.credential.rotated",
                 outcome="success",
@@ -1589,7 +1556,7 @@ class ControlPlaneService:
                 "UPDATE integration_credentials SET revoked_at = ? WHERE id = ?",
                 (_now(), credential_id),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="integration.credential.revoked",
                 outcome="success",
@@ -1650,22 +1617,22 @@ class ControlPlaneService:
 
     # Evidence and system summary
 
-    def activities(self, limit: int = 100) -> tuple[DecisionEvent, ...]:
+    def evidence_records(self, limit: int = 100) -> tuple[EvidenceRecord, ...]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT id, created_at, kind, outcome, guardrail_id, assignment_id, "
-                "risk, detail, integration_id FROM evidence_events "
+                "SELECT id, created_at, kind, outcome, guardrail_id, deployment_id, "
+                "risk, detail, integration_id FROM evidence_records "
                 "ORDER BY created_at DESC, id DESC LIMIT ?",
                 (max(1, min(limit, 500)),),
             ).fetchall()
         return tuple(
-            DecisionEvent(
+            EvidenceRecord(
                 id=str(row[0]),
                 created_at=str(row[1]),
                 kind=str(row[2]),
                 outcome=str(row[3]),
                 guardrail_id=str(row[4]) if row[4] else None,
-                assignment_id=str(row[5]) if row[5] else None,
+                deployment_id=str(row[5]) if row[5] else None,
                 risk=str(row[6]) if row[6] else None,
                 detail=str(row[7]),
                 integration_id=str(row[8]) if row[8] else None,
@@ -1682,7 +1649,7 @@ class ControlPlaneService:
             rows = connection.execute(
                 """
                 SELECT id, created_at, guardrail_id, guardrail_version,
-                       assignment_id, integration_id, protocol, phase,
+                       deployment_id, integration_id, protocol, phase,
                        outcome, action, risk, latency_ms, timed_out,
                        module_invocations, evaluator_invocations,
                        rail_invocations, action_invocations, model_invocations,
@@ -1701,7 +1668,7 @@ class ControlPlaneService:
                 created_at=str(row[1]),
                 guardrail_id=str(row[2]) if row[2] else None,
                 guardrail_version=int(row[3]) if row[3] is not None else None,
-                assignment_id=str(row[4]) if row[4] else None,
+                deployment_id=str(row[4]) if row[4] else None,
                 integration_id=str(row[5]) if row[5] else None,
                 protocol=str(row[6]),
                 phase=str(row[7]),
@@ -1736,9 +1703,9 @@ class ControlPlaneService:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT id, created_at, guardrail_id, guardrail_version, "
-                "assignment_id, integration_id, protocol, phase, kind, name, "
+                "deployment_id, integration_id, protocol, phase, kind, name, "
                 "risk, stage, outcome, latency_ms, timed_out, runtime_engine, "
-                "config_checksum, control_id, control_version, rail_type, "
+                "config_checksum, policy_id, policy_version, rail_type, "
                 "flow_name, action_name, action_version, parallel_group, "
                 "timeout_ms, provider_latency_ms FROM runtime_step_metric_events "
                 "WHERE created_at >= ? ORDER BY created_at DESC, id DESC",
@@ -1750,7 +1717,7 @@ class ControlPlaneService:
                 created_at=str(row[1]),
                 guardrail_id=str(row[2]),
                 guardrail_version=int(row[3]),
-                assignment_id=str(row[4]) if row[4] else None,
+                deployment_id=str(row[4]) if row[4] else None,
                 integration_id=str(row[5]) if row[5] else None,
                 protocol=str(row[6]),
                 phase=str(row[7]),
@@ -1763,8 +1730,8 @@ class ControlPlaneService:
                 timed_out=bool(row[14]),
                 runtime_engine=str(row[15]),
                 config_checksum=str(row[16]),
-                control_id=str(row[17]) if row[17] else None,
-                control_version=int(row[18]) if row[18] is not None else None,
+                policy_id=str(row[17]) if row[17] else None,
+                policy_version=str(row[18]) if row[18] is not None else None,
                 rail_type=str(row[19]) if row[19] else None,
                 flow_name=str(row[20]) if row[20] else None,
                 action_name=str(row[21]) if row[21] else None,
@@ -1781,11 +1748,11 @@ class ControlPlaneService:
         *,
         guardrail_id: str | None,
         guardrail_version: int | None,
-        assignment_id: str | None,
+        deployment_id: str | None,
         integration_id: str | None,
         protocol: str,
         phase: str,
-        trace: tuple[EvaluationTraceStep, ...],
+        trace: tuple[RuntimeTraceStep, ...],
         runtime_engine: str,
         config_checksum: str,
     ) -> None:
@@ -1809,7 +1776,7 @@ class ControlPlaneService:
                     now,
                     guardrail_id,
                     guardrail_version,
-                    assignment_id,
+                    deployment_id,
                     integration_id,
                     protocol,
                     phase,
@@ -1822,8 +1789,8 @@ class ControlPlaneService:
                     int(step.timed_out),
                     step.engine or runtime_engine,
                     step.config_checksum or config_checksum,
-                    step.control_id,
-                    step.control_version,
+                    step.policy_id,
+                    step.policy_version,
                     step.rail_type,
                     step.flow_name,
                     step.action_name,
@@ -1838,10 +1805,10 @@ class ControlPlaneService:
         with self._write_lock, self._connect() as connection:
             connection.executemany(
                 "INSERT INTO runtime_step_metric_events "
-                "(id, created_at, guardrail_id, guardrail_version, assignment_id, "
+                "(id, created_at, guardrail_id, guardrail_version, deployment_id, "
                 "integration_id, protocol, phase, kind, name, risk, stage, outcome, "
-                "latency_ms, timed_out, runtime_engine, config_checksum, control_id, "
-                "control_version, rail_type, flow_name, action_name, action_version, "
+                "latency_ms, timed_out, runtime_engine, config_checksum, policy_id, "
+                "policy_version, rail_type, flow_name, action_name, action_version, "
                 "parallel_group, timeout_ms, provider_latency_ms) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
@@ -1853,7 +1820,7 @@ class ControlPlaneService:
         *,
         outcome: str,
         guardrail_id: str | None,
-        assignment_id: str | None,
+        deployment_id: str | None,
         risk: str | None,
         detail: str,
         guardrail_version: int | None = None,
@@ -1879,12 +1846,12 @@ class ControlPlaneService:
     ) -> None:
         now = _now()
         with self._write_lock, self._connect() as connection:
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="interaction.decision",
                 outcome=outcome,
                 guardrail_id=guardrail_id,
-                assignment_id=assignment_id,
+                deployment_id=deployment_id,
                 integration_id=integration_id,
                 risk=risk,
                 detail=detail,
@@ -1893,7 +1860,7 @@ class ControlPlaneService:
                 """
                 INSERT INTO runtime_metric_events
                     (id, created_at, guardrail_id, guardrail_version,
-                     assignment_id, integration_id, protocol, phase,
+                     deployment_id, integration_id, protocol, phase,
                      outcome, action, risk, latency_ms, timed_out,
                      module_invocations, evaluator_invocations,
                      rail_invocations, action_invocations, model_invocations,
@@ -1907,7 +1874,7 @@ class ControlPlaneService:
                     now,
                     guardrail_id,
                     guardrail_version,
-                    assignment_id,
+                    deployment_id,
                     integration_id,
                     protocol,
                     phase,
@@ -1936,7 +1903,7 @@ class ControlPlaneService:
 
     def summary(self) -> dict[str, object]:
         integrations = self.integrations()
-        active = [item for item in self._assignments if item.enabled]
+        active = [item for item in self._deployments if item.enabled]
         degraded = any(item.runtime_status == "degraded" for item in integrations)
         configured_capabilities = {
             "deterministic": True,
@@ -1947,7 +1914,7 @@ class ControlPlaneService:
         return {
             "status": "degraded" if degraded else "healthy",
             "status_reason": "integration_degraded" if degraded else "runtime_ready",
-            "active_assignments": len(active),
+            "active_deployments": len(active),
             "enabled_integrations": sum(item.enabled for item in integrations),
             "total_integrations": len(integrations),
             "capabilities": configured_capabilities,
@@ -1980,15 +1947,12 @@ class ControlPlaneService:
                     "SELECT value FROM control_plane_meta WHERE key='schema_version'"
                 ).fetchone()
                 version = str(row[0]) if row else ""
-                if version == PREVIOUS_SCHEMA_VERSION:
-                    self._migrate_v5_to_v6(connection)
-                    version = SCHEMA_VERSION
                 if version != SCHEMA_VERSION:
                     raise ControlPlaneError(
                         "This database is incompatible with the current TaskLattice Guard schema; initialize a new database."
                     )
-            self._ensure_builtin_controls(connection)
-            # Released system Controls must be visible to the snapshot compiler,
+            self._ensure_builtin_policies(connection)
+            # Released system Policies must be visible to the snapshot compiler,
             # which resolves them through the same read path as normal requests.
             connection.commit()
             self._ensure_product_defaults(connection)
@@ -2007,13 +1971,9 @@ class ControlPlaneService:
                 purpose TEXT NOT NULL,
                 allowed_topics_json TEXT NOT NULL,
                 restricted_topics_json TEXT NOT NULL,
-                controls_json TEXT NOT NULL,
                 safety_level TEXT NOT NULL,
                 output_delivery TEXT NOT NULL,
-                source_pack_id TEXT,
-                parameters_json TEXT NOT NULL,
-                control_configurations_json TEXT NOT NULL DEFAULT '[]',
-                control_bindings_json TEXT NOT NULL DEFAULT '[]',
+                policy_bindings_json TEXT NOT NULL DEFAULT '[]',
                 draft_version INTEGER NOT NULL,
                 active_version INTEGER,
                 updated_at TEXT NOT NULL
@@ -2034,7 +1994,7 @@ class ControlPlaneService:
                 PRIMARY KEY (guardrail_id, version),
                 FOREIGN KEY (guardrail_id) REFERENCES guardrails(id) ON DELETE CASCADE
             );
-            CREATE TABLE control_packages (
+            CREATE TABLE policy_records (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
@@ -2044,23 +2004,23 @@ class ControlPlaneService:
                 draft_revision INTEGER NOT NULL,
                 updated_at TEXT NOT NULL
             );
-            CREATE TABLE control_versions (
-                control_id TEXT NOT NULL,
+            CREATE TABLE policy_versions (
+                policy_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
                 version_json TEXT NOT NULL,
                 checksum TEXT NOT NULL,
                 published_at TEXT NOT NULL,
-                PRIMARY KEY (control_id, version),
-                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
+                PRIMARY KEY (policy_id, version),
+                FOREIGN KEY (policy_id) REFERENCES policy_records(id) ON DELETE CASCADE
             );
-            CREATE TABLE control_test_runs (
+            CREATE TABLE policy_validation_runs (
                 id TEXT PRIMARY KEY,
-                control_id TEXT NOT NULL,
+                policy_id TEXT NOT NULL,
                 draft_revision INTEGER NOT NULL,
                 status TEXT NOT NULL,
                 results_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (control_id) REFERENCES control_packages(id) ON DELETE CASCADE
+                FOREIGN KEY (policy_id) REFERENCES policy_records(id) ON DELETE CASCADE
             );
             CREATE TABLE integrations (
                 id TEXT PRIMARY KEY,
@@ -2088,7 +2048,7 @@ class ControlPlaneService:
                 revoked_at TEXT,
                 FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE
             );
-            CREATE TABLE assignments (
+            CREATE TABLE deployments (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 guardrail_id TEXT NOT NULL,
@@ -2099,7 +2059,7 @@ class ControlPlaneService:
                 FOREIGN KEY (guardrail_id, guardrail_version)
                     REFERENCES guardrail_versions(guardrail_id, version)
             );
-            CREATE TABLE test_runs (
+            CREATE TABLE validation_runs (
                 id TEXT PRIMARY KEY,
                 guardrail_id TEXT NOT NULL,
                 guardrail_version INTEGER,
@@ -2114,7 +2074,7 @@ class ControlPlaneService:
                 id TEXT NOT NULL,
                 guardrail_id TEXT NOT NULL,
                 name TEXT NOT NULL,
-                risk TEXT NOT NULL,
+                policy_id TEXT NOT NULL,
                 phase TEXT NOT NULL,
                 content TEXT NOT NULL,
                 trusted_instruction TEXT NOT NULL,
@@ -2127,9 +2087,8 @@ class ControlPlaneService:
                 required INTEGER NOT NULL DEFAULT 1,
                 expected_failure TEXT,
                 concurrency_group TEXT,
-                source_control_id TEXT,
-                source_control_version TEXT,
-                source_suite_id TEXT,
+                source_policy_id TEXT,
+                source_policy_version TEXT,
                 source_case_id TEXT,
                 covered_rule_ids_json TEXT NOT NULL DEFAULT '[]',
                 origin TEXT NOT NULL,
@@ -2137,13 +2096,13 @@ class ControlPlaneService:
                 PRIMARY KEY (guardrail_id, id),
                 FOREIGN KEY (guardrail_id) REFERENCES guardrails(id) ON DELETE CASCADE
             );
-            CREATE TABLE evidence_events (
+            CREATE TABLE evidence_records (
                 id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 outcome TEXT NOT NULL,
                 guardrail_id TEXT,
-                assignment_id TEXT,
+                deployment_id TEXT,
                 risk TEXT,
                 detail TEXT NOT NULL,
                 integration_id TEXT
@@ -2153,7 +2112,7 @@ class ControlPlaneService:
                 created_at TEXT NOT NULL,
                 guardrail_id TEXT,
                 guardrail_version INTEGER,
-                assignment_id TEXT,
+                deployment_id TEXT,
                 integration_id TEXT,
                 protocol TEXT NOT NULL,
                 phase TEXT NOT NULL,
@@ -2186,7 +2145,7 @@ class ControlPlaneService:
                 created_at TEXT NOT NULL,
                 guardrail_id TEXT NOT NULL,
                 guardrail_version INTEGER NOT NULL,
-                assignment_id TEXT,
+                deployment_id TEXT,
                 integration_id TEXT,
                 protocol TEXT NOT NULL,
                 phase TEXT NOT NULL,
@@ -2199,8 +2158,8 @@ class ControlPlaneService:
                 timed_out INTEGER NOT NULL,
                 runtime_engine TEXT NOT NULL,
                 config_checksum TEXT NOT NULL,
-                control_id TEXT,
-                control_version INTEGER,
+                policy_id TEXT,
+                policy_version TEXT,
                 rail_type TEXT,
                 flow_name TEXT,
                 action_name TEXT,
@@ -2240,58 +2199,20 @@ class ControlPlaneService:
             (SCHEMA_VERSION,),
         )
 
-    @staticmethod
-    def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
-        """Add immutable Control-test provenance without rewriting existing cases."""
-
-        existing = {
-            str(row[1]) for row in connection.execute("PRAGMA table_info(test_cases)")
-        }
-        columns = (
-            (
-                "source_control_id",
-                "ALTER TABLE test_cases ADD COLUMN source_control_id TEXT",
-            ),
-            (
-                "source_control_version",
-                "ALTER TABLE test_cases ADD COLUMN source_control_version TEXT",
-            ),
-            (
-                "source_suite_id",
-                "ALTER TABLE test_cases ADD COLUMN source_suite_id TEXT",
-            ),
-            (
-                "source_case_id",
-                "ALTER TABLE test_cases ADD COLUMN source_case_id TEXT",
-            ),
-            (
-                "covered_rule_ids_json",
-                "ALTER TABLE test_cases ADD COLUMN covered_rule_ids_json "
-                "TEXT NOT NULL DEFAULT '[]'",
-            ),
-        )
-        for name, statement in columns:
-            if name not in existing:
-                connection.execute(statement)
-        connection.execute(
-            "UPDATE control_plane_meta SET value = ? WHERE key = 'schema_version'",
-            (SCHEMA_VERSION,),
-        )
-        connection.commit()
-
     def _seed(self, connection: sqlite3.Connection) -> None:
-        self._insert_activity(
+        self._insert_evidence_record(
             connection,
             kind="system.seeded",
             outcome="success",
             detail="Initialized the standalone TaskLattice control plane.",
         )
 
-    def _ensure_builtin_controls(self, connection: sqlite3.Connection) -> None:
-        """Expose every existing built-in detector as an immutable Control Version."""
+    def _ensure_builtin_policies(self, connection: sqlite3.Connection) -> None:
+        """Expose every existing built-in detector as an immutable Policy Version."""
         published_at = "2000-01-01T00:00:00+00:00"
-        for definition in CONTROL_DEFINITIONS:
-            control_id = f"builtin-{definition.id.replace('_', '-')}"
+        for definition in BUILTIN_POLICY_CAPABILITIES:
+            assert definition.policy_id is not None
+            policy_id = definition.policy_id
             rails = tuple(
                 RailBinding(
                     rail_type=phase,
@@ -2311,7 +2232,7 @@ class ControlPlaneService:
                 for phase in definition.default_phases
             )
             sources = tuple(
-                ControlSourceFile(
+                PolicySourceFile(
                     path=f"{definition.id}.co",
                     content="\n\n".join(
                         f"flow {item.flow_name} $text\n  pass" for item in rails
@@ -2319,7 +2240,7 @@ class ControlPlaneService:
                 )
                 for _ in (0,)
             )
-            draft = ControlDraft(
+            draft = PolicyDraft(
                 colang_version="2.x",
                 sources=sources,
                 parameter_schema=(),
@@ -2333,10 +2254,11 @@ class ControlPlaneService:
                     if self._action_catalog.contains(name, "1.0.0")
                 ),
                 execution_contract=(("native_risk", definition.id),),
+                test_cases=tests_for_builtin_policy(policy_id),
             )
             package_payload = _json(asdict(draft))
             version_payload = {
-                "control_id": control_id,
+                "policy_id": policy_id,
                 "version": 1,
                 "name": definition.display_name,
                 "description": definition.description,
@@ -2352,7 +2274,7 @@ class ControlPlaneService:
             ).hexdigest()
             connection.execute(
                 """
-                INSERT INTO control_packages
+                INSERT INTO policy_records
                     (id, name, description, source, owner, draft_json,
                      draft_revision, updated_at)
                 VALUES (?, ?, ?, 'built-in', 'TaskLattice', ?, 1, ?)
@@ -2365,7 +2287,7 @@ class ControlPlaneService:
                     updated_at = excluded.updated_at
                 """,
                 (
-                    control_id,
+                    policy_id,
                     definition.display_name,
                     definition.description,
                     package_payload,
@@ -2374,12 +2296,12 @@ class ControlPlaneService:
             )
             connection.execute(
                 """
-                INSERT INTO control_versions
-                    (control_id, version, version_json, checksum, published_at)
+                INSERT INTO policy_versions
+                    (policy_id, version, version_json, checksum, published_at)
                 VALUES (?, 1, ?, ?, ?)
-                ON CONFLICT(control_id, version) DO NOTHING
+                ON CONFLICT(policy_id, version) DO NOTHING
                 """,
-                (control_id, _json(version_payload), checksum, published_at),
+                (policy_id, _json(version_payload), checksum, published_at),
             )
 
     def _ensure_product_defaults(self, connection: sqlite3.Connection) -> None:
@@ -2389,27 +2311,28 @@ class ControlPlaneService:
         created_guardrail = guardrail_row is None
         if created_guardrail:
             now = _now()
-            controls = (
-                GuardrailControl("secrets", "reject"),
-                GuardrailControl("pii", "redact"),
-                GuardrailControl("builtin_content_filter", "reject"),
+            policy_bindings = (
+                GuardrailPolicyBinding("builtin-secrets", "1", action="reject"),
+                GuardrailPolicyBinding("builtin-pii", "1", action="redact"),
+                GuardrailPolicyBinding(
+                    DEFAULT_GUARDRAIL_POLICY_ID,
+                    library_policy(DEFAULT_GUARDRAIL_POLICY_ID).version,
+                    action="reject",
+                    enabled_rails=("input",),
+                ),
             )
-            control_bindings = _native_control_bindings(controls, ())
             guardrail = Guardrail(
                 id=DEFAULT_GUARDRAIL_ID,
                 name=DEFAULT_GUARDRAIL_NAME,
                 purpose=DEFAULT_GUARDRAIL_PURPOSE,
                 allowed_topics=(),
                 restricted_topics=(),
-                controls=controls,
                 safety_level="balanced",
                 output_delivery="window_buffered",
-                source_pack_id=DEFAULT_GUARDRAIL_PACK_ID,
-                parameters=(),
                 draft_version=1,
                 active_version=DEFAULT_GUARDRAIL_VERSION,
                 updated_at=now,
-                control_bindings=control_bindings,
+                policy_bindings=policy_bindings,
             )
             plan = self._compile_guardrail(
                 guardrail,
@@ -2425,10 +2348,9 @@ class ControlPlaneService:
                 """
                 INSERT INTO guardrails
                     (id, name, purpose, allowed_topics_json, restricted_topics_json,
-                     controls_json, safety_level, output_delivery, source_pack_id,
-                     parameters_json, control_configurations_json,
-                     control_bindings_json, draft_version, active_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, 1, ?, ?)
+                     safety_level, output_delivery, policy_bindings_json,
+                     draft_version, active_version, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                 """,
                 (
                     guardrail.id,
@@ -2436,12 +2358,9 @@ class ControlPlaneService:
                     guardrail.purpose,
                     _json(guardrail.allowed_topics),
                     _json(guardrail.restricted_topics),
-                    _controls_json(guardrail.controls),
                     guardrail.safety_level,
                     guardrail.output_delivery,
-                    guardrail.source_pack_id,
-                    _json({}),
-                    _json([asdict(item) for item in control_bindings]),
+                    _json([asdict(item) for item in policy_bindings]),
                     DEFAULT_GUARDRAIL_VERSION,
                     now,
                 ),
@@ -2467,7 +2386,7 @@ class ControlPlaneService:
                     now,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
                 kind="guardrail.default.created",
                 outcome="success",
@@ -2475,33 +2394,33 @@ class ControlPlaneService:
                 detail="Installed the local-only Default Guardrail.",
             )
 
-        assignment_row = connection.execute(
-            "SELECT id FROM assignments WHERE id = ?", (DEFAULT_ASSIGNMENT_ID,)
+        deployment_row = connection.execute(
+            "SELECT id FROM deployments WHERE id = ?", (DEFAULT_DEPLOYMENT_ID,)
         ).fetchone()
-        if assignment_row is None:
+        if deployment_row is None:
             now = _now()
             connection.execute(
                 """
-                INSERT INTO assignments
+                INSERT INTO deployments
                     (id, name, guardrail_id, guardrail_version, traffic_scope_json, enabled, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?)
                 """,
                 (
-                    DEFAULT_ASSIGNMENT_ID,
-                    DEFAULT_ASSIGNMENT_NAME,
+                    DEFAULT_DEPLOYMENT_ID,
+                    DEFAULT_DEPLOYMENT_NAME,
                     DEFAULT_GUARDRAIL_ID,
                     DEFAULT_GUARDRAIL_VERSION,
-                    _json({"combinator": "and", "rules": []}),
+                    _json({"combinator": "and", "conditions": []}),
                     now,
                 ),
             )
-            self._insert_activity(
+            self._insert_evidence_record(
                 connection,
-                kind="assignment.default.created",
+                kind="deployment.default.created",
                 outcome="success",
                 guardrail_id=DEFAULT_GUARDRAIL_ID,
-                assignment_id=DEFAULT_ASSIGNMENT_ID,
-                detail="Enabled the Default Assignment for unmatched traffic.",
+                deployment_id=DEFAULT_DEPLOYMENT_ID,
+                detail="Enabled the Default Deployment for unmatched traffic.",
             )
 
     def _insert_credential(
@@ -2537,21 +2456,21 @@ class ControlPlaneService:
         )
 
     @staticmethod
-    def _insert_activity(
+    def _insert_evidence_record(
         connection: sqlite3.Connection,
         *,
         kind: str,
         outcome: str,
         detail: str,
         guardrail_id: str | None = None,
-        assignment_id: str | None = None,
+        deployment_id: str | None = None,
         integration_id: str | None = None,
         risk: str | None = None,
     ) -> None:
         connection.execute(
             """
-            INSERT INTO evidence_events
-                (id, created_at, kind, outcome, guardrail_id, assignment_id, risk, detail, integration_id)
+            INSERT INTO evidence_records
+                (id, created_at, kind, outcome, guardrail_id, deployment_id, risk, detail, integration_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -2560,7 +2479,7 @@ class ControlPlaneService:
                 kind,
                 outcome,
                 guardrail_id,
-                assignment_id,
+                deployment_id,
                 risk,
                 detail,
                 integration_id,
@@ -2590,7 +2509,7 @@ class ControlPlaneService:
                 credentials[str(row[0])] = str(row[1])
         self._plans = plans
         self._nemo_configs = nemo_configs
-        self._assignments = self.assignments()
+        self._deployments = self.deployments()
         self._credential_index = credentials
 
     def _integration_from_row(
@@ -2656,34 +2575,32 @@ class ControlPlaneService:
             updated_at=str(row["updated_at"]),
         )
 
-    def _validate_control_draft(
+    def _validate_policy_draft(
         self,
-        control_id: str,
-        draft: ControlDraft,
+        policy_id: str,
+        draft: PolicyDraft,
         *,
         validate_dependencies: bool,
     ) -> None:
         if draft.colang_version not in {"1.0", "2.x"}:
-            raise ValidationError("Control Colang version must be 1.0 or 2.x.")
+            raise ValidationError("Policy Colang version must be 1.0 or 2.x.")
         if not draft.sources or any(
             not item.path.strip() or not item.content.strip() for item in draft.sources
         ):
-            raise ValidationError("A Control requires at least one named Colang source.")
+            raise ValidationError("A Policy requires at least one named Colang source.")
         if len({item.path for item in draft.sources}) != len(draft.sources):
-            raise ValidationError("Control source paths must be unique.")
+            raise ValidationError("Policy source paths must be unique.")
         if not draft.rail_bindings:
-            raise ValidationError("A Control requires at least one Rail binding.")
+            raise ValidationError("A Policy requires at least one Rail binding.")
         if len({(item.rail_type, item.flow_name) for item in draft.rail_bindings}) != len(
             draft.rail_bindings
         ):
-            raise ValidationError("Control Rail bindings must be unique.")
+            raise ValidationError("Policy Rail bindings must be unique.")
         for binding in draft.rail_bindings:
-            if binding.rail_type not in {
-                "input", "output", "retrieval", "dialog", "execution"
-            }:
-                raise ValidationError("Unsupported Control rail type.")
+            if binding.rail_type not in {"input", "output"}:
+                raise ValidationError("Unsupported Policy rail type.")
             if binding.timeout_ms <= 0:
-                raise ValidationError("Control rail timeouts must be positive.")
+                raise ValidationError("Policy rail timeouts must be positive.")
             if binding.execution_mode == "mutate" and binding.priority is None:
                 raise ValidationError(
                     f"Mutating flow {binding.flow_name!r} requires an explicit priority."
@@ -2711,10 +2628,50 @@ class ControlPlaneService:
                 )
         if not validate_dependencies:
             return
+        rules = {
+            flow_rule_id(binding.rail_type, binding.flow_name): binding
+            for binding in draft.rail_bindings
+        }
+        accepted_rules: set[str] = set()
+        for test in draft.test_cases:
+            if not test.covered_rule_ids:
+                raise ValidationError(
+                    f"Policy Test Case {test.name!r} must cover at least one Rule."
+                )
+            unknown_rules = set(test.covered_rule_ids).difference(rules)
+            if unknown_rules:
+                raise ValidationError(
+                    f"Policy Test Case {test.name!r} references unknown Rules: "
+                    + ", ".join(sorted(unknown_rules))
+                    + "."
+                )
+            mismatched_rules = sorted(
+                rule_id
+                for rule_id in test.covered_rule_ids
+                if rules[rule_id].rail_type != test.rail_type
+            )
+            if mismatched_rules:
+                raise ValidationError(
+                    f"Policy Test Case {test.name!r} must run on the same Rail as its Rules: "
+                    + ", ".join(mismatched_rules)
+                    + "."
+                )
+            if test.required:
+                accepted_rules.update(test.covered_rule_ids)
+        missing_test_rules = sorted(set(rules).difference(accepted_rules))
+        if missing_test_rules:
+            raise ValidationError(
+                "Every Policy Rule requires a reviewed Test Case; missing "
+                + ", ".join(missing_test_rules)
+                + "."
+            )
+        case_ids = [item.id for item in draft.test_cases if item.id]
+        if len(case_ids) != len(set(case_ids)):
+            raise ValidationError("Policy Test Case IDs must be unique.")
         for reference in draft.action_references:
             if not self._action_catalog.contains(reference.name, reference.version):
                 raise ValidationError(
-                    f"Control {control_id!r} references unregistered Action "
+                    f"Policy {policy_id!r} references unregistered Action "
                     f"{reference.name}@{reference.version}."
                 )
             definition = self._action_catalog.get(reference.name, reference.version)
@@ -2729,7 +2686,7 @@ class ControlPlaneService:
         )
         if missing_models:
             raise ValidationError(
-                f"Control {control_id!r} references unregistered Models: "
+                f"Policy {policy_id!r} references unregistered Models: "
                 + ", ".join(missing_models)
                 + "."
             )
@@ -2740,20 +2697,131 @@ class ControlPlaneService:
         )
         if missing_prompts:
             raise ValidationError(
-                f"Control {control_id!r} references unregistered Prompts: "
+                f"Policy {policy_id!r} references unregistered Prompts: "
                 + ", ".join(missing_prompts)
                 + "."
             )
 
-    def _validate_guardrail_control_bindings(
+    def _validate_guardrail_policy_bindings(
         self,
-        bindings: tuple[GuardrailControlBinding, ...],
+        bindings: tuple[GuardrailPolicyBinding, ...],
     ) -> None:
-        keys = tuple((item.control_id, item.control_version) for item in bindings)
+        keys = tuple((item.policy_id, item.policy_version) for item in bindings)
         if len(set(keys)) != len(keys):
-            raise ValidationError("A Control Version may only be bound once.")
+            raise ValidationError("A Policy Version may only be bound once.")
         for binding in bindings:
-            version = self.control_version(binding.control_id, binding.control_version)
+            configured_actions = dict(binding.rule_actions)
+            invalid_actions = {
+                action
+                for action in (binding.action, *configured_actions.values())
+                if action is not None and action not in ENFORCEMENT_ACTIONS
+            }
+            if invalid_actions:
+                raise ValidationError(
+                    f"Policy {binding.policy_id!r} uses unsupported Rule actions: "
+                    + ", ".join(sorted(invalid_actions))
+                    + "."
+                )
+            static_policy = library_policy(binding.policy_id)
+            if static_policy is not None:
+                if binding.policy_version != static_policy.version:
+                    raise ValidationError(
+                        f"Policy {binding.policy_id!r} must pin version "
+                        f"{static_policy.version}."
+                    )
+                supported_parameters = {item.name: item for item in static_policy.parameters}
+                supplied = dict(binding.parameter_values)
+                missing = tuple(
+                    item.name
+                    for item in supported_parameters.values()
+                    if item.required and not supplied.get(item.name)
+                )
+                if missing:
+                    raise ValidationError(
+                        f"Policy {binding.policy_id!r} requires "
+                        + ", ".join(missing)
+                        + "."
+                    )
+                unknown = set(supplied).difference(supported_parameters)
+                if unknown:
+                    raise ValidationError(
+                        f"Unknown parameters for Policy {binding.policy_id!r}: "
+                        + ", ".join(sorted(unknown))
+                        + "."
+                    )
+                available_rules = {item.id for item in static_policy.rules}
+                if set(binding.enabled_rule_ids).difference(available_rules):
+                    raise ValidationError(
+                        f"Policy {binding.policy_id!r} enables an unknown Rule."
+                    )
+                if {item[0] for item in binding.rule_actions}.difference(available_rules):
+                    raise ValidationError(
+                        f"Policy {binding.policy_id!r} configures an unknown Rule."
+                    )
+                enabled_rails = set(binding.enabled_rails or static_policy.stages)
+                if not enabled_rails <= set(static_policy.stages):
+                    raise ValidationError(
+                        f"Policy {binding.policy_id!r} does not provide every enabled Rail."
+                    )
+                if binding.enabled_rule_ids:
+                    rules_by_id = {item.id: item for item in static_policy.rules}
+                    outside_enabled_rails = {
+                        rule_id
+                        for rule_id in binding.enabled_rule_ids
+                        if enabled_rails.isdisjoint(rules_by_id[rule_id].stages)
+                    }
+                    if outside_enabled_rails:
+                        raise ValidationError(
+                            f"Policy {binding.policy_id!r} enables Rules outside its enabled Rails."
+                        )
+                if configured_actions and binding.enabled_rule_ids:
+                    disabled_overrides = set(configured_actions).difference(
+                        binding.enabled_rule_ids
+                    )
+                    if disabled_overrides:
+                        raise ValidationError(
+                            f"Policy {binding.policy_id!r} configures actions for disabled Rules."
+                        )
+                continue
+            try:
+                stored_version = int(binding.policy_version)
+            except ValueError as error:
+                raise ValidationError(
+                    f"Policy {binding.policy_id!r} requires a numeric published version."
+                ) from error
+            version = self.policy_version(binding.policy_id, stored_version)
+            native_risk = dict(version.execution_contract).get("native_risk")
+            if native_risk:
+                definition = runtime_capability(native_risk)
+                enabled_rails = binding.enabled_rails or tuple(
+                    dict.fromkeys(item.rail_type for item in version.rail_bindings)
+                )
+                action = binding.action or next(
+                    (
+                        rail.on_unsafe
+                        for rail in version.rail_bindings
+                        if rail.rail_type in enabled_rails
+                    ),
+                    definition.default_action,
+                )
+                if action not in definition.allowed_actions:
+                    raise ValidationError(
+                        f"Policy {binding.policy_id!r} does not support action {action!r}."
+                    )
+                if native_risk == "automated_reasoning":
+                    reasoning = binding.reasoning_policy
+                    if reasoning is None:
+                        raise ValidationError(
+                            "Automated reasoning requires a deployed reasoning Policy."
+                        )
+                    if not 0 <= reasoning.confidence_threshold <= 1:
+                        raise ValidationError(
+                            "Automated reasoning confidence threshold must be between 0 and 1."
+                        )
+                elif binding.reasoning_policy is not None:
+                    raise ValidationError(
+                        "Only automated reasoning may bind a reasoning Policy."
+                    )
             definitions = {item.name: item for item in version.parameter_schema}
             supplied = dict(binding.parameter_values)
             missing = tuple(
@@ -2763,32 +2831,68 @@ class ControlPlaneService:
             )
             if missing:
                 raise ValidationError(
-                    f"Control {binding.control_id}@{binding.control_version} requires "
+                    f"Policy {binding.policy_id}@{binding.policy_version} requires "
                     + ", ".join(missing)
                     + "."
                 )
             unknown = set(supplied) - set(definitions)
             if unknown:
                 raise ValidationError(
-                    f"Unknown parameters for Control {binding.control_id}: "
+                    f"Unknown parameters for Policy {binding.policy_id}: "
                     + ", ".join(sorted(unknown))
                     + "."
                 )
             available_rails = {item.rail_type for item in version.rail_bindings}
-            if not set(binding.enabled_rails) <= available_rails:
+            enabled_rails = set(binding.enabled_rails or available_rails)
+            if not enabled_rails <= available_rails:
                 raise ValidationError(
-                    f"Control {binding.control_id}@{binding.control_version} does not "
+                    f"Policy {binding.policy_id}@{binding.policy_version} does not "
                     "provide every enabled rail."
                 )
+            rules = {
+                flow_rule_id(item.rail_type, item.flow_name): item
+                for item in version.rail_bindings
+            }
+            unknown_enabled_rules = set(binding.enabled_rule_ids).difference(rules)
+            if unknown_enabled_rules:
+                raise ValidationError(
+                    f"Policy {binding.policy_id}@{binding.policy_version} enables unknown Rules: "
+                    + ", ".join(sorted(unknown_enabled_rules))
+                    + "."
+                )
+            unknown_rule_actions = set(configured_actions).difference(rules)
+            if unknown_rule_actions:
+                raise ValidationError(
+                    f"Policy {binding.policy_id}@{binding.policy_version} configures unknown Rules: "
+                    + ", ".join(sorted(unknown_rule_actions))
+                    + "."
+                )
+            if binding.enabled_rule_ids:
+                outside_enabled_rails = {
+                    rule_id
+                    for rule_id in binding.enabled_rule_ids
+                    if rules[rule_id].rail_type not in enabled_rails
+                }
+                if outside_enabled_rails:
+                    raise ValidationError(
+                        f"Policy {binding.policy_id}@{binding.policy_version} enables Rules "
+                        "outside its enabled Rails."
+                    )
+                disabled_overrides = set(configured_actions).difference(
+                    binding.enabled_rule_ids
+                )
+                if disabled_overrides:
+                    raise ValidationError(
+                        f"Policy {binding.policy_id}@{binding.policy_version} configures "
+                        "actions for disabled Rules."
+                    )
 
     @staticmethod
     def _validate_guardrail_fields(
         purpose: str,
-        controls: tuple[GuardrailControl, ...],
         safety_level: str,
         output_delivery: str,
-        control_configurations: tuple[GuardrailControlConfig, ...] = (),
-        control_bindings: tuple[GuardrailControlBinding, ...] = (),
+        policy_bindings: tuple[GuardrailPolicyBinding, ...] = (),
     ) -> None:
         if not purpose.strip():
             raise ValidationError("Describe what this AI is allowed to do.")
@@ -2796,143 +2900,14 @@ class ControlPlaneService:
             raise ValidationError("Enforcement mode must be balanced or strict.")
         if output_delivery not in {"interruptible", "window_buffered", "full_buffered"}:
             raise ValidationError("Unsupported output delivery mode.")
-        known = {item.id: item for item in CONTROL_DEFINITIONS}
-        if not controls and not control_bindings:
-            raise ValidationError("Select at least one Control to protect.")
-        if len({item.risk for item in controls}) != len(controls):
-            raise ValidationError("A risk may only be configured once.")
-        for risk in controls:
-            definition = known.get(risk.risk)
-            if definition is None:
-                raise ValidationError(f"Unknown risk {risk.risk!r}.")
-            if risk.action not in definition.allowed_actions:
-                raise ValidationError(f"Unsupported action for {risk.risk}.")
-            if risk.risk == "automated_reasoning":
-                binding = risk.reasoning_policy
-                if binding is None:
-                    raise ValidationError(
-                        "Automated reasoning requires a deployed policy binding."
-                    )
-                if not binding.policy_id.strip() or not binding.policy_version.strip():
-                    raise ValidationError(
-                        "Automated reasoning policy ID and version are required."
-                    )
-                if not 0 <= binding.confidence_threshold <= 1:
-                    raise ValidationError(
-                        "Automated reasoning confidence threshold must be between 0 and 1."
-                    )
-                if output_delivery != "full_buffered":
-                    raise ValidationError(
-                        "Automated reasoning requires full-buffered output delivery."
-                    )
-            elif risk.reasoning_policy is not None:
-                raise ValidationError(
-                    "Only automated reasoning may bind a reasoning policy."
-                )
-        configured_runtime_risks = {
-            item.runtime_risk for item in control_configurations
-        }
-        missing_runtime_controls = configured_runtime_risks - {
-            item.risk for item in controls
-        }
-        if missing_runtime_controls:
-            raise ValidationError(
-                "Configured Controls must be included in the Guardrail runtime plan: "
-                + ", ".join(sorted(missing_runtime_controls))
-                + "."
-            )
-        ControlPlaneService._validate_control_configurations(control_configurations)
-
-    @staticmethod
-    def _validate_control_configurations(
-        configurations: tuple[GuardrailControlConfig, ...],
-    ) -> None:
-        if len({item.id for item in configurations}) != len(configurations):
-            raise ValidationError("A Control may only be configured once.")
-        known_risks = {item.id for item in CONTROL_DEFINITIONS}
-        for configuration in configurations:
-            if configuration.runtime_risk not in known_risks:
-                raise ValidationError(
-                    f"Unknown runtime Control {configuration.runtime_risk!r}."
-                )
-            if not configuration.rules or not any(
-                rule.enabled for rule in configuration.rules
-            ):
-                raise ValidationError(
-                    f"Control {configuration.name!r} must enable at least one Rule."
-                )
-            if len({rule.id for rule in configuration.rules}) != len(
-                configuration.rules
-            ):
-                raise ValidationError(
-                    f"Control {configuration.name!r} contains duplicate Rules."
-                )
-            if configuration.kind == "built_in":
-                built_in = library_control(configuration.control_id or "")
-                if built_in is None:
-                    raise ValidationError("Unknown built-in Control.")
-                if configuration.control_version != built_in.version:
-                    raise ValidationError(
-                        f"Control {built_in.id!r} must pin version {built_in.version}."
-                    )
-                available = {rule.id for rule in built_in.rules}
-                if any(rule.id not in available for rule in configuration.rules):
-                    raise ValidationError(
-                        f"Control {configuration.name!r} references an unknown Rule."
-                    )
-            elif configuration.kind == "custom":
-                if (
-                    configuration.control_id is not None
-                    or configuration.control_version is not None
-                ):
-                    raise ValidationError(
-                        "A custom Control cannot reference a built-in Control version."
-                    )
-            else:
-                raise ValidationError(
-                    f"Unsupported Control kind {configuration.kind!r}."
-                )
-            for rule in configuration.rules:
-                if not rule.phases or any(
-                    phase not in {"input", "output"} for phase in rule.phases
-                ):
-                    raise ValidationError(
-                        f"Rule {rule.name!r} requires a supported model boundary."
-                    )
-                if rule.detector == "regex" and configuration.kind == "custom":
-                    if not (rule.expression or "").strip():
-                        raise ValidationError(
-                            f"Custom Regex Rule {rule.name!r} requires an expression."
-                        )
-                    try:
-                        re.compile(rule.expression or "")
-                    except re.error as error:
-                        raise ValidationError(
-                            f"Custom Regex Rule {rule.name!r} is invalid."
-                        ) from error
-                if rule.detector == "keyword" and configuration.kind == "custom":
-                    if not any(keyword.strip() for keyword in rule.keywords):
-                        raise ValidationError(
-                            f"Custom Keyword Rule {rule.name!r} requires a keyword."
-                        )
-                if (
-                    configuration.kind == "built_in"
-                    and rule.enabled
-                    and rule.id.startswith("dynamic-")
-                    and (
-                        not any(keyword.strip() for keyword in rule.keywords)
-                        or any("{{" in keyword for keyword in rule.keywords)
-                    )
-                ):
-                    raise ValidationError(
-                        f"Parameterized Rule {rule.name!r} requires reviewed values."
-                    )
+        if not policy_bindings:
+            raise ValidationError("Select at least one Policy to protect.")
 
     @staticmethod
     def _validate_test_case(
         guardrail: Guardrail,
         name: str,
-        risk: str,
+        policy_id: str,
         phase: str,
         content: str,
         expected_decision: str,
@@ -2943,11 +2918,10 @@ class ControlPlaneService:
     ) -> None:
         if not name.strip() or not content.strip():
             raise ValidationError("Test case name and model content are required.")
-        if risk not in {
-            *(item.risk for item in guardrail.controls),
-            *(item.control_id for item in guardrail.control_bindings),
+        if policy_id not in {
+            *(item.policy_id for item in guardrail.policy_bindings),
         }:
-            raise ValidationError("Test case risk must be enabled in this Guardrail.")
+            raise ValidationError("Test case Policy must be enabled in this Guardrail.")
         if phase not in {"input", "output"}:
             raise ValidationError("Test case phase must be input or output.")
         if expected_decision not in {"allow", "block", "transform", "intervene"}:
@@ -2960,7 +2934,7 @@ class ControlPlaneService:
         }:
             raise ValidationError("Unsupported test target source.")
         clean_sources = tuple(item.strip() for item in grounding_sources if item.strip())
-        if risk == "contextual_grounding":
+        if policy_id == "builtin-contextual-grounding":
             if expected_reasoning_result is not None:
                 raise ValidationError(
                     "Only automated reasoning tests may expect a reasoning result."
@@ -2975,7 +2949,7 @@ class ControlPlaneService:
                 raise ValidationError("Contextual grounding test context exceeds runtime limits.")
             if len(content) > 5_000:
                 raise ValidationError("Contextual grounding test output exceeds 5,000 characters.")
-        elif risk == "automated_reasoning":
+        elif policy_id == "builtin-automated-reasoning":
             if phase != "output" or target_source != "model_output":
                 raise ValidationError(
                     "Automated reasoning tests must target complete model output."
@@ -3012,12 +2986,12 @@ class ControlPlaneService:
         return connection
 
 
-def _control_draft_from_payload(payload: dict[str, object]) -> ControlDraft:
-    return ControlDraft(
+def _policy_draft_from_payload(payload: dict[str, object]) -> PolicyDraft:
+    return PolicyDraft(
         colang_version=str(payload["colang_version"]),
-        sources=tuple(ControlSourceFile(**item) for item in payload.get("sources", ())),
+        sources=tuple(PolicySourceFile(**item) for item in payload.get("sources", ())),
         parameter_schema=tuple(
-            ControlParameterDefinition(**item)
+            PolicyParameterDefinition(**item)
             for item in payload.get("parameter_schema", ())
         ),
         rail_bindings=tuple(
@@ -3031,30 +3005,30 @@ def _control_draft_from_payload(payload: dict[str, object]) -> ControlDraft:
         execution_contract=tuple(
             tuple(item) for item in payload.get("execution_contract", ())
         ),
-        tests=tuple(
-            ControlTestDefinition(**item) for item in payload.get("tests", ())
+        test_cases=tuple(
+            PolicyTestCaseDefinition(**item) for item in payload.get("test_cases", ())
         ),
     )
 
 
-def _control_package_from_row(row: sqlite3.Row) -> ControlPackage:
-    return ControlPackage(
+def _policy_record_from_row(row: sqlite3.Row) -> PolicyRecord:
+    return PolicyRecord(
         id=str(row["id"]),
         name=str(row["name"]),
         description=str(row["description"]),
         source=str(row["source"]),
         owner=str(row["owner"]),
-        draft=_control_draft_from_payload(json.loads(str(row["draft_json"]))),
+        draft=_policy_draft_from_payload(json.loads(str(row["draft_json"]))),
         draft_revision=int(row["draft_revision"]),
         updated_at=str(row["updated_at"]),
     )
 
 
-def _control_version_from_row(row: sqlite3.Row) -> ControlVersion:
+def _policy_version_from_row(row: sqlite3.Row) -> PolicyVersion:
     payload = json.loads(str(row["version_json"]))
-    draft = _control_draft_from_payload(payload)
-    return ControlVersion(
-        control_id=str(payload["control_id"]),
+    draft = _policy_draft_from_payload(payload)
+    return PolicyVersion(
+        policy_id=str(payload["policy_id"]),
         version=int(payload["version"]),
         name=str(payload["name"]),
         description=str(payload["description"]),
@@ -3068,118 +3042,77 @@ def _control_version_from_row(row: sqlite3.Row) -> ControlVersion:
         model_dependencies=draft.model_dependencies,
         prompt_dependencies=draft.prompt_dependencies,
         execution_contract=draft.execution_contract,
-        tests=draft.tests,
+        test_cases=draft.test_cases,
         checksum=str(row["checksum"]),
         published_at=str(row["published_at"]),
     )
 
 
-def _control_version_snapshot(version: ControlVersion) -> ControlVersionSnapshot:
-    return ControlVersionSnapshot(
-        control_id=version.control_id,
-        version=version.version,
+def _policy_version_snapshot(version: PolicyVersion) -> PolicyVersionSnapshot:
+    return PolicyVersionSnapshot(
+        policy_id=version.policy_id,
+        version=str(version.version),
         name=version.name,
         source=version.source,
         colang_version=version.colang_version,
         sources=tuple(
-            ControlSourceSnapshot(path=item.path, content=item.content)
+            PolicySourceSnapshot(path=item.path, content=item.content)
             for item in version.sources
         ),
         parameter_schema=tuple(
             (item.name, item.kind) for item in version.parameter_schema
         ),
         rail_bindings=tuple(
-            ControlRailBindingSnapshot(**asdict(item))
+            PolicyRailBindingSnapshot(**asdict(item))
             for item in version.rail_bindings
         ),
         action_references=tuple(
-            ControlActionReferenceSnapshot(item.name, item.version)
+            PolicyActionReferenceSnapshot(item.name, item.version)
             for item in version.action_references
         ),
         model_dependencies=version.model_dependencies,
         prompt_dependencies=version.prompt_dependencies,
         execution_contract=version.execution_contract,
-        tests=tuple(
-            (item.name, item.expected_decision) for item in version.tests
+        test_cases=tuple(
+            (item.name, item.expected_decision) for item in version.test_cases
         ),
         checksum=version.checksum,
     )
 
 
 def _guardrail_from_row(row: sqlite3.Row) -> Guardrail:
-    raw_controls = json.loads(str(row["controls_json"]))
-    raw_configurations = json.loads(str(row["control_configurations_json"]))
-    raw_bindings = json.loads(str(row["control_bindings_json"]))
+    raw_bindings = json.loads(str(row["policy_bindings_json"]))
     return Guardrail(
         id=str(row["id"]),
         name=str(row["name"]),
         purpose=str(row["purpose"]),
         allowed_topics=tuple(json.loads(str(row["allowed_topics_json"]))),
         restricted_topics=tuple(json.loads(str(row["restricted_topics_json"]))),
-        controls=tuple(
-            GuardrailControl(
-                str(item["risk"]),
-                str(item["action"]),
-                _reasoning_binding(item["reasoning_policy"]),
-            )
-            for item in raw_controls
-        ),
         safety_level=str(row["safety_level"]),
         output_delivery=str(row["output_delivery"]),
-        source_pack_id=(
-            str(row["source_pack_id"]) if row["source_pack_id"] else None
-        ),
-        parameters=tuple(
-            sorted(json.loads(str(row["parameters_json"])).items())
-        ),
         draft_version=int(row["draft_version"]),
         active_version=(
             int(row["active_version"]) if row["active_version"] is not None else None
         ),
         updated_at=str(row["updated_at"]),
-        control_configurations=tuple(
-            GuardrailControlConfig(
-                id=str(item["id"]),
-                name=str(item["name"]),
-                kind=str(item["kind"]),
-                runtime_risk=str(item["runtime_risk"]),
-                control_id=(
-                    str(item["control_id"]) if item.get("control_id") else None
-                ),
-                control_version=(
-                    str(item["control_version"])
-                    if item.get("control_version")
-                    else None
-                ),
-                rules=tuple(
-                    GuardrailRuleConfig(
-                        id=str(rule["id"]),
-                        name=str(rule["name"]),
-                        detector=str(rule["detector"]),
-                        action=str(rule["action"]),
-                        phases=tuple(rule["phases"]),
-                        enabled=bool(rule.get("enabled", True)),
-                        description=str(rule.get("description", "")),
-                        expression=(
-                            str(rule["expression"])
-                            if rule.get("expression") is not None
-                            else None
-                        ),
-                        keywords=tuple(rule.get("keywords", ())),
-                    )
-                    for rule in item["rules"]
-                ),
-            )
-            for item in raw_configurations
-        ),
-        control_bindings=tuple(
-            GuardrailControlBinding(
-                control_id=str(item["control_id"]),
-                control_version=int(item["control_version"]),
+        policy_bindings=tuple(
+            GuardrailPolicyBinding(
+                policy_id=str(item["policy_id"]),
+                policy_version=str(item["policy_version"]),
+                action=(str(item["action"]) if item.get("action") else None),
                 parameter_values=tuple(
                     tuple(value) for value in item.get("parameter_values", ())
                 ),
+                enabled_rule_ids=tuple(item.get("enabled_rule_ids", ())),
+                rule_actions=tuple(
+                    tuple(value) for value in item.get("rule_actions", ())
+                ),
                 enabled_rails=tuple(item.get("enabled_rails", ("input", "output"))),
+                reasoning_policy=(
+                    _reasoning_binding(item["reasoning_policy"])
+                    if item.get("reasoning_policy")
+                    else None
+                ),
             )
             for item in raw_bindings
         ),
@@ -3222,25 +3155,25 @@ def _plan_from_payload(payload: dict[str, object]) -> GuardrailPlanSnapshot:
             AutomatedReasoningPolicySnapshot(**item)
             for item in payload.get("reasoning_policies", ())
         ),
-        control_versions=tuple(
-            ControlVersionSnapshot(
-                control_id=str(item["control_id"]),
-                version=int(item["version"]),
+        policy_versions=tuple(
+            PolicyVersionSnapshot(
+                policy_id=str(item["policy_id"]),
+                version=str(item["version"]),
                 name=str(item["name"]),
                 source=str(item["source"]),
                 colang_version=str(item["colang_version"]),
                 sources=tuple(
-                    ControlSourceSnapshot(**source) for source in item.get("sources", ())
+                    PolicySourceSnapshot(**source) for source in item.get("sources", ())
                 ),
                 parameter_schema=tuple(
                     tuple(value) for value in item.get("parameter_schema", ())
                 ),
                 rail_bindings=tuple(
-                    ControlRailBindingSnapshot(**binding)
+                    PolicyRailBindingSnapshot(**binding)
                     for binding in item.get("rail_bindings", ())
                 ),
                 action_references=tuple(
-                    ControlActionReferenceSnapshot(**reference)
+                    PolicyActionReferenceSnapshot(**reference)
                     for reference in item.get("action_references", ())
                 ),
                 model_dependencies=tuple(item.get("model_dependencies", ())),
@@ -3248,33 +3181,36 @@ def _plan_from_payload(payload: dict[str, object]) -> GuardrailPlanSnapshot:
                 execution_contract=tuple(
                     tuple(value) for value in item.get("execution_contract", ())
                 ),
-                tests=tuple(tuple(value) for value in item.get("tests", ())),
+                test_cases=tuple(tuple(value) for value in item.get("test_cases", ())),
                 checksum=str(item["checksum"]),
             )
-            for item in payload.get("control_versions", ())
+            for item in payload.get("policy_versions", ())
         ),
-        control_bindings=tuple(
-            GuardrailControlBindingSnapshot(
-                control_id=str(item["control_id"]),
-                control_version=int(item["control_version"]),
+        policy_bindings=tuple(
+            GuardrailPolicyBindingSnapshot(
+                policy_id=str(item["policy_id"]),
+                policy_version=str(item["policy_version"]),
+                action=(str(item["action"]) if item.get("action") else None),
                 parameter_values=tuple(
                     tuple(value) for value in item.get("parameter_values", ())
                 ),
+                enabled_rule_ids=tuple(item.get("enabled_rule_ids", ())),
+                rule_actions=tuple(
+                    tuple(value) for value in item.get("rule_actions", ())
+                ),
                 enabled_rails=tuple(item.get("enabled_rails", ("input", "output"))),
             )
-            for item in payload.get("control_bindings", ())
+            for item in payload.get("policy_bindings", ())
         ),
     )
 
 
 def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
     compiler_version = str(payload.get("compiler_version", ""))
-    compiler_generation = _nemo_compiler_generation(compiler_version)
-    if compiler_generation is not None and compiler_generation >= 6 and not payload.get(
-        "runtime_profile"
-    ):
+    runtime_profile = payload.get("runtime_profile")
+    if not isinstance(runtime_profile, str) or not runtime_profile.strip():
         raise ControlPlaneError(
-            "Stored NeMo v6 artifact is missing its explicit runtime_profile."
+            "Stored NeMo artifact is missing its explicit runtime_profile."
         )
     return NeMoConfigSnapshot(
         guardrail_id=str(payload["guardrail_id"]),
@@ -3296,12 +3232,12 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
                 parameters=tuple(
                     tuple(value) for value in item.get("parameters", ())
                 ),
-                control_id=(
-                    str(item["control_id"]) if item.get("control_id") else None
+                policy_id=(
+                    str(item["policy_id"]) if item.get("policy_id") else None
                 ),
-                control_version=(
-                    int(item["control_version"])
-                    if item.get("control_version") is not None
+                policy_version=(
+                    str(item["policy_version"])
+                    if item.get("policy_version") is not None
                     else None
                 ),
                 flow_name=(
@@ -3337,10 +3273,7 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
         required_features=tuple(payload.get("required_features", ())),
         runtime_engine=str(payload.get("runtime_engine", "llmrails")),
         colang_version=str(payload.get("colang_version", "2.x")),
-        runtime_profile=str(
-            payload.get("runtime_profile")
-            or _legacy_runtime_profile(payload)
-        ),
+        runtime_profile=runtime_profile,
         rail_flows=tuple(
             tuple(item) for item in payload.get("rail_flows", ())
         ),
@@ -3351,17 +3284,6 @@ def _nemo_config_from_payload(payload: dict[str, object]) -> NeMoConfigSnapshot:
             payload.get("estimated_critical_path_ms", 0)
         ),
     )
-
-
-def _legacy_runtime_profile(payload: dict[str, object]) -> str:
-    """Read pre-v6 immutable artifacts without re-compiling them."""
-    engine = str(payload.get("runtime_engine", "llmrails"))
-    colang_version = str(payload.get("colang_version", "2.x"))
-    if engine == "iorails":
-        return "iorails_native"
-    if colang_version in {"1.0", "1"}:
-        return "llmrails_colang1_standard"
-    return "llmrails_colang2_programmable"
 
 
 def _stored_runtime_profile(value: object) -> str:
@@ -3376,16 +3298,11 @@ def _stored_runtime_profile(value: object) -> str:
     return _nemo_config_from_payload(payload).runtime_profile
 
 
-def _nemo_compiler_generation(value: str) -> int | None:
-    match = re.fullmatch(r"tasklattice-nemo-config-v(\d+)", value)
-    return int(match.group(1)) if match else None
-
-
 def _reasoning_binding(value: object) -> AutomatedReasoningPolicyBinding | None:
     if value is None:
         return None
     if not isinstance(value, dict):
-        raise ControlPlaneError("Stored Guardrail control has an invalid reasoning policy.")
+        raise ControlPlaneError("Stored Guardrail Policy binding has an invalid reasoning policy.")
     return AutomatedReasoningPolicyBinding(
         policy_id=str(value["policy_id"]),
         policy_version=str(value["policy_version"]),
@@ -3393,8 +3310,8 @@ def _reasoning_binding(value: object) -> AutomatedReasoningPolicyBinding | None:
     )
 
 
-def _assignment_from_row(row: sqlite3.Row) -> GuardrailAssignment:
-    return GuardrailAssignment(
+def _deployment_from_row(row: sqlite3.Row) -> Deployment:
+    return Deployment(
         id=str(row["id"]),
         name=str(row["name"]),
         guardrail_id=str(row["guardrail_id"]),
@@ -3407,8 +3324,8 @@ def _assignment_from_row(row: sqlite3.Row) -> GuardrailAssignment:
     )
 
 
-def _evaluation_from_row(row: sqlite3.Row) -> EvaluationRun:
-    return EvaluationRun(
+def _validation_run_from_row(row: sqlite3.Row) -> ValidationRun:
+    return ValidationRun(
         id=str(row["id"]),
         guardrail_id=str(row["guardrail_id"]),
         guardrail_version=(
@@ -3416,21 +3333,21 @@ def _evaluation_from_row(row: sqlite3.Row) -> EvaluationRun:
         ),
         source_draft_version=int(row["source_draft_version"]),
         status=str(row["status"]),
-        metrics=EvaluationMetrics(**json.loads(str(row["metrics_json"]))),
+        metrics=ValidationMetrics(**json.loads(str(row["metrics_json"]))),
         results=tuple(
-            _evaluation_result_from_payload(item)
+            _test_case_result_from_payload(item)
             for item in json.loads(str(row["results_json"]))
         ),
         created_at=str(row["created_at"]),
     )
 
 
-def _evaluation_result_from_payload(payload: dict[str, object]) -> EvaluationCaseResult:
+def _test_case_result_from_payload(payload: dict[str, object]) -> TestCaseResult:
     values = dict(payload)
     values["grounding_sources"] = tuple(values["grounding_sources"])
     values["findings"] = tuple(values["findings"])
     values["trace"] = tuple(values["trace"])
-    return EvaluationCaseResult(**values)
+    return TestCaseResult(**values)
 
 
 def _test_case_from_row(row: sqlite3.Row) -> GuardrailTestCase:
@@ -3438,7 +3355,7 @@ def _test_case_from_row(row: sqlite3.Row) -> GuardrailTestCase:
         id=str(row["id"]),
         guardrail_id=str(row["guardrail_id"]),
         name=str(row["name"]),
-        risk=str(row["risk"]),
+        policy_id=str(row["policy_id"]),
         phase=str(row["phase"]),
         content=str(row["content"]),
         expected_decision=str(row["expected_decision"]),
@@ -3465,19 +3382,14 @@ def _test_case_from_row(row: sqlite3.Row) -> GuardrailTestCase:
             if row["concurrency_group"] is not None
             else None
         ),
-        source_control_id=(
-            str(row["source_control_id"])
-            if row["source_control_id"] is not None
+        source_policy_id=(
+            str(row["source_policy_id"])
+            if row["source_policy_id"] is not None
             else None
         ),
-        source_control_version=(
-            str(row["source_control_version"])
-            if row["source_control_version"] is not None
-            else None
-        ),
-        source_suite_id=(
-            str(row["source_suite_id"])
-            if row["source_suite_id"] is not None
+        source_policy_version=(
+            str(row["source_policy_version"])
+            if row["source_policy_version"] is not None
             else None
         ),
         source_case_id=(
@@ -3490,54 +3402,11 @@ def _test_case_from_row(row: sqlite3.Row) -> GuardrailTestCase:
 
 
 def _resolution_step(kind: str, name: str, detail: str):
-    from ..runtime.contracts import EvaluationTraceStep
+    from ..runtime.contracts import RuntimeTraceStep
 
-    return EvaluationTraceStep(
+    return RuntimeTraceStep(
         id=f"resolution:{kind}", kind=kind, name=name, status="selected", detail=detail
     )
-
-
-def _controls_json(controls: tuple[GuardrailControl, ...]) -> str:
-    return _json([asdict(item) for item in controls])
-
-
-def _control_configurations_json(
-    configurations: tuple[GuardrailControlConfig, ...],
-) -> str:
-    return _json([asdict(item) for item in configurations])
-
-
-def _native_control_bindings(
-    controls: tuple[GuardrailControl, ...],
-    existing: tuple[GuardrailControlBinding, ...],
-) -> tuple[GuardrailControlBinding, ...]:
-    """Attach every built-in policy choice to its immutable Control Version."""
-    expected_builtin_ids = {
-        f"builtin-{item.risk.replace('_', '-')}" for item in controls
-    }
-    bindings = [
-        item
-        for item in existing
-        if not controls
-        or not item.control_id.startswith("builtin-")
-        or item.control_id in expected_builtin_ids
-    ]
-    selected = {(item.control_id, item.control_version) for item in bindings}
-    for configured in controls:
-        control_id = f"builtin-{configured.risk.replace('_', '-')}"
-        key = (control_id, 1)
-        if key in selected:
-            continue
-        definition = control(configured.risk)
-        bindings.append(
-            GuardrailControlBinding(
-                control_id=control_id,
-                control_version=1,
-                enabled_rails=definition.default_phases,
-            )
-        )
-        selected.add(key)
-    return tuple(bindings)
 
 
 def _json(value: object) -> str:

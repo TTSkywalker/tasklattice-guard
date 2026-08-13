@@ -1,1 +1,1 @@
-"""Policy Control Plane for the standalone guardrails service."""
+"""Enterprise Policy, Guardrail, Deployment, and Evidence services."""

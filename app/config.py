@@ -165,7 +165,7 @@ class Settings:
             database_path=Path(
                 os.environ.get(
                     "MODEL_GUARDRAILS_DATABASE_PATH",
-                    str(root / "data" / "tasklattice-guard-schema-v6.db"),
+                    str(root / "data" / "tasklattice-guard-policy-schema-v3.db"),
                 )
             ),
             ui_dist_path=Path(

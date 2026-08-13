@@ -7,7 +7,7 @@ from ...runtime.contracts import (
     ContentPatch,
     ContentViewSnapshot,
     EngineRequest,
-    EvaluationMode,
+    EnforcementMode,
     EvidenceScope,
     GuardContentBlock,
     GuardrailPhase,
@@ -23,8 +23,8 @@ class ActionRequest:
     rail_type: GuardrailPhase
     guardrail_id: str
     guardrail_version: int
-    control_id: str | None
-    control_version: int | None
+    policy_id: str | None
+    policy_version: int | None
     trusted_context: tuple[tuple[str, str], ...]
     content_blocks: tuple[GuardContentBlock, ...]
     deadline: float
@@ -35,7 +35,7 @@ class ActionRequest:
     binding: NeMoActionBinding
     context_messages: tuple[dict[str, object], ...] = ()
     target_source: str = "user_input"
-    mode: EvaluationMode = "enforce"
+    mode: EnforcementMode = "enforce"
     evidence_scope: EvidenceScope = "interventions"
     content_view: ContentViewSnapshot | None = None
     active_block_id: str | None = None

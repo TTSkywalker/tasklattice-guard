@@ -10,12 +10,13 @@ import yaml
 
 from app.adapters.litellm import LiteLLMAdapter, LiteLLMGuardrailRequest
 from app.config import Settings
+from app.control_plane.catalog import builtin_policy_id
 from app.control_plane.domain import (
-    EvaluationCaseResult,
-    EvaluationMetrics,
-    GuardrailControl,
+    TestCaseResult,
+    ValidationMetrics,
+    GuardrailPolicyBinding,
     TrafficScopeExpression,
-    TrafficScopeRule,
+    TrafficCondition,
 )
 from app.integrations import (
     A2A_GUARD_ADAPTER_ID,
@@ -23,15 +24,23 @@ from app.integrations import (
     LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
 )
 from app.main import create_app
-from app.runtime.contracts import EvaluationDecision
+from app.runtime.contracts import ProtectionDecision
 
 
 PUBLIC_RUNTIME_BASE_URL = "https://guard.example.com"
 
 
+def policy_binding(risk: str, action: str) -> GuardrailPolicyBinding:
+    return GuardrailPolicyBinding(
+        policy_id=builtin_policy_id(risk),
+        policy_version="1",
+        action=action,
+    )
+
+
 def integration_settings(tmp_path: Path) -> Settings:
     return Settings(
-        database_path=tmp_path / "tasklattice-guard-schema-v6.db",
+        database_path=tmp_path / "tasklattice-guard-policy-schema-v3.db",
         ui_dist_path=tmp_path / "missing-ui",
         public_runtime_base_url=PUBLIC_RUNTIME_BASE_URL,
     )
@@ -100,7 +109,7 @@ class RecordingEngine:
                 request.plan.guardrail_version,
             )
         )
-        return EvaluationDecision(
+        return ProtectionDecision(
             decision="allow",
             action="pass",
             reason="Allowed by the Integration contract test.",
@@ -126,16 +135,16 @@ def publish_guardrail(control_plane, name: str) -> str:
     guardrail = control_plane.create_guardrail(
         name=name,
         purpose=f"Protect traffic for {name}.",
-        controls=(GuardrailControl("secrets", "reject"),),
+        policy_bindings=(policy_binding("secrets", "reject"),),
     )
-    control_plane.save_evaluation(
+    control_plane.save_validation_run(
         guardrail_id=guardrail.id,
         guardrail_version=None,
         source_draft_version=guardrail.draft_version,
         status="passed",
-        metrics=EvaluationMetrics(1, 1, 100, 0, 0, 0, 1),
+        metrics=ValidationMetrics(1, 1, 100, 0, 0, 0, 1),
         results=(
-            EvaluationCaseResult(
+            TestCaseResult(
                 "case",
                 "case",
                 "secrets",
@@ -155,8 +164,8 @@ def publish_guardrail(control_plane, name: str) -> str:
 def integration_scope(integration_id: str) -> TrafficScopeExpression:
     return TrafficScopeExpression(
         combinator="and",
-        rules=(
-            TrafficScopeRule(
+        conditions=(
+            TrafficCondition(
                 field="integration.id",
                 operator="equals",
                 value=integration_id,
@@ -246,14 +255,14 @@ async def test_litellm_verify_authenticates_without_recording_activity_or_setup(
         integration_id = gateway["integration"]["id"]
         credential = gateway["credential"]["value"]
         before = control_plane.integration(integration_id)
-        activities_before = control_plane.activities()
+        evidence_before = control_plane.evidence_records()
 
         verified = await client.post(
             litellm_verify_path(integration_id), headers={"x-api-key": credential}
         )
 
         after = control_plane.integration(integration_id)
-        activities_after = control_plane.activities()
+        evidence_after = control_plane.evidence_records()
 
     assert verified.status_code == 200
     assert verified.json() == {
@@ -268,7 +277,7 @@ async def test_litellm_verify_authenticates_without_recording_activity_or_setup(
     assert after.first_seen_at is None
     assert after.input_seen_at is None
     assert after.output_seen_at is None
-    assert activities_after == activities_before
+    assert evidence_after == evidence_before
 
 
 @pytest.mark.asyncio
@@ -371,7 +380,7 @@ async def test_litellm_runtime_url_binds_uuid_and_key_and_removes_shared_route(t
 
 
 @pytest.mark.asyncio
-async def test_same_litellm_call_id_is_isolated_and_integration_scope_selects_assignment(
+async def test_same_litellm_call_id_is_isolated_and_integration_scope_selects_deployment(
     tmp_path,
 ):
     engine = RecordingEngine()
@@ -389,13 +398,13 @@ async def test_same_litellm_call_id_is_isolated_and_integration_scope_selects_as
     )
     guardrail_a = publish_guardrail(control_plane, "Gateway A Guardrail")
     guardrail_b = publish_guardrail(control_plane, "Gateway B Guardrail")
-    assignment_a = control_plane.create_assignment(
-        name="Gateway A assignment",
+    deployment_a = control_plane.create_deployment(
+        name="Gateway A deployment",
         guardrail_id=guardrail_a,
         traffic_scope=integration_scope(gateway_a.integration.id),
     )
-    assignment_b = control_plane.create_assignment(
-        name="Gateway B assignment",
+    deployment_b = control_plane.create_deployment(
+        name="Gateway B deployment",
         guardrail_id=guardrail_b,
         traffic_scope=integration_scope(gateway_b.integration.id),
     )
@@ -428,7 +437,7 @@ async def test_same_litellm_call_id_is_isolated_and_integration_scope_selects_as
         ("output", guardrail_a),
         ("output", guardrail_b),
     ]
-    assert assignment_a.id != assignment_b.id
+    assert deployment_a.id != deployment_b.id
     normalized_a = LiteLLMAdapter._to_engine_request(
         LiteLLMGuardrailRequest(**litellm_payload(call_id="same-upstream-call-id")),
         gateway_a.integration,
@@ -448,11 +457,11 @@ async def test_same_litellm_call_id_is_isolated_and_integration_scope_selects_as
         since="1970-01-01T00:00:00+00:00"
     )
     assert {
-        (event.integration_id, event.assignment_id, event.guardrail_id)
+        (event.integration_id, event.deployment_id, event.guardrail_id)
         for event in runtime_events
     } == {
-        (gateway_a.integration.id, assignment_a.id, guardrail_a),
-        (gateway_b.integration.id, assignment_b.id, guardrail_b),
+        (gateway_a.integration.id, deployment_a.id, guardrail_a),
+        (gateway_b.integration.id, deployment_b.id, guardrail_b),
     }
 
 

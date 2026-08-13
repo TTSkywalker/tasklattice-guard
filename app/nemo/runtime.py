@@ -5,7 +5,7 @@ import difflib
 import re
 import time
 from contextvars import ContextVar
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from nemoguardrails import Guardrails
@@ -17,9 +17,9 @@ from ..runtime.contracts import (
     ContentPatch,
     DecisionFragment,
     EngineRequest,
-    EvaluationDecision,
-    EvaluationTraceStep,
-    EvaluationUsage,
+    ProtectionDecision,
+    RuntimeTraceStep,
+    RuntimeUsage,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     ModuleAssessment,
@@ -28,6 +28,7 @@ from ..runtime.contracts import (
     RiskFinding,
     RuntimeCoverage,
     StageResult,
+    flow_rule_id,
 )
 from .action_registry import RuntimeActionRegistry
 from .actions.contracts import ActionRequest, ActionResult
@@ -101,8 +102,8 @@ class NeMoActionExecutor:
                 name="TaskLatticeCustomerIdentifierAction",
             )
             rails.register_action(
-                self.record_control,
-                name="TaskLatticeRecordControlAction",
+                self.record_policy,
+                name="TaskLatticeRecordPolicyAction",
             )
         for provider in self._registry.providers():
             rails.register_action(
@@ -183,7 +184,7 @@ class NeMoActionExecutor:
             supported_risks = getattr(provider, "risks", frozenset())
             supported_rails = getattr(provider, "rails", frozenset())
             if supported_risks and binding.risk not in supported_risks:
-                raise LookupError("provider does not support the pinned Control")
+                raise LookupError("provider does not support the pinned Policy")
             if supported_rails and self._request().phase not in supported_rails:
                 raise LookupError("provider does not support the active Rail")
             action_request = self._action_request(text, binding)
@@ -369,7 +370,7 @@ class NeMoActionExecutor:
         text: str,
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Reference catalog Action used by the Gate A custom-Control slice."""
+        """Reference catalog Action used by the custom-Policy validation slice."""
         patterns = (
             re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"),
             re.compile(r"(?i)\b(?:customer|cust)[-_ ]?id[:# ]*[A-Z0-9-]{4,}\b"),
@@ -381,7 +382,7 @@ class NeMoActionExecutor:
             detected = detected or count > 0
         return {"detected": detected, "redacted": redacted}
 
-    async def record_control(
+    async def record_policy(
         self,
         flow_name: str,
         safe: bool,
@@ -394,10 +395,10 @@ class NeMoActionExecutor:
             (
                 item
                 for item in self._config.action_bindings
-                if item.control_id is not None
+                if item.policy_id is not None
                 and (
                     item.flow_name == flow_name
-                    or _compiled_control_flow_name(item) == flow_name
+                    or _compiled_policy_flow_name(item) == flow_name
                 )
                 and request.phase in item.phases
             ),
@@ -405,8 +406,8 @@ class NeMoActionExecutor:
         )
         if binding is None:
             binding = NeMoActionBinding(
-                id=f"unknown-control-flow:{flow_name}",
-                risk="unknown_control",
+                id=f"unknown-policy-flow:{flow_name}",
+                risk="unknown_policy",
                 stage="deterministic",
                 phases=(request.phase,),
                 on_unsafe="reject",
@@ -414,14 +415,14 @@ class NeMoActionExecutor:
             result = StageResult(
                 "error",
                 text,
-                reason=f"Control flow {flow_name!r} has no immutable Rail binding.",
+                reason=f"Policy Flow {flow_name!r} has no immutable Rail binding.",
             )
             return self._record(context, binding, result, 0)
         reason = (
-            f"Control {binding.control_id}@{binding.control_version} "
+            f"Policy {binding.policy_id}@{binding.policy_version} "
             f"flow {binding.flow_name} passed."
             if safe
-            else f"Control {binding.control_id}@{binding.control_version} detected customer data."
+            else f"Policy {binding.policy_id}@{binding.policy_version} detected customer data."
         )
         findings = () if safe else (
             RiskFinding(
@@ -545,8 +546,8 @@ class NeMoActionExecutor:
             rail_type=prepared.phase,
             guardrail_id=self._plan.guardrail_id,
             guardrail_version=self._plan.guardrail_version,
-            control_id=binding.control_id,
-            control_version=binding.control_version,
+            policy_id=binding.policy_id,
+            policy_version=binding.policy_version,
             trusted_context=(
                 ("trusted_instruction", prepared.trusted_instruction),
             ),
@@ -581,7 +582,7 @@ class NeMoActionExecutor:
         )
 
     def _fails_closed(self, binding: NeMoActionBinding) -> bool:
-        if binding.control_id is not None:
+        if binding.policy_id is not None:
             return binding.failure_mode == "fail_closed"
         module = self._module(binding)
         return (
@@ -601,6 +602,19 @@ class NeMoActionExecutor:
         latency_ms: int,
         provider_latency_ms: int | None = None,
     ) -> dict[str, Any]:
+        policy_id, rule_id = _binding_policy_rule_identity(
+            self._plan,
+            binding,
+            self._request().phase,
+        )
+        if policy_id is not None and rule_id is not None and result.findings:
+            result = replace(
+                result,
+                findings=tuple(
+                    replace(finding, policy_id=policy_id, rule_id=rule_id)
+                    for finding in result.findings
+                ),
+            )
         runtime_result = _RuntimeResult(
             binding,
             result,
@@ -675,7 +689,7 @@ class NeMoGuardrailsEngine:
     def __init__(self, registry: NeMoRailsRegistry) -> None:
         self._registry = registry
 
-    async def evaluate(self, request: EngineRequest) -> EvaluationDecision:
+    async def evaluate(self, request: EngineRequest) -> ProtectionDecision:
         instance, cache_hit, registry_queue_latency_ms = self._registry.acquire(
             request.plan
         )
@@ -1086,11 +1100,11 @@ def _risk_finding_from_payload(
         raise RuntimeError(
             f"NeMo Action {binding.id!r} returned an invalid replacement."
         )
-    control_id = payload.get("control_id")
+    policy_id = payload.get("policy_id")
     rule_id = payload.get("rule_id")
-    if control_id is not None and not isinstance(control_id, str):
+    if policy_id is not None and not isinstance(policy_id, str):
         raise RuntimeError(
-            f"NeMo Action {binding.id!r} returned an invalid Control identity."
+            f"NeMo Action {binding.id!r} returned an invalid Policy identity."
         )
     if rule_id is not None and not isinstance(rule_id, str):
         raise RuntimeError(
@@ -1105,7 +1119,7 @@ def _risk_finding_from_payload(
         evidence=str(payload.get("evidence", "")),
         recommended_action=action,  # type: ignore[arg-type]
         replacement=replacement,
-        control_id=control_id,
+        policy_id=policy_id,
         rule_id=rule_id,
     )
 
@@ -1225,7 +1239,7 @@ def _decision(
     cache_hit: bool,
     queue_latency_ms: int,
     active_concurrency: int,
-) -> EvaluationDecision:
+) -> ProtectionDecision:
     output_data = response.output_data or {}
     custom = (
         custom_decision
@@ -1319,7 +1333,7 @@ def _decision(
         required_modules_completed=completed_modules,
         required_modules_total=len(modules),
     )
-    return EvaluationDecision(
+    return ProtectionDecision(
         decision=decision,  # type: ignore[arg-type]
         action=action,  # type: ignore[arg-type]
         reason=reason,
@@ -1332,7 +1346,7 @@ def _decision(
         assessments=assessments,
         interventions=interventions,
         coverage=coverage,
-        usage=EvaluationUsage(
+        usage=RuntimeUsage(
             module_invocations=len(assessments),
             evaluator_invocations=len(runtime_results),
             text_characters=len(request.text),
@@ -1393,7 +1407,7 @@ def _trace(
         }
 
     trace = [
-        EvaluationTraceStep(
+        RuntimeTraceStep(
             id=root_id,
             kind="runtime",
             name="NeMo Guardrails",
@@ -1402,7 +1416,7 @@ def _trace(
             detail=f"Executed immutable {config.compiler_version} configuration.",
             **common(),
         ),
-        EvaluationTraceStep(
+        RuntimeTraceStep(
             id=f"{root_id}:queue",
             kind="queue",
             name="Runtime admission",
@@ -1454,7 +1468,7 @@ def _trace(
         )
         rail_id = f"nemo:rail:official:{index}"
         trace.append(
-            EvaluationTraceStep(
+            RuntimeTraceStep(
                 id=rail_id,
                 kind="rail",
                 name=rail.name,
@@ -1473,41 +1487,41 @@ def _trace(
         for binding_id in binding_ids:
             action_parents[binding_id] = rail_id
 
-        control_rail = (
-            _control_rail_binding(request.plan, binding, request.phase)
+        policy_rail = (
+            _policy_rail_binding(request.plan, binding, request.phase)
             if binding is not None
             else None
         )
-        if binding is not None and binding.control_id is not None:
-            control_id = (
-                f"nemo:control:{binding.control_id}:"
-                f"{binding.control_version}:{binding.flow_name or binding.risk}"
+        if binding is not None and binding.policy_id is not None:
+            policy_id = (
+                f"nemo:policy:{binding.policy_id}:"
+                f"{binding.policy_version}:{binding.flow_name or binding.risk}"
             )
             trace.append(
-                EvaluationTraceStep(
-                    id=control_id,
-                    kind="control",
-                    name=f"{binding.control_id}@{binding.control_version}",
+                RuntimeTraceStep(
+                    id=policy_id,
+                    kind="policy",
+                    name=f"{binding.policy_id}@{binding.policy_version}",
                     status=status,
                     outcome=status,
-                    detail="Executed the immutable Control binding inside an official NeMo rail.",
+                    detail="Executed the immutable Policy binding inside an official NeMo Rail.",
                     duration_ms=max(0, round((rail.duration or 0) * 1_000)),
                     parent_id=rail_id,
                     verdict=verdict,
                     route=route,
                     risk=binding.risk,
-                    control_id=binding.control_id,
-                    control_version=binding.control_version,
+                    policy_id=binding.policy_id,
+                    policy_version=binding.policy_version,
                     rail_type=request.phase,
                     flow_name=(
                         binding.flow_name
-                        or (control_rail.flow_name if control_rail is not None else None)
+                        or (policy_rail.flow_name if policy_rail is not None else None)
                     ),
                     parallel_group=(
                         binding.parallel_group
                         or (
-                            control_rail.parallel_group
-                            if control_rail is not None
+                            policy_rail.parallel_group
+                            if policy_rail is not None
                             else None
                         )
                     ),
@@ -1516,43 +1530,43 @@ def _trace(
                 )
             )
             for binding_id in binding_ids:
-                action_parents[binding_id] = control_id
+                action_parents[binding_id] = policy_id
         else:
-            native_control = _native_control_rail(
+            native_policy = _native_policy_rail(
                 request.plan,
                 risk,
                 request.phase,
             )
-            if native_control is None:
+            if native_policy is None:
                 continue
-            selected, version, control_rail = native_control
+            selected, version, policy_rail = native_policy
             trace.append(
-                EvaluationTraceStep(
+                RuntimeTraceStep(
                     id=(
-                        f"nemo:control:{selected.control_id}:"
-                        f"{selected.control_version}:{control_rail.flow_name}"
+                        f"nemo:policy:{selected.policy_id}:"
+                        f"{selected.policy_version}:{policy_rail.flow_name}"
                     ),
-                    kind="control",
-                    name=f"{version.name}@{selected.control_version}",
+                    kind="policy",
+                    name=f"{version.name}@{selected.policy_version}",
                     status=status,
                     outcome=status,
-                    detail="Executed the immutable native NeMo Control binding.",
+                    detail="Executed the immutable native NeMo Policy binding.",
                     duration_ms=max(0, round((rail.duration or 0) * 1_000)),
                     parent_id=rail_id,
                     verdict=verdict,
                     route=route,
                     risk=risk,
-                    control_id=selected.control_id,
-                    control_version=selected.control_version,
+                    policy_id=selected.policy_id,
+                    policy_version=selected.policy_version,
                     rail_type=request.phase,
-                    flow_name=control_rail.flow_name,
-                    parallel_group=control_rail.parallel_group,
-                    timeout_ms=control_rail.timeout_ms,
+                    flow_name=policy_rail.flow_name,
+                    parallel_group=policy_rail.parallel_group,
+                    timeout_ms=policy_rail.timeout_ms,
                     **common(),
                 )
             )
     rail_ids: dict[str, str] = {}
-    control_ids: dict[str, str] = {}
+    policy_ids: dict[str, str] = {}
     if config.runtime_profile == "llmrails_colang2_programmable":
         grouped: dict[tuple[str, ...], list[_RuntimeResult]] = {}
         for item in results:
@@ -1562,16 +1576,16 @@ def _trace(
             terminal = selected[-1]
             binding = terminal.binding
             risk = binding.risk
-            control_rail = _control_rail_binding(
+            policy_rail = _policy_rail_binding(
                 request.plan,
                 binding,
                 request.phase,
             )
             flow_name = binding.flow_name or (
-                control_rail.flow_name if control_rail is not None else None
+                policy_rail.flow_name if policy_rail is not None else None
             )
             parallel_group = binding.parallel_group or (
-                control_rail.parallel_group if control_rail is not None else None
+                policy_rail.parallel_group if policy_rail is not None else None
             )
             error = terminal.result.verdict == "error"
             unsafe = terminal.result.verdict == "unsafe"
@@ -1584,7 +1598,7 @@ def _trace(
             for item in selected:
                 rail_ids[item.binding.id] = rail_id
             trace.append(
-                EvaluationTraceStep(
+                RuntimeTraceStep(
                     id=rail_id,
                     kind="rail",
                     name=f"{request.phase.title()} Rail",
@@ -1615,26 +1629,26 @@ def _trace(
                     **common(),
                 )
             )
-            if binding.control_id is not None:
-                control_id = (
-                    f"nemo:control:{binding.control_id}:"
-                            f"{binding.control_version}:{flow_name or risk}"
+            if binding.policy_id is not None:
+                policy_id = (
+                    f"nemo:policy:{binding.policy_id}:"
+                    f"{binding.policy_version}:{flow_name or risk}"
                 )
                 for item in selected:
-                    control_ids[item.binding.id] = control_id
+                    policy_ids[item.binding.id] = policy_id
                 trace.append(
-                    EvaluationTraceStep(
-                        id=control_id,
-                        kind="control",
-                        name=f"{binding.control_id}@{binding.control_version}",
+                    RuntimeTraceStep(
+                        id=policy_id,
+                        kind="policy",
+                        name=f"{binding.policy_id}@{binding.policy_version}",
                         status=status,
                         outcome=status,
-                        detail="Executed the immutable Control Flow binding.",
+                        detail="Executed the immutable Policy Flow binding.",
                         duration_ms=sum(item.latency_ms for item in selected),
                         parent_id=rail_id,
                         risk=risk,
-                        control_id=binding.control_id,
-                        control_version=binding.control_version,
+                        policy_id=binding.policy_id,
+                        policy_version=binding.policy_version,
                         rail_type=request.phase,
                         flow_name=flow_name,
                         parallel_group=parallel_group,
@@ -1646,23 +1660,23 @@ def _trace(
     for item in results:
         trace.extend(item.result.trace)
         binding = item.binding
-        control_rail = _control_rail_binding(
+        policy_rail = _policy_rail_binding(
             request.plan,
             binding,
             request.phase,
         )
         flow_name = binding.flow_name or (
-            control_rail.flow_name if control_rail is not None else None
+            policy_rail.flow_name if policy_rail is not None else None
         )
         parallel_group = binding.parallel_group or (
-            control_rail.parallel_group if control_rail is not None else None
+            policy_rail.parallel_group if policy_rail is not None else None
         )
         timed_out = (
             item.result.verdict == "error"
             and "timeout" in (item.result.reason or "").casefold()
         )
         trace.append(
-            EvaluationTraceStep(
+            RuntimeTraceStep(
                 id=f"nemo:action:{binding.id}",
                 kind="action",
                 name=binding.action_name or binding.id,
@@ -1672,7 +1686,7 @@ def _trace(
                 duration_ms=item.latency_ms,
                 parent_id=(
                     action_parents.get(binding.id)
-                    or control_ids.get(binding.id)
+                    or policy_ids.get(binding.id)
                     or rail_ids.get(binding.id)
                     or root_id
                 ),
@@ -1688,8 +1702,8 @@ def _trace(
                     "complete"
                 ),
                 risk=binding.risk,
-                control_id=binding.control_id,
-                control_version=binding.control_version,
+                policy_id=binding.policy_id,
+                policy_version=binding.policy_version,
                 rail_type=request.phase,
                 flow_name=flow_name,
                 action_name=binding.action_name,
@@ -1703,7 +1717,7 @@ def _trace(
         )
     if config.runtime_profile == "llmrails_colang2_programmable":
         trace.append(
-            EvaluationTraceStep(
+            RuntimeTraceStep(
                 id=f"{root_id}:resolve",
                 kind="action",
                 name="TaskLatticeResolveAction",
@@ -1722,15 +1736,15 @@ def _trace(
     return tuple(trace)
 
 
-def _control_rail_binding(plan, binding, phase):
-    if binding.control_id is None or binding.control_version is None:
+def _policy_rail_binding(plan, binding, phase):
+    if binding.policy_id is None or binding.policy_version is None:
         return None
     selected = next(
         (
             item
-            for item in plan.control_bindings
-            if item.control_id == binding.control_id
-            and item.control_version == binding.control_version
+            for item in plan.policy_bindings
+            if item.policy_id == binding.policy_id
+            and item.policy_version == binding.policy_version
             and phase in item.enabled_rails
         ),
         None,
@@ -1740,9 +1754,9 @@ def _control_rail_binding(plan, binding, phase):
     version = next(
         (
             item
-            for item in plan.control_versions
-            if item.control_id == binding.control_id
-            and item.version == binding.control_version
+            for item in plan.policy_versions
+            if item.policy_id == binding.policy_id
+            and item.version == binding.policy_version
         ),
         None,
     )
@@ -1759,16 +1773,39 @@ def _control_rail_binding(plan, binding, phase):
     )
 
 
-def _native_control_rail(plan, risk, phase):
+def _binding_policy_rule_identity(
+    plan: GuardrailPlanSnapshot,
+    binding: NeMoActionBinding,
+    phase: str,
+) -> tuple[str | None, str | None]:
+    """Resolve immutable product identities for a runtime Action finding."""
+
+    if phase not in {"input", "output"}:
+        return None, None
+    if binding.policy_id is not None:
+        rail = _policy_rail_binding(plan, binding, phase)
+        flow_name = binding.flow_name or (rail.flow_name if rail is not None else None)
+        return (
+            binding.policy_id,
+            flow_rule_id(phase, flow_name) if flow_name is not None else None,
+        )
+    native = _native_policy_rail(plan, binding.risk, phase)
+    if native is None:
+        return None, None
+    selected, _version, rail = native
+    return selected.policy_id, flow_rule_id(phase, rail.flow_name)
+
+
+def _native_policy_rail(plan, risk, phase):
     if risk is None:
         return None
     versions = {
-        (item.control_id, item.version): item for item in plan.control_versions
+        (item.policy_id, item.version): item for item in plan.policy_versions
     }
-    for selected in plan.control_bindings:
+    for selected in plan.policy_bindings:
         if phase not in selected.enabled_rails:
             continue
-        version = versions.get((selected.control_id, selected.control_version))
+        version = versions.get((selected.policy_id, selected.policy_version))
         if (
             version is None
             or version.source != "built-in"
@@ -1799,7 +1836,7 @@ def _assessments(request, results, trace, all_findings=(), *, force_error=False)
             for item in trace
         )
         observed = bool(selected) or any(
-            item.kind in {"rail", "control", "action"} and item.risk in risks
+            item.kind in {"rail", "policy", "action"} and item.risk in risks
             for item in trace
         )
         status = (
@@ -1953,7 +1990,7 @@ def _failed_decision(
     reason = f"NeMo Guardrails failed closed with {type(error).__name__}."
     checksum = config_checksum(config)
     trace = (
-        EvaluationTraceStep(
+        RuntimeTraceStep(
             id="nemo:runtime:error",
             kind="runtime",
             name="NeMo Guardrails",
@@ -1972,7 +2009,7 @@ def _failed_decision(
             config_checksum=checksum,
         ),
     )
-    return EvaluationDecision(
+    return ProtectionDecision(
         decision="block" if request.mode == "enforce" else "allow",
         action="reject" if request.mode == "enforce" else "pass",
         reason=reason,
@@ -1987,7 +2024,7 @@ def _failed_decision(
             total_characters=len(request.text),
             required_modules_total=len(request.plan.modules_for(request.phase)),
         ),
-        usage=EvaluationUsage(
+        usage=RuntimeUsage(
             text_characters=len(request.text),
             cache_hits=int(cache_hit),
             cache_misses=int(not cache_hit),
@@ -2091,15 +2128,15 @@ def _stage_result(result: ActionResult) -> StageResult:
     )
 
 
-def _compiled_control_flow_name(binding: NeMoActionBinding) -> str:
-    if binding.control_id is None or binding.control_version is None or not binding.flow_name:
+def _compiled_policy_flow_name(binding: NeMoActionBinding) -> str:
+    if binding.policy_id is None or binding.policy_version is None or not binding.flow_name:
         return ""
 
     def clean(value: str) -> str:
         return "_".join(re.sub(r"[^a-zA-Z0-9]+", " ", value).split()).lower()
 
     return "_".join(
-        ("tl", clean(binding.control_id), f"v{binding.control_version}", clean(binding.flow_name))
+        ("tl", clean(binding.policy_id), f"v{binding.policy_version}", clean(binding.flow_name))
     )
 
 
@@ -2174,13 +2211,13 @@ def _terminal_runtime_results(results):
 
 
 def _result_group_key(item: _RuntimeResult) -> tuple[str, ...]:
-    """Collapse built-in escalation stages, but never distinct Control Flows."""
+    """Collapse built-in escalation stages, but never distinct Policy Flows."""
     binding = item.binding
-    if binding.control_id is not None:
+    if binding.policy_id is not None:
         return (
-            "control-flow",
-            binding.control_id,
-            str(binding.control_version or ""),
+            "policy-flow",
+            binding.policy_id,
+            str(binding.policy_version or ""),
             binding.flow_name or binding.id,
         )
     return ("risk", binding.risk)
@@ -2224,7 +2261,7 @@ def _runtime_action(item):
 
 
 def _binding_fails_closed(request, binding):
-    if binding.control_id is not None:
+    if binding.policy_id is not None:
         return binding.failure_mode == "fail_closed"
     module = next(
         (

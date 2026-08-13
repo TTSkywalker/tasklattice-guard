@@ -30,7 +30,7 @@ class IntentAnalyzer(Protocol):
 
 
 class DeepSeekIntentAnalyzer:
-    """Translate business intent into a reviewable Topic Control rule draft."""
+    """Translate business intent into a reviewable Topic Policy rule draft."""
 
     provider = "DeepSeek"
 
@@ -100,7 +100,7 @@ def intent_analysis_prompt(language: Literal["en", "zh-CN"]) -> str:
     return "\n".join(
         (
             "You are the policy analyst inside an enterprise AI safety control plane.",
-            "Translate a business user's plain-language protection intent into a concise, editable Topic Control rule draft.",
+            "Translate a business user's plain-language protection intent into a concise, editable Topic Policy rule draft.",
             "Focus on the primary business task, not isolated keywords. For example, financial analysis of a chemical company remains financial analysis; chemical process instructions do not.",
             "Allowed topics must be clear business domains or task-and-domain combinations. Restricted topics must describe disallowed domains, advice, processes, or technologies with enough context to avoid accidental keyword blocking.",
             "Preserve every explicit allow or deny boundary in the user's text. Do not invent legal, regulatory, or company facts.",

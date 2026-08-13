@@ -3,13 +3,13 @@ from __future__ import annotations
 import time
 
 from ..control_plane.service import ControlPlaneService
-from ..runtime.contracts import EvaluationDecision
+from ..runtime.contracts import ProtectionDecision
 
 
 def record_runtime_decision(
     control_plane: ControlPlaneService,
     *,
-    decision: EvaluationDecision,
+    decision: ProtectionDecision,
     integration_id: str | None,
     protocol: str,
     phase: str,
@@ -21,7 +21,7 @@ def record_runtime_decision(
         outcome=decision.decision,
         guardrail_id=decision.guardrail_id,
         guardrail_version=decision.guardrail_version,
-        assignment_id=decision.assignment_id,
+        deployment_id=decision.deployment_id,
         integration_id=integration_id,
         protocol=protocol,
         phase=phase,
@@ -47,7 +47,7 @@ def record_runtime_decision(
     control_plane.record_runtime_steps(
         guardrail_id=decision.guardrail_id,
         guardrail_version=decision.guardrail_version,
-        assignment_id=decision.assignment_id,
+        deployment_id=decision.deployment_id,
         integration_id=integration_id,
         protocol=protocol,
         phase=phase,
@@ -70,7 +70,7 @@ def record_runtime_failure(
     control_plane.record_decision(
         outcome=outcome,
         guardrail_id=None,
-        assignment_id=None,
+        deployment_id=None,
         integration_id=integration_id,
         protocol=protocol,
         phase=phase,
@@ -85,5 +85,5 @@ def _latency_ms(started: float) -> int:
     return max(0, round((time.perf_counter() - started) * 1_000))
 
 
-def _timed_out(decision: EvaluationDecision) -> bool:
+def _timed_out(decision: ProtectionDecision) -> bool:
     return any(step.timed_out for step in decision.trace)

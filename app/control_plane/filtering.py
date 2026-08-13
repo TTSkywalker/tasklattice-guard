@@ -8,12 +8,12 @@ from ..runtime.contracts import RequestContext
 from .domain import (
     ValidationError,
     TrafficScopeExpression,
-    TrafficScopeRule,
+    TrafficCondition,
 )
 
 
 MAX_TRAFFIC_SCOPE_DEPTH = 3
-MAX_TRAFFIC_SCOPE_RULES = 16
+MAX_TRAFFIC_CONDITIONS = 16
 TRAFFIC_SCOPE_COMBINATORS = frozenset({"and", "or"})
 
 
@@ -67,27 +67,27 @@ def normalize_traffic_scope(
 def traffic_scope_from_payload(payload: dict[str, Any]) -> TrafficScopeExpression:
     return TrafficScopeExpression(
         combinator=str(payload["combinator"]),
-        rules=tuple(
+        conditions=tuple(
             traffic_scope_from_payload(item)
-            if "rules" in item
-            else TrafficScopeRule(
+            if "conditions" in item
+            else TrafficCondition(
                 field=str(item["field"]),
                 operator=str(item["operator"]),
                 value=str(item["value"]),
                 key=str(item["key"]),
             )
-            for item in payload["rules"]
+            for item in payload["conditions"]
         ),
     )
 
 
 def traffic_scope_signature(expression: TrafficScopeExpression) -> tuple[object, ...]:
     children = []
-    for item in expression.rules:
+    for item in expression.conditions:
         if isinstance(item, TrafficScopeExpression):
             children.append(traffic_scope_signature(item))
         else:
-            children.append(("rule", item.field, item.key, item.operator, item.value))
+            children.append(("condition", item.field, item.key, item.operator, item.value))
     return ("group", expression.combinator, *sorted(children, key=repr))
 
 
@@ -95,13 +95,13 @@ def traffic_scope_matches(
     expression: TrafficScopeExpression,
     context: RequestContext,
 ) -> bool:
-    if not expression.rules:
+    if not expression.conditions:
         return True
     matches = (
         traffic_scope_matches(item, context)
         if isinstance(item, TrafficScopeExpression)
-        else _rule_matches(item, context)
-        for item in expression.rules
+        else _condition_matches(item, context)
+        for item in expression.conditions
     )
     return all(matches) if expression.combinator == "and" else any(matches)
 
@@ -109,23 +109,23 @@ def traffic_scope_matches(
 def traffic_scope_specificity(
     expression: TrafficScopeExpression,
 ) -> tuple[int, int]:
-    if not expression.rules:
+    if not expression.conditions:
         return (0, 0)
     children = [
         traffic_scope_specificity(item)
         if isinstance(item, TrafficScopeExpression)
         else (1, _OPERATOR_WEIGHT[item.operator])
-        for item in expression.rules
+        for item in expression.conditions
     ]
     if expression.combinator == "and":
         return (sum(item[0] for item in children), sum(item[1] for item in children))
     return min(children)
 
 
-def traffic_scope_rule_count(expression: TrafficScopeExpression) -> int:
+def traffic_condition_count(expression: TrafficScopeExpression) -> int:
     return sum(
-        traffic_scope_rule_count(item) if isinstance(item, TrafficScopeExpression) else 1
-        for item in expression.rules
+        traffic_condition_count(item) if isinstance(item, TrafficScopeExpression) else 1
+        for item in expression.conditions
     )
 
 
@@ -143,28 +143,28 @@ def _normalize_group(
     combinator = expression.combinator.strip().lower()
     if combinator not in TRAFFIC_SCOPE_COMBINATORS:
         raise ValidationError("Traffic Scope groups must use AND or OR.")
-    if not expression.rules:
+    if not expression.conditions:
         if not root:
             raise ValidationError("Nested Traffic Scope groups cannot be empty.")
-        return TrafficScopeExpression(combinator="and", rules=())
+        return TrafficScopeExpression(combinator="and", conditions=())
 
-    rules: list[TrafficScopeRule | TrafficScopeExpression] = []
-    for item in expression.rules:
+    conditions: list[TrafficCondition | TrafficScopeExpression] = []
+    for item in expression.conditions:
         if isinstance(item, TrafficScopeExpression):
-            rules.append(
+            conditions.append(
                 _normalize_group(item, depth=depth + 1, root=False, counter=counter)
             )
             continue
         counter[0] += 1
-        if counter[0] > MAX_TRAFFIC_SCOPE_RULES:
+        if counter[0] > MAX_TRAFFIC_CONDITIONS:
             raise ValidationError(
-                f"An Assignment can contain at most {MAX_TRAFFIC_SCOPE_RULES} Traffic Scope rules."
+                f"A Deployment can contain at most {MAX_TRAFFIC_CONDITIONS} Traffic Conditions."
             )
-        rules.append(_normalize_rule(item))
+        conditions.append(_normalize_condition(item))
 
     if combinator == "and":
         equalities: dict[tuple[str, str], set[str]] = {}
-        for item in rules:
+        for item in conditions:
             if isinstance(item, TrafficScopeExpression) or item.operator != "equals":
                 continue
             equalities.setdefault((item.field, item.key), set()).add(item.value)
@@ -187,28 +187,28 @@ def _normalize_group(
     signatures = [
         traffic_scope_signature(item)
         if isinstance(item, TrafficScopeExpression)
-        else ("rule", item.field, item.key, item.operator, item.value)
-        for item in rules
+        else ("condition", item.field, item.key, item.operator, item.value)
+        for item in conditions
     ]
     if len(signatures) != len(set(signatures)):
-        raise ValidationError("A Traffic Scope group cannot contain duplicate rules.")
-    return TrafficScopeExpression(combinator=combinator, rules=tuple(rules))
+        raise ValidationError("A Traffic Scope group cannot contain duplicate conditions.")
+    return TrafficScopeExpression(combinator=combinator, conditions=tuple(conditions))
 
 
-def _normalize_rule(rule: TrafficScopeRule) -> TrafficScopeRule:
-    field = rule.field.strip()
+def _normalize_condition(condition: TrafficCondition) -> TrafficCondition:
+    field = condition.field.strip()
     definition = _FIELD_BY_ID.get(field)
     if definition is None:
         raise ValidationError("Unsupported Traffic Scope field.")
-    operator = rule.operator.strip()
+    operator = condition.operator.strip()
     if operator not in definition.operators:
         raise ValidationError("Unsupported operator for this Traffic Scope field.")
-    value = rule.value.strip()
+    value = condition.value.strip()
     if not value or len(value) > 500:
         raise ValidationError(
             "Traffic Scope values are required and limited to 500 characters."
         )
-    key = rule.key.strip() if definition.custom_key else ""
+    key = condition.key.strip() if definition.custom_key else ""
     if definition.custom_key and (
         not key or len(key) > 120 or any(character.isspace() for character in key)
     ):
@@ -217,21 +217,21 @@ def _normalize_rule(rule: TrafficScopeRule) -> TrafficScopeRule:
         )
     if definition.source == "header":
         key = key.lower()
-    return TrafficScopeRule(field=field, key=key, operator=operator, value=value)
+    return TrafficCondition(field=field, key=key, operator=operator, value=value)
 
 
-def _rule_matches(rule: TrafficScopeRule, context: RequestContext) -> bool:
-    definition = _FIELD_BY_ID[rule.field]
+def _condition_matches(condition: TrafficCondition, context: RequestContext) -> bool:
+    definition = _FIELD_BY_ID[condition.field]
     actual = context.value(
         definition.source,
-        rule.key if definition.custom_key else definition.key,
+        condition.key if definition.custom_key else definition.key,
     )
     if actual is None:
         return False
-    if rule.operator == "equals":
-        return actual == rule.value
-    if rule.operator == "contains":
-        return rule.value in actual
-    if rule.operator == "starts_with":
-        return actual.startswith(rule.value)
-    return fnmatch.fnmatchcase(actual, rule.value)
+    if condition.operator == "equals":
+        return actual == condition.value
+    if condition.operator == "contains":
+        return condition.value in actual
+    if condition.operator == "starts_with":
+        return actual.startswith(condition.value)
+    return fnmatch.fnmatchcase(actual, condition.value)

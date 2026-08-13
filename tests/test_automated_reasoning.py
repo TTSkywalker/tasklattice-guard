@@ -8,9 +8,10 @@ import httpx
 from app.control_plane.compiler import GuardrailCompiler
 from app.control_plane.domain import (
     AutomatedReasoningPolicyBinding,
-    PlanCompilationError,
-    GuardrailControl,
     Guardrail,
+    GuardrailPolicyBinding,
+    PlanCompilationError,
+    ResolvedPolicyCapability,
 )
 from app.nemo.actions.automated_reasoning import (
     AutomatedReasoningPolicyEngine,
@@ -279,7 +280,7 @@ def test_provider_payload_parser_retains_proof_evidence():
                         }
                     ],
                     "claims_false_scenario": {
-                        "assignments": {
+                        "variable_values": {
                             "employmentType": "part_time",
                             "leaveEligible": "false",
                         }
@@ -294,43 +295,57 @@ def test_provider_payload_parser_retains_proof_evidence():
     assert finding.result == "invalid"
     assert finding.translation.claims == ("leaveEligible = true",)
     assert finding.contradicting_rules[0].id == "rule-17"
-    assert finding.claims_false_scenario.assignments[0] == (
+    assert finding.claims_false_scenario.variable_values[0] == (
         "employmentType",
         "part_time",
     )
 
 
 def _profile(*, output_delivery="full_buffered", binding=True) -> Guardrail:
+    reasoning = (
+        AutomatedReasoningPolicyBinding("leave-policy", "7", 0.85)
+        if binding
+        else None
+    )
     return Guardrail(
         id="guardrail-ar",
         name="Leave policy",
         purpose="Answer employee leave eligibility questions.",
         allowed_topics=("leave eligibility",),
         restricted_topics=(),
-        controls=(
-            GuardrailControl("pii", "redact"),
-            GuardrailControl(
-                "automated_reasoning",
-                "rewrite",
-                (
-                    AutomatedReasoningPolicyBinding("leave-policy", "7", 0.85)
-                    if binding
-                    else None
-                ),
+        policy_bindings=(
+            GuardrailPolicyBinding("builtin-pii", "1", action="redact"),
+            GuardrailPolicyBinding(
+                "builtin-automated-reasoning",
+                "1",
+                action="rewrite",
+                reasoning_policy=reasoning,
             ),
         ),
         safety_level="balanced",
         output_delivery=output_delivery,
-        source_pack_id=None,
-        parameters=(),
         draft_version=1,
         active_version=None,
         updated_at="2026-08-11T00:00:00+00:00",
     )
 
 
+def _resolved(guardrail: Guardrail) -> tuple[ResolvedPolicyCapability, ...]:
+    return (
+        ResolvedPolicyCapability("pii", "redact"),
+        ResolvedPolicyCapability(
+            "automated_reasoning",
+            "rewrite",
+            guardrail.policy_bindings[1].reasoning_policy,
+        ),
+    )
+
+
 def test_compiler_pins_policy_and_creates_masked_dependency():
-    plan = GuardrailCompiler().compile(_profile(), 4)
+    guardrail = _profile()
+    plan = GuardrailCompiler().compile(
+        guardrail, 4, resolved_policies=_resolved(guardrail)
+    )
 
     reasoning = next(
         item for item in plan.modules if "automated_reasoning" in item.id
@@ -351,4 +366,6 @@ def test_compiler_pins_policy_and_creates_masked_dependency():
 )
 def test_compiler_rejects_incomplete_reasoning_configuration(guardrail, message):
     with pytest.raises(PlanCompilationError, match=message):
-        GuardrailCompiler().compile(guardrail, 1)
+        GuardrailCompiler().compile(
+            guardrail, 1, resolved_policies=_resolved(guardrail)
+        )

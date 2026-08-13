@@ -4,14 +4,14 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
-from ...control_library import ControlSpec, KeywordSpec, RuleSpec, control
-from ...control_library.matching import keyword_expression, severity_applies
+from ...policy_library import PolicyRuleSpec, PolicySpec, policy
+from ...policy_library.matching import keyword_expression, severity_applies
 from ...runtime.contracts import GuardrailPhase, RiskFinding, StageResult
 
 
 @dataclass(frozen=True, slots=True)
 class _Detection:
-    control: str
+    policy: str
     kind: str
     rule: str
     action: str
@@ -19,14 +19,14 @@ class _Detection:
 
 
 class BuiltinContentFilter:
-    """Execute built-in Control Library Rules locally."""
+    """Execute the selected Policy Rules through a NeMo Python Action."""
 
     def evaluate(
         self,
         *,
         text: str,
         phase: GuardrailPhase,
-        controls: Iterable[str],
+        policies: Iterable[str],
         parameters: Mapping[str, str] | None = None,
         enabled_rules: Mapping[str, Iterable[str]] | None = None,
         rule_actions: Mapping[str, str] | None = None,
@@ -40,17 +40,17 @@ class BuiltinContentFilter:
         configured_actions = rule_actions or {}
         content = text
         detections: list[_Detection] = []
-        for name in controls:
-            definition = control(name)
+        for name in policies:
+            definition = policy(name)
             if definition is None:
                 return StageResult(
                     verdict="error",
                     content=text,
-                    reason=f"Built-in content-filter control {name!r} is unavailable.",
+                    reason=f"Built-in Policy {name!r} is unavailable.",
                 )
-            if phase not in definition.phases:
+            if phase not in definition.stages:
                 continue
-            content, matches = self._apply_control(
+            content, matches = self._apply_policy(
                 definition,
                 content,
                 phase,
@@ -85,12 +85,12 @@ class BuiltinContentFilter:
                 verdict="unsafe",
                 confidence=0.99,
                 evidence=(
-                    f"Built-in control {item.control} matched "
+                    f"Policy {item.policy} matched "
                     f"{item.kind} rule {item.rule}: {item.evidence}."
                 ),
                 recommended_action=("redact" if item.action == "MASK" else "reject"),
                 replacement="[REDACTED]" if item.action == "MASK" else None,
-                control_id=item.control,
+                policy_id=item.policy,
                 rule_id=item.rule,
             )
             for item in detections
@@ -107,9 +107,9 @@ class BuiltinContentFilter:
             ),
         )
 
-    def _apply_control(
+    def _apply_policy(
         self,
-        definition: ControlSpec,
+        definition: PolicySpec,
         text: str,
         phase: GuardrailPhase,
         parameters: Mapping[str, str],
@@ -121,15 +121,15 @@ class BuiltinContentFilter:
         categories = tuple(
             item
             for item in definition.rules
-            if item.detector == "category"
-            and phase in item.phases
+            if item.form == "category"
+            and phase in item.stages
             and (enabled_rules is None or item.id in enabled_rules)
         )
         category_match = self._category_match(categories, content)
         if category_match:
             rule_id, evidence, default_action = category_match
             action = rule_actions.get(
-                f"{definition.id}:{rule_id}", default_action
+                rule_id, default_action
             )
             detections.append(
                 _Detection(definition.id, "category", rule_id, action, evidence)
@@ -138,7 +138,7 @@ class BuiltinContentFilter:
                 content = self._mask_keyword(content, evidence)
 
         for rule in definition.rules:
-            if rule.detector != "regex" or phase not in rule.phases:
+            if rule.form != "regex" or phase not in rule.stages:
                 continue
             if enabled_rules is not None and rule.id not in enabled_rules:
                 continue
@@ -154,7 +154,7 @@ class BuiltinContentFilter:
             if not matches:
                 continue
             action = rule_actions.get(
-                f"{definition.id}:{rule.id}", rule.action
+                rule.id, _source_action(rule.effect)
             )
             detections.append(
                 _Detection(
@@ -173,19 +173,19 @@ class BuiltinContentFilter:
                 )
 
         for rule in definition.rules:
-            if rule.detector != "keyword" or phase not in rule.phases:
+            if rule.form != "keyword" or phase not in rule.stages:
                 continue
             if enabled_rules is not None and rule.id not in enabled_rules:
                 continue
             for keyword in self._resolved_keywords(rule, parameters):
-                rendered = self._render(keyword.value, parameters).strip()
+                rendered = self._render(keyword, parameters).strip()
                 if not rendered:
                     continue
                 expression = keyword_expression(rendered)
                 if not re.search(expression, content, re.IGNORECASE):
                     continue
                 action = rule_actions.get(
-                    f"{definition.id}:{rule.id}", rule.action
+                    rule.id, _source_action(rule.effect)
                 )
                 detections.append(
                     _Detection(
@@ -251,7 +251,7 @@ class BuiltinContentFilter:
 
     def _category_match(
         self,
-        categories: tuple[RuleSpec, ...],
+        categories: tuple[PolicyRuleSpec, ...],
         text: str,
     ) -> tuple[str, str, str] | None:
         lowered = text.lower()
@@ -260,7 +260,7 @@ class BuiltinContentFilter:
                 continue
             for expression in item.phrase_patterns:
                 if re.search(expression, text, re.IGNORECASE):
-                    return (item.id, item.id, item.action)
+                    return (item.id, item.id, _source_action(item.effect))
             if item.identifiers and item.conditions:
                 for sentence in re.split(r"[.!?]+", lowered):
                     identifier = next(
@@ -279,29 +279,29 @@ class BuiltinContentFilter:
                         return (
                             item.id,
                             f"{identifier} + {conditional}",
-                            item.action,
+                            _source_action(item.effect),
                         )
             for keyword in item.always_block:
-                if self._keyword_matches(keyword.value, lowered):
-                    return (item.id, keyword.value, item.action)
+                if self._keyword_matches(keyword[0], lowered):
+                    return (item.id, keyword[0], _source_action(item.effect))
             for keyword in item.keywords:
                 if severity_applies(
-                    keyword.severity,
+                    keyword[1],
                     item.severity_threshold or "medium",
-                ) and self._keyword_matches(keyword.value, lowered):
-                    return (item.id, keyword.value, item.action)
+                ) and self._keyword_matches(keyword[0], lowered):
+                    return (item.id, keyword[0], _source_action(item.effect))
         return None
 
     @staticmethod
     def _resolved_keywords(
-        rule: RuleSpec,
+        rule: PolicyRuleSpec,
         parameters: Mapping[str, str],
-    ) -> tuple[KeywordSpec, ...]:
+    ) -> tuple[str, ...]:
         if len(rule.keywords) != 1:
-            return rule.keywords
-        configured = rule.keywords[0].value
+            return tuple(value for value, _severity in rule.keywords)
+        configured = rule.keywords[0][0]
         if not (configured.startswith("{{") and configured.endswith("}}")):
-            return rule.keywords
+            return (configured,)
         competitors = tuple(
             item.strip()
             for item in parameters.get("competitors", "").splitlines()
@@ -332,7 +332,7 @@ class BuiltinContentFilter:
             )
         else:
             values = ()
-        return tuple(KeywordSpec(value) for value in values)
+        return values
 
     @staticmethod
     def _keyword_matches(keyword: str, text: str) -> bool:
@@ -356,3 +356,11 @@ class BuiltinContentFilter:
         for key, replacement in parameters.items():
             rendered = rendered.replace(f"{{{{{key}}}}}", replacement)
         return rendered
+
+
+def _source_action(effect: str) -> str:
+    if effect == "redact":
+        return "MASK"
+    if effect == "reject":
+        return "BLOCK"
+    return effect.upper()

@@ -9,18 +9,18 @@ from ..runtime.contracts import (
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
-    ControlModule,
-    ControlVersionSnapshot,
-    GuardrailControlBindingSnapshot,
+    PolicyModule,
+    PolicyVersionSnapshot,
+    GuardrailPolicyBindingSnapshot,
 )
-from ..control_library import control_library, control_pack
-from .catalog import control as runtime_control
-from .domain import PlanCompilationError, Guardrail
+from ..policy_library import policy as library_policy
+from .catalog import builtin_policy_id, runtime_capability
+from .domain import PlanCompilationError, Guardrail, ResolvedPolicyCapability
 
 
 COMPILER_VERSION = "guardrail-plan-v4"
 
-_MODULE_TIMEOUT_MS: dict[ControlModule, int] = {
+_MODULE_TIMEOUT_MS: dict[PolicyModule, int] = {
     "data_protection": 750,
     "interaction_safety": 2_500,
     "business_assurance": 5_000,
@@ -39,17 +39,18 @@ class GuardrailCompiler:
         guardrail: Guardrail,
         version: int,
         *,
-        control_versions: tuple[ControlVersionSnapshot, ...] = (),
-        control_bindings: tuple[GuardrailControlBindingSnapshot, ...] = (),
+        resolved_policies: tuple[ResolvedPolicyCapability, ...],
+        policy_versions: tuple[PolicyVersionSnapshot, ...] = (),
+        policy_bindings: tuple[GuardrailPolicyBindingSnapshot, ...] = (),
     ) -> GuardrailPlanSnapshot:
         if not guardrail.purpose.strip():
             raise PlanCompilationError("A Guardrail requires a clear purpose.")
-        if not guardrail.controls and not control_bindings:
-            raise PlanCompilationError("Select at least one Control before testing.")
+        if not resolved_policies and not policy_versions:
+            raise PlanCompilationError("Select at least one Policy before testing.")
 
         steps: list[GuardrailPlanStep] = []
-        for configured in guardrail.controls:
-            definition = runtime_control(configured.risk)
+        for configured in resolved_policies:
+            definition = runtime_capability(configured.risk)
             stages = tuple(
                 stage
                 for stage in definition.available_stages
@@ -60,7 +61,11 @@ class GuardrailCompiler:
                 )
             )
             phases = self._phases(guardrail, configured.risk, definition.default_phases)
-            parameters = self._guardrail_parameters(guardrail, configured.risk)
+            parameters = self._guardrail_parameters(
+                guardrail,
+                configured.risk,
+                configured,
+            )
             if not stages:
                 raise PlanCompilationError(f"No evaluator is available for {configured.risk}.")
 
@@ -121,7 +126,7 @@ class GuardrailCompiler:
                     )
                 )
 
-        reasoning_policies = self._reasoning_policies(guardrail)
+        reasoning_policies = self._reasoning_policies(resolved_policies)
         modules = self._modules(tuple(steps))
         self._validate_modules(tuple(steps), modules)
         return GuardrailPlanSnapshot(
@@ -133,8 +138,8 @@ class GuardrailCompiler:
             steps=tuple(steps),
             modules=modules,
             reasoning_policies=reasoning_policies,
-            control_versions=control_versions,
-            control_bindings=control_bindings,
+            policy_versions=policy_versions,
+            policy_bindings=policy_bindings,
         )
 
     @staticmethod
@@ -150,7 +155,7 @@ class GuardrailCompiler:
                     step.id
                     for step in steps
                     if phase in step.phases
-                    and runtime_control(step.risk).module == module
+                    and runtime_capability(step.risk).module == module
                     and step.risk not in {"contextual_grounding", "automated_reasoning"}
                 )
                 if not step_ids:
@@ -250,7 +255,7 @@ class GuardrailCompiler:
 
         def visit(module_id: str) -> None:
             if module_id in visiting:
-                raise PlanCompilationError("Compiled control modules must form an acyclic graph.")
+                raise PlanCompilationError("Compiled Policy modules must form an acyclic graph.")
             if module_id in visited:
                 return
             visiting.add(module_id)
@@ -268,98 +273,69 @@ class GuardrailCompiler:
         return hashlib.sha256(payload.encode()).hexdigest()
 
     @staticmethod
-    def _guardrail_parameters(guardrail: Guardrail, risk: str) -> tuple[tuple[str, str], ...]:
+    def _guardrail_parameters(
+        guardrail: Guardrail,
+        risk: str,
+        configured: ResolvedPolicyCapability,
+    ) -> tuple[tuple[str, str], ...]:
         if risk == "builtin_content_filter":
-            library = control_library()
-            composed = tuple(
-                item
-                for item in guardrail.control_configurations
-                if item.runtime_risk == "builtin_content_filter"
+            selections = tuple(
+                (binding, library_policy(binding.policy_id))
+                for binding in guardrail.policy_bindings
+                if library_policy(binding.policy_id) is not None
             )
-            if composed:
-                built_in_controls = tuple(
-                    item
-                    for item in composed
-                    if item.kind == "built_in" and item.control_id
-                )
-                enabled_rules = {
-                    item.control_id: [
-                        rule.id
-                        for rule in item.rules
-                        if rule.enabled and not rule.id.startswith("dynamic-")
-                    ]
-                    for item in built_in_controls
-                }
-                rule_actions = {
-                    f"{item.control_id}:{rule.id}": rule.action
-                    for item in built_in_controls
-                    for rule in item.rules
-                    if rule.enabled
-                }
-                custom_rules = [
-                    {
-                        "id": rule.id,
-                        "name": rule.name,
-                        "detector": rule.detector,
-                        "action": rule.action,
-                        "phases": list(rule.phases),
-                        "expression": rule.expression,
-                        "keywords": list(rule.keywords),
-                    }
-                    for item in composed
-                    for rule in item.rules
-                    if rule.enabled
-                    and rule.detector in {"regex", "keyword"}
-                    and (item.kind == "custom" or rule.id.startswith("dynamic-"))
-                ]
-                return (
-                    ("control_library_version", library.source.version),
-                    (
-                        "control_ids",
-                        "\n".join(
-                            item.control_id or "" for item in built_in_controls
-                        ),
-                    ),
-                    (
-                        "enabled_rules_json",
-                        json.dumps(enabled_rules, sort_keys=True, separators=(",", ":")),
-                    ),
-                    (
-                        "rule_actions_json",
-                        json.dumps(rule_actions, sort_keys=True, separators=(",", ":")),
-                    ),
-                    (
-                        "custom_rules_json",
-                        json.dumps(custom_rules, sort_keys=True, separators=(",", ":")),
-                    ),
-                    *tuple(
-                        (f"parameter.{key}", value)
-                        for key, value in guardrail.parameters
-                    ),
-                )
-            if not guardrail.source_pack_id:
-                raise PlanCompilationError(
-                    "A built-in content-filter Control requires a source Control Pack."
-                )
-            pack = control_pack(guardrail.source_pack_id)
-            if pack is None:
-                raise PlanCompilationError(
-                    f"Unknown Control Pack {guardrail.source_pack_id!r}."
-                )
+            enabled_rules = {
+                binding.policy_id: list(binding.enabled_rule_ids)
+                for binding, _policy in selections
+                if binding.enabled_rule_ids
+            }
+            rule_actions = {
+                rule_id: action
+                for binding, _policy in selections
+                for rule_id, action in binding.rule_actions
+            }
+            parameters: dict[str, str] = {}
+            for binding, _policy in selections:
+                for name, value in binding.parameter_values:
+                    previous = parameters.get(name)
+                    if previous is not None and previous != value:
+                        raise PlanCompilationError(
+                            f"Policy parameter {name!r} has conflicting values."
+                        )
+                    parameters[name] = value
             return (
-                ("control_library_version", library.source.version),
-                ("control_pack_id", pack.id),
-                ("control_ids", "\n".join(pack.control_ids)),
+                (
+                    "policy_versions_json",
+                    json.dumps(
+                        {
+                            binding.policy_id: selected.version
+                            for binding, selected in selections
+                            if selected is not None
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                ),
+                ("policy_ids", "\n".join(binding.policy_id for binding, _ in selections)),
+                (
+                    "enabled_rules_json",
+                    json.dumps(enabled_rules, sort_keys=True, separators=(",", ":")),
+                ),
+                (
+                    "rule_actions_json",
+                    json.dumps(rule_actions, sort_keys=True, separators=(",", ":")),
+                ),
+                ("custom_rules_json", "[]"),
                 *tuple(
                     (f"parameter.{key}", value)
-                    for key, value in guardrail.parameters
+                    for key, value in sorted(parameters.items())
                 ),
             )
         if risk == "contextual_grounding":
-            configured = dict(guardrail.parameters)
+            configured_parameters = _binding_parameters(guardrail, risk)
             thresholds = (
-                ("grounding_threshold", configured.get("grounding_threshold", "0.7")),
-                ("relevance_threshold", configured.get("relevance_threshold", "0.7")),
+                ("grounding_threshold", configured_parameters.get("grounding_threshold", "0.7")),
+                ("relevance_threshold", configured_parameters.get("relevance_threshold", "0.7")),
             )
             for name, raw in thresholds:
                 try:
@@ -370,7 +346,6 @@ class GuardrailCompiler:
                     raise PlanCompilationError(f"{name} must be between 0 and 0.99.")
             return thresholds
         if risk == "automated_reasoning":
-            configured = next(item for item in guardrail.controls if item.risk == risk)
             binding = configured.reasoning_policy
             if binding is None:
                 raise PlanCompilationError(
@@ -396,10 +371,10 @@ class GuardrailCompiler:
 
     @staticmethod
     def _reasoning_policies(
-        guardrail: Guardrail,
+        configured_policies: tuple[ResolvedPolicyCapability, ...],
     ) -> tuple[AutomatedReasoningPolicySnapshot, ...]:
         snapshots: list[AutomatedReasoningPolicySnapshot] = []
-        for configured in guardrail.controls:
+        for configured in configured_policies:
             if configured.risk != "automated_reasoning":
                 continue
             binding = configured.reasoning_policy
@@ -433,30 +408,22 @@ class GuardrailCompiler:
         risk: str,
         defaults: tuple[str, ...],
     ) -> tuple[str, ...]:
-        configured_phases = {
-            phase
-            for configuration in guardrail.control_configurations
-            if configuration.runtime_risk == risk
-            for rule in configuration.rules
-            if rule.enabled
-            for phase in rule.phases
-        }
-        if configured_phases:
-            return tuple(
-                phase for phase in ("input", "output") if phase in configured_phases
-            )
-        if risk != "builtin_content_filter" or not guardrail.source_pack_id:
+        if risk != "builtin_content_filter":
             return defaults
-        pack = control_pack(guardrail.source_pack_id)
-        if pack is None:
-            raise PlanCompilationError(
-                f"Unknown Control Pack {guardrail.source_pack_id!r}."
-            )
-        library = control_library()
-        controls = {item.id: item for item in library.controls}
         phases = {
-            phase
-            for control_id in pack.control_ids
-            for phase in controls[control_id].phases
+            stage
+            for binding in guardrail.policy_bindings
+            if (selected := library_policy(binding.policy_id)) is not None
+            for stage in selected.stages
+            if not binding.enabled_rails or stage in binding.enabled_rails
         }
         return tuple(phase for phase in ("input", "output") if phase in phases)
+
+
+def _binding_parameters(guardrail: Guardrail, risk: str) -> dict[str, str]:
+    candidates = tuple(
+        binding
+        for binding in guardrail.policy_bindings
+        if binding.policy_id == builtin_policy_id(risk)
+    )
+    return dict(candidates[0].parameter_values) if candidates else {}

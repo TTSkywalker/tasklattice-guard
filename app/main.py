@@ -30,7 +30,7 @@ from .nemo.registry import NeMoRailsRegistry
 from .nemo.actions.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
 from .runtime.gateway import ModelGuardrailsEngineService
 from .nemo.actions.topic import PurposeAwareTopicJudgeEngine
-from .nemo.builtin_controls import prompt_catalog_yaml
+from .nemo.builtin_policies import prompt_catalog_yaml
 from .identity import IdentityAPI, IdentityService
 from .ui import ControlPlaneStaticFiles
 
@@ -39,7 +39,7 @@ def create_engine(
     settings: Settings,
     control_plane: ControlPlaneService | None = None,
 ) -> NeMoGuardrailsEngine:
-    store = control_plane or _create_control_plane(settings)
+    store = control_plane or _create_policy_plane(settings)
     registry = NeMoRailsRegistry(
         store,
         create_action_registry(settings),
@@ -134,7 +134,7 @@ def create_app(
 ) -> FastAPI:
     configured = settings or Settings.from_env()
     tracer_provider = _configure_telemetry(configured)
-    control_plane = _create_control_plane(configured)
+    control_plane = _create_policy_plane(configured)
     if engine is None:
         runtime_engine: NeMoPolicyRuntime = create_engine(configured, control_plane)
     else:
@@ -267,7 +267,7 @@ def _playground_chat_models(settings: Settings) -> tuple[PlaygroundChatModel, ..
     return tuple(models)
 
 
-def _create_control_plane(settings: Settings) -> ControlPlaneService:
+def _create_policy_plane(settings: Settings) -> ControlPlaneService:
     return ControlPlaneService(
         settings.database_path,
         public_runtime_base_url=settings.public_runtime_base_url,

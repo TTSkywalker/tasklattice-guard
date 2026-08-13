@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.runtime.contracts import (
-    EvaluationRequest,
+    ProtectionRequest,
     GuardContentBlock,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
@@ -18,7 +18,7 @@ from tests.nemo_helpers import nemo_engine
 
 class StaticResolver:
     def __init__(self, plan: GuardrailPlanSnapshot) -> None:
-        self._resolution = PlanResolution(plan=plan, assignment_id="assignment-content")
+        self._resolution = PlanResolution(plan=plan, deployment_id="deployment-content")
 
     def resolve(self, context: RequestContext) -> PlanResolution:
         del context
@@ -125,7 +125,7 @@ async def test_service_guards_only_qualified_untrusted_blocks_with_stable_views(
     )
 
     result = await service.evaluate(
-        EvaluationRequest(
+        ProtectionRequest(
             phase="input",
             texts=(),
             content_blocks=blocks,
@@ -172,7 +172,7 @@ async def test_output_view_includes_pinned_input_blocks_from_the_call_context():
     )
     context = RequestContext(protocol="litellm")
     await service.evaluate(
-        EvaluationRequest(
+        ProtectionRequest(
             phase="input",
             texts=(),
             content_blocks=(
@@ -192,7 +192,7 @@ async def test_output_view_includes_pinned_input_blocks_from_the_call_context():
     stage.requests.clear()
 
     await service.evaluate(
-        EvaluationRequest(
+        ProtectionRequest(
             phase="output",
             texts=(),
             content_blocks=(

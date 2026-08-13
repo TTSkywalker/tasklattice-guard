@@ -33,7 +33,7 @@ def test_helm_chart_configures_schema_v6_and_public_runtime_url():
     environment = {item["name"]: item for item in container["env"]}
 
     assert environment["MODEL_GUARDRAILS_DATABASE_PATH"]["value"].endswith(
-        "/tasklattice-guard-schema-v6.db"
+        "/tasklattice-guard-policy-schema-v3.db"
     )
     assert environment["MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL"]["value"] == (
         "https://guard.example.com"

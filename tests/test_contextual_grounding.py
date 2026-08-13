@@ -6,33 +6,64 @@ import httpx
 import pytest
 
 from app.control_plane.compiler import GuardrailCompiler
-from app.control_plane.domain import PlanCompilationError, GuardrailControl, Guardrail
+from app.control_plane.catalog import builtin_policy_id, capability_id_for_policy
+from app.control_plane.domain import (
+    Guardrail,
+    GuardrailPolicyBinding,
+    PlanCompilationError,
+    ResolvedPolicyCapability,
+)
 from app.runtime.content_views import content_view
 from app.nemo.actions.grounding import ContextualGroundingJudgeEngine
 from app.runtime.contracts import EngineRequest, GuardContentBlock
 from tests.nemo_helpers import nemo_engine
 
 
-def _profile(*risks: GuardrailControl, parameters=()) -> Guardrail:
+def _profile(*policies: ResolvedPolicyCapability, parameters=()) -> Guardrail:
+    resolved = policies or (
+        ResolvedPolicyCapability("contextual_grounding", "regenerate"),
+    )
     return Guardrail(
         id="guardrail-grounding",
         name="Grounded answers",
         purpose="Answer questions from approved knowledge sources.",
         allowed_topics=(),
         restricted_topics=(),
-        controls=risks or (GuardrailControl("contextual_grounding", "regenerate"),),
+        policy_bindings=tuple(
+            GuardrailPolicyBinding(
+                policy_id=builtin_policy_id(item.risk),
+                policy_version="1",
+                action=item.action,
+                parameter_values=(parameters if item.risk == "contextual_grounding" else ()),
+            )
+            for item in resolved
+        ),
         safety_level="balanced",
         output_delivery="full_buffered",
-        source_pack_id=None,
-        parameters=parameters,
         draft_version=1,
         active_version=None,
         updated_at="2026-08-11T00:00:00Z",
     )
 
 
+def _resolved(guardrail: Guardrail) -> tuple[ResolvedPolicyCapability, ...]:
+    return tuple(
+        ResolvedPolicyCapability(
+            capability_id_for_policy(item.policy_id),
+            item.action or "reject",
+        )
+        for item in guardrail.policy_bindings
+    )
+
+
+def _compile(guardrail: Guardrail, version: int):
+    return GuardrailCompiler().compile(
+        guardrail, version, resolved_policies=_resolved(guardrail)
+    )
+
+
 def _request(response: str, *, full: bool = True) -> EngineRequest:
-    plan = GuardrailCompiler().compile(_profile(), 1)
+    plan = _compile(_profile(), 1)
     blocks = (
         GuardContentBlock(
             id="query",
@@ -206,7 +237,7 @@ async def test_grounding_judge_detects_a_grounded_but_irrelevant_response(monkey
 @pytest.mark.asyncio
 async def test_grounding_judge_requests_context_before_provider_access(monkeypatch):
     monkeypatch.delenv("GROUNDING_TEST_KEY", raising=False)
-    plan = GuardrailCompiler().compile(_profile(), 1)
+    plan = _compile(_profile(), 1)
     request = EngineRequest("output", "Paris is the capital.", plan)
     judge = ContextualGroundingJudgeEngine(
         base_url="https://grounding.test/v1",
@@ -244,13 +275,11 @@ async def test_grounding_provider_failure_fails_closed_at_module_boundary(monkey
 
 
 def test_compiler_creates_grounding_module_after_output_data_protection():
-    plan = GuardrailCompiler().compile(
-        _profile(
-            GuardrailControl("pii", "redact"),
-            GuardrailControl("contextual_grounding", "regenerate"),
-        ),
-        1,
+    guardrail = _profile(
+        ResolvedPolicyCapability("pii", "redact"),
+        ResolvedPolicyCapability("contextual_grounding", "regenerate"),
     )
+    plan = _compile(guardrail, 1)
 
     grounding = next(
         item
@@ -267,7 +296,5 @@ def test_compiler_creates_grounding_module_after_output_data_protection():
 
 def test_compiler_rejects_invalid_grounding_thresholds():
     with pytest.raises(PlanCompilationError, match="between 0 and 0.99"):
-        GuardrailCompiler().compile(
-            _profile(parameters=(("grounding_threshold", "1"),)),
-            1,
-        )
+        guardrail = _profile(parameters=(("grounding_threshold", "1"),))
+        _compile(guardrail, 1)

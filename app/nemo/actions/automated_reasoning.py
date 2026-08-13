@@ -272,17 +272,17 @@ def _scenario(value: Any) -> AutomatedReasoningScenario | None:
         return None
     if not isinstance(value, Mapping):
         raise TypeError("Automated Reasoning scenario must be an object.")
-    assignments = value.get("assignments", {})
-    if not isinstance(assignments, Mapping) or len(assignments) > 600:
-        raise TypeError("Automated Reasoning scenario assignments must be an object.")
+    variable_values = value.get("variable_values", {})
+    if not isinstance(variable_values, Mapping) or len(variable_values) > 600:
+        raise TypeError("Automated Reasoning scenario variable_values must be an object.")
     return AutomatedReasoningScenario(
-        assignments=tuple(
+        variable_values=tuple(
             sorted(
                 (
                     _required_text(key, "scenario variable"),
                     _required_text(item, "scenario value"),
                 )
-                for key, item in assignments.items()
+                for key, item in variable_values.items()
             )
         )
     )

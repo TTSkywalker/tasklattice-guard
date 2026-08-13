@@ -9,7 +9,7 @@ RailType = Literal["input", "output", "retrieval", "dialog", "execution"]
 EvaluatorVerdict = Literal["safe", "unsafe", "uncertain", "error"]
 RouteDecision = Literal["complete", "enforce", "escalate", "fail_open", "fail_closed"]
 PolicyDecision = Literal["allow", "transform", "block"]
-ControlModule = Literal[
+PolicyModule = Literal[
     "data_protection",
     "interaction_safety",
     "business_assurance",
@@ -40,7 +40,7 @@ AutomatedReasoningResult = Literal[
 FailureMode = Literal["fail_open", "fail_closed"]
 FragmentStatus = Literal["pass", "intervene", "needs_context", "uncovered", "error"]
 CoverageStatus = Literal["complete", "partial", "none"]
-EvaluationMode = Literal["enforce", "detect"]
+EnforcementMode = Literal["enforce", "detect"]
 EvidenceScope = Literal["interventions", "full"]
 EnforcementAction = Literal[
     "pass",
@@ -52,6 +52,18 @@ EnforcementAction = Literal[
     "fallback",
     "clarify",
 ]
+ENFORCEMENT_ACTIONS: frozenset[EnforcementAction] = frozenset(
+    {
+        "pass",
+        "redact",
+        "rewrite",
+        "regenerate",
+        "redirect",
+        "reject",
+        "fallback",
+        "clarify",
+    }
+)
 SafetyLevel = Literal["balanced", "strict"]
 OutputDeliveryMode = Literal["interruptible", "window_buffered", "full_buffered"]
 EscalationMode = Literal["never", "on_uncertain", "always"]
@@ -62,11 +74,17 @@ NeMoRuntimeProfile = Literal[
     "llmrails_colang1_standard",
     "llmrails_colang2_programmable",
 ]
-ControlExecutionMode = Literal["detect", "mutate"]
+PolicyExecutionMode = Literal["detect", "mutate"]
+
+
+def flow_rule_id(rail_type: GuardrailPhase, flow_name: str) -> str:
+    """Return the stable product Rule identity for one NeMo Flow binding."""
+
+    return f"flow/{rail_type}/{flow_name}"
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationTraceStep:
+class RuntimeTraceStep:
     id: str
     kind: str
     name: str
@@ -83,8 +101,8 @@ class EvaluationTraceStep:
     content_block_id: str | None = None
     guardrail_id: str | None = None
     guardrail_version: int | None = None
-    control_id: str | None = None
-    control_version: int | None = None
+    policy_id: str | None = None
+    policy_version: str | None = None
     rail_type: str | None = None
     flow_name: str | None = None
     action_name: str | None = None
@@ -101,7 +119,7 @@ class EvaluationTraceStep:
 
 @dataclass(frozen=True, slots=True)
 class RequestContext:
-    """Integration-normalized, trusted attributes used for Assignment resolution."""
+    """Integration-normalized, trusted attributes used for Deployment resolution."""
 
     protocol: str
     integration_id: str | None = None
@@ -160,7 +178,7 @@ class GuardContentBlock:
 
 @dataclass(frozen=True, slots=True)
 class ContentViewSnapshot:
-    """An immutable projection over content blocks with one active evaluation target."""
+    """An immutable projection over content blocks with one active protection target."""
 
     kind: ContentView
     blocks: tuple[GuardContentBlock, ...]
@@ -180,14 +198,14 @@ class ContentViewSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationRequest:
+class ProtectionRequest:
     phase: GuardrailPhase
     texts: tuple[str, ...]
     context: RequestContext
     content_blocks: tuple[GuardContentBlock, ...] = ()
     call_id: str | None = None
     messages: tuple[dict[str, Any], ...] = ()
-    mode: EvaluationMode = "enforce"
+    mode: EnforcementMode = "enforce"
     evidence_scope: EvidenceScope = "interventions"
 
 
@@ -208,10 +226,10 @@ class GuardrailPlanStep:
 
 @dataclass(frozen=True, slots=True)
 class GuardrailPlanModule:
-    """One independently schedulable control module in a compiled plan."""
+    """One independently schedulable Policy module in a compiled plan."""
 
     id: str
-    module: ControlModule
+    module: PolicyModule
     phase: GuardrailPhase
     step_ids: tuple[str, ...]
     depends_on: tuple[str, ...] = ()
@@ -238,20 +256,20 @@ class AutomatedReasoningPolicySnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class ControlSourceSnapshot:
-    """One immutable Colang source file embedded in a released Control version."""
+class PolicySourceSnapshot:
+    """One immutable Colang source file embedded in a released Policy version."""
 
     path: str
     content: str
 
 
 @dataclass(frozen=True, slots=True)
-class ControlRailBindingSnapshot:
-    """A version-pinned mapping from a Control flow to a NeMo rail."""
+class PolicyRailBindingSnapshot:
+    """A version-pinned mapping from a Policy Flow to a NeMo Rail."""
 
     rail_type: RailType
     flow_name: str
-    execution_mode: ControlExecutionMode
+    execution_mode: PolicyExecutionMode
     on_unsafe: EnforcementAction
     parallel_group: str | None = None
     priority: int | None = None
@@ -262,37 +280,40 @@ class ControlRailBindingSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class ControlActionReferenceSnapshot:
+class PolicyActionReferenceSnapshot:
     name: str
     version: str
 
 
 @dataclass(frozen=True, slots=True)
-class ControlVersionSnapshot:
-    """Immutable Control implementation resolved into a Guardrail plan."""
+class PolicyVersionSnapshot:
+    """Immutable Policy implementation resolved into a Guardrail plan."""
 
-    control_id: str
-    version: int
+    policy_id: str
+    version: str
     name: str
     source: str
     colang_version: str
-    sources: tuple[ControlSourceSnapshot, ...]
+    sources: tuple[PolicySourceSnapshot, ...]
     parameter_schema: tuple[tuple[str, str], ...]
-    rail_bindings: tuple[ControlRailBindingSnapshot, ...]
-    action_references: tuple[ControlActionReferenceSnapshot, ...]
+    rail_bindings: tuple[PolicyRailBindingSnapshot, ...]
+    action_references: tuple[PolicyActionReferenceSnapshot, ...]
     model_dependencies: tuple[str, ...]
     prompt_dependencies: tuple[str, ...]
     execution_contract: tuple[tuple[str, str], ...]
-    tests: tuple[tuple[str, str], ...]
+    test_cases: tuple[tuple[str, str], ...]
     checksum: str
 
 
 @dataclass(frozen=True, slots=True)
-class GuardrailControlBindingSnapshot:
-    control_id: str
-    control_version: int
+class GuardrailPolicyBindingSnapshot:
+    policy_id: str
+    policy_version: str
+    action: EnforcementAction | None = None
     parameter_values: tuple[tuple[str, str], ...] = ()
-    enabled_rails: tuple[RailType, ...] = ("input", "output")
+    enabled_rule_ids: tuple[str, ...] = ()
+    rule_actions: tuple[tuple[str, str], ...] = ()
+    enabled_rails: tuple[RailType, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,8 +326,8 @@ class GuardrailPlanSnapshot:
     steps: tuple[GuardrailPlanStep, ...]
     modules: tuple[GuardrailPlanModule, ...] = ()
     reasoning_policies: tuple[AutomatedReasoningPolicySnapshot, ...] = ()
-    control_versions: tuple[ControlVersionSnapshot, ...] = ()
-    control_bindings: tuple[GuardrailControlBindingSnapshot, ...] = ()
+    policy_versions: tuple[PolicyVersionSnapshot, ...] = ()
+    policy_bindings: tuple[GuardrailPolicyBindingSnapshot, ...] = ()
 
     def steps_for(
         self,
@@ -341,13 +362,13 @@ class NeMoActionBinding:
     escalation: EscalationMode = "never"
     timeout_ms: int = 2_000
     parameters: tuple[tuple[str, str], ...] = ()
-    control_id: str | None = None
-    control_version: int | None = None
+    policy_id: str | None = None
+    policy_version: str | None = None
     flow_name: str | None = None
     action_name: str | None = None
     action_version: str | None = None
     parallel_group: str | None = None
-    execution_mode: ControlExecutionMode = "detect"
+    execution_mode: PolicyExecutionMode = "detect"
     failure_mode: FailureMode = "fail_closed"
     depends_on: tuple[str, ...] = ()
     result_var: str | None = None
@@ -416,7 +437,7 @@ class AutomatedReasoningRuleEvidence:
 
 @dataclass(frozen=True, slots=True)
 class AutomatedReasoningScenario:
-    assignments: tuple[tuple[str, str], ...] = ()
+    variable_values: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,7 +470,7 @@ class RiskFinding:
     evidence: str
     recommended_action: EnforcementAction
     replacement: str | None = None
-    control_id: str | None = None
+    policy_id: str | None = None
     rule_id: str | None = None
     grounding: tuple[GroundingFilterAssessment, ...] = ()
     claims: tuple[GroundingClaimEvidence, ...] = ()
@@ -477,7 +498,7 @@ class RuntimeCoverage:
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationUsage:
+class RuntimeUsage:
     module_invocations: int = 0
     evaluator_invocations: int = 0
     text_characters: int = 0
@@ -501,7 +522,7 @@ class DecisionFragment:
 
     id: str
     module_id: str
-    module: ControlModule
+    module: PolicyModule
     status: FragmentStatus
     action: EnforcementAction = "pass"
     findings: tuple[RiskFinding, ...] = ()
@@ -509,19 +530,19 @@ class DecisionFragment:
     replacement: str | None = None
     coverage: CoverageStatus = "complete"
     reason: str | None = None
-    trace: tuple[EvaluationTraceStep, ...] = ()
+    trace: tuple[RuntimeTraceStep, ...] = ()
     content_block_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ModuleAssessment:
     module_id: str
-    module: ControlModule
+    module: PolicyModule
     status: FragmentStatus
     fragments: tuple[DecisionFragment, ...]
     coverage: RuntimeCoverage
     latency_ms: int = 0
-    trace: tuple[EvaluationTraceStep, ...] = ()
+    trace: tuple[RuntimeTraceStep, ...] = ()
     content_block_id: str | None = None
 
 
@@ -553,36 +574,36 @@ class StageResult:
     content: str
     findings: tuple[RiskFinding, ...] = ()
     reason: str | None = None
-    trace: tuple[EvaluationTraceStep, ...] = ()
+    trace: tuple[RuntimeTraceStep, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationDecision:
+class ProtectionDecision:
     decision: PolicyDecision
     action: EnforcementAction
     reason: str | None = None
     texts: tuple[str, ...] = ()
     guardrail_id: str | None = None
     guardrail_version: int | None = None
-    assignment_id: str | None = None
+    deployment_id: str | None = None
     integration_id: str | None = None
     output_delivery: OutputDeliveryMode | None = None
     findings: tuple[RiskFinding, ...] = ()
-    trace: tuple[EvaluationTraceStep, ...] = ()
+    trace: tuple[RuntimeTraceStep, ...] = ()
     assessments: tuple[ModuleAssessment, ...] = ()
     interventions: tuple[AppliedIntervention, ...] = ()
     coverage: RuntimeCoverage | None = None
-    usage: EvaluationUsage | None = None
-    mode: EvaluationMode = "enforce"
+    usage: RuntimeUsage | None = None
+    mode: EnforcementMode = "enforce"
     content_results: tuple[ContentBlockResult, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class PlanResolution:
     plan: GuardrailPlanSnapshot
-    assignment_id: str
+    deployment_id: str
     integration_id: str | None = None
-    trace: tuple[EvaluationTraceStep, ...] = ()
+    trace: tuple[RuntimeTraceStep, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -593,7 +614,7 @@ class EngineRequest:
     context_messages: tuple[dict[str, Any], ...] = ()
     trusted_instruction: str = ""
     target_source: str = "user_input"
-    mode: EvaluationMode = "enforce"
+    mode: EnforcementMode = "enforce"
     evidence_scope: EvidenceScope = "interventions"
     content_view: ContentViewSnapshot | None = None
     active_block_id: str | None = None
@@ -603,7 +624,7 @@ class NeMoPolicyRuntime(Protocol):
     name: str
     supported_phases: frozenset[GuardrailPhase]
 
-    async def evaluate(self, request: EngineRequest) -> EvaluationDecision: ...
+    async def evaluate(self, request: EngineRequest) -> ProtectionDecision: ...
 
 
 class PlanResolver(Protocol):

@@ -161,7 +161,7 @@ def _dynamic_action_name(risk: str) -> str:
 
 
 def action_name_for(risk: str, stage: str) -> str:
-    """Return the stable NeMo Action name for one native Control stage."""
+    """Return the stable NeMo Action name for one native Policy stage."""
     if stage == "deterministic":
         return {
             "secrets": "TaskLatticeSecretsAction",
@@ -219,7 +219,7 @@ BUILTIN_ACTION_CATALOG = ActionCatalog(
             concurrent=True,
         ),
         ActionDefinition(
-            name="TaskLatticeRecordControlAction",
+            name="TaskLatticeRecordPolicyAction",
             version="1.0.0",
             input_schema=(
                 ("binding_id", "string"),

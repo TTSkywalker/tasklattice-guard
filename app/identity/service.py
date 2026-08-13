@@ -153,7 +153,7 @@ class IdentityService:
             if self._enabled_admin_count() <= 1:
                 raise IdentityValidationError("At least one enabled administrator is required.")
 
-        assignments = [
+        deployments = [
             "display_name = ?",
             "role = ?",
             "enabled = ?",
@@ -169,12 +169,12 @@ class IdentityService:
         ]
         if password is not None:
             salt = secrets.token_hex(16)
-            assignments.extend(("password_salt = ?", "password_hash = ?"))
+            deployments.extend(("password_salt = ?", "password_hash = ?"))
             values.extend((salt, _password_hash(password, salt)))
         values.append(user_id)
         with self._connect() as connection:
             connection.execute(
-                f"UPDATE users SET {', '.join(assignments)} WHERE id = ?",
+                f"UPDATE users SET {', '.join(deployments)} WHERE id = ?",
                 tuple(values),
             )
             if not next_enabled or password is not None:

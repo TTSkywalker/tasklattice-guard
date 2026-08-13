@@ -7,9 +7,9 @@ from .contracts import (
     ContentBlockResult,
     EnforcementAction,
     EngineRequest,
-    EvaluationDecision,
-    EvaluationRequest,
-    EvaluationUsage,
+    ProtectionDecision,
+    ProtectionRequest,
+    RuntimeUsage,
     NeMoPolicyRuntime,
     GuardContentBlock,
     ModuleAssessment,
@@ -31,7 +31,7 @@ class ModelGuardrailsEngineService:
         self._resolver = resolver
         self._contexts = contexts or CallContextStore()
 
-    async def evaluate(self, request: EvaluationRequest) -> EvaluationDecision:
+    async def evaluate(self, request: ProtectionRequest) -> ProtectionDecision:
         stored = self._contexts.get(request.call_id)
         resolution = (
             stored.resolution
@@ -52,13 +52,13 @@ class ModelGuardrailsEngineService:
             )
 
         if not incoming_blocks:
-            return EvaluationDecision(
+            return ProtectionDecision(
                 decision="allow",
                 action="pass",
-                reason="No model content required evaluation.",
+                reason="No model content required a protection check.",
                 guardrail_id=resolution.plan.guardrail_id,
                 guardrail_version=resolution.plan.guardrail_version,
-                assignment_id=resolution.assignment_id,
+                deployment_id=resolution.deployment_id,
                 integration_id=resolution.integration_id,
                 output_delivery=resolution.plan.output_delivery,
                 trace=resolution.trace,
@@ -71,7 +71,7 @@ class ModelGuardrailsEngineService:
         assessments: list[ModuleAssessment] = []
         interventions: list[AppliedIntervention] = []
         coverages: list[RuntimeCoverage] = []
-        usages: list[EvaluationUsage] = []
+        usages: list[RuntimeUsage] = []
         final_decision = "allow"
         final_action = "pass"
         reason = "All model content passed the active Guardrail."
@@ -153,7 +153,7 @@ class ModelGuardrailsEngineService:
         ordered_results = tuple(content_results[block.id] for block in incoming_blocks)
         output = tuple(output_by_id.get(block.id, block.text) for block in incoming_blocks)
 
-        return EvaluationDecision(
+        return ProtectionDecision(
             decision=final_decision,
             action=final_action,
             reason=reason,
@@ -164,7 +164,7 @@ class ModelGuardrailsEngineService:
             ),
             guardrail_id=resolution.plan.guardrail_id,
             guardrail_version=resolution.plan.guardrail_version,
-            assignment_id=resolution.assignment_id,
+            deployment_id=resolution.deployment_id,
             integration_id=resolution.integration_id,
             output_delivery=resolution.plan.output_delivery,
             findings=tuple(findings),
@@ -244,10 +244,10 @@ def _coverage(items: list[RuntimeCoverage]) -> RuntimeCoverage | None:
     )
 
 
-def _usage(items: list[EvaluationUsage]) -> EvaluationUsage | None:
+def _usage(items: list[RuntimeUsage]) -> RuntimeUsage | None:
     if not items:
         return None
-    return EvaluationUsage(
+    return RuntimeUsage(
         module_invocations=sum(item.module_invocations for item in items),
         evaluator_invocations=sum(item.evaluator_invocations for item in items),
         text_characters=sum(item.text_characters for item in items),

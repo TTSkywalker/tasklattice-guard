@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..control_plane.domain import Integration, IntegrationAuthenticationError, ControlPlaneError
 from ..control_plane.service import ControlPlaneService
-from ..runtime.contracts import EvaluationRequest, GuardContentBlock, RequestContext
+from ..runtime.contracts import ProtectionRequest, GuardContentBlock, RequestContext
 from ..runtime.gateway import ModelGuardrailsEngineService
 from ..integrations import (
     A2A_GUARD_ADAPTER_ID,
@@ -101,7 +101,7 @@ class HTTPGuardrailRequest(BaseModel):
                 for block in self.content
             )
         ):
-            raise ValueError("Structured response evaluation requires an output block.")
+            raise ValueError("A structured response check requires an output block.")
         return self
 
 
@@ -112,7 +112,7 @@ class HTTPGuardrailResponse(BaseModel):
     texts: list[str] = Field(default_factory=list)
     guardrail_id: str | None = None
     guardrail_version: int | None = None
-    assignment_id: str | None = None
+    deployment_id: str | None = None
     findings: list[dict[str, Any]] = Field(default_factory=list)
     trace: list[dict[str, Any]] = Field(default_factory=list)
     mode: Literal["enforce", "detect"] = "enforce"
@@ -203,7 +203,7 @@ class HTTPAdapter:
                     phase=phase,
                     started=started,
                     outcome="error",
-                    detail=f"Guardrail evaluation failed with {type(error).__name__}.",
+                    detail=f"Guardrail runtime check failed with {type(error).__name__}.",
                 )
                 raise
             self._control_plane.record_integration_activity(
@@ -225,7 +225,7 @@ class HTTPAdapter:
                 texts=list(decision.texts),
                 guardrail_id=decision.guardrail_id,
                 guardrail_version=decision.guardrail_version,
-                assignment_id=decision.assignment_id,
+                deployment_id=decision.deployment_id,
                 findings=[asdict(item) for item in decision.findings],
                 trace=[asdict(item) for item in decision.trace],
                 mode=decision.mode,
@@ -270,7 +270,7 @@ class HTTPAdapter:
         request: Request,
         integration: Integration,
         external_call_id: str | None = None,
-    ) -> EvaluationRequest:
+    ) -> ProtectionRequest:
         headers = {
             key.lower(): value
             for key, value in request.headers.items()
@@ -299,7 +299,7 @@ class HTTPAdapter:
                     "a2a.task_id": payload.a2a_task_id or "",
                 }
             )
-        return EvaluationRequest(
+        return ProtectionRequest(
             phase="input" if payload.input_type == "request" else "output",
             texts=tuple(payload.texts),
             content_blocks=_content_blocks(payload),

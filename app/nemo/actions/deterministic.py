@@ -48,9 +48,9 @@ class FastPassEngine:
 
         builtin_step = by_risk.get("builtin_content_filter")
         if builtin_step:
-            controls = tuple(
+            policy_ids = tuple(
                 item.strip()
-                for item in (builtin_step.parameter("control_ids") or "").splitlines()
+                for item in (builtin_step.parameter("policy_ids") or "").splitlines()
                 if item.strip()
             )
             parameters = {
@@ -70,7 +70,7 @@ class FastPassEngine:
             filtered = self._content_filter.evaluate(
                 text=content,
                 phase=request.phase,
-                controls=controls,
+                policies=policy_ids,
                 parameters=parameters,
                 enabled_rules=enabled_rules,
                 rule_actions=rule_actions,
@@ -133,14 +133,14 @@ class FastPassEngine:
                 verdict="unsafe",
                 content=content,
                 findings=tuple(findings),
-                reason="A deterministic Control matched high-confidence sensitive content.",
+                reason="A deterministic Rule matched high-confidence sensitive content.",
             )
         if topic_uncertainty is not None:
             return topic_uncertainty
         return StageResult(
             verdict="safe",
             content=request.text,
-            reason="No configured deterministic Control matched.",
+            reason="No configured deterministic Rule matched.",
         )
 
     @staticmethod

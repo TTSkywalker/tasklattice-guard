@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.control_plane.catalog import CONTROL_DEFINITIONS
+from app.control_plane.catalog import BUILTIN_POLICY_CAPABILITIES
 from app.control_plane.nemo_compiler import NEMO_COMPILER_VERSION, NeMoConfigCompiler
 from app.control_plane.service import ControlPlaneService
 from app.nemo.action_registry import runtime_action_registry
@@ -40,16 +40,17 @@ def test_gate_c_has_one_production_orchestrator_and_no_retired_engine_package():
     assert not (app_root / "runtime" / "risk_router.py").exists()
 
 
-def test_gate_c_every_builtin_control_is_versioned_and_nemo_auditable(tmp_path):
-    service = ControlPlaneService(tmp_path / "gate-c-controls.db")
-    packages = {
-        item.id: item for item in service.controls() if item.source == "built-in"
+def test_gate_c_every_builtin_policy_is_versioned_and_nemo_auditable(tmp_path):
+    service = ControlPlaneService(tmp_path / "gate-c-policies.db")
+    policies = {
+        item.id: item for item in service.policies() if item.source == "built-in"
     }
 
-    assert len(packages) == len(CONTROL_DEFINITIONS) == 10
-    for definition in CONTROL_DEFINITIONS:
-        control_id = f"builtin-{definition.id.replace('_', '-')}"
-        version = service.control_version(control_id, 1)
+    assert len(policies) == len(BUILTIN_POLICY_CAPABILITIES) == 9
+    for definition in BUILTIN_POLICY_CAPABILITIES:
+        assert definition.policy_id is not None
+        policy_id = definition.policy_id
+        version = service.policy_version(policy_id, 1)
         assert version.colang_version == "2.x"
         assert version.rail_bindings
         assert dict(version.execution_contract) == {
@@ -61,11 +62,11 @@ def test_gate_c_every_builtin_control_is_versioned_and_nemo_auditable(tmp_path):
 
 def test_gate_c_every_released_version_and_deployment_is_current_nemo_only(tmp_path):
     service = ControlPlaneService(tmp_path / "gate-c-snapshots.db")
-    assignments = service.assignments()
-    assert assignments
+    deployments = service.deployments()
+    assert deployments
 
     for guardrail in service.guardrails():
-        assert guardrail.control_bindings
+        assert guardrail.policy_bindings
         for version in service.versions(guardrail.id):
             plan = service.plan(guardrail.id, version.version)
             config = service.nemo_config(guardrail.id, version.version)
@@ -73,14 +74,14 @@ def test_gate_c_every_released_version_and_deployment_is_current_nemo_only(tmp_p
             assert version.compiler_version == NEMO_COMPILER_VERSION
             assert config.compiler_version == NEMO_COMPILER_VERSION
             assert version.config_checksum == NeMoConfigCompiler.checksum(config)
-            assert plan.control_versions
-            assert plan.control_bindings
+            assert plan.policy_versions
+            assert plan.policy_bindings
             assert config.runtime_engine in {"iorails", "llmrails"}
-    for assignment in assignments:
+    for deployment in deployments:
         version = next(
             item
-            for item in service.versions(assignment.guardrail_id)
-            if item.version == assignment.guardrail_version
+            for item in service.versions(deployment.guardrail_id)
+            if item.version == deployment.guardrail_version
         )
         assert version.execution_mode == "nemo_only"
 

@@ -12,7 +12,7 @@ from ..control_plane.domain import (
     ControlPlaneError,
 )
 from ..control_plane.service import ControlPlaneService
-from ..runtime.contracts import EvaluationDecision, EvaluationRequest, RequestContext
+from ..runtime.contracts import ProtectionDecision, ProtectionRequest, RequestContext
 from ..runtime.gateway import ModelGuardrailsEngineService
 from ..integrations import LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID
 from .http import SENSITIVE_HEADERS
@@ -115,7 +115,7 @@ class LiteLLMAdapter:
                 )
                 return LiteLLMGuardrailResponse(
                     action="BLOCKED",
-                    blocked_reason="No Assignment matches this request.",
+                    blocked_reason="No Deployment matches this request.",
                 )
             except Exception as error:
                 self._control_plane.record_integration_activity(
@@ -128,7 +128,7 @@ class LiteLLMAdapter:
                     phase=phase,
                     started=started,
                     outcome="error",
-                    detail=f"Guardrail evaluation failed with {type(error).__name__}.",
+                    detail=f"Guardrail runtime check failed with {type(error).__name__}.",
                 )
                 raise
             self._control_plane.record_integration_activity(
@@ -161,7 +161,7 @@ class LiteLLMAdapter:
     def _to_engine_request(
         request: LiteLLMGuardrailRequest,
         integration: Integration,
-    ) -> EvaluationRequest:
+    ) -> ProtectionRequest:
         headers = {
             str(key).lower(): str(value)
             for key, value in (request.request_headers or {}).items()
@@ -209,7 +209,7 @@ class LiteLLMAdapter:
             }
         )
 
-        return EvaluationRequest(
+        return ProtectionRequest(
             phase="input" if request.input_type == "request" else "output",
             texts=tuple(request.texts or ()),
             context=RequestContext(
@@ -228,7 +228,7 @@ class LiteLLMAdapter:
 
     @staticmethod
     def _to_litellm_response(
-        decision: EvaluationDecision,
+        decision: ProtectionDecision,
     ) -> LiteLLMGuardrailResponse:
         if decision.decision == "block":
             return LiteLLMGuardrailResponse(

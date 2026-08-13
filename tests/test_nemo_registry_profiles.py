@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
@@ -11,7 +9,6 @@ import yaml
 from app.control_plane.domain import ControlPlaneError, PlanCompilationError
 from app.control_plane.service import _nemo_config_from_payload
 from app.nemo.action_registry import RuntimeActionRegistry
-from app.nemo.artifacts import config_checksum
 from app.nemo.registry import NeMoRailsRegistry
 from app.runtime.contracts import (
     GuardrailPlanSnapshot,
@@ -107,32 +104,7 @@ def _config(
     )
 
 
-def test_pre_v6_artifact_checksum_survives_contract_deserialization() -> None:
-    original = replace(
-        _config(
-            profile="llmrails_colang2_programmable",
-            engine="llmrails",
-            colang_version="2.x",
-            tracing=False,
-            bindings=(_binding(),),
-        ),
-        compiler_version="tasklattice-nemo-config-v5",
-    )
-    legacy_payload = asdict(original)
-    legacy_payload.pop("runtime_profile")
-    for binding in legacy_payload["action_bindings"]:
-        binding.pop("result_var")
-    encoded = json.dumps(legacy_payload, sort_keys=True, separators=(",", ":"))
-    released_checksum = hashlib.sha256(encoded.encode()).hexdigest()
-
-    restored = _nemo_config_from_payload(legacy_payload)
-
-    assert restored.runtime_profile == "llmrails_colang2_programmable"
-    assert all(item.result_var is None for item in restored.action_bindings)
-    assert config_checksum(restored) == released_checksum
-
-
-def test_v6_artifact_requires_explicit_runtime_profile() -> None:
+def test_artifact_requires_explicit_runtime_profile() -> None:
     payload = asdict(
         replace(
             _config(),

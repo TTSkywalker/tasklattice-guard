@@ -9,15 +9,15 @@ DEFAULT_GUARDRAIL_PURPOSE = (
     "prompt-injection, SQL-injection, and code-injection checks without calling "
     "an external model."
 )
-DEFAULT_GUARDRAIL_PACK_ID = "prompt-injection-protection"
+DEFAULT_GUARDRAIL_POLICY_ID = "prompt-injection-protection"
 
-DEFAULT_ASSIGNMENT_ID = "assignment-default"
-DEFAULT_ASSIGNMENT_NAME = "Default Assignment"
+DEFAULT_DEPLOYMENT_ID = "deployment-default"
+DEFAULT_DEPLOYMENT_NAME = "Default Deployment"
 
 
 def is_default_guardrail(guardrail_id: str) -> bool:
     return guardrail_id == DEFAULT_GUARDRAIL_ID
 
 
-def is_default_assignment(assignment_id: str) -> bool:
-    return assignment_id == DEFAULT_ASSIGNMENT_ID
+def is_default_deployment(deployment_id: str) -> bool:
+    return deployment_id == DEFAULT_DEPLOYMENT_ID

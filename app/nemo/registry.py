@@ -23,7 +23,7 @@ _PROFILE_RUNTIME = {
 }
 _EXECUTOR_ACTION_VERSIONS = {
     "TaskLatticeCustomerIdentifierAction": "1.0.0",
-    "TaskLatticeRecordControlAction": "1.0.0",
+    "TaskLatticeRecordPolicyAction": "1.0.0",
     "TaskLatticeRecordNativeAction": "1.0.0",
     "TaskLatticeResolveAction": "1.0.0",
 }
