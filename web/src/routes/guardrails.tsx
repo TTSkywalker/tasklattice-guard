@@ -220,9 +220,9 @@ function GuardrailDetail({ guardrailId, onRefresh }: { guardrailId: string; onRe
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="p-5 sm:p-6">
-        <TabsList className="h-auto min-h-11 w-full flex-wrap justify-start rounded-lg bg-muted p-1">
-          <TabsTrigger value="definition" className="min-h-11 rounded-md px-3">{t("guardrails.definition")}</TabsTrigger>
-          <TabsTrigger value="versions" className="min-h-11 rounded-md px-3">{t("guardrails.versions")}</TabsTrigger>
+        <TabsList size="touch" className="w-full flex-wrap justify-start rounded-lg bg-muted p-1">
+          <TabsTrigger value="definition" className="rounded-md px-3">{t("guardrails.definition")}</TabsTrigger>
+          <TabsTrigger value="versions" className="rounded-md px-3">{t("guardrails.versions")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="definition" className="mt-5 space-y-5">

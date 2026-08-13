@@ -179,8 +179,8 @@ export function ControlDetailSheet({ controlId, onClose, onEdit }: { controlId: 
       {query.error ? <ErrorNotice error={query.error} /> : null}
       {control ? (
         <Tabs defaultValue="overview">
-          <TabsList variant="line" className="h-auto w-full justify-start overflow-x-auto pb-2 [scrollbar-width:none]">
-            {(["overview", "rails", "colang", "actions", "parameters", "tests", "versions", "compatibility"] as const).map((tab) => <TabsTrigger key={tab} value={tab} className="min-h-11 px-3">{t(`controlStudio.tabs.${tab}`)}</TabsTrigger>)}
+          <TabsList variant="line" size="touch" className="w-full justify-start overflow-x-auto pb-2 [scrollbar-width:none]">
+            {(["overview", "rails", "colang", "actions", "parameters", "tests", "versions", "compatibility"] as const).map((tab) => <TabsTrigger key={tab} value={tab} className="px-3">{t(`controlStudio.tabs.${tab}`)}</TabsTrigger>)}
           </TabsList>
           <TabsContent value="overview" className="pt-4"><Overview control={control} /></TabsContent>
           <TabsContent value="rails" className="pt-4"><RailList rails={control.draft.rail_bindings} /></TabsContent>

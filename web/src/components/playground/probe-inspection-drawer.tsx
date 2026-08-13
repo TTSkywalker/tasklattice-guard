@@ -58,7 +58,8 @@ export function StageTabs({ result }: { result: PlaygroundInteraction }) {
     >
       <TabsList
         aria-label={t("playground.inspectionStages")}
-        className="grid h-auto! w-full grid-cols-2 rounded-none border-b bg-muted/40 p-1.5 pb-0"
+        size="content"
+        className="grid w-full grid-cols-2 rounded-none border-b bg-muted/40 p-1.5 pb-0"
       >
         <StageTabTrigger
           value="input"
@@ -99,7 +100,7 @@ function StageTabTrigger({ value, icon, title, description, state, stateLabel }:
   return (
     <TabsTrigger
       value={value}
-      className="group/stage relative -mb-px min-h-[4.25rem] min-w-0 justify-start gap-1.5 overflow-hidden rounded-t-lg rounded-b-none border border-transparent bg-transparent px-2 py-2.5 text-left shadow-none hover:bg-card/60 hover:text-foreground data-[state=active]:border-border data-[state=active]:border-b-card data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset sm:gap-3 sm:px-4"
+      className="group/stage relative -mb-px min-h-[4.25rem] min-w-0 justify-start gap-1.5 overflow-hidden rounded-t-lg rounded-b-none border border-transparent bg-transparent px-2 py-2.5 text-left shadow-none hover:bg-card/60 hover:text-foreground data-[state=active]:border-border data-[state=active]:border-b-card data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none sm:gap-3 sm:px-4"
     >
       <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground ring-1 ring-border transition-colors group-data-[state=active]/stage:bg-primary group-data-[state=active]/stage:text-primary-foreground group-data-[state=active]/stage:ring-primary/20 sm:size-9 [&_svg]:size-4 sm:[&_svg]:size-[1.125rem]">
         {icon}

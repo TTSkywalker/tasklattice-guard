@@ -488,12 +488,12 @@ export function RulesControlDetail({ control, onClose }: { control: RulesControl
           ) : null}
 
           <Tabs key={control.id} defaultValue="rules" className="gap-0 overflow-hidden rounded-xl border bg-card">
-            <TabsList className="grid h-auto! w-full grid-cols-2 rounded-none border-b bg-muted/30 p-1" aria-label={t("controlLibrary.contractViews")}>
-              <TabsTrigger value="rules" className="min-h-11 gap-2 px-3">
+            <TabsList size="touch" className="grid w-full grid-cols-2 rounded-none border-b bg-muted/30 p-1" aria-label={t("controlLibrary.contractViews")}>
+              <TabsTrigger value="rules" className="gap-2 px-3">
                 <ListTree aria-hidden="true" />
                 {t("controlLibrary.rulesCount", { count: control.rules.length })}
               </TabsTrigger>
-              <TabsTrigger value="tests" className="min-h-11 gap-2 px-3">
+              <TabsTrigger value="tests" className="gap-2 px-3">
                 <FlaskConical aria-hidden="true" />
                 {t("controlLibrary.testsCount", { count: control.test_count })}
               </TabsTrigger>
