@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from .domain import ControlPackSpec, ControlSpec, RuleSpec
+from .domain import ControlPackSpec, ControlSpec, ControlTestSuiteSpec, RuleSpec
 from .registry import control_packs, controls
 
 
@@ -51,6 +51,8 @@ def _control_payload(
         "allowed_actions": item.allowed_actions,
         "detector_types": item.detector_types,
         "rules": tuple(_rule_payload(rule) for rule in item.rules),
+        "test_suites": tuple(_test_suite_payload(suite) for suite in item.test_suites),
+        "test_count": item.test_count,
         "packs": packs,
     }
 
@@ -77,4 +79,23 @@ def _rule_payload(item: RuleSpec) -> dict[str, object]:
 
 
 def _control_pack_payload(item: ControlPackSpec) -> dict[str, object]:
-    return asdict(item)
+    control_index = {control.id: control for control in controls()}
+    selected = tuple(
+        control_index[control_id]
+        for control_id in item.control_ids
+        if control_id in control_index
+    )
+    return {
+        **asdict(item),
+        "test_suite_count": sum(len(control.test_suites) for control in selected),
+        "test_case_count": sum(control.test_count for control in selected),
+    }
+
+
+def _test_suite_payload(item: ControlTestSuiteSpec) -> dict[str, object]:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "description": item.description,
+        "cases": tuple(asdict(case) for case in item.cases),
+    }

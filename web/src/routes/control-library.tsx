@@ -4,6 +4,7 @@ import {
   Braces,
   ChevronDown,
   ChevronRight,
+  FlaskConical,
   ListTree,
   PackageOpen,
   Plus,
@@ -23,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryKeys } from "@/features/query-keys";
 import {
   getControls,
@@ -31,6 +33,7 @@ import {
   type NativeControl,
   type NativeRailType,
   type RulesControl,
+  type RulesControlTestCase,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -339,9 +342,10 @@ function ControlCatalogCard({ item, onOpen }: { item: CatalogItem; onOpen: () =>
           <>
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="font-medium">{t("controlLibrary.rulesCount", { count: rulesControl.rules.length })}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">v{rulesControl.version}</span>
+              <span className="text-muted-foreground">{t("controlLibrary.testsCount", { count: rulesControl.test_count })}</span>
             </div>
             <RuleTeeth count={rulesControl.rules.length} />
+            <p className="mt-2 font-mono text-[10px] text-muted-foreground">v{rulesControl.version}</p>
           </>
         ) : native ? (
           <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/35 p-3 text-xs">
@@ -407,6 +411,12 @@ function catalogItems(controls: Control[]): CatalogItem[] {
           ...rule.keywords.map((keyword) => keyword.value),
           ...rule.always_block.map((keyword) => keyword.value),
         ]),
+        ...control.test_suites.flatMap((suite) => [
+          suite.id,
+          suite.name,
+          suite.description,
+          ...suite.cases.flatMap((testCase) => [testCase.id, testCase.name, testCase.description, testCase.content]),
+        ]),
       ].join(" ").toLowerCase(),
       rulesControl: control,
     };
@@ -436,7 +446,7 @@ function RuleTeeth({ count }: { count: number }) {
   );
 }
 
-function RulesControlDetail({ control, onClose }: { control: RulesControl | null; onClose: () => void }) {
+export function RulesControlDetail({ control, onClose }: { control: RulesControl | null; onClose: () => void }) {
   const { t } = useTranslation();
   const [expandedRule, setExpandedRule] = useState<string | null>(null);
 
@@ -477,42 +487,59 @@ function RulesControlDetail({ control, onClose }: { control: RulesControl | null
             </section>
           ) : null}
 
-          <section className="overflow-hidden rounded-xl border bg-card">
-            <div className="border-b bg-muted/30 px-4 py-3">
-              <h3 className="text-sm font-medium">{t("controlLibrary.rulesCount", { count: control.rules.length })}</h3>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("controlLibrary.rulesDescription")}</p>
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="min-w-56 pl-4">{t("controlLibrary.rule")}</TableHead>
-                  <TableHead className="hidden sm:table-cell">{t("controlLibrary.detector")}</TableHead>
-                  <TableHead className="hidden sm:table-cell">{t("controlLibrary.action")}</TableHead>
-                  <TableHead className="w-12"><span className="sr-only">{t("controlLibrary.openDetails")}</span></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {control.rules.map((rule) => {
-                  const expanded = expandedRule === rule.id;
-                  return (
-                    <Fragment key={rule.id}>
-                      <TableRow className="group">
-                        <TableCell className="py-3 pl-4 whitespace-normal"><strong className="block text-sm font-medium">{rule.name}</strong><span className="mt-1 block font-mono text-[11px] text-muted-foreground">{rule.id}</span><div className="mt-2 flex flex-wrap gap-1.5 sm:hidden"><DetectorBadges detectors={[rule.detector]} /><ActionBadge action={rule.action} /></div></TableCell>
-                        <TableCell className="hidden sm:table-cell"><DetectorBadges detectors={[rule.detector]} /></TableCell>
-                        <TableCell className="hidden sm:table-cell"><ActionBadge action={rule.action} /></TableCell>
-                        <TableCell className="pr-3"><Button type="button" size="icon" variant="ghost" aria-expanded={expanded} aria-label={t("controlLibrary.toggleRule", { name: rule.name })} onClick={() => setExpandedRule(expanded ? null : rule.id)}><ChevronDown className={cn("transition-transform", expanded && "rotate-180")} /></Button></TableCell>
-                      </TableRow>
-                      {expanded ? (
-                        <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={4} className="max-w-0 min-w-0 bg-muted/20 p-4 whitespace-normal"><RuleImplementation rule={rule} /></TableCell>
+          <Tabs key={control.id} defaultValue="rules" className="gap-0 overflow-hidden rounded-xl border bg-card">
+            <TabsList className="grid h-auto! w-full grid-cols-2 rounded-none border-b bg-muted/30 p-1" aria-label={t("controlLibrary.contractViews")}>
+              <TabsTrigger value="rules" className="min-h-11 gap-2 px-3">
+                <ListTree aria-hidden="true" />
+                {t("controlLibrary.rulesCount", { count: control.rules.length })}
+              </TabsTrigger>
+              <TabsTrigger value="tests" className="min-h-11 gap-2 px-3">
+                <FlaskConical aria-hidden="true" />
+                {t("controlLibrary.testsCount", { count: control.test_count })}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="rules" className="m-0">
+              <div className="border-b bg-muted/15 px-4 py-3">
+                <p className="text-xs leading-5 text-muted-foreground">{t("controlLibrary.rulesDescription")}</p>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="min-w-56 pl-4">{t("controlLibrary.rule")}</TableHead>
+                    <TableHead className="hidden sm:table-cell">{t("controlLibrary.detector")}</TableHead>
+                    <TableHead className="hidden sm:table-cell">{t("controlLibrary.action")}</TableHead>
+                    <TableHead className="w-12"><span className="sr-only">{t("controlLibrary.openDetails")}</span></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {control.rules.map((rule) => {
+                    const expanded = expandedRule === rule.id;
+                    const acceptanceCases = control.test_suites.flatMap((suite) => suite.cases).filter((testCase) => testCase.covered_rule_ids.includes(rule.id));
+                    return (
+                      <Fragment key={rule.id}>
+                        <TableRow className="group">
+                          <TableCell className="py-3 pl-4 whitespace-normal"><strong className="block text-sm font-medium">{rule.name}</strong><span className="mt-1 block font-mono text-[11px] text-muted-foreground">{rule.id}</span><div className="mt-2 flex flex-wrap gap-1.5 sm:hidden"><DetectorBadges detectors={[rule.detector]} /><ActionBadge action={rule.action} /></div></TableCell>
+                          <TableCell className="hidden sm:table-cell"><DetectorBadges detectors={[rule.detector]} /></TableCell>
+                          <TableCell className="hidden sm:table-cell"><ActionBadge action={rule.action} /></TableCell>
+                          <TableCell className="pr-3"><Button type="button" size="icon" variant="ghost" aria-expanded={expanded} aria-label={t("controlLibrary.toggleRule", { name: rule.name })} onClick={() => setExpandedRule(expanded ? null : rule.id)}><ChevronDown className={cn("transition-transform", expanded && "rotate-180")} /></Button></TableCell>
                         </TableRow>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </section>
+                        {expanded ? (
+                          <TableRow className="hover:bg-transparent">
+                            <TableCell colSpan={4} className="max-w-0 min-w-0 bg-muted/20 p-4 whitespace-normal"><RuleImplementation rule={rule} tests={acceptanceCases} /></TableCell>
+                          </TableRow>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TabsContent>
+
+            <TabsContent value="tests" className="m-0">
+              <ControlTestSuites control={control} />
+            </TabsContent>
+          </Tabs>
 
         </div>
       ) : null}
@@ -520,8 +547,10 @@ function RulesControlDetail({ control, onClose }: { control: RulesControl | null
   );
 }
 
-function RuleImplementation({ rule }: { rule: ControlRule }) {
+function RuleImplementation({ rule, tests }: { rule: ControlRule; tests: RulesControlTestCase[] }) {
   const { t } = useTranslation();
+  const acceptanceTests = tests.filter((testCase) => testCase.kind === "rule_acceptance");
+  const scenarioCount = tests.length - acceptanceTests.length;
   const textLists = [
     ["identifiers", rule.identifiers],
     ["conditions", rule.conditions],
@@ -564,7 +593,88 @@ function RuleImplementation({ rule }: { rule: ControlRule }) {
           ) : null)}
         </div>
       ) : null}
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-medium text-muted-foreground">{t("controlLibrary.ruleAcceptance")}</p>
+          <Badge variant="outline">{acceptanceTests.length}</Badge>
+        </div>
+        <div className="mt-3 grid gap-2">
+          {acceptanceTests.map((testCase) => <TestCaseContract key={testCase.id} testCase={testCase} compact />)}
+        </div>
+        {scenarioCount ? <p className="mt-3 text-xs leading-5 text-muted-foreground">{t("controlLibrary.scenariosAlsoCover", { count: scenarioCount })}</p> : null}
+      </div>
     </div>
+  );
+}
+
+function ControlTestSuites({ control }: { control: RulesControl }) {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <div className="border-b bg-muted/15 px-4 py-3">
+        <h3 className="text-sm font-medium">{t("controlLibrary.acceptanceContract")}</h3>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("controlLibrary.testsDescription")}</p>
+      </div>
+      <div className="border-b bg-primary/5 px-4 py-3 text-xs leading-5 text-muted-foreground">
+        <span className="font-medium text-foreground">{t("controlLibrary.evaluationHandoffTitle")}</span>{" "}{t("controlLibrary.evaluationHandoff")}
+      </div>
+      <div className="divide-y">
+        {control.test_suites.map((suite, index) => (
+          <details key={suite.id} className="group" open={index === 0}>
+            <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                <strong className="block text-sm font-medium">{suite.name}</strong>
+                <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{suite.description}</span>
+              </span>
+              <Badge variant="secondary" className="shrink-0">{suite.cases.length}</Badge>
+            </summary>
+            <div className="grid gap-3 border-t bg-muted/15 p-3 sm:p-4">
+              {suite.cases.map((testCase) => <TestCaseContract key={testCase.id} testCase={testCase} />)}
+            </div>
+          </details>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TestCaseContract({ testCase, compact = false }: { testCase: RulesControlTestCase; compact?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <article className="min-w-0 rounded-lg border bg-card p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <strong className="block text-sm font-medium">{testCase.name}</strong>
+          <span className="mt-1 block font-mono text-[10px] text-muted-foreground">{testCase.id}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ExpectedDecisionBadge decision={testCase.expected_decision} />
+          <Badge variant="outline" className="font-normal">{t(`controlLibrary.phases.${testCase.phase}`)}</Badge>
+        </div>
+      </div>
+      {!compact ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{testCase.description}</p> : null}
+      <blockquote className="mt-3 break-words rounded-md border-l-2 border-primary/50 bg-muted/35 px-3 py-2 text-xs leading-5 text-foreground">{testCase.content}</blockquote>
+      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+        <div><dt className="text-muted-foreground">{t("controlLibrary.testKind")}</dt><dd className="mt-1 font-medium">{t(`controlLibrary.testKinds.${testCase.kind}`)}</dd></div>
+        <div><dt className="text-muted-foreground">{t("controlLibrary.coveredRules")}</dt><dd className="mt-1 flex flex-wrap gap-1">{testCase.covered_rule_ids.map((ruleId) => <code key={ruleId} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{ruleId}</code>)}</dd></div>
+      </dl>
+      {testCase.parameter_names.length ? <p className="mt-3 text-[11px] leading-5 text-muted-foreground">{t("controlLibrary.parameterizedCase", { parameters: testCase.parameter_names.join(", ") })}</p> : null}
+    </article>
+  );
+}
+
+function ExpectedDecisionBadge({ decision }: { decision: RulesControlTestCase["expected_decision"] }) {
+  const { t } = useTranslation();
+  return (
+    <Badge variant="outline" className={cn(
+      "font-normal",
+      decision === "allow" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+      decision === "block" && "border-red-200 bg-red-50 text-red-700",
+      (decision === "transform" || decision === "intervene") && "border-amber-200 bg-amber-50 text-amber-700",
+    )}>
+      {t(`controlLibrary.expectedDecisions.${decision}`)}
+    </Badge>
   );
 }
 

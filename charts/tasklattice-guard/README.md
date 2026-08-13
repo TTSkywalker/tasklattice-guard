@@ -39,7 +39,7 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `persistence.enabled` | `true` | Persist SQLite control-plane state |
 | `persistence.existingClaim` | empty | Existing PVC override; otherwise the chart creates `tali-guard` |
 | `persistence.retain` | `true` | Retain the PVC after uninstall |
-| `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v5.db` | Persistent Guardrail, Assignment, evidence, and identity database |
+| `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v6.db` | Persistent Guardrail, Assignment, evidence, and identity database |
 | `runtime.publicBaseUrl` | `http://localhost:38081` | Stable public origin used to generate per-Integration callback URLs |
 | `evaluators.nvidia.baseUrl` | empty | Enable model-backed evaluators |
 | `evaluators.nvidia.groundingModel` | empty | OpenAI-compatible model used for contextual grounding evidence |
@@ -57,9 +57,10 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `controlPlaneAgent.deepseek.model` | `deepseek-v4-flash` | Model used only to structure policy intent |
 | `controlPlaneAgent.deepseek.existingSecret` | empty | Existing Secret containing the DeepSeek API key |
 
-Schema v5 is an intentional early-development reset. The service rejects older
-databases instead of migrating them; keep the v5 default path above or point
-`database.path` at a fresh database file. Integration records no longer carry
+Schema v6 adds Control test provenance to the v5 early-development schema.
+The service migrates v5 databases additively; older schemas must use a fresh
+database file.
+Integration records no longer carry
 an `environment` field; they persist an adapter ID and per-instance setup state.
 
 TaskLattice Guard currently uses SQLite, so `replicaCount` is restricted to

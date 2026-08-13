@@ -31,7 +31,7 @@ PUBLIC_RUNTIME_BASE_URL = "https://guard.example.com"
 
 def integration_settings(tmp_path: Path) -> Settings:
     return Settings(
-        database_path=tmp_path / "tasklattice-guard-schema-v5.db",
+        database_path=tmp_path / "tasklattice-guard-schema-v6.db",
         ui_dist_path=tmp_path / "missing-ui",
         public_runtime_base_url=PUBLIC_RUNTIME_BASE_URL,
     )

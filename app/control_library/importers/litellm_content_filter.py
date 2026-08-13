@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from ..acceptance import attach_test_suites
 from ..domain import (
     ControlLibraryBundle,
     ControlLibrarySource,
@@ -85,13 +86,20 @@ def import_bundle() -> ControlLibraryBundle:
                 id=raw_pack["id"],
                 name=raw_pack["title"],
                 description=raw_pack["description"],
-                source=str(manifest["name"]),
+                source="built_in",
                 version=version,
                 control_ids=tuple(control_ids),
                 parameters=tuple(parameters),
                 examples=tuple(raw_pack.get("example_sentences", [])),
             )
         )
+
+    controls = attach_test_suites(
+        controls,
+        asset_path=Path(__file__).resolve().parents[1]
+        / "assets"
+        / "builtin_control_tests.json",
+    )
 
     return ControlLibraryBundle(
         id="litellm-content-filter",
@@ -187,6 +195,7 @@ def _translate_control(
         for item in params.get("categories", [])
         if item.get("enabled", True)
     )
+    rules.extend(_tasklattice_rules(control_id, phase=phase))
     return ControlSpec(
         id=control_id,
         name=display_name(control_id),
@@ -196,6 +205,37 @@ def _translate_control(
         source="built_in",
         version=version,
         rules=tuple(rules),
+    )
+
+
+def _tasklattice_rules(
+    control_id: str,
+    *,
+    phase: GuardrailPhase,
+) -> tuple[RuleSpec, ...]:
+    if control_id != "competitor-comparison-input-filter":
+        return ()
+    return (
+        RuleSpec(
+            id="competitor-comparison-intent",
+            name="Competitor comparison intent",
+            detector="category",
+            action="BLOCK",
+            phases=(phase,),
+            description=(
+                "Blocks airline ranking, comparison, recommendation, and switching "
+                "requests while allowing destination and service-policy questions."
+            ),
+            identifiers=("airline", "airlines", "airways", "carrier", "carriers"),
+            conditions=("better", "best", "ranked", "number one", "compare", "switch"),
+            phrase_patterns=(
+                r"\bcompare\b.{0,80}\b(?:airlines?|airways|carriers?|vs\.?)\b",
+                r"\b(?:airlines?|airways|carriers?)\b.{0,80}\b(?:better|best|ranked|number\s+one|versus|vs\.?)\b",
+                r"\b(?:better|best|ranked|number\s+one)\b.{0,80}\b(?:airlines?|airways|carriers?|business\s+class|lounges?|customer\s+satisfaction)\b",
+                r"\bshould\s+i\s+(?:choose|switch)\b.{0,80}\b(?:airlines?|airways|carriers?|qatar|singapore|turkish|lufthansa)\b",
+                r"\bdoha\s+airline\b.{0,40}\bbetter\s+than\b",
+            ),
+        ),
     )
 
 

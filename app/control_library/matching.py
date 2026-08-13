@@ -6,7 +6,11 @@ import re
 def keyword_expression(keyword: str) -> str:
     """Build the case-insensitive expression used by local keyword rules."""
     escaped = re.escape(keyword).replace(r"\*", ".?")
-    return escaped if " " in keyword else rf"\b{escaped}\b"
+    if " " in keyword:
+        return escaped
+    prefix = r"\b" if keyword and (keyword[0].isalnum() or keyword[0] == "_") else ""
+    suffix = r"\b" if keyword and (keyword[-1].isalnum() or keyword[-1] == "_") else ""
+    return f"{prefix}{escaped}{suffix}"
 
 
 def severity_applies(severity: str, threshold: str) -> bool:

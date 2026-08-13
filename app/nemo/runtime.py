@@ -1086,6 +1086,16 @@ def _risk_finding_from_payload(
         raise RuntimeError(
             f"NeMo Action {binding.id!r} returned an invalid replacement."
         )
+    control_id = payload.get("control_id")
+    rule_id = payload.get("rule_id")
+    if control_id is not None and not isinstance(control_id, str):
+        raise RuntimeError(
+            f"NeMo Action {binding.id!r} returned an invalid Control identity."
+        )
+    if rule_id is not None and not isinstance(rule_id, str):
+        raise RuntimeError(
+            f"NeMo Action {binding.id!r} returned an invalid Rule identity."
+        )
     return RiskFinding(
         # The immutable binding, not Action-supplied telemetry, owns the risk
         # identity used by policy aggregation and enterprise audit.
@@ -1095,6 +1105,8 @@ def _risk_finding_from_payload(
         evidence=str(payload.get("evidence", "")),
         recommended_action=action,  # type: ignore[arg-type]
         replacement=replacement,
+        control_id=control_id,
+        rule_id=rule_id,
     )
 
 

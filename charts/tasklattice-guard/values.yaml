@@ -56,7 +56,7 @@ persistence:
   mountPath: /var/lib/tasklattice/model-guardrails
 
 database:
-  path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v5.db
+  path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-schema-v6.db
 
 runtime:
   publicBaseUrl: http://localhost:38081

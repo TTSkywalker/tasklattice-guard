@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 from .domain import ControlLibraryBundle, ControlPackSpec, ControlSpec, RuleSpec
@@ -9,6 +10,8 @@ from .importers.litellm_content_filter import import_bundle
 BUILTIN_LIBRARY_ID = "litellm-content-filter"
 _PHASES = frozenset({"input", "output"})
 _DETECTORS = frozenset({"regex", "keyword", "category"})
+_TEST_DECISIONS = frozenset({"allow", "block", "transform", "intervene"})
+_TEST_KINDS = frozenset({"rule_acceptance", "scenario"})
 
 
 class ControlLibraryRegistry:
@@ -145,6 +148,7 @@ def _validate_control(
         raise ValueError(f"Control {control.id!r} allows no actions.")
 
     rule_ids: set[str] = set()
+    rules_by_id: dict[str, RuleSpec] = {}
     for rule in control.rules:
         _validate_rule(rule, control)
         if rule.id in rule_ids:
@@ -152,6 +156,108 @@ def _validate_control(
                 f"Control {control.id!r} contains duplicate Rule {rule.id!r}."
             )
         rule_ids.add(rule.id)
+        rules_by_id[rule.id] = rule
+
+    case_ids: set[str] = set()
+    accepted_rules: set[str] = set()
+    suite_ids: set[str] = set()
+    for suite in control.test_suites:
+        _required(suite.id, f"Control {control.id!r} test suite ID")
+        _required(suite.name, f"Control {control.id!r} test suite {suite.id!r} name")
+        _required(
+            suite.description,
+            f"Control {control.id!r} test suite {suite.id!r} description",
+        )
+        if suite.id in suite_ids:
+            raise ValueError(
+                f"Control {control.id!r} repeats test suite {suite.id!r}."
+            )
+        suite_ids.add(suite.id)
+        if not suite.cases:
+            raise ValueError(
+                f"Control {control.id!r} test suite {suite.id!r} has no cases."
+            )
+        for case in suite.cases:
+            _required(case.id, f"Control {control.id!r} test case ID")
+            _required(case.name, f"Control {control.id!r} test case {case.id!r} name")
+            _required(
+                case.description,
+                f"Control {control.id!r} test case {case.id!r} description",
+            )
+            _required(
+                case.content,
+                f"Control {control.id!r} test case {case.id!r} content",
+            )
+            if case.id in case_ids:
+                raise ValueError(
+                    f"Control {control.id!r} repeats test case {case.id!r}."
+                )
+            case_ids.add(case.id)
+            if case.phase not in _PHASES or case.phase not in control.phases:
+                raise ValueError(
+                    f"Control {control.id!r} test case {case.id!r} has an invalid phase."
+                )
+            if case.expected_decision not in _TEST_DECISIONS:
+                raise ValueError(
+                    f"Control {control.id!r} test case {case.id!r} has an invalid decision."
+                )
+            if case.kind not in _TEST_KINDS:
+                raise ValueError(
+                    f"Control {control.id!r} test case {case.id!r} has an invalid kind."
+                )
+            if not case.covered_rule_ids:
+                raise ValueError(
+                    f"Control {control.id!r} test case {case.id!r} covers no Rules."
+                )
+            unknown_rules = set(case.covered_rule_ids).difference(rule_ids)
+            if unknown_rules:
+                raise ValueError(
+                    f"Control {control.id!r} test case {case.id!r} references unknown "
+                    "Rules: " + ", ".join(sorted(unknown_rules)) + "."
+                )
+            incompatible_rules = tuple(
+                rule_id
+                for rule_id in case.covered_rule_ids
+                if case.phase not in rules_by_id[rule_id].phases
+            )
+            if incompatible_rules:
+                raise ValueError(
+                    f"Control {control.id!r} test case {case.id!r} uses phase "
+                    f"{case.phase!r} for incompatible Rules: "
+                    + ", ".join(sorted(incompatible_rules))
+                    + "."
+                )
+            placeholders = set(
+                re.findall(r"\{\{([^{}]+)\}\}", case.name + " " + case.content)
+            )
+            if placeholders != set(case.parameter_names):
+                raise ValueError(
+                    f"Control {control.id!r} test case {case.id!r} has a mismatched "
+                    "parameter contract."
+                )
+            if case.kind == "rule_acceptance":
+                if not case.required or len(case.covered_rule_ids) != 1:
+                    raise ValueError(
+                        f"Control {control.id!r} Rule acceptance case {case.id!r} "
+                        "must be required and cover exactly one Rule."
+                    )
+                rule_id = case.covered_rule_ids[0]
+                expected = (
+                    "transform" if rules_by_id[rule_id].action == "MASK" else "block"
+                )
+                if case.expected_decision != expected:
+                    raise ValueError(
+                        f"Control {control.id!r} Rule acceptance case {case.id!r} "
+                        f"must expect {expected!r}."
+                    )
+                accepted_rules.add(rule_id)
+    unaccepted = rule_ids.difference(accepted_rules)
+    if unaccepted:
+        raise ValueError(
+            f"Control {control.id!r} has Rules without required acceptance cases: "
+            + ", ".join(sorted(unaccepted))
+            + "."
+        )
 
 
 def _validate_rule(rule: RuleSpec, control: ControlSpec) -> None:

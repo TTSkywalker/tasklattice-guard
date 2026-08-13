@@ -140,6 +140,17 @@ export type EvaluationCaseResult = {
   grounding_sources: string[];
   expected_reasoning_result: AutomatedReasoningResult | null;
   actual_reasoning_result: AutomatedReasoningResult | null;
+  case_type: "rule_acceptance" | "scenario" | "custom" | string;
+  required: boolean;
+  expected_failure: string | null;
+  actual_failure: string | null;
+  concurrency_group: string | null;
+  source_control_id: string | null;
+  source_control_version: string | null;
+  source_suite_id: string | null;
+  source_case_id: string | null;
+  covered_rule_ids: string[];
+  matched_rule_ids: string[];
 };
 
 export type TestRun = {
@@ -230,6 +241,13 @@ export type TestCase = {
   query: string;
   grounding_sources: string[];
   expected_reasoning_result: AutomatedReasoningResult | null;
+  source_control_id: string | null;
+  source_control_version: string | null;
+  source_suite_id: string | null;
+  source_case_id: string | null;
+  covered_rule_ids: string[];
+  case_type: string;
+  required: boolean;
 };
 
 export type RiskCoverage = {
@@ -332,6 +350,8 @@ export type ControlPack = {
   examples: string[];
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
+  test_suite_count: number;
+  test_case_count: number;
 };
 
 export type ControlRuleKeyword = {
@@ -358,6 +378,26 @@ export type ControlRule = {
   phrase_patterns: string[];
 };
 
+export type RulesControlTestCase = {
+  id: string;
+  name: string;
+  description: string;
+  phase: "input" | "output";
+  content: string;
+  expected_decision: "allow" | "block" | "transform" | "intervene";
+  covered_rule_ids: string[];
+  kind: "rule_acceptance" | "scenario";
+  required: boolean;
+  parameter_names: string[];
+};
+
+export type RulesControlTestSuite = {
+  id: string;
+  name: string;
+  description: string;
+  cases: RulesControlTestCase[];
+};
+
 export type RulesControl = {
   implementation: "rules";
   id: string;
@@ -370,6 +410,8 @@ export type RulesControl = {
   allowed_actions: string[];
   detector_types: Array<ControlRule["detector"]>;
   rules: ControlRule[];
+  test_suites: RulesControlTestSuite[];
+  test_count: number;
   packs: Array<{ id: string; name: string }>;
 };
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 import httpx
 
@@ -11,7 +13,7 @@ from app.control_plane.domain import (
     ValidationError,
 )
 from app.control_plane.service import ControlPlaneService
-from app.control_library import control_library, control_pack
+from app.control_library import ControlLibraryRegistry, control_library, control_pack
 from app.nemo.actions.content_filter import BuiltinContentFilter
 from app.runtime.contracts import EngineRequest
 from app.nemo.actions.deterministic import FastPassEngine
@@ -33,7 +35,8 @@ def test_imported_control_library_preserves_vendored_structure():
     assert len(library.packs) == 17
     assert len(library.controls) == 81
     assert sum(len(pack.control_ids) for pack in library.packs) == 88
-    assert sum(len(control.rules) for control in library.controls) == 202
+    assert sum(len(control.rules) for control in library.controls) == 203
+    assert sum(control.test_count for control in library.controls) == 228
     assert "mcp-security-unregistered-server-block" not in {
         item.id for item in library.packs
     }
@@ -41,6 +44,89 @@ def test_imported_control_library_preserves_vendored_structure():
         item.id for item in library.packs
     }
     assert all(control.rules for control in library.controls)
+    assert all(control.test_suites for control in library.controls)
+
+
+def test_every_builtin_rule_has_a_real_executable_acceptance_case():
+    runtime = BuiltinContentFilter()
+    parameters = {
+        "brand_name": "Example Airways",
+        "competitors": "Qatar Airways\nSingapore Airlines",
+    }
+
+    for control in control_library().controls:
+        acceptance = next(
+            suite for suite in control.test_suites if suite.id == "rule-acceptance"
+        )
+        assert len(acceptance.cases) == len(control.rules)
+        for case in acceptance.cases:
+            content = case.content
+            for name in case.parameter_names:
+                value = parameters[name].splitlines()[0]
+                content = content.replace(f"{{{{{name}}}}}", value)
+            result = runtime.evaluate(
+                text=content,
+                phase=case.phase,
+                controls=(control.id,),
+                parameters=parameters,
+                enabled_rules={control.id: case.covered_rule_ids},
+            )
+
+            assert result.verdict == "unsafe", (control.id, case.id, content)
+            assert {item.control_id for item in result.findings} == {control.id}
+            assert set(case.covered_rule_ids) <= {
+                item.rule_id for item in result.findings
+            }
+            if case.expected_decision == "transform":
+                assert result.content != content
+
+
+def test_registry_rejects_a_control_without_required_rule_acceptance():
+    library = control_library()
+    candidate = next(
+        control for control in library.controls if len(control.test_suites) == 1
+    )
+    invalid = replace(candidate, test_suites=())
+    invalid_bundle = replace(
+        library,
+        controls=tuple(
+            invalid if control.id == candidate.id else control
+            for control in library.controls
+        ),
+    )
+
+    with pytest.raises(ValueError, match="without required acceptance cases"):
+        ControlLibraryRegistry((invalid_bundle,))
+
+
+def test_competitor_intent_suites_cover_real_allow_and_block_boundaries():
+    definition = next(
+        item
+        for item in control_library().controls
+        if item.id == "competitor-comparison-input-filter"
+    )
+    scenarios = tuple(
+        case
+        for suite in definition.test_suites
+        if suite.id != "rule-acceptance"
+        for case in suite.cases
+    )
+    runtime = BuiltinContentFilter()
+
+    assert len(scenarios) == 25
+    assert {case.expected_decision for case in scenarios} == {"allow", "block"}
+    for case in scenarios:
+        result = runtime.evaluate(
+            text=case.content,
+            phase=case.phase,
+            controls=(definition.id,),
+            parameters={
+                "brand_name": "Emirates",
+                "competitors": "Qatar Airways\nSingapore Airlines\nLufthansa",
+            },
+        )
+        actual = "allow" if result.verdict == "safe" else "block"
+        assert actual == case.expected_decision, case.id
 
 
 def test_every_vendored_control_pack_compiles_without_external_resources(tmp_path):
@@ -329,3 +415,90 @@ async def test_control_pack_guardrail_passes_local_api_tests(tmp_path):
     assert tested.status_code == 201
     assert tested.json()["status"] == "passed"
     assert guardrail.json()["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_aviation_pack_materializes_rule_and_scenario_tests_with_provenance(
+    tmp_path,
+):
+    app = create_app(
+        settings=Settings(
+            database_path=tmp_path / "aviation-tests.db",
+            ui_dist_path=tmp_path / "missing-ui",
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        await client.post(
+            "/api/v1/session",
+            json={"email": "admin", "password": "admin"},
+        )
+        controls_response = await client.get("/api/v1/controls")
+        packs_response = await client.get("/api/v1/control-packs")
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Aviation acceptance",
+                "pack_id": "aviation-operations-security",
+                "parameters": {
+                    "brand_name": "Emirates",
+                    "competitors": (
+                        "Qatar Airways\nSingapore Airlines\nTurkish Airlines\nLufthansa"
+                    ),
+                },
+            },
+        )
+        guardrail_id = created.json()["id"]
+        cases_response = await client.get(
+            "/api/v1/test-cases", params={"guardrail_id": guardrail_id}
+        )
+        run = await client.post(
+            "/api/v1/test-runs", json={"guardrail_id": guardrail_id}
+        )
+
+    controls_payload = controls_response.json()
+    packs_payload = packs_response.json()
+    competitor = next(
+        item
+        for item in controls_payload["items"]
+        if item["id"] == "competitor-comparison-input-filter"
+    )
+    aviation = next(
+        item
+        for item in packs_payload["items"]
+        if item["id"] == "aviation-operations-security"
+    )
+    cases = cases_response.json()["items"]
+
+    assert controls_response.status_code == 200
+    assert competitor["test_count"] == 27
+    assert {suite["id"] for suite in competitor["test_suites"]} == {
+        "rule-acceptance",
+        "destination-intent",
+        "competitor-comparison",
+        "ambiguous-entity",
+    }
+    assert "litellm" not in str(competitor).lower()
+    assert aviation["source"] == "built_in"
+    assert aviation["test_case_count"] == 51
+    assert len(cases) == 51
+    assert {item["case_type"] for item in cases} == {
+        "rule_acceptance",
+        "scenario",
+    }
+    assert all(item["source_control_id"] for item in cases)
+    assert all(item["source_suite_id"] for item in cases)
+    assert all(item["covered_rule_ids"] for item in cases)
+    assert all("{{" not in item["name"] for item in cases)
+    assert all("{{" not in item["content"] for item in cases)
+    assert run.status_code == 201
+    assert run.json()["status"] == "passed"
+    scenario = next(
+        item
+        for item in run.json()["results"]
+        if item["source_case_id"] == "competitor-comparison-002"
+    )
+    assert scenario["covered_rule_ids"] == ["competitor-comparison-intent"]
+    assert scenario["matched_rule_ids"] == ["competitor-comparison-intent"]

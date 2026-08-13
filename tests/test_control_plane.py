@@ -341,7 +341,7 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
     assert {"protocol", "environment"}.isdisjoint(integration_columns)
     assert "key_hint" in credential_columns
     assert "secret_prefix" not in credential_columns
-    assert schema_version == "tasklattice-guard-schema-v5"
+    assert schema_version == "tasklattice-guard-schema-v6"
     assert {
         "protections_json",
         "filters_json",
@@ -352,6 +352,38 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
     }.isdisjoint(
         guardrail_columns | assignment_columns
     )
+
+
+def test_schema_v5_is_migrated_additively_for_control_test_provenance(tmp_path):
+    database_path = tmp_path / "upgrade.db"
+    ControlPlaneService(database_path)
+    provenance_columns = (
+        "source_control_id",
+        "source_control_version",
+        "source_suite_id",
+        "source_case_id",
+        "covered_rule_ids_json",
+    )
+    with sqlite3.connect(database_path) as connection:
+        for column in provenance_columns:
+            connection.execute(f"ALTER TABLE test_cases DROP COLUMN {column}")
+        connection.execute(
+            "UPDATE control_plane_meta SET value = 'tasklattice-guard-schema-v5' "
+            "WHERE key = 'schema_version'"
+        )
+        connection.commit()
+
+    ControlPlaneService(database_path)
+
+    with sqlite3.connect(database_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(test_cases)")
+        }
+        version = connection.execute(
+            "SELECT value FROM control_plane_meta WHERE key = 'schema_version'"
+        ).fetchone()[0]
+    assert set(provenance_columns) <= columns
+    assert version == "tasklattice-guard-schema-v6"
 
 
 def test_nonempty_database_without_schema_metadata_is_rejected(tmp_path):

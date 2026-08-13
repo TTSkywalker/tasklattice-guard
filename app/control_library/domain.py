@@ -7,6 +7,8 @@ from ..runtime.contracts import GuardrailPhase, OutputDeliveryMode, SafetyLevel
 
 
 DetectorType = Literal["regex", "keyword", "category"]
+ControlTestDecision = Literal["allow", "block", "transform", "intervene"]
+ControlTestKind = Literal["rule_acceptance", "scenario"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +48,30 @@ class ParameterSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ControlTestCaseSpec:
+    """One immutable, executable acceptance contract for a built-in Control."""
+
+    id: str
+    name: str
+    description: str
+    phase: GuardrailPhase
+    content: str
+    expected_decision: ControlTestDecision
+    covered_rule_ids: tuple[str, ...]
+    kind: ControlTestKind = "scenario"
+    required: bool = True
+    parameter_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ControlTestSuiteSpec:
+    id: str
+    name: str
+    description: str
+    cases: tuple[ControlTestCaseSpec, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ControlSpec:
     id: str
     name: str
@@ -53,6 +79,7 @@ class ControlSpec:
     source: Literal["built_in"]
     version: str
     rules: tuple[RuleSpec, ...]
+    test_suites: tuple[ControlTestSuiteSpec, ...] = ()
 
     @property
     def phases(self) -> tuple[GuardrailPhase, ...]:
@@ -81,6 +108,10 @@ class ControlSpec:
     @property
     def default_action(self) -> str:
         return self.allowed_actions[0] if len(self.allowed_actions) == 1 else "POLICY"
+
+    @property
+    def test_count(self) -> int:
+        return sum(len(suite.cases) for suite in self.test_suites)
 
 
 @dataclass(frozen=True, slots=True)

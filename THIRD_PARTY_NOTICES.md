@@ -3,9 +3,11 @@
 ## LiteLLM content-filter source resources
 
 TaskLattice Model Guardrails includes a local, versioned copy of upstream
-Control definitions, prebuilt patterns, and category resources from LiteLLM
-1.95.0. TaskLattice imports these resources into its own Control Library model;
-the runtime does not import LiteLLM or read an installed LiteLLM distribution.
+Control definitions, prebuilt patterns, category resources, and selected
+acceptance prompt scenarios from LiteLLM 1.95.0. The prompt scenarios are
+normalized into TaskLattice's own Control test contract. TaskLattice imports
+these resources into its own Control Library model; the runtime does not import
+LiteLLM or read an installed LiteLLM distribution.
 The bundled resources were taken from upstream commit
 `ead62528e607b9d8e61273def638799c9c3a69ba`.
 

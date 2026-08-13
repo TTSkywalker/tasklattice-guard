@@ -101,7 +101,8 @@ from .filtering import (
 )
 
 
-SCHEMA_VERSION = "tasklattice-guard-schema-v5"
+SCHEMA_VERSION = "tasklattice-guard-schema-v6"
+PREVIOUS_SCHEMA_VERSION = "tasklattice-guard-schema-v5"
 
 
 class ControlPlaneService:
@@ -1164,8 +1165,10 @@ class ControlPlaneService:
                          query_content, grounding_sources_json,
                          expected_reasoning_result,
                          case_type, required, expected_failure, concurrency_group,
+                         source_control_id, source_control_version, source_suite_id,
+                         source_case_id, covered_rule_ids_json,
                          origin, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
                     """,
                     (
                         str(case.id), guardrail_id, str(case.name), str(case.risk),
@@ -1180,6 +1183,11 @@ class ControlPlaneService:
                         int(case.required),
                         case.expected_failure,
                         case.concurrency_group,
+                        case.source_control_id,
+                        case.source_control_version,
+                        case.source_suite_id,
+                        case.source_case_id,
+                        _json(case.covered_rule_ids),
                         now,
                     ),
                 )
@@ -1972,6 +1980,9 @@ class ControlPlaneService:
                     "SELECT value FROM control_plane_meta WHERE key='schema_version'"
                 ).fetchone()
                 version = str(row[0]) if row else ""
+                if version == PREVIOUS_SCHEMA_VERSION:
+                    self._migrate_v5_to_v6(connection)
+                    version = SCHEMA_VERSION
                 if version != SCHEMA_VERSION:
                     raise ControlPlaneError(
                         "This database is incompatible with the current TaskLattice Guard schema; initialize a new database."
@@ -2116,6 +2127,11 @@ class ControlPlaneService:
                 required INTEGER NOT NULL DEFAULT 1,
                 expected_failure TEXT,
                 concurrency_group TEXT,
+                source_control_id TEXT,
+                source_control_version TEXT,
+                source_suite_id TEXT,
+                source_case_id TEXT,
+                covered_rule_ids_json TEXT NOT NULL DEFAULT '[]',
                 origin TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (guardrail_id, id),
@@ -2223,6 +2239,45 @@ class ControlPlaneService:
             "INSERT INTO control_plane_meta (key, value) VALUES ('schema_version', ?)",
             (SCHEMA_VERSION,),
         )
+
+    @staticmethod
+    def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
+        """Add immutable Control-test provenance without rewriting existing cases."""
+
+        existing = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(test_cases)")
+        }
+        columns = (
+            (
+                "source_control_id",
+                "ALTER TABLE test_cases ADD COLUMN source_control_id TEXT",
+            ),
+            (
+                "source_control_version",
+                "ALTER TABLE test_cases ADD COLUMN source_control_version TEXT",
+            ),
+            (
+                "source_suite_id",
+                "ALTER TABLE test_cases ADD COLUMN source_suite_id TEXT",
+            ),
+            (
+                "source_case_id",
+                "ALTER TABLE test_cases ADD COLUMN source_case_id TEXT",
+            ),
+            (
+                "covered_rule_ids_json",
+                "ALTER TABLE test_cases ADD COLUMN covered_rule_ids_json "
+                "TEXT NOT NULL DEFAULT '[]'",
+            ),
+        )
+        for name, statement in columns:
+            if name not in existing:
+                connection.execute(statement)
+        connection.execute(
+            "UPDATE control_plane_meta SET value = ? WHERE key = 'schema_version'",
+            (SCHEMA_VERSION,),
+        )
+        connection.commit()
 
     def _seed(self, connection: sqlite3.Connection) -> None:
         self._insert_activity(
@@ -3410,6 +3465,27 @@ def _test_case_from_row(row: sqlite3.Row) -> GuardrailTestCase:
             if row["concurrency_group"] is not None
             else None
         ),
+        source_control_id=(
+            str(row["source_control_id"])
+            if row["source_control_id"] is not None
+            else None
+        ),
+        source_control_version=(
+            str(row["source_control_version"])
+            if row["source_control_version"] is not None
+            else None
+        ),
+        source_suite_id=(
+            str(row["source_suite_id"])
+            if row["source_suite_id"] is not None
+            else None
+        ),
+        source_case_id=(
+            str(row["source_case_id"])
+            if row["source_case_id"] is not None
+            else None
+        ),
+        covered_rule_ids=tuple(json.loads(str(row["covered_rule_ids_json"]))),
     )
 
 

@@ -309,6 +309,11 @@ class EvaluationCase:
     required: bool = True
     expected_failure: str | None = None
     concurrency_group: str | None = None
+    source_control_id: str | None = None
+    source_control_version: str | None = None
+    source_suite_id: str | None = None
+    source_case_id: str | None = None
+    covered_rule_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +336,11 @@ class GuardrailTestCase:
     required: bool = True
     expected_failure: str | None = None
     concurrency_group: str | None = None
+    source_control_id: str | None = None
+    source_control_version: str | None = None
+    source_suite_id: str | None = None
+    source_case_id: str | None = None
+    covered_rule_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,6 +371,12 @@ class EvaluationCaseResult:
     expected_failure: str | None = None
     actual_failure: str | None = None
     concurrency_group: str | None = None
+    source_control_id: str | None = None
+    source_control_version: str | None = None
+    source_suite_id: str | None = None
+    source_case_id: str | None = None
+    covered_rule_ids: tuple[str, ...] = ()
+    matched_rule_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

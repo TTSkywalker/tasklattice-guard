@@ -6,12 +6,12 @@ from app.config import Settings
 from app.main import create_engine
 
 
-def test_default_database_path_uses_current_v5_schema(monkeypatch):
+def test_default_database_path_uses_current_v6_schema(monkeypatch):
     monkeypatch.delenv("MODEL_GUARDRAILS_DATABASE_PATH", raising=False)
 
     settings = Settings.from_env()
 
-    assert settings.database_path.name == "tasklattice-guard-schema-v5.db"
+    assert settings.database_path.name == "tasklattice-guard-schema-v6.db"
 
 
 def test_public_runtime_base_url_is_canonical(monkeypatch):

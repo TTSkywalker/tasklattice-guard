@@ -22,6 +22,10 @@ from ..runtime.contracts import (
     NeMoPolicyRuntime,
 )
 from ..control_library.catalog import control_catalog, control_pack_catalog
+from ..control_library.acceptance import (
+    materialize_test_content,
+    materialize_test_text,
+)
 from ..control_library.registry import control as library_control
 from ..control_library.registry import control_pack
 from .catalog import control
@@ -862,6 +866,22 @@ class ControlPlaneAPI:
                         case.expected_failure is None
                         or case.expected_failure == actual_failure
                     )
+                    matched_rule_ids = _matched_rule_ids(
+                        decision.findings,
+                        control_id=case.source_control_id,
+                    )
+                    covered_rule_ids = set(case.covered_rule_ids)
+                    rule_contract_matched = (
+                        not covered_rule_ids
+                        or (
+                            case.expected_decision == "allow"
+                            and covered_rule_ids.isdisjoint(matched_rule_ids)
+                        )
+                        or (
+                            case.expected_decision != "allow"
+                            and not covered_rule_ids.isdisjoint(matched_rule_ids)
+                        )
+                    )
                     return (
                         index,
                         EvaluationCaseResult(
@@ -876,6 +896,7 @@ class ControlPlaneAPI:
                                     decision.decision,
                                 )
                                 and failure_matched
+                                and rule_contract_matched
                                 and (
                                     case.expected_reasoning_result is None
                                     or case.expected_reasoning_result
@@ -906,6 +927,12 @@ class ControlPlaneAPI:
                             expected_failure=case.expected_failure,
                             actual_failure=actual_failure,
                             concurrency_group=case.concurrency_group,
+                            source_control_id=case.source_control_id,
+                            source_control_version=case.source_control_version,
+                            source_suite_id=case.source_suite_id,
+                            source_case_id=case.source_case_id,
+                            covered_rule_ids=case.covered_rule_ids,
+                            matched_rule_ids=matched_rule_ids,
                         ),
                         latency,
                         stage_reached == "deep_judge",
@@ -2445,67 +2472,91 @@ def _test_content_view(case) -> ContentViewSnapshot | None:
 
 
 def _builtin_content_filter_cases(guardrail) -> tuple[EvaluationCase, ...]:
-    if not guardrail.source_pack_id:
-        return ()
-    pack = control_pack(guardrail.source_pack_id)
-    if pack is None:
-        return ()
-    samples: list[tuple[str, str, str]] = []
-    first_control = library_control(pack.control_ids[0])
-    if first_control is None:
-        return ()
-    first_phase = first_control.phases[0]
-    samples.extend(
-        (f"source-example-{index}", first_phase, content)
-        for index, content in enumerate(pack.examples[:5], start=1)
-    )
-    if not samples:
-        for control_id in pack.control_ids:
-            definition = library_control(control_id)
-            if definition is None:
-                continue
-            sample = _control_sample(definition, dict(guardrail.parameters))
-            if sample:
-                samples.append((control_id, definition.phases[0], sample))
-            if len(samples) == 5:
-                break
-    cases = [
-        EvaluationCase(
-            id=f"builtin-{identifier}",
-            name=f"Detect {pack.name} policy violation",
-            risk="builtin_content_filter",
-            phase=phase,
-            content=content,
-            expected_decision="intervene",
+    selected_controls: tuple[str, ...]
+    selected_rules: dict[str, set[str]] = {}
+    if guardrail.source_pack_id:
+        pack = control_pack(guardrail.source_pack_id)
+        if pack is None:
+            return ()
+        selected_controls = pack.control_ids
+    else:
+        configurations = tuple(
+            item
+            for item in guardrail.control_configurations
+            if item.runtime_risk == "builtin_content_filter" and item.control_id
         )
-        for identifier, phase, content in samples
-    ]
-    cases.append(
-        EvaluationCase(
-            id="builtin-safe",
-            name=f"Allow safe {pack.name} context",
-            risk="builtin_content_filter",
-            phase=first_phase,
-            content="Summarize the approved internal product guide.",
-            expected_decision="allow",
+        selected_controls = tuple(
+            item.control_id for item in configurations if item.control_id
         )
-    )
+        selected_rules = {
+            item.control_id: {rule.id for rule in item.rules if rule.enabled}
+            for item in configurations
+            if item.control_id
+        }
+
+    parameters = dict(guardrail.parameters)
+    cases: list[EvaluationCase] = []
+    for control_id in selected_controls:
+        definition = library_control(control_id)
+        if definition is None:
+            continue
+        enabled = selected_rules.get(control_id)
+        for suite in definition.test_suites:
+            for case in suite.cases:
+                if enabled is not None and enabled.isdisjoint(case.covered_rule_ids):
+                    continue
+                content = materialize_test_content(case, parameters)
+                name = materialize_test_text(
+                    case.name,
+                    case.parameter_names,
+                    parameters,
+                )
+                if (
+                    not content
+                    or not name
+                    or "{{" in content
+                    or "}}" in content
+                    or "{{" in name
+                    or "}}" in name
+                ):
+                    raise ValidationError(
+                        f"Control test {control_id}/{suite.id}/{case.id} requires "
+                        "reviewed Guardrail parameter values."
+                    )
+                cases.append(
+                    EvaluationCase(
+                        id=f"library-{control_id}-{suite.id}-{case.id}",
+                        name=name,
+                        risk="builtin_content_filter",
+                        phase=case.phase,
+                        content=content,
+                        expected_decision=case.expected_decision,
+                        target_source=(
+                            "user_input" if case.phase == "input" else "model_output"
+                        ),
+                        case_type=case.kind,
+                        required=case.required,
+                        source_control_id=control_id,
+                        source_control_version=definition.version,
+                        source_suite_id=suite.id,
+                        source_case_id=case.id,
+                        covered_rule_ids=case.covered_rule_ids,
+                    )
+                )
     return tuple(cases)
 
 
-def _control_sample(definition, parameters: dict[str, str]) -> str | None:
-    for rule in definition.rules:
-        if rule.always_block:
-            return rule.always_block[0].value
-        if rule.identifiers and rule.conditions:
-            return f"{rule.conditions[0]} based on {rule.identifiers[0]}"
-        if rule.keywords:
-            value = rule.keywords[0].value
-            for key, replacement in parameters.items():
-                value = value.replace(f"{{{{{key}}}}}", replacement)
-            if "{{" not in value:
-                return value
-    return None
+def _matched_rule_ids(findings, *, control_id: str | None) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                item.rule_id
+                for item in findings
+                if item.rule_id
+                and (control_id is None or item.control_id == control_id)
+            }
+        )
+    )
 
 
 def _matches_expected(expected: str, actual: str) -> bool:

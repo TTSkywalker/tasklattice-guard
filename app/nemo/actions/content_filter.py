@@ -15,6 +15,7 @@ class _Detection:
     kind: str
     rule: str
     action: str
+    evidence: str
 
 
 class BuiltinContentFilter:
@@ -85,10 +86,12 @@ class BuiltinContentFilter:
                 confidence=0.99,
                 evidence=(
                     f"Built-in control {item.control} matched "
-                    f"{item.kind} rule {item.rule}."
+                    f"{item.kind} rule {item.rule}: {item.evidence}."
                 ),
                 recommended_action=("redact" if item.action == "MASK" else "reject"),
                 replacement="[REDACTED]" if item.action == "MASK" else None,
+                control_id=item.control,
+                rule_id=item.rule,
             )
             for item in detections
         )
@@ -129,7 +132,7 @@ class BuiltinContentFilter:
                 f"{definition.id}:{rule_id}", default_action
             )
             detections.append(
-                _Detection(definition.id, "category", evidence, action)
+                _Detection(definition.id, "category", rule_id, action, evidence)
             )
             if action == "MASK":
                 content = self._mask_keyword(content, evidence)
@@ -153,7 +156,15 @@ class BuiltinContentFilter:
             action = rule_actions.get(
                 f"{definition.id}:{rule.id}", rule.action
             )
-            detections.append(_Detection(definition.id, "pattern", rule.id, action))
+            detections.append(
+                _Detection(
+                    definition.id,
+                    "pattern",
+                    rule.id,
+                    action,
+                    matches[0].group(0),
+                )
+            )
             if action == "MASK":
                 content = self._mask_spans(
                     content,
@@ -177,7 +188,13 @@ class BuiltinContentFilter:
                     f"{definition.id}:{rule.id}", rule.action
                 )
                 detections.append(
-                    _Detection(definition.id, "blocked word", rendered, action)
+                    _Detection(
+                        definition.id,
+                        "blocked word",
+                        rule.id,
+                        action,
+                        rendered,
+                    )
                 )
                 if action == "MASK":
                     content = re.sub(
@@ -208,7 +225,9 @@ class BuiltinContentFilter:
                 matches = list(re.finditer(expression, content, re.IGNORECASE))
                 if not matches:
                     continue
-                detections.append(_Detection("custom", "pattern", rule_id, action))
+                detections.append(
+                    _Detection("custom", "pattern", rule_id, action, matches[0].group(0))
+                )
                 if action == "MASK":
                     content = self._mask_spans(content, matches, "[REDACTED]")
                 continue
@@ -220,7 +239,9 @@ class BuiltinContentFilter:
                     expression = keyword_expression(rendered)
                     if not re.search(expression, content, re.IGNORECASE):
                         continue
-                    detections.append(_Detection("custom", "keyword", rule_id, action))
+                    detections.append(
+                        _Detection("custom", "keyword", rule_id, action, rendered)
+                    )
                     if action == "MASK":
                         content = re.sub(
                             expression, "[REDACTED]", content, flags=re.IGNORECASE

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "charts" / "tasklattice-guard"
 
 
-def test_helm_chart_configures_schema_v5_and_public_runtime_url():
+def test_helm_chart_configures_schema_v6_and_public_runtime_url():
     rendered = subprocess.run(
         [
             "helm",
@@ -33,7 +33,7 @@ def test_helm_chart_configures_schema_v5_and_public_runtime_url():
     environment = {item["name"]: item for item in container["env"]}
 
     assert environment["MODEL_GUARDRAILS_DATABASE_PATH"]["value"].endswith(
-        "/tasklattice-guard-schema-v5.db"
+        "/tasklattice-guard-schema-v6.db"
     )
     assert environment["MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL"]["value"] == (
         "https://guard.example.com"

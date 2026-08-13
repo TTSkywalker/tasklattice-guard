@@ -449,6 +449,8 @@ class RiskFinding:
     evidence: str
     recommended_action: EnforcementAction
     replacement: str | None = None
+    control_id: str | None = None
+    rule_id: str | None = None
     grounding: tuple[GroundingFilterAssessment, ...] = ()
     claims: tuple[GroundingClaimEvidence, ...] = ()
     reasoning: tuple[AutomatedReasoningFinding, ...] = ()
