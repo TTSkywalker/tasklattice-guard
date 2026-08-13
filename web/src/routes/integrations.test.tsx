@@ -28,7 +28,7 @@ vi.mock("react-i18next", () => ({
         "integrations.credential": "Credential",
         "integrations.setupChecklist": "Gateway setup checklist",
         "integrations.stepsComplete": "{{count}} / 3 complete",
-        "integrations.setupStatuses.awaiting_input": "Awaiting input",
+        "integrations.setupStatuses.awaiting_callback": "Awaiting callback",
         "integrations.setupStatuses.verified": "Verified",
         "integrations.saveCredential": "Save the credential",
         "integrations.saveCredentialDescription": "Store this value as {{env}}.",
@@ -79,12 +79,12 @@ vi.mock("react-i18next", () => ({
         "integrations.failureBehavior": "Failure behavior",
         "integrations.failClosed": "Fail closed",
         "integrations.blockOnError": "block on error",
-        "integrations.verifyCallbacks": "Verify real callbacks",
+        "integrations.verifyCallbacks": "Verify real traffic",
         "integrations.verifyCallbacksDescription": "Send a real model request.",
         "integrations.inputCallback": "Input callback",
         "integrations.outputCallback": "Output callback",
         "integrations.waiting": "Waiting",
-        "integrations.callbacksVerified": "Both callback directions have been received. This Gateway connection is verified.",
+        "integrations.callbacksVerified": "An authenticated callback has been received. This Gateway connection is verified; other stages are optional.",
         "integrations.complete": "Complete",
         "integrations.finishLater": "Finish later",
         "integrations.openIntegrationDetails": "Open integration",
@@ -118,7 +118,7 @@ function integration(overrides: Partial<Integration> = {}): Integration {
     enabled: true,
     key_hint: "tali_••••8NzQ",
     credentials: [{ id: "credential-1", key_hint: "tali_••••8NzQ", created_at: "2026-08-12T08:00:00Z" }],
-    setup_status: "awaiting_input",
+    setup_status: "awaiting_callback",
     runtime_status: "waiting",
     first_seen_at: null,
     input_seen_at: null,
@@ -175,7 +175,7 @@ describe("Integration onboarding", () => {
 
   it("guides the packaged TaskLattice Guard Provider through connection and runtime settings", () => {
     const item = integration({
-      setup_status: "awaiting_output",
+      setup_status: "verified",
       runtime_status: "waiting",
       input_seen_at: "2026-08-12T08:05:00Z",
       last_seen_at: "2026-08-12T08:05:00Z",
@@ -207,11 +207,11 @@ describe("Integration onboarding", () => {
     expect(screen.getByText("Advanced")).toBeTruthy();
     expect(screen.getByText("Continue is limited to availability failures")).toBeTruthy();
     expect(screen.getByText("No LiteLLM restart required")).toBeTruthy();
-    expect(screen.getAllByText("Complete").length).toBe(2);
+    expect(screen.getAllByText("Complete").length).toBe(3);
     expect(screen.queryByText(/config\.yaml/i)).toBeNull();
     expect(screen.queryByText(/guardrail_name: tasklattice-guard/)).toBeNull();
     expect(screen.queryByText(`TASKLATTICE_GUARD_API_BASE=${item.setup.api_base_url}`)).toBeNull();
-    expect(screen.queryByText("Both callback directions have been received. This Gateway connection is verified.")).toBeNull();
+    expect(screen.getByText("An authenticated callback has been received. This Gateway connection is verified; other stages are optional.")).toBeTruthy();
   });
 
   it("hides a saved credential and supports explicit reveal and hide without clearing the saved state", async () => {

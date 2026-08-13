@@ -2566,10 +2566,8 @@ class ControlPlaneService:
         setup_status = (
             "disabled"
             if not enabled
-            else "awaiting_input"
-            if input_seen_at is None
-            else "awaiting_output"
-            if output_seen_at is None
+            else "awaiting_callback"
+            if first_seen_at is None
             else "verified"
         )
         runtime_status = (

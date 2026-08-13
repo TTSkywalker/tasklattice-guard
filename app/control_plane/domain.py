@@ -28,9 +28,7 @@ TestTargetSource = Literal[
 ]
 ControlSourceKind = Literal["built-in", "custom"]
 ControlVersionStatus = Literal["draft", "published"]
-IntegrationSetupStatus = Literal[
-    "awaiting_input", "awaiting_output", "verified", "disabled"
-]
+IntegrationSetupStatus = Literal["awaiting_callback", "verified", "disabled"]
 
 
 @dataclass(frozen=True, slots=True)

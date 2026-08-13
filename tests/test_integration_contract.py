@@ -191,7 +191,7 @@ async def test_create_uses_adapter_uuid_and_returns_litellm_setup(tmp_path):
     assert obsolete_protocol.status_code == 422
     assert integration["adapter_id"] == LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID
     assert integration["protocol"] == "litellm"
-    assert integration["setup_status"] == "awaiting_input"
+    assert integration["setup_status"] == "awaiting_callback"
     assert integration["credentials"] == [
         {
             "id": credential["id"],
@@ -263,7 +263,7 @@ async def test_litellm_verify_authenticates_without_recording_activity_or_setup(
         "integration_id": integration_id,
     }
     assert after == before
-    assert after.setup_status == "awaiting_input"
+    assert after.setup_status == "awaiting_callback"
     assert after.request_count == 0
     assert after.first_seen_at is None
     assert after.input_seen_at is None
@@ -457,7 +457,7 @@ async def test_same_litellm_call_id_is_isolated_and_integration_scope_selects_as
 
 
 @pytest.mark.asyncio
-async def test_input_output_setup_status_survives_restart(tmp_path):
+async def test_first_callback_verifies_setup_and_survives_restart(tmp_path):
     configured = integration_settings(tmp_path)
     app = create_app(settings=configured, engine=RecordingEngine())
     async with httpx.AsyncClient(
@@ -472,7 +472,7 @@ async def test_input_output_setup_status_survives_restart(tmp_path):
             headers={"x-api-key": credential},
             json=litellm_payload(input_type="request", call_id="persistent-call"),
         )
-        awaiting_output = await client.get(
+        verified_after_input = await client.get(
             f"/api/v1/integrations/{integration_id}"
         )
         output_result = await client.post(
@@ -483,9 +483,9 @@ async def test_input_output_setup_status_survives_restart(tmp_path):
         verified = await client.get(f"/api/v1/integrations/{integration_id}")
 
     assert input_result.status_code == 200
-    assert awaiting_output.json()["setup_status"] == "awaiting_output"
-    assert awaiting_output.json()["input_seen_at"] is not None
-    assert awaiting_output.json()["output_seen_at"] is None
+    assert verified_after_input.json()["setup_status"] == "verified"
+    assert verified_after_input.json()["input_seen_at"] is not None
+    assert verified_after_input.json()["output_seen_at"] is None
     assert output_result.status_code == 200
     assert verified.json()["setup_status"] == "verified"
     assert verified.json()["first_seen_at"] is not None

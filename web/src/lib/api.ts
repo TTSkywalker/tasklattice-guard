@@ -511,7 +511,7 @@ export type GuardrailCompilePreview = {
 
 export type IntegrationAdapterId = "litellm-generic-guardrail" | "generic-http-guard" | "a2a-guard";
 export type IntegrationProtocol = "litellm" | "http" | "a2a";
-export type IntegrationSetupStatus = "awaiting_input" | "awaiting_output" | "verified" | "disabled";
+export type IntegrationSetupStatus = "awaiting_callback" | "verified" | "disabled";
 
 export type IntegrationSetup = {
   api_base_url: string;

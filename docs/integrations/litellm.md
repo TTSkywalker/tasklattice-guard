@@ -105,17 +105,17 @@ HTTP 502, 503, or 504. It never bypasses a TaskLattice policy block, HTTP 4xx or
 
 ## 3. Verify real traffic
 
-Send one normal model request through the connected LiteLLM Gateway. Use a
-request that reaches the model so LiteLLM emits both callback phases.
-TaskLattice reports setup progress per Integration:
+Send one model request through the connected LiteLLM Gateway. TaskLattice marks
+the Integration as verified as soon as it receives any authenticated callback
+stage enabled in LiteLLM. TaskLattice reports setup progress per Integration:
 
-1. **Awaiting input** — no input callback has arrived;
-2. **Awaiting output** — input was received, but output has not arrived;
-3. **Verified** — both input and output callbacks were observed.
+1. **Awaiting callback** — no real callback has arrived;
+2. **Verified** — at least one input or output callback was observed.
 
-A request blocked by the Input Rail proves that input inspection is connected,
-but it cannot produce an output callback. Send an allowed request to complete
-both directions.
+An Input-only or Output-only Provider configuration can therefore complete
+setup without enabling the other stage. TaskLattice continues to record input
+and output timestamps separately for runtime observability, but a missing
+optional stage does not block verification.
 
 The TaskLattice setup screen refreshes this status automatically. No LiteLLM
 restart is required while waiting for verification.
@@ -144,7 +144,8 @@ between Gateways.
 2. Save the new one-time Secret.
 3. Edit **TaskLattice Guard** in the LiteLLM Guardrails page.
 4. Keep the same Endpoint, enter the new Secret, and choose **Verify & connect**.
-5. Send one normal model request and wait for TaskLattice to report **Verified**.
+5. Send one model request and wait for TaskLattice to receive any enabled stage
+   and report **Verified**.
 6. Revoke the old credential in TaskLattice.
 
 TaskLattice permits overlapping credentials during rotation and refuses to
@@ -168,15 +169,10 @@ Guardrail connection.
 - confirm that the Endpoint and Secret belong to the same Integration; and
 - confirm that the Integration is enabled.
 
-### Setup remains at Awaiting input
+### Setup remains at Awaiting callback
 
 Check Gateway networking, the Endpoint, and the Secret. Then send a model
 request through the LiteLLM instance where the Provider was added.
-
-### Setup remains at Awaiting output
-
-Send an allowed request that reaches the model. A request stopped by the Input
-Rail has no model output to inspect.
 
 ## Security checklist
 
