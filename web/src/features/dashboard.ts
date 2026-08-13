@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { queryKeys } from "@/features/query-keys";
 import {
-  getDecisions,
+  getEvidence,
   getGuardrails,
   getMetrics,
   type MetricWindow,
@@ -19,9 +19,9 @@ export function useGuardrailsDashboard(filters: DashboardFilters) {
     queryFn: () => getMetrics(filters),
     refetchInterval: 15_000,
   });
-  const decisions = useQuery({
-    queryKey: [...queryKeys.decisions, filters],
-    queryFn: () => getDecisions({ ...filters, kind: "interaction.decision", limit: 8 }),
+  const evidence = useQuery({
+    queryKey: [...queryKeys.evidence, filters],
+    queryFn: () => getEvidence({ ...filters, kind: "interaction.decision", limit: 8 }),
     refetchInterval: 15_000,
   });
   const guardrails = useQuery({
@@ -30,9 +30,9 @@ export function useGuardrailsDashboard(filters: DashboardFilters) {
   });
   return {
     metrics,
-    decisions,
+    evidence,
     guardrails,
-    error: metrics.error ?? decisions.error ?? guardrails.error,
+    error: metrics.error ?? evidence.error ?? guardrails.error,
   };
 }
 

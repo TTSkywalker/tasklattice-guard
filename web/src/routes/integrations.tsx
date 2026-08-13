@@ -565,7 +565,7 @@ export function SetupChecklist({
           ) : (
             <>
               <CopyField label={t("integrations.apiBaseUrl")} value={integration.setup.api_base_url} />
-              <EnvironmentAssignment label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
+              <EnvironmentVariableValue label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
               <CodeBlock label={t("integrations.configurationTemplate")} value={integration.setup.yaml_template} onCopied={onConfigurationCopied} />
               <SetupFacts integration={integration} />
             </>
@@ -650,7 +650,7 @@ function SetupConfiguration({ integration }: { integration: Integration }) {
           <CopyField label={t("integrations.authHeader")} value={integration.setup.auth_header} />
           <CopyField label={t("integrations.credentialEnvironmentVariable")} value={integration.setup.credential_env_var} />
         </div>
-        <EnvironmentAssignment label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
+        <EnvironmentVariableValue label={t("integrations.apiBaseEnvironmentVariable")} name={integration.setup.api_base_env_var} value={integration.setup.api_base_url} />
         <CodeBlock label={t("integrations.configurationTemplate")} value={integration.setup.yaml_template} />
         <SetupFacts integration={integration} />
       </div>
@@ -820,16 +820,16 @@ function CopyField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EnvironmentAssignment({ label, name, value }: { label: string; name: string; value: string }) {
+function EnvironmentVariableValue({ label, name, value }: { label: string; name: string; value: string }) {
   const { t } = useTranslation();
   const copy = useCopyText();
-  const assignment = `${name}=${value}`;
+  const environmentVariable = `${name}=${value}`;
   return (
     <div>
       <p className="mb-2 text-xs font-medium text-muted-foreground">{label}</p>
       <div className="grid grid-cols-[minmax(0,1fr)_2.75rem] items-center overflow-hidden rounded-lg border bg-background">
-        <code className="min-w-0 break-all px-3 py-2.5 font-mono text-xs leading-5">{assignment}</code>
-        <Button type="button" size="icon" variant="ghost" className="size-11 rounded-none border-l" aria-label={t("integrations.copyItem", { item: label })} onClick={() => copy(assignment, label)}><Copy /></Button>
+        <code className="min-w-0 break-all px-3 py-2.5 font-mono text-xs leading-5">{environmentVariable}</code>
+        <Button type="button" size="icon" variant="ghost" className="size-11 rounded-none border-l" aria-label={t("integrations.copyItem", { item: label })} onClick={() => copy(environmentVariable, label)}><Copy /></Button>
       </div>
     </div>
   );

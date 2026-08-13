@@ -12,7 +12,7 @@ export type TrafficScopeFieldDefinition = {
   custom_key?: boolean;
 };
 
-export type TrafficScopeRule = {
+export type TrafficCondition = {
   field: string;
   key?: string;
   operator: TrafficScopeOperator;
@@ -21,7 +21,7 @@ export type TrafficScopeRule = {
 
 export type TrafficScopeExpression = {
   combinator: "and" | "or";
-  rules: Array<TrafficScopeRule | TrafficScopeExpression>;
+  conditions: Array<TrafficCondition | TrafficScopeExpression>;
 };
 
 export type TrafficScopeQuery = RuleGroupType;

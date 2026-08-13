@@ -48,7 +48,7 @@ export function EntitySheet({
       >
         <SheetHeader className="shrink-0 gap-1.5 border-b bg-card px-4 py-5 pr-14 sm:px-6 sm:pr-16">
           <p className="text-xs font-medium text-primary">{eyebrow}</p>
-          <SheetTitle className="font-sans text-2xl font-semibold tracking-[-0.025em] text-foreground">
+          <SheetTitle className="font-display text-2xl font-semibold tracking-[-0.015em] text-foreground">
             {title}
           </SheetTitle>
           <SheetDescription className="max-w-2xl leading-5 text-muted-foreground">
@@ -65,7 +65,7 @@ export function EntitySheet({
           {children}
         </div>
 
-        <SheetFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t bg-card px-4 py-4 sm:px-6 [&_[data-slot=button]]:h-10">
+        <SheetFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t bg-card px-4 py-4 sm:px-6 [&_[data-slot=button]]:min-h-11">
           {footer}
         </SheetFooter>
       </SheetContent>

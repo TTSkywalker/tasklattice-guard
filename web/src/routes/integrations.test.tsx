@@ -69,7 +69,7 @@ vi.mock("react-i18next", () => ({
         "integrations.noLiteLLMRestartTitle": "No LiteLLM restart required",
         "integrations.noLiteLLMRestartDescription": "Verify & connect saves and activates this Provider immediately.",
         "integrations.apiBaseUrl": "TaskLattice API base URL",
-        "integrations.apiBaseEnvironmentVariable": "API base environment assignment",
+        "integrations.apiBaseEnvironmentVariable": "API base environment variable",
         "integrations.configurationTemplate": "Adapter configuration",
         "integrations.copyTemplate": "Copy configuration",
         "integrations.copyItem": "Copy {{item}}",

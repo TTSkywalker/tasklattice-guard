@@ -39,7 +39,7 @@ export function LoginPage() {
         </div>
         <div className="relative max-w-lg">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/65">{t("auth.brandEyebrow")}</p>
-          <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-[-0.04em] xl:text-5xl">{t("auth.brandTitle")}</h2>
+          <h2 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-[-0.02em] xl:text-5xl">{t("auth.brandTitle")}</h2>
           <div className="mt-8 flex items-center gap-3 text-sm text-white/70"><Building2 className="size-4" />{t("auth.brandDescription")}</div>
         </div>
         <p className="relative text-xs text-white/55">{t("auth.brandFootnote")}</p>
@@ -57,7 +57,7 @@ export function LoginPage() {
             <div className="mb-8 flex items-center gap-2 lg:hidden"><ShieldCheck className="size-5 text-primary" /><span className="font-semibold">TaskLattice Guard</span></div>
             <span className="inline-flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><LockKeyhole className="size-5" /></span>
             <p className="mt-6 text-sm font-medium text-primary">{t("auth.loginEyebrow")}</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.035em]">{t("auth.loginTitle")}</h1>
+            <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.015em]">{t("auth.loginTitle")}</h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("auth.loginDescription")}</p>
 
             <form className="mt-8 grid gap-5" onSubmit={submit}>

@@ -25,13 +25,13 @@ vi.mock("react-i18next", () => ({
       "playground.responseCheckDescription": "Response checkpoint description",
       "playground.responseCheckSkipped": "Response check was not run",
       "playground.responseCheckSkippedDescription": "The request was blocked before the model, so there was no model response to inspect.",
-      "playground.triggeredControl": "Triggered control",
+      "playground.triggeredPolicy": "Triggered Policy",
       "playground.triggeredRule": "Triggered rule",
       "playground.latency": "Latency",
       "playground.runtime": "Runtime",
-      "playground.triggeredControls": "Triggered controls",
-      "playground.controlCount": "{{count}} evaluated",
-      "playground.controlStates.matched": "Matched",
+      "playground.evaluatedPolicies": "Evaluated Policies",
+      "playground.policyCount": "{{count}} evaluated",
+      "playground.policyStates.matched": "Matched",
       "playground.findings": "Findings",
       "playground.severity.low": "Low",
       "playground.executionTrace": "Execution trace",
@@ -73,16 +73,16 @@ function checkResult(
     latency_ms: input ? 7 : 11,
     reason: input ? "Unique input checkpoint reason" : "Unique output checkpoint reason",
     runtime: "nemo-native",
-    triggered_control: input
-      ? { id: "control-input", name: "Input safety control" }
-      : { id: "control-output", name: "Output safety control" },
+    triggered_policy: input
+      ? { id: "policy-input", name: "Input safety Policy" }
+      : { id: "policy-output", name: "Output safety Policy" },
     triggered_rule: input
       ? { id: "rule-input", name: "Input rule" }
       : { id: "rule-output", name: "Output rule" },
-    controls: [
+    policies: [
       {
-        id: input ? "control-input" : "control-output",
-        name: input ? "Input safety control" : "Output safety control",
+        id: input ? "policy-input" : "policy-output",
+        name: input ? "Input safety Policy" : "Output safety Policy",
         risk: input ? "prompt_injection" : "unsafe_output",
         status: "matched",
         duration_ms: input ? 4 : 6,
@@ -96,7 +96,7 @@ function checkResult(
         detail: `${phase} finding detail`,
         confidence: 0.91,
         recommended_action: "Review",
-        control_id: input ? "control-input" : "control-output",
+        policy_id: input ? "policy-input" : "policy-output",
         rule_id: input ? "rule-input" : "rule-output",
       },
     ],
@@ -104,7 +104,7 @@ function checkResult(
     trace: [
       {
         id: `${phase}-step`,
-        kind: "control",
+        kind: "policy",
         name: `${phase} trace step`,
         status: "matched",
         detail: `${phase} trace detail`,
@@ -115,8 +115,8 @@ function checkResult(
         route: "default",
         risk: input ? "prompt_injection" : "unsafe_output",
         confidence: 0.91,
-        control_id: input ? "control-input" : "control-output",
-        control_version: 1,
+        policy_id: input ? "policy-input" : "policy-output",
+        policy_version: "1",
         rail_type: phase,
         flow_name: `${phase}_flow`,
         action_name: "check_content",

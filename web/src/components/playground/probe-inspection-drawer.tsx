@@ -4,7 +4,7 @@ import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ModelMark } from "@/components/playground/model-mark";
-import { ExecutionTracePanel, FindingsPanel, TriggeredControlsPanel } from "@/components/playground/probe-insights";
+import { EvaluatedPoliciesPanel, ExecutionTracePanel, FindingsPanel } from "@/components/playground/probe-insights";
 import { StateBadge } from "@/components/product-shell";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -58,8 +58,7 @@ export function StageTabs({ result }: { result: PlaygroundInteraction }) {
     >
       <TabsList
         aria-label={t("playground.inspectionStages")}
-        size="content"
-        className="grid w-full grid-cols-2 rounded-none border-b bg-muted/40 p-1.5 pb-0"
+        className="grid h-auto! w-full grid-cols-2 rounded-none border-b bg-muted/40 p-1.5 pb-0"
       >
         <StageTabTrigger
           value="input"
@@ -155,7 +154,7 @@ function FlowNode({ icon, title, detail, latency, state }: { icon: ReactNode; ti
   return (
     <div className="rounded-xl border bg-card p-3 shadow-xs">
       <div className="flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-muted text-muted-foreground [&_svg]:size-4">{icon}</span><span className="text-xs font-semibold">{title}</span></div>
-      <div className="mt-3 flex items-center justify-between gap-2"><span className={`inline-flex items-center gap-1 text-[11px] font-medium ${safe ? "text-emerald-700" : blocked ? "text-red-700" : "text-muted-foreground"}`}><CheckCircle2 className="size-3.5" />{detail}</span><span className="font-mono text-[10px] text-muted-foreground">{latency === null ? "—" : `${latency} ms`}</span></div>
+      <div className="mt-3 flex items-center justify-between gap-2"><span className={`inline-flex items-center gap-1 text-[11px] font-medium ${safe ? "text-emerald-700" : blocked ? "text-red-700" : "text-muted-foreground"}`}><CheckCircle2 className="size-3.5" />{detail}</span><span className="font-mono text-xs text-muted-foreground">{latency === null ? "—" : `${latency} ms`}</span></div>
     </div>
   );
 }
@@ -170,10 +169,10 @@ function CheckpointPanel({ title, description, result, embedded = false }: { tit
       </header>
       <div className="space-y-4 border-t p-4">
         <section className="overflow-hidden rounded-xl border bg-card">
-          <dl className="grid sm:grid-cols-2"><InspectionFact label={t("playground.triggeredControl")} value={result.triggered_control?.name ?? t("playground.noneMatched")} /><InspectionFact label={t("playground.triggeredRule")} value={result.triggered_rule?.name ?? (result.triggered_control ? t("playground.ruleUnavailable") : t("playground.noneTriggered"))} /><InspectionFact label={t("playground.latency")} value={`${result.latency_ms} ms`} mono /><InspectionFact label={t("playground.runtime")} value={result.runtime} /></dl>
+          <dl className="grid sm:grid-cols-2"><InspectionFact label={t("playground.triggeredPolicy")} value={result.triggered_policy?.name ?? t("playground.noneMatched")} /><InspectionFact label={t("playground.triggeredRule")} value={result.triggered_rule?.name ?? (result.triggered_policy ? t("playground.ruleUnavailable") : t("playground.noneTriggered"))} /><InspectionFact label={t("playground.latency")} value={`${result.latency_ms} ms`} mono /><InspectionFact label={t("playground.runtime")} value={result.runtime} /></dl>
           <p className="border-t px-4 py-3 text-sm leading-6 text-muted-foreground">{result.reason || t("playground.noDecisionReason")}</p>
         </section>
-        <TriggeredControlsPanel result={result} />
+        <EvaluatedPoliciesPanel result={result} />
         <FindingsPanel result={result} />
         <ExecutionTracePanel result={result} />
       </div>

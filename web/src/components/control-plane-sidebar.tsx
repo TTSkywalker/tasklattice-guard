@@ -35,7 +35,7 @@ import {
 import { queryKeys } from "@/features/query-keys";
 import type { SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/lib/auth";
-import { getAssignments, getGuardrails, getIntegrations } from "@/lib/api";
+import { getDeployments, getGuardrails, getIntegrations } from "@/lib/api";
 
 const navigation = [
   {
@@ -49,14 +49,14 @@ const navigation = [
     label: "nav.buildValidate",
     items: [
       { label: "nav.guardrails", to: "/guardrails", icon: ShieldCheck, count: "guardrails" },
-      { label: "nav.controlLibrary", to: "/control-library", icon: LibraryBig },
-      { label: "nav.evaluations", to: "/evaluations", icon: ListChecks },
+      { label: "nav.policyLibrary", to: "/policy-library", icon: LibraryBig },
+      { label: "nav.validation", to: "/validation", icon: ListChecks },
     ],
   },
   {
     label: "nav.runtime",
     items: [
-      { label: "nav.deployments", to: "/deployments", icon: Rocket, count: "assignments" },
+      { label: "nav.deployments", to: "/deployments", icon: Rocket, count: "deployments" },
       { label: "nav.integrations", to: "/integrations", icon: Cable, count: "integrations" },
     ],
   },
@@ -75,11 +75,11 @@ export function ControlPlaneSidebar() {
   const [passwordOpen, setPasswordOpen] = useState(false);
   const pathname = useRouterState({ select: (routerState) => routerState.location.pathname });
   const guardrails = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
-  const assignments = useQuery({ queryKey: queryKeys.assignments, queryFn: getAssignments });
+  const deployments = useQuery({ queryKey: queryKeys.deployments, queryFn: getDeployments });
   const integrations = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations });
   const counts: Record<string, number | undefined> = {
     guardrails: guardrails.data?.count,
-    assignments: assignments.data?.count,
+    deployments: deployments.data?.count,
     integrations: integrations.data?.count,
   };
   const language: SupportedLanguage = i18n.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";

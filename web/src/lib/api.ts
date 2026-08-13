@@ -27,16 +27,23 @@ export type AutomatedReasoningFinding = {
   translation?: { premises: string[]; claims: string[]; untranslated: string[] } | null;
   supporting_rules: Array<{ id: string; expression: string; description: string }>;
   contradicting_rules: Array<{ id: string; expression: string; description: string }>;
-  claims_true_scenario?: { assignments: Array<[string, string]> } | null;
-  claims_false_scenario?: { assignments: Array<[string, string]> } | null;
+  claims_true_scenario?: { variable_values: Array<[string, string]> } | null;
+  claims_false_scenario?: { variable_values: Array<[string, string]> } | null;
   message: string;
 };
 
 export type Collection<T> = { items: T[]; count: number };
 
-export type GuardrailControl = {
-  risk: string;
-  action: string;
+export type EnforcementAction = "pass" | "redact" | "rewrite" | "regenerate" | "redirect" | "reject" | "fallback" | "clarify";
+
+export type GuardrailPolicyBinding = {
+  policy_id: string;
+  policy_version: string;
+  action?: EnforcementAction | null;
+  parameter_values: Record<string, string>;
+  enabled_rule_ids: string[];
+  rule_actions: Record<string, EnforcementAction>;
+  enabled_rails: NativeRailType[];
   reasoning_policy?: {
     policy_id: string;
     policy_version: string;
@@ -44,36 +51,7 @@ export type GuardrailControl = {
   } | null;
 };
 
-export type GuardrailRuleConfig = {
-  id: string;
-  name: string;
-  detector: "regex" | "keyword" | "category" | "classifier" | "judge";
-  action: string;
-  phases: Array<"input" | "output">;
-  enabled: boolean;
-  description: string;
-  expression: string | null;
-  keywords: string[];
-};
-
-export type GuardrailControlConfig = {
-  id: string;
-  name: string;
-  kind: "built_in" | "custom";
-  runtime_risk: string;
-  control_id: string | null;
-  control_version: string | null;
-  rules: GuardrailRuleConfig[];
-};
-
-export type GuardrailNativeControlBinding = {
-  control_id: string;
-  control_version: number;
-  parameter_values: Record<string, string>;
-  enabled_rails: NativeRailType[];
-};
-
-export type EvaluationMetrics = {
+export type ValidationMetrics = {
   total: number;
   passed: number;
   compliance_rate: number;
@@ -83,7 +61,7 @@ export type EvaluationMetrics = {
   p95_latency_ms: number;
 };
 
-export type EvaluationFinding = {
+export type RuntimeFinding = {
   risk: string;
   verdict: string;
   confidence: number;
@@ -95,7 +73,7 @@ export type EvaluationFinding = {
   reasoning?: AutomatedReasoningFinding[];
 };
 
-export type EvaluationTraceStep = {
+export type RuntimeTraceStep = {
   id: string;
   kind?: string;
   name: string;
@@ -108,8 +86,8 @@ export type EvaluationTraceStep = {
   route?: string | null;
   risk?: string | null;
   confidence?: number | null;
-  control_id?: string | null;
-  control_version?: number | null;
+  policy_id?: string | null;
+  policy_version?: string | null;
   rail_type?: string | null;
   flow_name?: string | null;
   action_name?: string | null;
@@ -118,10 +96,10 @@ export type EvaluationTraceStep = {
   engine?: string | null;
 };
 
-export type EvaluationCaseResult = {
+export type TestCaseResult = {
   case_id: string;
   name: string;
-  risk: string;
+  policy_id: string;
   expected_decision: string;
   actual_decision: string;
   passed: boolean;
@@ -132,8 +110,8 @@ export type EvaluationCaseResult = {
   input_content: string;
   action: string;
   output_content: string;
-  findings: EvaluationFinding[];
-  trace: EvaluationTraceStep[];
+  findings: RuntimeFinding[];
+  trace: RuntimeTraceStep[];
   trusted_instruction: string;
   target_source: TargetSource;
   query: string;
@@ -145,26 +123,25 @@ export type EvaluationCaseResult = {
   expected_failure: string | null;
   actual_failure: string | null;
   concurrency_group: string | null;
-  source_control_id: string | null;
-  source_control_version: string | null;
-  source_suite_id: string | null;
+  source_policy_id: string | null;
+  source_policy_version: string | null;
   source_case_id: string | null;
   covered_rule_ids: string[];
   matched_rule_ids: string[];
 };
 
-export type TestRun = {
+export type ValidationRun = {
   id: string;
   guardrail_id: string;
   guardrail_version: number | null;
   source_draft_version: number;
   status: "passed" | "failed" | "incomplete";
-  metrics: EvaluationMetrics;
-  results: EvaluationCaseResult[];
+  metrics: ValidationMetrics;
+  results: TestCaseResult[];
   created_at: string;
 };
 
-export type PlaygroundCheckControl = {
+export type PlaygroundCheckPolicy = {
   id: string;
   name: string;
   risk: string;
@@ -179,7 +156,7 @@ export type PlaygroundCheckFinding = {
   detail: string;
   confidence: number;
   recommended_action: string;
-  control_id: string | null;
+  policy_id: string | null;
   rule_id: string | null;
 };
 
@@ -200,12 +177,12 @@ export type PlaygroundCheckResult = {
   latency_ms: number;
   reason: string;
   runtime: string;
-  triggered_control: { id: string; name: string } | null;
+  triggered_policy: { id: string; name: string } | null;
   triggered_rule: { id: string; name: string } | null;
-  controls: PlaygroundCheckControl[];
+  policies: PlaygroundCheckPolicy[];
   findings: PlaygroundCheckFinding[];
   trace_summary: { steps: number; matched_steps: number };
-  trace: EvaluationTraceStep[];
+  trace: RuntimeTraceStep[];
 };
 
 export type PlaygroundModel = {
@@ -230,7 +207,7 @@ export type TestCase = {
   id: string;
   guardrail_id: string;
   name: string;
-  risk: string;
+  policy_id: string;
   phase: "input" | "output";
   content: string;
   expected_decision: "allow" | "block" | "transform" | "intervene";
@@ -241,23 +218,22 @@ export type TestCase = {
   query: string;
   grounding_sources: string[];
   expected_reasoning_result: AutomatedReasoningResult | null;
-  source_control_id: string | null;
-  source_control_version: string | null;
-  source_suite_id: string | null;
+  source_policy_id: string | null;
+  source_policy_version: string | null;
   source_case_id: string | null;
   covered_rule_ids: string[];
   case_type: string;
   required: boolean;
 };
 
-export type RiskCoverage = {
-  risk: string;
+export type PolicyCoverage = {
+  policy_id: string;
   passed: number;
   total: number;
   score: number | null;
 };
 
-export type GuardrailAssignment = {
+export type Deployment = {
   id: string;
   name: string;
   guardrail_id: string;
@@ -272,7 +248,7 @@ export type GuardrailAssignment = {
 export type TrafficScopeSource = "field" | "header" | "jwt_claim";
 export type TrafficScopeOperator = "equals" | "contains" | "starts_with" | "glob";
 
-export type TrafficScopeRule = {
+export type TrafficCondition = {
   field: string;
   key?: string;
   operator: TrafficScopeOperator;
@@ -281,7 +257,7 @@ export type TrafficScopeRule = {
 
 export type TrafficScopeExpression = {
   combinator: "and" | "or";
-  rules: Array<TrafficScopeRule | TrafficScopeExpression>;
+  conditions: Array<TrafficCondition | TrafficScopeExpression>;
 };
 
 export type TrafficScopeField = {
@@ -300,23 +276,19 @@ export type Guardrail = {
   purpose: string;
   allowed_topics: string[];
   restricted_topics: string[];
-  controls: GuardrailControl[];
-  control_configurations: GuardrailControlConfig[];
-  control_bindings: GuardrailNativeControlBinding[];
+  policy_bindings: GuardrailPolicyBinding[];
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
-  source_pack_id: string | null;
-  parameters: Record<string, string>;
   updated_at: string;
-  status: "needs_testing" | "ready" | "protected";
-  latest_test_run: TestRun | null;
-  assignment_count: number;
+  status: "needs_validation" | "ready" | "protected";
+  latest_validation_run: ValidationRun | null;
+  deployment_count: number;
   test_case_count: number;
   tested_current: boolean;
   is_default: boolean;
   system_managed: boolean;
   local_only: boolean;
-  coverage: RiskCoverage[];
+  coverage: PolicyCoverage[];
 };
 
 export type GuardrailVersion = {
@@ -332,110 +304,103 @@ export type GuardrailVersion = {
   execution_mode: "nemo_only";
 };
 
-export type ControlPack = {
+export type PolicyTag = {
   id: string;
-  name: string;
-  description: string;
-  source: string;
-  version: string;
-  control_ids: string[];
-  parameters: Array<{
-    name: string;
-    label: string;
-    kind: string;
-    required: boolean;
-    placeholder: string;
-    description: string;
-  }>;
-  examples: string[];
-  safety_level: SafetyLevel;
-  output_delivery: OutputDelivery;
-  test_suite_count: number;
-  test_case_count: number;
-};
-
-export type ControlRuleKeyword = {
+  namespace: string;
   value: string;
-  severity: string;
+  label: string;
+  source: "declared" | "derived";
 };
 
-export type ControlRule = {
+export type PolicyRuleImplementation = {
+  engine: string;
+  form: "regex" | "keyword" | "category" | "colang_flow";
+  binding_id: string;
+  implementation_rule_id: string;
+  detector: string | null;
+  flow_name: string | null;
+  action_name: string | null;
+};
+
+export type PolicyRule = {
   id: string;
   name: string;
-  detector: "regex" | "keyword" | "category";
-  action: "MASK" | "BLOCK" | string;
-  phases: Array<"input" | "output">;
   description: string;
+  form: "regex" | "keyword" | "category" | "colang_flow";
+  effect: string;
+  stages: NativeRailType[];
+  implementation: PolicyRuleImplementation;
   expression: string | null;
   context_expression: string | null;
   redaction: string | null;
   severity_threshold: string | null;
   identifiers: string[];
   conditions: string[];
-  keywords: ControlRuleKeyword[];
-  always_block: ControlRuleKeyword[];
+  keywords: Array<[string, string]>;
+  always_block: Array<[string, string]>;
   exceptions: string[];
   phrase_patterns: string[];
 };
 
-export type RulesControlTestCase = {
+export type PolicyTestCase = {
   id: string;
   name: string;
   description: string;
-  phase: "input" | "output";
+  stage: NativeRailType;
   content: string;
   expected_decision: "allow" | "block" | "transform" | "intervene";
   covered_rule_ids: string[];
+  group: string;
   kind: "rule_acceptance" | "scenario";
   required: boolean;
   parameter_names: string[];
 };
 
-export type RulesControlTestSuite = {
-  id: string;
+export type PolicyParameter = {
   name: string;
+  label?: string;
+  kind: string;
+  required: boolean;
+  placeholder?: string;
+  default?: string | null;
   description: string;
-  cases: RulesControlTestCase[];
 };
 
-export type RulesControl = {
-  implementation: "rules";
+export type Policy = {
+  implementation: "rules" | "nemo_native";
   id: string;
   name: string;
   description: string;
-  source: "built_in";
+  source: "built_in" | "custom";
   version: string;
-  phases: Array<"input" | "output">;
-  default_action: "MASK" | "BLOCK" | "POLICY" | string;
-  allowed_actions: string[];
-  detector_types: Array<ControlRule["detector"]>;
-  rules: ControlRule[];
-  test_suites: RulesControlTestSuite[];
+  tags: PolicyTag[];
+  parameters: PolicyParameter[];
+  stages: NativeRailType[];
+  effects: string[];
+  forms: PolicyRule["form"][];
+  rules: PolicyRule[];
+  test_cases: PolicyTestCase[];
   test_count: number;
-  packs: Array<{ id: string; name: string }>;
-};
-
-export type ControlDefinition = {
-  id: string;
-  display_name: string;
-  description: string;
-  default_phases: Array<"input" | "output">;
-  default_action: string;
-  allowed_actions: string[];
-  available_stages: string[];
+  safety_level: SafetyLevel;
+  output_delivery: OutputDelivery;
+  draft_revision?: number;
+  owner?: string;
+  updated_at?: string;
+  implementation_detail?: ProgrammablePolicy;
 };
 
 export type NativeRailType = "input" | "output" | "retrieval" | "dialog" | "execution";
-export type ControlSourceFile = { path: string; content: string };
-export type ControlParameter = {
+export type PolicyRailType = Extract<NativeRailType, "input" | "output">;
+export type PolicySourceFile = { path: string; content: string };
+export type PolicyDraftParameter = {
   name: string;
   kind: "string" | "number" | "boolean" | "secret";
   required: boolean;
   default: string | null;
   description: string;
 };
-export type ControlRailBinding = {
-  rail_type: NativeRailType;
+export type PolicyRailBinding = {
+  rail_type: PolicyRailType;
   flow_name: string;
   execution_mode: "detect" | "mutate";
   on_unsafe: "pass" | "redact" | "rewrite" | "regenerate" | "redirect" | "reject" | "fallback" | "clarify";
@@ -446,31 +411,41 @@ export type ControlRailBinding = {
   required: boolean;
   depends_on: string[];
 };
-export type ControlActionReference = { name: string; version: string };
-export type ControlTestCase = {
+export type PolicyActionReference = { name: string; version: string };
+export type PolicyDraftTestCase = {
+  id: string;
+  description: string;
   name: string;
-  rail_type: NativeRailType;
+  rail_type: PolicyRailType;
   content: string;
   expected_decision: "allow" | "block" | "transform";
-  case_type: "unit" | "input_rail" | "output_rail" | "block" | "transform" | "timeout" | "provider_failure" | "concurrency";
+  covered_rule_ids: string[];
+  case_type: "unit" | "input_rail" | "output_rail" | "timeout" | "provider_failure" | "concurrency";
   required: boolean;
   expected_failure: "timeout" | "provider_failure" | null;
   concurrency_group: string | null;
+  trusted_instruction: string;
+  use_guardrail_instruction: boolean;
+  for_each: "allowed_topics" | "restricted_topics" | null;
+  target_source: TargetSource;
+  query: string;
+  grounding_sources: string[];
+  expected_reasoning_result: AutomatedReasoningResult | null;
 };
-export type NativeControlDraft = {
+export type ProgrammablePolicyDraft = {
   colang_version: "1.0" | "2.x";
-  sources: ControlSourceFile[];
-  parameter_schema: ControlParameter[];
-  rail_bindings: ControlRailBinding[];
-  action_references: ControlActionReference[];
+  sources: PolicySourceFile[];
+  parameter_schema: PolicyDraftParameter[];
+  rail_bindings: PolicyRailBinding[];
+  action_references: PolicyActionReference[];
   model_dependencies: string[];
   prompt_dependencies: string[];
   execution_contract: Array<[string, string]>;
-  tests: ControlTestCase[];
+  test_cases: PolicyDraftTestCase[];
 };
-export type NativeControlVersion = Omit<NativeControlDraft, "execution_contract"> & {
-  control_id: string;
-  version: number;
+export type ProgrammablePolicyVersion = Omit<ProgrammablePolicyDraft, "execution_contract"> & {
+  policy_id: string;
+  version: string;
   name: string;
   description: string;
   source: "built_in" | "custom";
@@ -479,20 +454,18 @@ export type NativeControlVersion = Omit<NativeControlDraft, "execution_contract"
   checksum: string;
   published_at: string;
 };
-export type NativeControl = {
+export type ProgrammablePolicy = {
   implementation: "nemo_native";
   id: string;
   name: string;
   description: string;
   source: "built_in" | "custom";
   owner: string;
-  draft: NativeControlDraft;
+  draft: ProgrammablePolicyDraft;
   draft_revision: number;
   updated_at: string;
-  versions?: NativeControlVersion[];
+  versions?: ProgrammablePolicyVersion[];
 };
-
-export type Control = RulesControl | NativeControl;
 export type ActionDefinition = {
   name: string;
   version: string;
@@ -507,31 +480,33 @@ export type ActionDefinition = {
   secret_names: string[];
   provider_ready: boolean;
 };
-export type ControlValidation = {
+export type PolicyValidation = {
   valid: boolean;
-  control_id: string;
+  policy_id: string;
   draft_revision: number;
   colang_version: string;
   rails: NativeRailType[];
 };
-export type ControlTestRun = {
+export type PolicyDraftValidationRun = {
   id?: string;
-  control_id?: string;
+  policy_id?: string;
   draft_revision?: number;
   status: "not_run" | "passed" | "failed";
   results?: Array<{
     name: string;
-    case_type: ControlTestCase["case_type"];
+    case_type: PolicyDraftTestCase["case_type"];
     required: boolean;
-    rail_type: NativeRailType;
+    rail_type: PolicyRailType;
     concurrency_group: string | null;
     expected_decision: string;
-    expected_failure: ControlTestCase["expected_failure"];
+    expected_failure: PolicyDraftTestCase["expected_failure"];
     actual_decision: string;
-    actual_failure?: ControlTestCase["expected_failure"];
+    actual_failure?: PolicyDraftTestCase["expected_failure"];
     passed: boolean;
     latency_ms: number;
     reason: string;
+    covered_rule_ids: string[];
+    matched_rule_ids: string[];
     trace: Array<Record<string, unknown>>;
   }>;
   created_at?: string;
@@ -606,13 +581,13 @@ export type IntegrationRegistration = {
   credential: OneTimeIntegrationCredential;
 };
 
-export type DecisionEvent = {
+export type EvidenceRecord = {
   id: string;
   created_at: string;
   kind: string;
   outcome: string;
   guardrail_id: string | null;
-  assignment_id: string | null;
+  deployment_id: string | null;
   integration_id: string | null;
   risk: string | null;
   detail: string;
@@ -641,7 +616,7 @@ export type MetricTrendSeries = {
 export type SystemStatus = {
   status: "healthy" | "degraded";
   status_reason: "runtime_ready" | "integration_degraded";
-  active_assignments: number;
+  active_deployments: number;
   enabled_integrations: number;
   total_integrations: number;
   capabilities: {
@@ -705,9 +680,9 @@ export type Metrics = {
     p95_status: "healthy" | "breached";
     p99_status: "healthy" | "breached";
   };
-  latest_test_p95_ms: number;
-  active_assignments: number;
-  total_assignments: number;
+  latest_validation_p95_ms: number;
+  active_deployments: number;
+  total_deployments: number;
   guardrails_needing_test: number;
   total_guardrails: number;
   degraded_integrations: number;
@@ -755,9 +730,9 @@ export type Metrics = {
     errors: number;
     slo_breaches: number;
   }>;
-  control_distribution: Array<{
-    control_id: string;
-    control_version: number | null;
+  policy_distribution: Array<{
+    policy_id: string;
+    policy_version: number | null;
     invocations: number;
     hit_share: number;
     hits_per_request: number;
@@ -785,8 +760,8 @@ export type Metrics = {
 export type RuntimeComponentMetric = {
   name: string;
   risk: string | null;
-  control_id: string | null;
-  control_version: number | null;
+  policy_id: string | null;
+  policy_version: number | null;
   rail_type: string | null;
   flow_name: string | null;
   action_name: string | null;
@@ -860,33 +835,29 @@ export const updateUser = (id: string, input: { display_name?: string; role?: Id
 
 export const getGuardrails = () => read<Collection<Guardrail>>("/api/v1/guardrails");
 export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
-export const createGuardrail = (input: { name: string; purpose?: string; pack_id?: string; parameters?: Record<string, string>; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; control_configurations?: GuardrailControlConfig[]; control_bindings?: GuardrailNativeControlBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
-export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "controls" | "control_configurations" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
+export const createGuardrail = (input: { name: string; purpose?: string; allowed_topics?: string[]; restricted_topics?: string[]; policy_bindings: GuardrailPolicyBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
+export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "policy_bindings" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
 export const rollbackGuardrail = (guardrailId: string, version: number) => mutate<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/rollback/${version}`, "POST");
 
-export const getControlPacks = () => read<Collection<ControlPack>>("/api/v1/control-packs");
-export const getControlDefinitions = () => read<Collection<ControlDefinition>>("/api/v1/control-definitions");
-export const getControls = () => read<Collection<Control>>("/api/v1/controls");
-export const getRuleControls = () => read<Collection<RulesControl>>("/api/v1/controls?implementation=rules");
-export const getNativeControls = () => read<Collection<NativeControl>>("/api/v1/controls?implementation=nemo_native");
-export const getNativeControl = (id: string) => read<NativeControl>(`/api/v1/controls/${encodeURIComponent(id)}?implementation=nemo_native`);
+export const getPolicies = () => read<Collection<Policy>>("/api/v1/policies");
+export const getPolicy = (id: string) => read<Policy>(`/api/v1/policies/${encodeURIComponent(id)}`);
 export const getActionCatalog = () => read<Collection<ActionDefinition>>("/api/v1/actions");
-const nativeControlInput = (input: { name?: string; description?: string; owner?: string; draft?: NativeControlDraft }) => input.draft ? { ...input, draft: { ...input.draft, execution_contract: Object.fromEntries(input.draft.execution_contract) } } : input;
-export const createNativeControl = (input: { name: string; description: string; owner: string; draft: NativeControlDraft }) => mutate<NativeControl>("/api/v1/controls?implementation=nemo_native", "POST", nativeControlInput(input));
-export const updateNativeControl = (id: string, input: { name?: string; description?: string; owner?: string; draft?: NativeControlDraft }) => mutate<NativeControl>(`/api/v1/controls/${encodeURIComponent(id)}?implementation=nemo_native`, "PATCH", nativeControlInput(input));
-export const validateNativeControl = (id: string) => mutate<ControlValidation>(`/api/v1/controls/${encodeURIComponent(id)}/validate?implementation=nemo_native`, "POST");
-export const runNativeControlTests = (id: string) => mutate<ControlTestRun>(`/api/v1/controls/${encodeURIComponent(id)}/test-runs?implementation=nemo_native`, "POST");
-export const getLatestNativeControlTest = (id: string) => read<ControlTestRun>(`/api/v1/controls/${encodeURIComponent(id)}/test-runs/latest?implementation=nemo_native`);
-export const publishNativeControl = (id: string) => mutate<NativeControlVersion>(`/api/v1/controls/${encodeURIComponent(id)}/publish?implementation=nemo_native`, "POST");
+const programmablePolicyInput = (input: { name?: string; description?: string; owner?: string; draft?: ProgrammablePolicyDraft }) => input.draft ? { ...input, draft: { ...input.draft, execution_contract: Object.fromEntries(input.draft.execution_contract) } } : input;
+export const createProgrammablePolicy = (input: { name: string; description: string; owner: string; draft: ProgrammablePolicyDraft }) => mutate<Policy>("/api/v1/policies", "POST", programmablePolicyInput(input));
+export const updateProgrammablePolicy = (id: string, input: { name?: string; description?: string; owner?: string; draft?: ProgrammablePolicyDraft }) => mutate<Policy>(`/api/v1/policies/${encodeURIComponent(id)}`, "PATCH", programmablePolicyInput(input));
+export const validateProgrammablePolicy = (id: string) => mutate<PolicyValidation>(`/api/v1/policies/${encodeURIComponent(id)}/validate`, "POST");
+export const runProgrammablePolicyValidation = (id: string) => mutate<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs`, "POST");
+export const getLatestProgrammablePolicyValidation = (id: string) => read<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs/latest`);
+export const publishProgrammablePolicy = (id: string) => mutate<ProgrammablePolicyVersion>(`/api/v1/policies/${encodeURIComponent(id)}/publish`, "POST");
 export const getGuardrailCompilePreview = (id: string) => read<GuardrailCompilePreview>(`/api/v1/guardrails/${encodeURIComponent(id)}/compile-preview`);
-export const previewGuardrailCandidate = (input: { name: string; purpose: string; allowed_topics?: string[]; restricted_topics?: string[]; controls?: GuardrailControl[]; control_configurations?: GuardrailControlConfig[]; control_bindings?: GuardrailNativeControlBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<GuardrailCompilePreview>("/api/v1/guardrail-compile-previews", "POST", input);
+export const previewGuardrailCandidate = (input: { name: string; purpose: string; allowed_topics?: string[]; restricted_topics?: string[]; policy_bindings: GuardrailPolicyBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<GuardrailCompilePreview>("/api/v1/guardrail-compile-previews", "POST", input);
 export const getIntentAnalysisStatus = () => read<IntentAnalysisStatus>("/api/v1/intent-analysis-status");
 export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" | "zh-CN" }) => mutate<IntentAnalysis>("/api/v1/intent-analyses", "POST", input);
 
-export const createTestRun = (guardrailId: string) => mutate<TestRun>("/api/v1/test-runs", "POST", { guardrail_id: guardrailId });
-export const getTestRuns = (guardrailId?: string) => read<Collection<TestRun>>(`/api/v1/test-runs${query({ guardrail_id: guardrailId })}`);
-export const getTestRun = (runId: string) => read<TestRun>(`/api/v1/test-runs/${encodeURIComponent(runId)}`);
+export const createValidationRun = (guardrailId: string) => mutate<ValidationRun>("/api/v1/validation-runs", "POST", { guardrail_id: guardrailId });
+export const getValidationRuns = (guardrailId?: string) => read<Collection<ValidationRun>>(`/api/v1/validation-runs${query({ guardrail_id: guardrailId })}`);
+export const getValidationRun = (runId: string) => read<ValidationRun>(`/api/v1/validation-runs/${encodeURIComponent(runId)}`);
 export const getPlaygroundModels = () => read<Collection<PlaygroundModel>>("/api/v1/playground/models");
 export const createPlaygroundInteraction = (
   guardrailId: string,
@@ -897,19 +868,19 @@ export const createPlaygroundInteraction = (
   },
 ) => mutate<PlaygroundInteraction>("/api/v1/playground/interactions", "POST", { guardrail_id: guardrailId, ...input });
 export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
-export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "risk" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
+export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "policy_id" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
 export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");
 
-export const getAssignments = () => read<Collection<GuardrailAssignment>>("/api/v1/assignments");
+export const getDeployments = () => read<Collection<Deployment>>("/api/v1/deployments");
 export const getTrafficScopeFields = () => read<Collection<TrafficScopeField>>("/api/v1/traffic-scope-fields");
-export const createAssignment = (input: { name: string; guardrail_id: string; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<GuardrailAssignment>("/api/v1/assignments", "POST", input);
-export const setAssignmentEnabled = (id: string, enabled: boolean) => mutate<GuardrailAssignment>(`/api/v1/assignments/${encodeURIComponent(id)}`, "PATCH", { enabled });
+export const createDeployment = (input: { name: string; guardrail_id: string; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<Deployment>("/api/v1/deployments", "POST", input);
+export const setDeploymentEnabled = (id: string, enabled: boolean) => mutate<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`, "PATCH", { enabled });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
 export const getIntegration = (id: string) => read<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`);
 export const createIntegration = (input: { name: string; adapter_id: IntegrationAdapterId }) => mutate<IntegrationRegistration>("/api/v1/integrations", "POST", input);
 export const setIntegrationEnabled = (id: string, enabled: boolean) => mutate<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`, "PATCH", { enabled });
 export const rotateIntegrationCredential = (id: string) => mutate<IntegrationRegistration>(`/api/v1/integrations/${encodeURIComponent(id)}/credentials`, "POST");
 export const revokeIntegrationCredential = (integrationId: string, credentialId: string) => mutate<void>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/credentials/${encodeURIComponent(credentialId)}`, "DELETE");
-export const getDecisions = (filters: { limit?: number; guardrailId?: string; assignmentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<DecisionEvent>>(`/api/v1/decisions${query({ limit: filters.limit, guardrail_id: filters.guardrailId, assignment_id: filters.assignmentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);
+export const getEvidence = (filters: { limit?: number; guardrailId?: string; deploymentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<EvidenceRecord>>(`/api/v1/evidence${query({ limit: filters.limit, guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);
 export const getMetrics = (filters: { guardrailId?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

@@ -2,22 +2,86 @@
 @import "@xyflow/react/dist/style.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource/inter/latin-400.css";
-@import "@fontsource/inter/latin-500.css";
-@import "@fontsource/inter/latin-600.css";
-@import "@fontsource/inter/latin-700.css";
-@import "@fontsource/jetbrains-mono/latin-400.css";
-@import "@fontsource/jetbrains-mono/latin-500.css";
-@import "@fontsource/noto-sans-sc/chinese-simplified-400.css";
-@import "@fontsource/noto-sans-sc/chinese-simplified-500.css";
-@import "@fontsource/noto-sans-sc/chinese-simplified-600.css";
+
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/hanken-grotesk/files/hanken-grotesk-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/hanken-grotesk/files/hanken-grotesk-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/hanken-grotesk/files/hanken-grotesk-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Serif SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/chivo-mono/files/chivo-mono-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Chivo Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/chivo-mono/files/chivo-mono-latin-500-normal.woff2") format("woff2");
+}
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-heading: "Inter", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
-  --font-sans: "Inter", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --font-display: "Noto Serif SC", "Songti SC", STSong, serif;
+  --font-heading: "Hanken Grotesk", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+  --font-sans: "Hanken Grotesk", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+  --font-mono: "Chivo Mono", "Noto Sans SC", "PingFang SC", "SFMono-Regular", Consolas, monospace;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -102,7 +166,6 @@
 
   html {
     @apply font-sans;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
   body {
@@ -129,9 +192,11 @@
   code,
   kbd,
   pre,
-  samp {
+  samp,
+  .font-mono {
     @apply font-mono;
     font-variant-ligatures: none;
+    font-variant-numeric: tabular-nums;
   }
 
   ::selection {

@@ -29,7 +29,7 @@ const definitions: TrafficScopeFieldDefinition[] = [
 ];
 
 describe("traffic scope model", () => {
-  it("reserves an empty expression for the product default GuardrailAssignment", () => {
+  it("reserves an empty expression for the product default Deployment", () => {
     expect(isTrafficScopeValid({ combinator: "and", rules: [] }, definitions)).toBe(false);
   });
 
@@ -102,11 +102,11 @@ describe("traffic scope model", () => {
 
     expect(toTrafficScopeExpression(query, definitions)).toEqual({
       combinator: "and",
-      rules: [
+      conditions: [
         { field: "protocol", operator: "equals", value: "http" },
         {
           combinator: "or",
-          rules: [
+          conditions: [
             {
               field: "http.header",
               key: "x-app-id",

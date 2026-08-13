@@ -24,7 +24,7 @@ export function PageHeader({
     <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
         {eyebrow ? <p className="text-sm font-medium text-primary">{eyebrow}</p> : null}
-        <h1 className={cn("text-3xl font-semibold tracking-[-0.035em] text-foreground sm:text-[2rem]", eyebrow && "mt-1.5")}>
+        <h1 className={cn("font-display text-3xl font-semibold tracking-[-0.015em] text-foreground sm:text-[2rem]", eyebrow && "mt-1.5")}>
           {title}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
@@ -39,7 +39,7 @@ export function StateBadge({ state }: { state: string }) {
   const normalized = state.toLowerCase();
   const positive = ["active", "passed", "ready", "healthy", "allow", "pass", "safe", "enabled", "configured", "protected", "local", "success"].includes(normalized);
   const negative = ["failed", "block", "blocked", "reject", "unsafe", "error", "degraded", "disabled"].includes(normalized);
-  const warning = ["transform", "redirect", "uncertain", "waiting", "unconfigured", "unavailable", "not evaluated", "stale", "needs_testing", "intervene", "paused"].includes(normalized);
+  const warning = ["transform", "redirect", "uncertain", "waiting", "unconfigured", "unavailable", "not evaluated", "stale", "needs_validation", "intervene", "paused"].includes(normalized);
 
   return (
     <Badge

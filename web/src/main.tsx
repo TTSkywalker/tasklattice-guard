@@ -6,14 +6,14 @@ import { ThemeProvider } from "next-themes";
 
 import { ControlPlaneLayout } from "@/routes/layout";
 import { GuardrailDetailPage, GuardrailsPage } from "@/routes/guardrails";
-import { AssignmentsPage } from "@/routes/assignments";
+import { DeploymentsPage } from "@/routes/deployments";
 import { EvidencePage } from "@/routes/evidence";
 import { IntegrationsPage } from "@/routes/integrations";
-import { EvaluationsPage } from "@/routes/validation";
+import { ValidationPage } from "@/routes/validation";
 import { PlaygroundPage } from "@/routes/playground";
 import { UsersPage } from "@/routes/users";
 import { DashboardPage } from "@/routes/dashboard";
-import { ControlLibraryPage } from "@/routes/control-library";
+import { PolicyLibraryPage } from "@/routes/policy-library";
 import { AuthProvider } from "@/lib/auth";
 import "@/i18n";
 import "@/styles.css";
@@ -24,13 +24,11 @@ const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", com
 const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: DashboardPage });
 const guardrailsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails", component: GuardrailsPage });
 const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails/$guardrailId", component: GuardrailDetailPage });
-const controlLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/control-library", component: ControlLibraryPage });
+const policyLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/policy-library", component: PolicyLibraryPage });
 const guardrailSearch = (search: Record<string, unknown>) => ({ guardrail: typeof search.guardrail === "string" ? search.guardrail : undefined });
 const playgroundRoute = createRoute({ getParentRoute: () => rootRoute, path: "/playground", validateSearch: guardrailSearch, component: PlaygroundPage });
-const evaluationsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/evaluations", validateSearch: guardrailSearch, component: EvaluationsPage });
-const deploymentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/deployments", component: AssignmentsPage });
-const assignmentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/assignments", component: AssignmentsPage });
-const enforcementsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/enforcements", component: AssignmentsPage });
+const validationRoute = createRoute({ getParentRoute: () => rootRoute, path: "/validation", validateSearch: guardrailSearch, component: ValidationPage });
+const deploymentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/deployments", component: DeploymentsPage });
 const integrationsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/integrations", component: IntegrationsPage });
 const evidenceRoute = createRoute({ getParentRoute: () => rootRoute, path: "/evidence", component: EvidencePage });
 const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
@@ -39,12 +37,10 @@ const routeTree = rootRoute.addChildren([
   dashboardRoute,
   guardrailsRoute,
   guardrailDetailRoute,
-  controlLibraryRoute,
+  policyLibraryRoute,
   playgroundRoute,
-  evaluationsRoute,
+  validationRoute,
   deploymentsRoute,
-  assignmentsRoute,
-  enforcementsRoute,
   integrationsRoute,
   evidenceRoute,
   usersRoute,

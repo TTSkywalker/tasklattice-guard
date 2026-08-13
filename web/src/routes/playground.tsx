@@ -50,7 +50,7 @@ function PlaygroundWorkspace({ guardrail, guardrails, models, value, onChange }:
       appendTurn(result);
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.metrics }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.decisions }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.evidence }),
       ]);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : t("guardrails.operationFailed")),

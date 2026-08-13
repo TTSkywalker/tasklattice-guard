@@ -27,12 +27,10 @@ const names: Record<string, { group: string; page: string }> = {
   "/": { group: "nav.home", page: "nav.dashboard" },
   "/dashboard": { group: "nav.home", page: "nav.dashboard" },
   "/guardrails": { group: "nav.buildValidate", page: "nav.guardrails" },
-  "/control-library": { group: "nav.buildValidate", page: "nav.controlLibrary" },
+  "/policy-library": { group: "nav.buildValidate", page: "nav.policyLibrary" },
   "/playground": { group: "nav.home", page: "nav.playground" },
-  "/evaluations": { group: "nav.buildValidate", page: "nav.evaluations" },
+  "/validation": { group: "nav.buildValidate", page: "nav.validation" },
   "/deployments": { group: "nav.runtime", page: "nav.deployments" },
-  "/assignments": { group: "nav.runtime", page: "nav.deployments" },
-  "/enforcements": { group: "nav.runtime", page: "nav.deployments" },
   "/integrations": { group: "nav.runtime", page: "nav.integrations" },
   "/evidence": { group: "nav.assurance", page: "nav.evidence" },
   "/access": { group: "nav.system", page: "nav.access" },
@@ -111,7 +109,7 @@ function RuntimeHealthMenu({ loading, status }: { loading: boolean; status?: Awa
         <DropdownMenuLabel className="px-3 py-2"><span className="block text-sm font-semibold text-foreground">{t("runtimeHealth.title")}</span><span className="mt-1 block font-normal leading-5">{t(degraded ? "runtimeHealth.degradedDescription" : "runtimeHealth.readyDescription")}</span></DropdownMenuLabel>
         <DropdownMenuSeparator />
         <div className="grid grid-cols-2 gap-2 p-2 text-xs">
-          <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.deployments")}</p><p className="mt-1 font-mono text-base text-foreground">{status?.active_assignments ?? "—"}</p></div>
+          <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.deployments")}</p><p className="mt-1 font-mono text-base text-foreground">{status?.active_deployments ?? "—"}</p></div>
           <div className="rounded-lg bg-muted/50 p-3"><p className="text-muted-foreground">{t("runtimeHealth.integrations")}</p><p className="mt-1 font-mono text-base text-foreground">{status ? `${status.enabled_integrations}/${status.total_integrations}` : "—"}</p></div>
         </div>
         <div className="space-y-1 px-2 pb-2">

@@ -6,7 +6,7 @@ import type {
   TrafficScopeFieldDefinition,
   TrafficScopeOperator,
   TrafficScopeQuery,
-  TrafficScopeRule,
+  TrafficCondition,
 } from "./types";
 
 type CustomRuleValue = { key: string; value: string };
@@ -35,7 +35,7 @@ export function toTrafficScopeExpression(
 ): TrafficScopeExpression {
   return {
     combinator: query.combinator === "or" ? "or" : "and",
-    rules: query.rules.map((item) => {
+    conditions: query.rules.map((item) => {
       if (isRuleGroup(item)) return toTrafficScopeExpression(item, definitions);
       const definition = definitions.find((candidate) => candidate.id === item.field);
       const encoded = customRuleValue(item.value);
@@ -44,7 +44,7 @@ export function toTrafficScopeExpression(
         ...(definition?.custom_key ? { key: encoded.key.trim() } : {}),
         operator: item.operator as TrafficScopeOperator,
         value: (definition?.custom_key ? encoded.value : String(item.value ?? "")).trim(),
-      } satisfies TrafficScopeRule;
+      } satisfies TrafficCondition;
     }),
   };
 }
@@ -54,14 +54,15 @@ export function isTrafficScopeValid(
   definitions: TrafficScopeFieldDefinition[],
   maxRules = 16,
 ): boolean {
-  const count = countTrafficRules(query);
+  const count = countTrafficConditions(query);
   if (!count || count > maxRules || getTrafficScopeConflicts(query, definitions).length) return false;
   return validGroup(query, definitions, 1);
 }
 
-export function countTrafficRules(query: RuleGroupType | TrafficScopeExpression): number {
-  return query.rules.reduce(
-    (total, item) => total + (isExpressionGroup(item) ? countTrafficRules(item) : 1),
+export function countTrafficConditions(query: RuleGroupType | TrafficScopeExpression): number {
+  const items = "conditions" in query ? query.conditions : query.rules;
+  return items.reduce(
+    (total, item) => total + (isExpressionGroup(item) ? countTrafficConditions(item) : 1),
     0,
   );
 }
@@ -148,5 +149,5 @@ function validGroup(
 }
 
 function isExpressionGroup(value: unknown): value is RuleGroupType | TrafficScopeExpression {
-  return Boolean(value && typeof value === "object" && "rules" in value);
+  return Boolean(value && typeof value === "object" && ("rules" in value || "conditions" in value));
 }

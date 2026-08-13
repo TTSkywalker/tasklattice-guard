@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { EntitySheet } from "@/components/entity-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import {
-  countTrafficRules,
+  countTrafficConditions,
   createTrafficScopeQuery,
   isTrafficScopeValid,
   toTrafficScopeExpression,
@@ -21,82 +21,82 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { queryKeys } from "@/features/query-keys";
 import {
-  createAssignment,
+  createDeployment,
   getGuardrails,
   getTrafficScopeFields,
-  getAssignments,
-  setAssignmentEnabled,
+  getDeployments,
+  setDeploymentEnabled,
   type Guardrail,
-  type GuardrailAssignment,
+  type Deployment,
   type TrafficScopeExpression,
-  type TrafficScopeRule,
+  type TrafficCondition,
 } from "@/lib/api";
 
-export function AssignmentsPage() {
+export function DeploymentsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const assignmentsQuery = useQuery({ queryKey: queryKeys.assignments, queryFn: getAssignments });
+  const deploymentsQuery = useQuery({ queryKey: queryKeys.deployments, queryFn: getDeployments });
   const guardrailsQuery = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
   const [createOpen, setCreateOpen] = useState(false);
-  const assignments = [...(assignmentsQuery.data?.items ?? [])].sort((left, right) => Number(right.is_default) - Number(left.is_default));
+  const deployments = [...(deploymentsQuery.data?.items ?? [])].sort((left, right) => Number(right.is_default) - Number(left.is_default));
   const guardrails = guardrailsQuery.data?.items ?? [];
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.assignments }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.deployments }),
       queryClient.invalidateQueries({ queryKey: queryKeys.guardrails }),
       queryClient.invalidateQueries({ queryKey: queryKeys.metrics }),
     ]);
   };
   const toggle = useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => setAssignmentEnabled(id, enabled),
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => setDeploymentEnabled(id, enabled),
     onSuccess: refresh,
-    onError: (error) => notifyError(error, t("assignments.operationFailed")),
+    onError: (error) => notifyError(error, t("deployments.operationFailed")),
   });
 
   return (
     <section className="py-6 sm:py-8">
       <PageHeader
-        title={t("pages.assignments.title")}
-        description={t("pages.assignments.description")}
-        action={<Button className="min-h-11 self-start" onClick={() => setCreateOpen(true)}><Plus />{t("pages.assignments.add")}</Button>}
+        title={t("pages.deployments.title")}
+        description={t("pages.deployments.description")}
+        action={<Button className="min-h-11 self-start" onClick={() => setCreateOpen(true)}><Plus />{t("pages.deployments.add")}</Button>}
       />
 
-      {assignmentsQuery.error ? <div className="mt-5"><ErrorNotice error={assignmentsQuery.error} /></div> : null}
-      {assignmentsQuery.isLoading ? <Skeleton className="mt-5 h-52 rounded-lg" /> : null}
+      {deploymentsQuery.error ? <div className="mt-5"><ErrorNotice error={deploymentsQuery.error} /></div> : null}
+      {deploymentsQuery.isLoading ? <Skeleton className="mt-5 h-52 rounded-lg" /> : null}
 
-      {assignments.length ? (
+      {deployments.length ? (
         <>
           <div className="mt-5 flex min-h-14 items-center gap-3 rounded-lg border bg-card px-4 py-3">
             <ListFilter className="size-4 text-primary" />
-            <div><p className="text-sm font-medium">{t("assignments.precedenceTitle")}</p><p className="mt-0.5 text-xs text-muted-foreground">{t("assignments.precedenceDescription")}</p></div>
+            <div><p className="text-sm font-medium">{t("deployments.precedenceTitle")}</p><p className="mt-0.5 text-xs text-muted-foreground">{t("deployments.precedenceDescription")}</p></div>
           </div>
           <section className="mt-4 surface">
             <div className="hidden grid-cols-[minmax(210px,1.1fr)_minmax(320px,1.8fr)_minmax(155px,.8fr)_132px] border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground lg:grid">
-              <span>{t("assignments.assignment")}</span><span>{t("assignments.trafficScope")}</span><span>{t("assignments.guardrailVersion")}</span><span>{t("common.status")}</span>
+              <span>{t("deployments.deployment")}</span><span>{t("deployments.trafficScope")}</span><span>{t("deployments.guardrailVersion")}</span><span>{t("common.status")}</span>
             </div>
             <div className="divide-y divide-border">
-              {assignments.map((assignment) => (
-                <AssignmentRow
-                  key={assignment.id}
-                  assignment={assignment}
-                  guardrail={guardrails.find((item) => item.id === assignment.guardrail_id)}
-                  onToggle={(enabled) => toggle.mutate({ id: assignment.id, enabled })}
+              {deployments.map((deployment) => (
+                <DeploymentRow
+                  key={deployment.id}
+                  deployment={deployment}
+                  guardrail={guardrails.find((item) => item.id === deployment.guardrail_id)}
+                  onToggle={(enabled) => toggle.mutate({ id: deployment.id, enabled })}
                 />
               ))}
             </div>
           </section>
         </>
-      ) : !assignmentsQuery.isLoading ? (
+      ) : !deploymentsQuery.isLoading ? (
         <div className="mt-5">
           <EmptyState
-            title={t("assignments.emptyTitle")}
-            description={t("assignments.emptyDescription")}
-            action={<Button onClick={() => setCreateOpen(true)}><ShieldCheck />{t("assignments.createFirst")}</Button>}
+            title={t("deployments.emptyTitle")}
+            description={t("deployments.emptyDescription")}
+            action={<Button onClick={() => setCreateOpen(true)}><ShieldCheck />{t("deployments.createFirst")}</Button>}
           />
         </div>
       ) : null}
 
-      <CreateAssignmentSheet
+      <CreateDeploymentSheet
         open={createOpen}
         onOpenChange={setCreateOpen}
         guardrails={guardrails}
@@ -106,33 +106,33 @@ export function AssignmentsPage() {
   );
 }
 
-function AssignmentRow({ assignment, guardrail, onToggle }: { assignment: GuardrailAssignment; guardrail?: Guardrail; onToggle: (enabled: boolean) => void }) {
+function DeploymentRow({ deployment, guardrail, onToggle }: { deployment: Deployment; guardrail?: Guardrail; onToggle: (enabled: boolean) => void }) {
   const { t } = useTranslation();
-  const assignmentName = assignment.is_default ? t("assignments.defaultName") : assignment.name;
-  const guardrailName = guardrail?.is_default ? t("guardrails.defaultGuardrailName") : guardrail?.name ?? assignment.guardrail_id;
+  const deploymentName = deployment.is_default ? t("deployments.defaultName") : deployment.name;
+  const guardrailName = guardrail?.is_default ? t("guardrails.defaultGuardrailName") : guardrail?.name ?? deployment.guardrail_id;
   return (
     <article className="grid gap-4 p-5 lg:grid-cols-[minmax(210px,1.1fr)_minmax(320px,1.8fr)_minmax(155px,.8fr)_132px] lg:items-center">
       <div>
-        <div className="flex flex-wrap items-center gap-2"><ListFilter className="size-4 text-primary" /><strong className="text-sm font-medium">{assignmentName}</strong><span className="rounded-md border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{t(assignment.is_default ? "assignments.fallbackMode" : "assignments.routedMode")}</span></div>
-        <p className="mt-2 text-xs text-muted-foreground">{assignment.is_default ? t("assignments.defaultDescription") : t("assignments.conditionCount", { count: countTrafficRules(assignment.traffic_scope) })}</p>
+        <div className="flex flex-wrap items-center gap-2"><ListFilter className="size-4 text-primary" /><strong className="text-sm font-medium">{deploymentName}</strong><span className="rounded-md border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{t(deployment.is_default ? "deployments.fallbackMode" : "deployments.routedMode")}</span></div>
+        <p className="mt-2 text-xs text-muted-foreground">{deployment.is_default ? t("deployments.defaultDescription") : t("deployments.conditionCount", { count: countTrafficConditions(deployment.traffic_scope) })}</p>
       </div>
-      <TrafficScopeBadges assignment={assignment} />
-      <div><p className="text-xs font-medium">{guardrailName}</p><p className="mt-1 text-xs text-muted-foreground">{t("assignments.version", { version: assignment.guardrail_version })}</p></div>
+      <TrafficScopeBadges deployment={deployment} />
+      <div><p className="text-xs font-medium">{guardrailName}</p><p className="mt-1 text-xs text-muted-foreground">{t("deployments.version", { version: deployment.guardrail_version })}</p></div>
       <div className="flex items-center justify-between gap-3 lg:justify-start">
-        <StateBadge state={assignment.enabled ? "protected" : "paused"} />
-        {assignment.is_default ? <span className="text-xs font-medium text-muted-foreground">{t("assignments.baseline")}</span> : <Switch aria-label={`${t(assignment.enabled ? "assignments.pause" : "assignments.enable")} ${assignment.name}`} checked={assignment.enabled} onCheckedChange={onToggle} />}
+        <StateBadge state={deployment.enabled ? "protected" : "paused"} />
+        {deployment.is_default ? <span className="text-xs font-medium text-muted-foreground">{t("deployments.baseline")}</span> : <Switch aria-label={`${t(deployment.enabled ? "deployments.pause" : "deployments.enable")} ${deployment.name}`} checked={deployment.enabled} onCheckedChange={onToggle} />}
       </div>
     </article>
   );
 }
 
-export function TrafficScopeBadges({ assignment }: { assignment: GuardrailAssignment }) {
+export function TrafficScopeBadges({ deployment }: { deployment: Deployment }) {
   const { t } = useTranslation();
-  if (!assignment.traffic_scope.rules.length) {
-    return <span className="text-xs font-medium text-primary">{t("assignments.unmatchedTraffic")}</span>;
+  if (!deployment.traffic_scope.conditions.length) {
+    return <span className="text-xs font-medium text-primary">{t("deployments.unmatchedTraffic")}</span>;
   }
   return (
-    <FilterExpressionSummary expression={assignment.traffic_scope} />
+    <FilterExpressionSummary expression={deployment.traffic_scope} />
   );
 }
 
@@ -140,13 +140,13 @@ function FilterExpressionSummary({ expression }: { expression: TrafficScopeExpre
   const { t } = useTranslation();
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      {expression.rules.map((item, index) => (
+      {expression.conditions.map((item, index) => (
         <div key={isFilterGroup(item) ? `group-${index}` : `${item.field}:${item.key ?? ""}:${index}`} className="contents">
           {index ? <span className="text-[10px] font-semibold text-muted-foreground">{expression.combinator.toUpperCase()}</span> : null}
           {isFilterGroup(item) ? (
             <span className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/20 p-1"><FilterExpressionSummary expression={item} /></span>
           ) : (
-            <span className="max-w-full rounded-md border bg-muted/40 px-2 py-1 font-mono text-[11px] text-foreground">
+            <span className="max-w-full rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs text-foreground">
               <span className="text-muted-foreground">{filterKeyLabel(t, item)} {operatorLabel(t, item.operator)} </span><span className="break-all">{item.value}</span>
             </span>
           )}
@@ -156,7 +156,7 @@ function FilterExpressionSummary({ expression }: { expression: TrafficScopeExpre
   );
 }
 
-export function CreateAssignmentSheet({
+export function CreateDeploymentSheet({
   open,
   onOpenChange,
   guardrails,
@@ -187,41 +187,41 @@ export function CreateAssignmentSheet({
   const filterValid = isTrafficScopeValid(filterQuery, definitions);
   const selectedGuardrail = ready.find((item) => item.id === guardrailId);
   const mutation = useMutation({
-    mutationFn: () => createAssignment({ name, guardrail_id: guardrailId, traffic_scope: payloadFilter, enabled: true }),
-    onSuccess: () => { toast.success(t("assignments.created")); onCreated(); },
-    onError: (error) => notifyError(error, t("assignments.operationFailed")),
+    mutationFn: () => createDeployment({ name, guardrail_id: guardrailId, traffic_scope: payloadFilter, enabled: true }),
+    onSuccess: () => { toast.success(t("deployments.created")); onCreated(); },
+    onError: (error) => notifyError(error, t("deployments.operationFailed")),
   });
 
   return (
     <EntitySheet
       open={open}
       onOpenChange={onOpenChange}
-      eyebrow={t("assignments.sheetEyebrow")}
-      title={t("assignments.sheetTitle")}
-      description={t("assignments.sheetDescription")}
+      eyebrow={t("deployments.sheetEyebrow")}
+      title={t("deployments.sheetTitle")}
+      description={t("deployments.sheetDescription")}
       width="xl"
-      footer={<><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!name.trim() || !guardrailId || !filterValid || mutation.isPending} onClick={() => mutation.mutate()}><ShieldCheck />{t(mutation.isPending ? "assignments.creating" : "assignments.create")}</Button></>}
+      footer={<><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!name.trim() || !guardrailId || !filterValid || mutation.isPending} onClick={() => mutation.mutate()}><ShieldCheck />{t(mutation.isPending ? "deployments.creating" : "deployments.create")}</Button></>}
     >
       {!ready.length ? (
-        <EmptyState title={t("assignments.noTestedTitle")} description={t("assignments.noTestedDescription")} />
+        <EmptyState title={t("deployments.noTestedTitle")} description={t("deployments.noTestedDescription")} />
       ) : (
         <div className="grid gap-7">
-          <FormSection number="1" title={t("assignments.trafficCharacteristics")} description={t("assignments.trafficCharacteristicsDescription")}>
-            <Field label={t("assignments.assignmentName")} hint={t("assignments.assignmentNameHint")}><Input autoFocus className="min-h-11 rounded-lg bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder="Finance production traffic" /></Field>
+          <FormSection number="1" title={t("deployments.trafficCharacteristics")} description={t("deployments.trafficCharacteristicsDescription")}>
+            <Field label={t("deployments.deploymentName")} hint={t("deployments.deploymentNameHint")}><Input autoFocus className="min-h-11 rounded-lg bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder="Finance production traffic" /></Field>
             {fieldQuery.isLoading ? <Skeleton className="h-72 rounded-lg" /> : null}
             {fieldQuery.error ? <ErrorNotice error={fieldQuery.error} /> : null}
             {definitions.length ? <TrafficScopeBuilder definitions={definitions} query={filterQuery} onQueryChange={setFilterQuery} /> : null}
-            <InfoNotice title={t("assignments.scopeTrustTitle")}>{t("assignments.scopeTrustDescription")}</InfoNotice>
+            <InfoNotice title={t("deployments.scopeTrustTitle")}>{t("deployments.scopeTrustDescription")}</InfoNotice>
           </FormSection>
 
-          <FormSection number="2" title={t("assignments.applyGuardrail")} description={t("assignments.applyGuardrailDescription")}>
-            <Field label={t("assignments.guardrail")}>
+          <FormSection number="2" title={t("deployments.applyGuardrail")} description={t("deployments.applyGuardrailDescription")}>
+            <Field label={t("deployments.guardrail")}>
               <Select disabled={Boolean(initialGuardrailId)} value={guardrailId} onValueChange={setGuardrailId}><SelectTrigger className="min-h-11 rounded-lg bg-card"><SelectValue /></SelectTrigger><SelectContent className="rounded-lg">{ready.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
             </Field>
             {selectedGuardrail ? (
               <div className="grid gap-3 rounded-lg border bg-muted/25 p-4 sm:grid-cols-3">
-                <GuardrailFact label={t("assignments.selectedGuardrail")} value={selectedGuardrail.name} />
-                <GuardrailFact label={t("guardrails.controls")} value={t("guardrails.controlCount", { count: selectedGuardrail.controls.length })} />
+                <GuardrailFact label={t("deployments.selectedGuardrail")} value={selectedGuardrail.name} />
+                <GuardrailFact label={t("guardrails.policies")} value={t("guardrails.policyCount", { count: selectedGuardrail.policy_bindings.length })} />
                 <GuardrailFact label={t("guardrails.testEvidence")} value={t("guardrails.testCount", { count: selectedGuardrail.test_case_count })} />
               </div>
             ) : null}
@@ -252,17 +252,17 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   return <label className="grid gap-2 text-sm font-medium">{label}{children}{hint ? <span className="text-xs font-normal leading-5 text-muted-foreground">{hint}</span> : null}</label>;
 }
 
-function isFilterGroup(item: TrafficScopeRule | TrafficScopeExpression): item is TrafficScopeExpression {
-  return "rules" in item;
+function isFilterGroup(item: TrafficCondition | TrafficScopeExpression): item is TrafficScopeExpression {
+  return "conditions" in item;
 }
 
-function filterKeyLabel(t: (key: string) => string, condition: TrafficScopeRule) {
-  const translated = t(`assignments.trafficScopeFields.${condition.field.replaceAll(".", "_")}`);
+function filterKeyLabel(t: (key: string) => string, condition: TrafficCondition) {
+  const translated = t(`deployments.trafficScopeFields.${condition.field.replaceAll(".", "_")}`);
   return condition.key ? `${translated}:${condition.key}` : translated;
 }
 
-function operatorLabel(t: (key: string) => string, operator: TrafficScopeRule["operator"]) {
-  return t(`assignments.trafficScopeOperators.${operator}`);
+function operatorLabel(t: (key: string) => string, operator: TrafficCondition["operator"]) {
+  return t(`deployments.trafficScopeOperators.${operator}`);
 }
 
 function notifyError(error: unknown, fallback: string) { toast.error(error instanceof Error ? error.message : fallback); }

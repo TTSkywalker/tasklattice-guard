@@ -27,7 +27,7 @@ export function GuardrailResultCard({ result, onViewDetails }: { result: Playgro
         <p className="text-xs font-semibold">{t("playground.guardrailReceipt")}</p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary}</p>
       </div>
-      <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[11px] text-muted-foreground"><Clock3 className="size-3.5" />{totalLatency} ms</span>
+      <span className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground"><Clock3 className="size-3.5" />{totalLatency} ms</span>
       <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onViewDetails}><Search />{t("playground.inspect")}</Button>
     </section>
   );

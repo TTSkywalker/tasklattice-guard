@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 import {
-  countTrafficRules,
+  countTrafficConditions,
   customRuleValue,
   getTrafficScopeConflicts,
   setTrafficGroupCombinator,
@@ -36,7 +36,7 @@ export function TrafficScopeBuilder({
 }: TrafficScopeBuilderProps) {
   const { t } = useTranslation();
   const fields = useMemo(() => createFields(definitions, t), [definitions, t]);
-  const ruleCount = countTrafficRules(query);
+  const ruleCount = countTrafficConditions(query);
   const conflicts = getTrafficScopeConflicts(query, definitions);
 
   return (
@@ -45,16 +45,16 @@ export function TrafficScopeBuilder({
         <div>
           <div className="flex items-center gap-2">
             <ListFilter className="size-4 text-primary" />
-            <h3 className="text-base font-semibold">{t("assignments.trafficScopeBuilder.title")}</h3>
+            <h3 className="text-base font-semibold">{t("deployments.trafficScopeBuilder.title")}</h3>
           </div>
-          <p className="mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground">{t("assignments.trafficScopeBuilder.description")}</p>
+          <p className="mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground">{t("deployments.trafficScopeBuilder.description")}</p>
         </div>
       </div>
 
       <div className="grid gap-3 p-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">{t("assignments.trafficScopeBuilder.expressionDescription")}</p>
-            <span className="rounded-md border bg-background px-2 py-1 font-mono text-[11px] text-muted-foreground">{ruleCount} / {maxRules}</span>
+            <p className="text-xs text-muted-foreground">{t("deployments.trafficScopeBuilder.expressionDescription")}</p>
+            <span className="rounded-md border bg-background px-2 py-1 font-mono text-xs text-muted-foreground">{ruleCount} / {maxRules}</span>
           </div>
 
           <QueryBuilderShadcn>
@@ -63,8 +63,8 @@ export function TrafficScopeBuilder({
               query={query}
               onQueryChange={onQueryChange}
               combinators={[
-                { name: "and", label: t("assignments.trafficScopeBuilder.allConditions") },
-                { name: "or", label: t("assignments.trafficScopeBuilder.anyCondition") },
+                { name: "and", label: t("deployments.trafficScopeBuilder.allConditions") },
+                { name: "or", label: t("deployments.trafficScopeBuilder.anyCondition") },
               ]}
               controlElements={{
                 actionElement: TrafficActionElement,
@@ -86,20 +86,20 @@ export function TrafficScopeBuilder({
                 removeRule: "min-h-10 min-w-10",
               }}
               translations={{
-                addRule: { label: <><Plus />{t("assignments.trafficScopeBuilder.add")}</>, title: t("assignments.trafficScopeBuilder.add") },
-                addGroup: { label: <><Plus />{t("assignments.trafficScopeBuilder.addGroup")}</>, title: t("assignments.trafficScopeBuilder.addGroup") },
-                removeRule: { label: <Trash2 />, title: t("assignments.trafficScopeBuilder.remove") },
-                removeGroup: { label: <Trash2 />, title: t("assignments.trafficScopeBuilder.removeGroup") },
-                combinators: { title: t("assignments.trafficScopeBuilder.ruleRelation") },
-                fields: { title: t("assignments.trafficScopeBuilder.field") },
-                operators: { title: t("assignments.trafficScopeBuilder.operator") },
-                value: { title: t("assignments.trafficScopeBuilder.value") },
+                addRule: { label: <><Plus />{t("deployments.trafficScopeBuilder.add")}</>, title: t("deployments.trafficScopeBuilder.add") },
+                addGroup: { label: <><Plus />{t("deployments.trafficScopeBuilder.addGroup")}</>, title: t("deployments.trafficScopeBuilder.addGroup") },
+                removeRule: { label: <Trash2 />, title: t("deployments.trafficScopeBuilder.remove") },
+                removeGroup: { label: <Trash2 />, title: t("deployments.trafficScopeBuilder.removeGroup") },
+                combinators: { title: t("deployments.trafficScopeBuilder.ruleRelation") },
+                fields: { title: t("deployments.trafficScopeBuilder.field") },
+                operators: { title: t("deployments.trafficScopeBuilder.operator") },
+                value: { title: t("deployments.trafficScopeBuilder.value") },
               }}
               addRuleToNewGroups
               maxLevels={3}
               onAddRule={(rule) => {
                 if (ruleCount >= maxRules) {
-                  toast.error(t("assignments.trafficScopeBuilder.ruleLimit", { count: maxRules }));
+                  toast.error(t("deployments.trafficScopeBuilder.ruleLimit", { count: maxRules }));
                   return false;
                 }
                 return rule;
@@ -109,14 +109,14 @@ export function TrafficScopeBuilder({
           </QueryBuilderShadcn>
 
           {conflicts.map((conflict) => {
-            const label = t(`assignments.trafficScopeFields.${conflict.field.replaceAll(".", "_")}`);
+            const label = t(`deployments.trafficScopeFields.${conflict.field.replaceAll(".", "_")}`);
             const field = conflict.key ? `${label}:${conflict.key}` : label;
             return (
               <Alert key={`${conflict.path.join(".")}:${conflict.field}:${conflict.key}`} className="border-amber-200 bg-amber-50 text-amber-800">
                 <AlertTriangle />
-                <AlertTitle>{t("assignments.trafficScopeBuilder.conflictTitle")}</AlertTitle>
+                <AlertTitle>{t("deployments.trafficScopeBuilder.conflictTitle")}</AlertTitle>
                 <AlertDescription className="text-amber-800/80">
-                  <p>{t("assignments.trafficScopeBuilder.exclusiveEqualsConflict", { field, values: conflict.values.join(" / ") })}</p>
+                  <p>{t("deployments.trafficScopeBuilder.exclusiveEqualsConflict", { field, values: conflict.values.join(" / ") })}</p>
                   <Button
                     type="button"
                     variant="link"
@@ -124,7 +124,7 @@ export function TrafficScopeBuilder({
                     className="mt-1 h-auto p-0 text-amber-800"
                     onClick={() => onQueryChange(setTrafficGroupCombinator(query, conflict.path, "or"))}
                   >
-                    {t("assignments.trafficScopeBuilder.changeGroupToOr")}
+                    {t("deployments.trafficScopeBuilder.changeGroupToOr")}
                   </Button>
                 </AlertDescription>
               </Alert>
@@ -207,15 +207,15 @@ function createFields(
   return groupOrder.flatMap((group) => {
     const options = definitions.filter((item) => item.group === group).map((definition) => ({
       name: definition.id,
-      label: t(`assignments.trafficScopeFields.${definition.id.replaceAll(".", "_")}`),
+      label: t(`deployments.trafficScopeFields.${definition.id.replaceAll(".", "_")}`),
       definition,
-      operators: definition.operators.map((operator) => ({ name: operator, label: t(`assignments.trafficScopeOperators.${operator}`) })),
+      operators: definition.operators.map((operator) => ({ name: operator, label: t(`deployments.trafficScopeOperators.${operator}`) })),
       valueEditorType: definition.values.length ? "select" as const : "text" as const,
       values: definition.values.map((value) => ({ name: value, label: value })),
       defaultValue: definition.custom_key ? { key: "", value: "" } : definition.values[0] ?? "",
       placeholder: valuePlaceholder(definition.id),
     } satisfies TrafficField));
-    return options.length ? [{ label: t(`assignments.trafficScopeGroups.${group}`), options }] : [];
+    return options.length ? [{ label: t(`deployments.trafficScopeGroups.${group}`), options }] : [];
   });
 }
 

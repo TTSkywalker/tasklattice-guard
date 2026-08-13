@@ -26,7 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useGuardrailsDashboard } from "@/features/dashboard";
 import { cn } from "@/lib/utils";
-import type { DecisionEvent, MetricWindow, Metrics } from "@/lib/api";
+import type { EvidenceRecord, MetricWindow, Metrics } from "@/lib/api";
 
 export function DashboardPage() {
   const { t } = useTranslation();
@@ -58,7 +58,7 @@ export function DashboardPage() {
       {dashboard.error ? (
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1"><ErrorNotice error={dashboard.error} /></div>
-          <Button variant="outline" onClick={() => void Promise.all([dashboard.metrics.refetch(), dashboard.decisions.refetch(), dashboard.guardrails.refetch()])}>{t("common.retry")}</Button>
+          <Button variant="outline" onClick={() => void Promise.all([dashboard.metrics.refetch(), dashboard.evidence.refetch(), dashboard.guardrails.refetch()])}>{t("common.retry")}</Button>
         </div>
       ) : null}
 
@@ -111,8 +111,8 @@ export function DashboardPage() {
 
           <ProtectionOutcome metrics={dashboard.metrics.data} />
           <RecentEvents
-            items={dashboard.decisions.data?.items ?? []}
-            loading={dashboard.decisions.isLoading}
+            items={dashboard.evidence.data?.items ?? []}
+            loading={dashboard.evidence.isLoading}
             guardrails={guardrails}
           />
         </div>
@@ -253,11 +253,11 @@ function GettingStarted({ metrics }: { metrics: Metrics }) {
   const { t } = useTranslation();
   const guardrailCreated = metrics.total_guardrails > 0;
   const guardrailTested = guardrailCreated && metrics.guardrails_needing_test < metrics.total_guardrails;
-  const assignmentCreated = metrics.total_assignments > 0;
+  const deploymentCreated = metrics.total_deployments > 0;
   const steps = [
     [guardrailCreated, t("dashboard.guardrailCreated")],
     [guardrailTested, t("dashboard.guardrailTested")],
-    [assignmentCreated, t("dashboard.assignmentCreated")],
+    [deploymentCreated, t("dashboard.deploymentCreated")],
     [false, t("dashboard.protectLiveTraffic")],
   ] as const;
   return (
@@ -267,7 +267,7 @@ function GettingStarted({ metrics }: { metrics: Metrics }) {
         <div className="space-y-1">{steps.map(([done, label]) => <div key={label} className="flex min-h-10 items-center gap-3 rounded-lg px-2 text-sm"><span className={cn("grid size-5 place-items-center rounded-full", done ? "bg-emerald-50 text-emerald-700" : "text-muted-foreground")}>
           {done ? <Check className="size-3.5" /> : <Circle className="size-3.5" />}
         </span>{label}</div>)}</div>
-        <Button className="mt-auto w-full" variant="outline" asChild><Link to={guardrailCreated ? "/deployments" : "/guardrails"}>{guardrailCreated ? t("dashboard.createAssignment") : t("dashboard.createGuardrail")}<ArrowRight /></Link></Button>
+        <Button className="mt-auto w-full" variant="outline" asChild><Link to={guardrailCreated ? "/deployments" : "/guardrails"}>{guardrailCreated ? t("dashboard.createDeployment") : t("dashboard.createGuardrail")}<ArrowRight /></Link></Button>
       </CardContent>
     </Card>
   );
@@ -302,7 +302,7 @@ function ProtectionOutcome({ metrics }: { metrics: Metrics }) {
   );
 }
 
-function RecentEvents({ items, loading, guardrails }: { items: DecisionEvent[]; loading: boolean; guardrails: Array<{ id: string; name: string }> }) {
+function RecentEvents({ items, loading, guardrails }: { items: EvidenceRecord[]; loading: boolean; guardrails: Array<{ id: string; name: string }> }) {
   const { t, i18n } = useTranslation();
   const guardrailNames = new Map(guardrails.map((item) => [item.id, item.name]));
   return (
