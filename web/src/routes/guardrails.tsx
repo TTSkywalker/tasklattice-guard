@@ -24,6 +24,7 @@ import type { TFunction } from "i18next";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, Metric, PageHeader, StateBadge } from "@/components/product-shell";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -114,7 +115,7 @@ export function GuardrailsPage() {
                       params={{ guardrailId: guardrail.id }}
                       className="block rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="flex items-center gap-2"><strong className="text-sm font-medium text-foreground group-hover:text-primary">{guardrailDisplayName(guardrail, t)}</strong>{guardrail.is_default ? <span className="rounded-md border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{t("guardrails.builtinBadge")}</span> : null}</span>
+                      <span className="flex flex-wrap items-center gap-2"><strong className="text-sm font-medium text-foreground group-hover:text-primary">{guardrailDisplayName(guardrail, t)}</strong>{guardrail.is_default ? <DefaultGuardrailBadge label={t("guardrails.defaultBadge")} /> : null}</span>
                       <span className="mt-1 block max-w-xl line-clamp-2 text-xs leading-5 text-muted-foreground">{guardrailDisplayPurpose(guardrail, t)}</span>
                     </Link>
                   </TableCell>
@@ -201,11 +202,12 @@ function GuardrailDetail({ guardrailId, onRefresh }: { guardrailId: string; onRe
         />
       </div>
 
-      {guardrail.is_default ? <div className="mt-5"><InfoNotice title={t("guardrails.defaultNoticeTitle")}>{t("guardrails.defaultNoticeDescription")}</InfoNotice></div> : null}
-
       <div className="mt-5 overflow-hidden rounded-xl border bg-card shadow-xs">
         <div className="flex items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3 sm:px-5">
-          <StateBadge state={guardrail.status} />
+          <div className="flex flex-wrap items-center gap-2">
+            <StateBadge state={guardrail.status} />
+            {guardrail.is_default ? <DefaultGuardrailBadge label={t("guardrails.defaultBadge")} /> : null}
+          </div>
           <span className="text-xs text-muted-foreground">{t("guardrails.lastUpdatedValue", { date: new Date(guardrail.updated_at).toLocaleString(i18n.language) })}</span>
         </div>
         <WorkflowStatus guardrail={guardrail} testCaseCount={guardrail.test_case_count} onApply={() => setApplyOpen(true)} />
@@ -707,6 +709,15 @@ function RiskRow({ risk, definition, sourcePack }: { risk: GuardrailControl; def
 
 function TopicPanel({ title, items, empty, danger = false }: { title: string; items: string[]; empty: string; danger?: boolean }) {
   return <section className="overflow-hidden rounded-lg border bg-card"><div className="border-b bg-muted/40 px-4 py-3"><h3 className="text-lg">{title}</h3></div><div className="min-h-36 p-4">{items.length ? <ul className="space-y-2">{items.map((item) => <li key={item} className="flex items-start gap-2 text-sm"><span className={cn("mt-2 size-1.5 shrink-0 rounded-full bg-primary", danger && "bg-destructive")} />{item}</li>)}</ul> : <p className="text-sm text-muted-foreground">{empty}</p>}</div></section>;
+}
+
+function DefaultGuardrailBadge({ label }: { label: string }) {
+  return (
+    <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+      <span className="size-1.5 rounded-full bg-emerald-500" />
+      {label}
+    </Badge>
+  );
 }
 
 function Fact({ label, value }: { label: string; value: string }) { return <div className="rounded-lg bg-muted/60 p-3"><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 text-sm">{value}</p></div>; }
