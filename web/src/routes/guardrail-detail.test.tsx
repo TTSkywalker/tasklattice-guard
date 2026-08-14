@@ -245,4 +245,39 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.queryByRole("button", { name: "guardrails.publishVersion" })).toBeNull();
     expect(screen.getByRole("button", { name: "guardrails.createDeployment" })).toBeTruthy();
   });
+
+  it("lets the Default Guardrail edit and validate its draft without creating another Deployment", () => {
+    const defaultGuardrail = {
+      id: "guardrail-default",
+      name: "Default Guardrail",
+      purpose: "Protect unmatched traffic.",
+      allowed_topics: [],
+      restricted_topics: [],
+      policy_bindings: [{ policy_id: "builtin-secrets", policy_version: "1", parameter_values: {}, enabled_rule_ids: [], rule_actions: {}, enabled_rails: ["input", "output"] }],
+      safety_level: "balanced",
+      output_delivery: "window_buffered",
+      updated_at: "2026-08-14T08:00:00Z",
+      status: "needs_validation",
+      latest_validation_run: null,
+      deployment_count: 1,
+      test_case_count: 1,
+      excluded_test_case_count: 0,
+      excluded_test_case_ids: [],
+      tested_current: false,
+      published_current: false,
+      is_default: true,
+      system_managed: true,
+      local_only: true,
+      coverage: [],
+    } satisfies Guardrail;
+    const client = new QueryClient();
+    const onEdit = vi.fn();
+
+    render(<QueryClientProvider client={client}><DraftReleaseView guardrail={defaultGuardrail} policies={[]} cases={[]} casesLoading={false} deployments={[]} onEdit={onEdit} onAddCase={vi.fn()} onCreateDeployment={vi.fn()} onChanged={async () => undefined} /></QueryClientProvider>);
+
+    expect(screen.getByRole("link", { name: "guardrails.runReviewed" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "common.edit" }));
+    expect(onEdit).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "guardrails.createDeployment" })).toBeNull();
+  });
 });

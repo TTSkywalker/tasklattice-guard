@@ -35,7 +35,7 @@ export function ValidationPage() {
   const requestedGuardrail = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("guardrail") ?? "";
   const guardrailsQuery = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
   const runsQuery = useQuery({ queryKey: queryKeys.allValidationRuns, queryFn: () => getValidationRuns() });
-  const guardrails = (guardrailsQuery.data?.items ?? []).filter((item) => !item.system_managed);
+  const guardrails = (guardrailsQuery.data?.items ?? []).filter((item) => item.is_default || !item.system_managed);
   const runs = runsQuery.data?.items ?? [];
   const [createOpen, setCreateOpen] = useState(Boolean(requestedGuardrail));
   const [selected, setSelected] = useState<ValidationRun | null>(null);

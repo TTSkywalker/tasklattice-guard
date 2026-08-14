@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Policy } from "@/lib/api";
 
-import { PolicyDetail } from "./policy-library";
+import { DeletePolicyDialog, PolicyCard, PolicyDetail } from "./policy-library";
 
 vi.mock("@/components/policy-studio", () => ({ PolicyStudioSheet: () => null }));
 
@@ -14,6 +14,20 @@ vi.mock("react-i18next", () => ({
       const labels: Record<string, string> = {
         "common.close": "Close",
         "policyLibrary.detailEyebrow": "Policy Library / Policy",
+        "policyLibrary.sourceLabels.custom": "Custom Policy",
+        "policyLibrary.sourceLabels.built_in": "Built-in",
+        "policyLibrary.exportAction": "Export",
+        "policyLibrary.exportPolicyAria": "Export {{name}} migration package",
+        "policyLibrary.deleteAction": "Delete Policy",
+        "policyLibrary.deletePolicyAria": "Delete {{name}}",
+        "policyLibrary.deleteDialogTitle": "Delete custom Policy?",
+        "policyLibrary.deleteDialogDescription": "Permanently delete {{name}}.",
+        "policyLibrary.deleteDialogGuardrailNote": "Referenced Guardrail drafts block deletion.",
+        "policyLibrary.deleteConfirm": "Delete permanently",
+        "policyLibrary.deleting": "Deleting…",
+        "policyLibrary.inspectPolicy": "Inspect",
+        "policyLibrary.rules": "Rules",
+        "policyLibrary.testCases": "Test Cases",
         "policyLibrary.detailViews": "Policy detail views",
         "policyLibrary.tabs.policy": "Policy",
         "policyLibrary.tabs.testCases": "Test Cases",
@@ -151,5 +165,49 @@ describe("Policy detail", () => {
     const actionName = screen.getByText("GuardPolicyRuleAction");
     expect(actionName.tagName).toBe("CODE");
     expect(actionName.getAttribute("title")).toBe("GuardPolicyRuleAction");
+  });
+
+  it("visually identifies a custom Policy and exposes its migration export from the card", () => {
+    const onExport = vi.fn();
+    const onDelete = vi.fn();
+    const customPolicy: Policy = {
+      ...policy,
+      id: "customer-identifiers",
+      name: "Customer identifiers",
+      source: "custom",
+      implementation: "nemo_native",
+    };
+
+    render(<PolicyCard policy={customPolicy} onOpen={vi.fn()} onExport={onExport} onDelete={onDelete} />);
+
+    expect(screen.getByText("Custom Policy")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Export Customer identifiers migration package" }));
+    expect(onExport).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Customer identifiers" }));
+    expect(onDelete).toHaveBeenCalledOnce();
+  });
+
+  it("does not expose deletion for a built-in Policy", () => {
+    render(<PolicyCard policy={policy} onOpen={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "Delete Competitor Discussion Policy" })).toBeNull();
+  });
+
+  it("requires explicit confirmation before deleting a custom Policy", () => {
+    const onConfirm = vi.fn();
+    const customPolicy: Policy = {
+      ...policy,
+      id: "customer-identifiers",
+      name: "Customer identifiers",
+      source: "custom",
+      implementation: "nemo_native",
+    };
+
+    render(<DeletePolicyDialog policy={customPolicy} deleting={false} error={null} onCancel={vi.fn()} onConfirm={onConfirm} />);
+
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    expect(screen.getByText("Permanently delete Customer identifiers.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    expect(onConfirm).toHaveBeenCalledOnce();
   });
 });

@@ -91,6 +91,33 @@ def test_guardrail_compiles_from_global_enforcement_mode_and_tests_create_versio
     assert tested.version.plan_checksum
 
 
+def test_default_guardrail_policy_set_can_be_updated_and_published(tmp_path):
+    database = tmp_path / "editable-default.db"
+    service = ControlPlaneService(database)
+    original = service.guardrail(DEFAULT_GUARDRAIL_ID)
+
+    updated = service.update_guardrail(
+        DEFAULT_GUARDRAIL_ID,
+        purpose="Protect unmatched traffic with the reviewed default policy set.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+
+    assert updated.draft_version == original.draft_version + 1
+    assert updated.active_version == original.active_version
+    assert [item.policy_id for item in updated.policy_bindings] == ["builtin-secrets"]
+    assert service.deployment(DEFAULT_DEPLOYMENT_ID).guardrail_version == 1
+
+    released = pass_current_guardrail(service, DEFAULT_GUARDRAIL_ID)
+
+    assert released.version.version == 2
+    assert service.deployment(DEFAULT_DEPLOYMENT_ID).guardrail_version == 2
+    assert service.resolve(RequestContext(protocol="local")).plan.guardrail_version == 2
+
+    reloaded = ControlPlaneService(database).guardrail(DEFAULT_GUARDRAIL_ID)
+    assert reloaded.active_version == 2
+    assert [item.policy_id for item in reloaded.policy_bindings] == ["builtin-secrets"]
+
+
 def test_deployment_resolves_one_immutable_guardrail_version(tmp_path):
     service = ControlPlaneService(tmp_path / "v4.db")
     baseline = service.create_guardrail(
@@ -371,8 +398,7 @@ def test_new_control_plane_starts_with_an_always_on_local_default(tmp_path):
     assert default_deployment.traffic_scope.conditions == ()
     assert service.integrations() == ()
 
-    with pytest.raises(ValidationError, match="managed by TaskLattice"):
-        service.update_guardrail(DEFAULT_GUARDRAIL_ID, name="Changed")
+    assert service.update_guardrail(DEFAULT_GUARDRAIL_ID, name="Changed").name == "Changed"
     with pytest.raises(ValidationError, match="always enabled"):
         service.set_deployment_enabled(DEFAULT_DEPLOYMENT_ID, False)
     with pytest.raises(ValidationError, match="reserved for the Default Deployment"):

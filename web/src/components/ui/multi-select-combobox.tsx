@@ -153,7 +153,7 @@ export function MultiSelectCombobox({
               key={option.value}
               type="button"
               aria-label={t("common.multiSelect.remove", { name: option.label })}
-              className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-md border border-primary/25 bg-primary/8 py-1 pr-2 pl-3 text-xs font-medium text-primary transition-colors hover:bg-primary/12 focus-visible:outline-2 focus-visible:outline-ring"
+              className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-md border border-primary/25 bg-primary/8 py-1 pr-2 pl-3 text-xs font-medium text-primary transition-colors hover:bg-primary/12 focus-visible:outline-2 focus-visible:outline-ring"
               onClick={(event) => {
                 event.stopPropagation();
                 removeOption(option.value);
@@ -192,7 +192,7 @@ export function MultiSelectCombobox({
               aria-controls={open ? listboxId : undefined}
               aria-expanded={open}
               aria-label={t(open ? "common.multiSelect.close" : "common.multiSelect.open", { name: ariaLabel })}
-              className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed"
+              className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed"
               disabled={disabled}
               onClick={(event) => {
                 event.stopPropagation();

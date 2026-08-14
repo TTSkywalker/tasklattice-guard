@@ -74,6 +74,28 @@ The Policy Library detail view has three product views:
 This makes a Rule's acceptance contract inspectable before the Policy is added
 to a Guardrail.
 
+## Policy Studio authoring and environment transfer
+
+Policy Studio presents custom authoring in three product stages:
+
+1. **Define & author** — Policy identity, accountable owner, and Colang source;
+2. **Runtime contract** — Rail bindings plus optional Action and parameter
+   dependencies; and
+3. **Validate & publish** — Test Cases, production-equivalent compilation,
+   Validation Run, and immutable publication.
+
+Custom Policy source is always assigned to the Colang 2.x programmable runtime.
+The author is not asked to choose between Colang runtime lanes; Colang 1 is a
+compiler-selected lane for supported built-in and deterministic plans, not an
+available custom-source authoring target.
+
+A custom Policy can be exported as a versioned TaskLattice Policy JSON package
+and imported into another environment as a new editable draft. The package
+contains identity metadata, source, Rail bindings, Action references,
+parameters, and Test Cases. Published versions and Validation Run history do not
+cross the environment boundary: the target environment must compile, validate,
+and publish the imported draft against its own Action Catalog and runtime.
+
 ## Document-assisted Guardrail drafting
 
 The first step of guided Guardrail creation can extract a review draft from up

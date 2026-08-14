@@ -459,6 +459,8 @@ async def test_control_plane_agent_returns_reviewable_rules_without_saving_guard
     assert result.json()["review_notes"] == ["确认是否允许通用统计学问题。"]
     assert guardrails.json()["count"] == 1
     assert guardrails.json()["items"][0]["id"] == DEFAULT_GUARDRAIL_ID
+    assert guardrails.json()["items"][0]["is_default"] is True
+    assert guardrails.json()["items"][0]["system_managed"] is False
     assert guardrails.json()["items"][0]["local_only"] is True
 
 

@@ -146,7 +146,8 @@ export function GuardrailDetailPage() {
   const guardrail = guardrailQuery.data;
   const policies = policiesQuery.data?.items ?? EMPTY_POLICIES;
   const deployments = deploymentsQuery.data?.items.filter((item) => item.guardrail_id === guardrail.id) ?? [];
-  const hasUnpublishedDraft = !guardrail.system_managed && !guardrail.published_current;
+  const canManageDraft = isGuardrailDraftManageable(guardrail);
+  const hasUnpublishedDraft = canManageDraft && !guardrail.published_current;
 
   return (
     <section className="py-6 sm:py-8">
@@ -157,15 +158,17 @@ export function GuardrailDetailPage() {
             <h1 className="font-display text-2xl font-semibold tracking-[-0.015em] sm:text-3xl">{guardrail.name}</h1>
             {activeVersion ? <Badge className="border-emerald-200 bg-emerald-50 font-mono text-[11px] text-emerald-700 hover:bg-emerald-50">{t("guardrails.activeVersion", { version: formatGuardrailReleaseId(activeVersion.created_at) })}</Badge> : <StateBadge state={guardrail.tested_current ? "ready" : "needs_validation"} />}
             {deployments.length ? <StateBadge state="protected" /> : activeVersion ? <StateBadge state="ready" /> : null}
-            {guardrail.system_managed ? <Badge variant="outline">{t("guardrails.systemManaged")}</Badge> : null}
+            {guardrail.is_default ? <Badge variant="outline">{t("guardrails.defaultBadge")}</Badge> : guardrail.system_managed ? <Badge variant="outline">{t("guardrails.systemManaged")}</Badge> : null}
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{guardrail.purpose}</p>
           {hasUnpublishedDraft ? <button type="button" className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-md bg-amber-50 px-3 text-xs font-medium text-amber-800 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setSection("draft")}><Circle className="size-2.5 fill-current" />{t("guardrails.unpublishedDraft")}</button> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {!guardrail.system_managed ? <Button variant="outline" onClick={() => setEditOpen(true)}><Pencil />{t("common.edit")}</Button> : null}
+          {canManageDraft ? <Button className="min-h-11" variant="outline" onClick={() => setEditOpen(true)}><Pencil />{t("common.edit")}</Button> : null}
         </div>
       </div>
+
+      {guardrail.is_default ? <div className="mt-5"><InfoNotice title={t("guardrails.defaultNoticeTitle")}>{t("guardrails.defaultNoticeDescription")}</InfoNotice></div> : null}
 
       <Tabs value={section} onValueChange={setSection} className="mt-7">
         <div className="overflow-x-auto">
@@ -332,6 +335,7 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
   ];
   const stateTitle = published ? t("guardrails.releasePublished") : validated ? t("guardrails.releaseReadyToPublish") : t("guardrails.releaseNeedsValidation");
   const stateDescription = published ? t("guardrails.releasePublishedDescription") : validated ? t("guardrails.releaseReadyToPublishDescription") : t("guardrails.releaseNeedsValidationDescription");
+  const canManageDraft = isGuardrailDraftManageable(guardrail);
 
   return <div className="space-y-5">
     <Card className="overflow-hidden shadow-none">
@@ -354,11 +358,11 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
             <h3 className="mt-2 text-base font-semibold">{stateTitle}</h3>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{stateDescription}</p>
             <div className="mt-4 grid gap-2">
-              {!guardrail.system_managed && !validated ? <Button asChild><Link to="/validation" search={{ guardrail: guardrail.id }}><FlaskConical />{t("guardrails.runReviewed")}</Link></Button> : null}
-              {!guardrail.system_managed && validated && !published ? <Button disabled={publish.isPending} onClick={() => publish.mutate()}>{publish.isPending ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}{t(publish.isPending ? "guardrails.publishingVersion" : "guardrails.publishVersion")}</Button> : null}
-              {!guardrail.system_managed && published ? <Button onClick={onCreateDeployment}><Rocket />{t("guardrails.createDeployment")}</Button> : null}
-              {!guardrail.system_managed ? <Button variant="outline" onClick={onEdit}><Pencil />{t("common.edit")}</Button> : null}
-              {validated ? <Button variant="outline" asChild><Link to="/validation" search={{ guardrail: guardrail.id }}><FlaskConical />{t("guardrails.openValidation")}</Link></Button> : null}
+              {canManageDraft && !validated ? <Button className="min-h-11" asChild><Link to="/validation" search={{ guardrail: guardrail.id }}><FlaskConical />{t("guardrails.runReviewed")}</Link></Button> : null}
+              {canManageDraft && validated && !published ? <Button className="min-h-11" disabled={publish.isPending} onClick={() => publish.mutate()}>{publish.isPending ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}{t(publish.isPending ? "guardrails.publishingVersion" : "guardrails.publishVersion")}</Button> : null}
+              {canManageDraft && published && !guardrail.is_default ? <Button className="min-h-11" onClick={onCreateDeployment}><Rocket />{t("guardrails.createDeployment")}</Button> : null}
+              {canManageDraft ? <Button className="min-h-11" variant="outline" onClick={onEdit}><Pencil />{t("common.edit")}</Button> : null}
+              {validated ? <Button className="min-h-11" variant="outline" asChild><Link to="/validation" search={{ guardrail: guardrail.id }}><FlaskConical />{t("guardrails.openValidation")}</Link></Button> : null}
             </div>
           </aside>
         </div>
@@ -516,3 +520,4 @@ export function AddTestCaseSheet({ guardrail, open, onOpenChange, onCreated }: {
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="grid gap-2"><Label>{label}</Label>{children}</label>; }
 function lines(value: string) { return value.split("\n").map((item) => item.trim()).filter(Boolean); }
 function notifyError(error: unknown, fallback: string) { toast.error(error instanceof Error ? error.message : fallback); }
+function isGuardrailDraftManageable(guardrail: Pick<Guardrail, "is_default" | "system_managed">) { return guardrail.is_default || !guardrail.system_managed; }

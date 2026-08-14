@@ -1025,6 +1025,7 @@ export const getActionCatalog = () => read<Collection<ActionDefinition>>("/api/v
 const programmablePolicyInput = (input: { name?: string; description?: string; owner?: string; draft?: ProgrammablePolicyDraft }) => input.draft ? { ...input, draft: { ...input.draft, execution_contract: Object.fromEntries(input.draft.execution_contract) } } : input;
 export const createProgrammablePolicy = (input: { name: string; description: string; owner: string; draft: ProgrammablePolicyDraft }) => mutate<Policy>("/api/v1/policies", "POST", programmablePolicyInput(input));
 export const updateProgrammablePolicy = (id: string, input: { name?: string; description?: string; owner?: string; draft?: ProgrammablePolicyDraft }) => mutate<Policy>(`/api/v1/policies/${encodeURIComponent(id)}`, "PATCH", programmablePolicyInput(input));
+export const deleteProgrammablePolicy = (id: string) => mutate<void>(`/api/v1/policies/${encodeURIComponent(id)}`, "DELETE");
 export const validateProgrammablePolicy = (id: string) => mutate<PolicyValidation>(`/api/v1/policies/${encodeURIComponent(id)}/validate`, "POST");
 export const runProgrammablePolicyValidation = (id: string) => mutate<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs`, "POST");
 export const getLatestProgrammablePolicyValidation = (id: string) => read<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs/latest`);

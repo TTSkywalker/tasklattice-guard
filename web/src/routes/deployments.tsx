@@ -286,7 +286,7 @@ export function CreateDeploymentSheet({
   const integrationQuery = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations, enabled: open });
   const definitions = fieldQuery.data?.items ?? EMPTY_TRAFFIC_FIELDS;
   const integrations = integrationQuery.data?.items ?? EMPTY_INTEGRATIONS;
-  const ready = useMemo(() => guardrails.filter((item) => item.published_current && !item.system_managed), [guardrails]);
+  const ready = useMemo(() => guardrails.filter((item) => item.published_current && !item.system_managed && !item.is_default), [guardrails]);
   const [name, setName] = useState("");
   const [guardrailId, setGuardrailId] = useState("");
   const [integrationIds, setIntegrationIds] = useState<string[]>([]);

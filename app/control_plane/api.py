@@ -463,6 +463,14 @@ class ControlPlaneAPI:
                 self._service.policy_versions(item.id),
             )
 
+        @router.delete("/policies/{policy_id}", status_code=204)
+        def delete_policy(policy_id: str):
+            try:
+                self._service.delete_policy(policy_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return Response(status_code=204)
+
         @router.post("/policies/{policy_id}/validate")
         def validate_policy(policy_id: str):
             try:
@@ -1496,6 +1504,11 @@ class ControlPlaneAPI:
             ]
             versions = self._service.versions(guardrail_id)
             test_cases = self._service.test_cases(guardrail_id)
+            active_plan = (
+                self._service.plan(guardrail_id, guardrail.active_version)
+                if guardrail.active_version is not None
+                else None
+            )
         except ControlPlaneError as error:
             _raise(error)
         published_current = any(
@@ -1531,8 +1544,11 @@ class ControlPlaneAPI:
             "published_current": published_current,
             "published_version_count": len(versions),
             "is_default": is_default_guardrail(guardrail.id),
-            "system_managed": is_default_guardrail(guardrail.id),
-            "local_only": is_default_guardrail(guardrail.id),
+            "system_managed": False,
+            "local_only": bool(
+                active_plan is not None
+                and all(step.stage == "deterministic" for step in active_plan.steps)
+            ),
         }
         payload["coverage"] = _coverage(guardrail, latest)
         return payload

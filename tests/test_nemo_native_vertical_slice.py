@@ -41,6 +41,110 @@ async def _login(client: httpx.AsyncClient) -> None:
     assert response.status_code == 200
 
 
+def _custom_policy_payload(name: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "description": "Disposable custom Policy used to verify lifecycle behavior.",
+        "owner": "security-platform",
+        "draft": {
+            "colang_version": "2.x",
+            "sources": [{"path": "customer_data.co", "content": CUSTOMER_DATA_COLANG}],
+            "rail_bindings": [
+                {
+                    "rail_type": "input",
+                    "flow_name": "check_customer_identifier_input",
+                    "execution_mode": "detect",
+                    "on_unsafe": "reject",
+                    "timeout_ms": 500,
+                }
+            ],
+            "action_references": [
+                {"name": "GuardCustomerIdentifierAction", "version": "1.0.0"},
+                {"name": "GuardRecordPolicyAction", "version": "1.0.0"},
+            ],
+            "test_cases": [
+                {
+                    "name": "Allow ordinary customer request",
+                    "rail_type": "input",
+                    "content": "Show my recent orders",
+                    "expected_decision": "allow",
+                    "covered_rule_ids": [
+                        "flow/input/check_customer_identifier_input"
+                    ],
+                }
+            ],
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_custom_policy_delete_is_safe_and_reference_aware(tmp_path):
+    app = create_app(settings=_settings(tmp_path))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await _login(client)
+
+        built_in = await client.delete("/api/v1/policies/builtin-secrets")
+        assert built_in.status_code == 422
+        assert "cannot be deleted" in built_in.json()["detail"]
+
+        disposable = await client.post(
+            "/api/v1/policies", json=_custom_policy_payload("Disposable Policy")
+        )
+        assert disposable.status_code == 201, disposable.text
+        disposable_id = disposable.json()["id"]
+        validation = await client.post(
+            f"/api/v1/policies/{disposable_id}/validation-runs"
+        )
+        assert validation.status_code == 201, validation.text
+        published = await client.post(
+            f"/api/v1/policies/{disposable_id}/publish"
+        )
+        assert published.status_code == 201, published.text
+
+        deleted = await client.delete(f"/api/v1/policies/{disposable_id}")
+        assert deleted.status_code == 204, deleted.text
+
+        missing = await client.get(f"/api/v1/policies/{disposable_id}")
+        assert missing.status_code == 404
+
+        referenced = await client.post(
+            "/api/v1/policies", json=_custom_policy_payload("Referenced Policy")
+        )
+        assert referenced.status_code == 201, referenced.text
+        referenced_id = referenced.json()["id"]
+        referenced_validation = await client.post(
+            f"/api/v1/policies/{referenced_id}/validation-runs"
+        )
+        assert referenced_validation.status_code == 201, referenced_validation.text
+        referenced_version = await client.post(
+            f"/api/v1/policies/{referenced_id}/publish"
+        )
+        assert referenced_version.status_code == 201, referenced_version.text
+
+        guardrail = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Reference protection",
+                "purpose": "Keep the current draft binding explicit.",
+                "policy_bindings": [
+                    {
+                        "policy_id": referenced_id,
+                        "policy_version": str(referenced_version.json()["version"]),
+                        "enabled_rails": ["input"],
+                    }
+                ],
+            },
+        )
+        assert guardrail.status_code == 201, guardrail.text
+
+        blocked = await client.delete(f"/api/v1/policies/{referenced_id}")
+        assert blocked.status_code == 409
+        assert "Reference protection" in blocked.json()["detail"]
+        assert "Remove those draft bindings" in blocked.json()["detail"]
+
+
 @pytest.mark.asyncio
 async def test_customer_data_policy_runs_create_to_real_http_on_one_version(tmp_path):
     app = create_app(settings=_settings(tmp_path))

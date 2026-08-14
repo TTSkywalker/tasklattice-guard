@@ -171,7 +171,7 @@ export function PolicyBindingEditor({
                               <Checkbox checked={enabled} onCheckedChange={(next) => update(binding.policy_id, { enabled_rule_ids: next ? [...binding.enabled_rule_ids, rule.id] : binding.enabled_rule_ids.filter((id) => id !== rule.id) })} />
                               <span className="min-w-0"><strong className="block truncate text-xs">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.id}</span></span>
                               <Select value={binding.rule_actions[rule.id] ?? "policy_default"} disabled={!enabled} onValueChange={(selected) => { const next = { ...binding.rule_actions }; if (selected === "policy_default") delete next[rule.id]; else next[rule.id] = selected as EnforcementAction; update(binding.policy_id, { rule_actions: next }); }}>
-                                <SelectTrigger className="min-h-10"><SelectValue /></SelectTrigger>
+                                <SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger>
                                 <SelectContent><SelectItem value="policy_default">{rule.effect}</SelectItem>{ACTIONS.map((action) => <SelectItem key={action} value={action}>{action}</SelectItem>)}</SelectContent>
                               </Select>
                             </div>

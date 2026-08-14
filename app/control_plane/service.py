@@ -262,6 +262,65 @@ class ControlPlaneService:
             row.updated_at = _utcnow()
         return self.policy_record(policy_id)
 
+    def delete_policy(self, policy_id: str) -> None:
+        """Delete one custom Policy without invalidating immutable Guardrail versions."""
+        if library_policy(policy_id) is not None:
+            raise ValidationError(
+                "Built-in Policies are system managed and cannot be deleted."
+            )
+
+        with self._database.transaction() as session:
+            row = session.scalar(
+                select(PolicyRecordModel)
+                .where(PolicyRecordModel.id == policy_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise NotFoundError(f"Policy {policy_id!r} was not found.")
+            if row.source != "custom":
+                raise ValidationError(
+                    "Built-in Policies are system managed and cannot be deleted."
+                )
+
+            references = []
+            for guardrail in session.scalars(
+                select(GuardrailModel).order_by(
+                    func.lower(GuardrailModel.name), GuardrailModel.id
+                )
+            ).all():
+                bindings = guardrail.policy_bindings_json or []
+                if any(
+                    isinstance(binding, dict)
+                    and binding.get("policy_id") == policy_id
+                    for binding in bindings
+                ):
+                    references.append(guardrail.name)
+
+            if references:
+                guardrail_names = ", ".join(references)
+                raise ConflictError(
+                    f"Policy {row.name!r} is still referenced by Guardrail draft(s): "
+                    f"{guardrail_names}. Remove those draft bindings before deleting "
+                    "the Policy."
+                )
+
+            policy_name = row.name
+            session.delete(row)
+            self._insert_evidence_record(
+                session,
+                kind="policy.deleted",
+                outcome="success",
+                detail=f"Deleted custom Policy {policy_name}.",
+            )
+
+        preview_guardrail_id = f"policy-preview-{policy_id}"
+        for key in tuple(self._nemo_configs):
+            if key[0] == preview_guardrail_id:
+                self._nemo_configs.pop(key, None)
+        for key in tuple(self._plans):
+            if key[0] == preview_guardrail_id:
+                self._plans.pop(key, None)
+
     def validate_policy(self, policy_id: str) -> dict[str, object]:
         record = self.policy_record(policy_id)
         self._validate_policy_draft(
@@ -586,8 +645,6 @@ class ControlPlaneService:
         safety_level: str | None = None,
         output_delivery: str | None = None,
     ) -> Guardrail:
-        if is_default_guardrail(guardrail_id):
-            raise ValidationError("The Default Guardrail is managed by TaskLattice.")
         current = self.guardrail(guardrail_id)
         next_name = current.name if name is None else name.strip()
         next_purpose = current.purpose if purpose is None else purpose.strip()
@@ -1171,8 +1228,6 @@ class ControlPlaneService:
 
     def exclude_test_case(self, guardrail_id: str, case_id: str) -> GuardrailTestCase:
         """Exclude an inherited Policy Test Case from only this Guardrail draft."""
-        if is_default_guardrail(guardrail_id):
-            raise ValidationError("The Default Guardrail is managed by TaskLattice.")
         now = _now()
         with self._database.transaction() as session:
             case_row = session.get(TestCaseModel, (case_id, guardrail_id))
@@ -1208,8 +1263,6 @@ class ControlPlaneService:
 
     def restore_test_case(self, guardrail_id: str, case_id: str) -> GuardrailTestCase:
         """Restore an inherited Policy Test Case to this Guardrail draft."""
-        if is_default_guardrail(guardrail_id):
-            raise ValidationError("The Default Guardrail is managed by TaskLattice.")
         now = _now()
         with self._database.transaction() as session:
             case_row = session.get(TestCaseModel, (case_id, guardrail_id))
