@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 
 from ..control_plane.service import ControlPlaneService
 from ..runtime.contracts import ProtectionDecision
@@ -17,7 +18,9 @@ def record_runtime_decision(
     detail: str,
 ) -> None:
     usage = decision.usage
+    trace_id = f"trace-{uuid.uuid4().hex}"
     control_plane.record_decision(
+        trace_id=trace_id,
         outcome=decision.decision,
         guardrail_id=decision.guardrail_id,
         guardrail_version=decision.guardrail_version,
@@ -43,8 +46,10 @@ def record_runtime_decision(
         active_concurrency=usage.active_concurrency if usage else 0,
         provider_latency_ms=usage.provider_latency_ms if usage else 0,
         detail=detail,
+        findings=decision.findings,
     )
     control_plane.record_runtime_steps(
+        trace_id=trace_id,
         guardrail_id=decision.guardrail_id,
         guardrail_version=decision.guardrail_version,
         deployment_id=decision.deployment_id,
@@ -67,7 +72,9 @@ def record_runtime_failure(
     outcome: str,
     detail: str,
 ) -> None:
+    trace_id = f"trace-{uuid.uuid4().hex}"
     control_plane.record_decision(
+        trace_id=trace_id,
         outcome=outcome,
         guardrail_id=None,
         deployment_id=None,

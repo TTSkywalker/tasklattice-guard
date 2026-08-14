@@ -61,16 +61,41 @@ class Database:
     def _apply_additive_schema_updates(self) -> None:
         """Keep pre-migration installations readable without a migration framework."""
         inspector = inspect(self.engine)
-        if "deployments" not in inspector.get_table_names():
-            return
-        columns = {item["name"] for item in inspector.get_columns("deployments")}
-        statements = []
-        if "integration_id" not in columns:
-            statements.append("ALTER TABLE deployments ADD COLUMN integration_id VARCHAR")
-        if "route_order" not in columns:
-            statements.append(
-                "ALTER TABLE deployments ADD COLUMN route_order INTEGER NOT NULL DEFAULT 100"
-            )
+        tables = set(inspector.get_table_names())
+        statements: list[str] = []
+        if "deployments" in tables:
+            columns = {item["name"] for item in inspector.get_columns("deployments")}
+            if "integration_id" not in columns:
+                statements.append("ALTER TABLE deployments ADD COLUMN integration_id VARCHAR")
+            if "route_order" not in columns:
+                statements.append(
+                    "ALTER TABLE deployments ADD COLUMN route_order INTEGER NOT NULL DEFAULT 100"
+                )
+        if "runtime_metric_events" in tables:
+            columns = {
+                item["name"]
+                for item in inspector.get_columns("runtime_metric_events")
+            }
+            if "trace_id" not in columns:
+                statements.append(
+                    "ALTER TABLE runtime_metric_events "
+                    "ADD COLUMN trace_id VARCHAR NOT NULL DEFAULT ''"
+                )
+            if "detail" not in columns:
+                statements.append(
+                    "ALTER TABLE runtime_metric_events "
+                    "ADD COLUMN detail TEXT NOT NULL DEFAULT ''"
+                )
+        if "runtime_step_metric_events" in tables:
+            columns = {
+                item["name"]
+                for item in inspector.get_columns("runtime_step_metric_events")
+            }
+            if "trace_id" not in columns:
+                statements.append(
+                    "ALTER TABLE runtime_step_metric_events "
+                    "ADD COLUMN trace_id VARCHAR NOT NULL DEFAULT ''"
+                )
         if not statements:
             return
         with self.engine.begin() as connection:

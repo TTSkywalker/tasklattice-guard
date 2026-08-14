@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Float,
     Index,
     Integer,
     String,
@@ -227,6 +228,7 @@ class RuntimeMetricEventModel(Base):
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     guardrail_id: Mapped[str | None] = mapped_column(String)
     guardrail_version: Mapped[int | None] = mapped_column(Integer)
@@ -253,6 +255,7 @@ class RuntimeMetricEventModel(Base):
     active_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     provider_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     slo_breached: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
 class RuntimeStepMetricEventModel(Base):
@@ -267,6 +270,7 @@ class RuntimeStepMetricEventModel(Base):
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     guardrail_id: Mapped[str] = mapped_column(String, nullable=False)
     guardrail_version: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -292,6 +296,37 @@ class RuntimeStepMetricEventModel(Base):
     parallel_group: Mapped[str | None] = mapped_column(String)
     timeout_ms: Mapped[int | None] = mapped_column(Integer)
     provider_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class RuntimeFindingEventModel(Base):
+    """Privacy-safe finding metadata correlated to one runtime decision trace."""
+
+    __tablename__ = "runtime_finding_events"
+    __table_args__ = (
+        Index("runtime_finding_events_trace_id_idx", "trace_id"),
+        Index(
+            "runtime_finding_events_deployment_created_at_idx",
+            "deployment_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    guardrail_id: Mapped[str | None] = mapped_column(String)
+    guardrail_version: Mapped[int | None] = mapped_column(Integer)
+    deployment_id: Mapped[str | None] = mapped_column(String)
+    integration_id: Mapped[str | None] = mapped_column(String)
+    phase: Mapped[str] = mapped_column(String, nullable=False)
+    severity: Mapped[str] = mapped_column(String, nullable=False)
+    risk: Mapped[str] = mapped_column(String, nullable=False)
+    verdict: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    recommended_action: Mapped[str] = mapped_column(String, nullable=False)
+    policy_id: Mapped[str | None] = mapped_column(String)
+    rule_id: Mapped[str | None] = mapped_column(String)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class UserModel(Base):

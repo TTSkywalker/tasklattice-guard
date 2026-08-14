@@ -409,6 +409,7 @@ class RuntimeMetricEvent:
     """Privacy-safe dimensions for one Guardrail runtime decision."""
 
     id: str
+    trace_id: str
     created_at: str
     guardrail_id: str | None
     guardrail_version: int | None
@@ -435,6 +436,7 @@ class RuntimeMetricEvent:
     active_concurrency: int = 0
     provider_latency_ms: int = 0
     slo_breached: bool = False
+    detail: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -442,6 +444,7 @@ class RuntimeStepMetricEvent:
     """Privacy-safe timing and outcome for one activated NeMo rail or Action."""
 
     id: str
+    trace_id: str
     created_at: str
     guardrail_id: str
     guardrail_version: int
@@ -467,6 +470,53 @@ class RuntimeStepMetricEvent:
     parallel_group: str | None = None
     timeout_ms: int | None = None
     provider_latency_ms: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeFindingEvent:
+    """One privacy-safe Rule finding attached to a runtime trace."""
+
+    id: str
+    trace_id: str
+    created_at: str
+    guardrail_id: str | None
+    guardrail_version: int | None
+    deployment_id: str | None
+    integration_id: str | None
+    phase: str
+    severity: Literal["critical", "high", "medium", "low"]
+    risk: str
+    verdict: str
+    confidence: float
+    recommended_action: str
+    policy_id: str | None
+    rule_id: str | None
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentRuntimeTrace:
+    """One Deployment decision with correlated findings and NeMo execution steps."""
+
+    id: str
+    created_at: str
+    deployment_id: str
+    guardrail_id: str | None
+    guardrail_version: int | None
+    integration_id: str | None
+    protocol: str
+    phase: str
+    outcome: str
+    action: str
+    risk: str | None
+    severity: Literal["critical", "high", "medium", "low"] | None
+    latency_ms: int
+    timed_out: bool
+    runtime_engine: str
+    config_checksum: str
+    detail: str
+    findings: tuple[RuntimeFindingEvent, ...] = ()
+    steps: tuple[RuntimeStepMetricEvent, ...] = ()
 
 
 class ControlPlaneError(RuntimeError):

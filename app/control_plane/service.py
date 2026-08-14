@@ -29,6 +29,7 @@ from ..persistence.models import (
     PolicyRecordModel,
     PolicyValidationRunModel,
     PolicyVersionModel,
+    RuntimeFindingEventModel,
     RuntimeMetricEventModel,
     RuntimeStepMetricEventModel,
     TestCaseModel,
@@ -51,6 +52,7 @@ from ..runtime.contracts import (
     PolicySourceSnapshot,
     PolicyVersionSnapshot,
     RequestContext,
+    RiskFinding,
     RuntimeTraceStep,
     flow_rule_id,
 )
@@ -72,6 +74,7 @@ from .domain import (
     AutomatedReasoningPolicyBinding,
     ConflictError,
     ControlPlaneError,
+    DeploymentRuntimeTrace,
     Deployment,
     EvidenceRecord,
     Guardrail,
@@ -94,6 +97,7 @@ from .domain import (
     RailBinding,
     ResolvedPolicyCapability,
     RuntimeMetricEvent,
+    RuntimeFindingEvent,
     RuntimeStepMetricEvent,
     TestCaseResult,
     TestedGuardrailVersion,
@@ -1459,6 +1463,79 @@ class ControlPlaneService:
         self._reload_runtime()
         return tuple(self.deployment(item) for item in deployment_ids)
 
+    def update_deployment_traffic_scope(
+        self,
+        deployment_id: str,
+        traffic_scope: TrafficScopeExpression,
+    ) -> Deployment:
+        """Update only the mutable selector of an immutable Guardrail binding."""
+
+        current = self.deployment(deployment_id)
+        if is_default_deployment(deployment_id):
+            raise ValidationError(
+                "The system-managed Default Deployment selector cannot be changed."
+            )
+        normalized = normalize_traffic_scope(traffic_scope)
+        if current.integration_id is None and not normalized.conditions:
+            raise ValidationError(
+                "Unmatched traffic is already covered by the Default Deployment."
+            )
+        signature = traffic_scope_signature(normalized)
+        duplicate = next(
+            (
+                item
+                for item in self.deployments()
+                if item.id != deployment_id
+                and item.integration_id == current.integration_id
+                and traffic_scope_signature(item.traffic_scope) == signature
+            ),
+            None,
+        )
+        if duplicate is not None:
+            raise ValidationError(
+                f"This Traffic Scope is already used by Deployment {duplicate.name}."
+            )
+
+        now = _utcnow()
+        with self._database.transaction() as session:
+            row = session.get(DeploymentModel, deployment_id)
+            assert row is not None
+            row.traffic_scope_json = asdict(normalized)
+            row.updated_at = now
+            if current.integration_id is not None and not normalized.conditions:
+                routes = list(
+                    session.scalars(
+                        select(DeploymentModel)
+                        .where(
+                            DeploymentModel.integration_id
+                            == current.integration_id
+                        )
+                        .order_by(
+                            DeploymentModel.route_order,
+                            DeploymentModel.id,
+                        )
+                    ).all()
+                )
+                ordered = [item for item in routes if item.id != deployment_id]
+                ordered.append(row)
+                for route_order, route in enumerate(ordered, start=1):
+                    route.route_order = route_order
+            self._insert_evidence_record(
+                session,
+                kind="deployment.traffic_scope.updated",
+                outcome="success",
+                guardrail_id=current.guardrail_id,
+                deployment_id=deployment_id,
+                integration_id=current.integration_id,
+                detail=(
+                    f"Updated Deployment {current.name} to receive all Integration traffic."
+                    if not normalized.conditions
+                    else f"Updated Deployment {current.name} Traffic Scope."
+                ),
+            )
+        self._reload_runtime()
+        return self.deployment(deployment_id)
+
     def set_deployment_enabled(self, deployment_id: str, enabled: bool) -> Deployment:
         current = self.deployment(deployment_id)
         if is_default_deployment(deployment_id):
@@ -1812,6 +1889,7 @@ class ControlPlaneService:
             return tuple(
                 RuntimeMetricEvent(
                     id=row.id,
+                    trace_id=row.trace_id or row.id,
                     created_at=_iso(row.created_at),
                     guardrail_id=row.guardrail_id,
                     guardrail_version=row.guardrail_version,
@@ -1838,6 +1916,7 @@ class ControlPlaneService:
                     active_concurrency=row.active_concurrency,
                     provider_latency_ms=row.provider_latency_ms,
                     slo_breached=row.slo_breached,
+                    detail=row.detail,
                 )
                 for row in rows
             )
@@ -1859,6 +1938,7 @@ class ControlPlaneService:
             return tuple(
                 RuntimeStepMetricEvent(
                     id=row.id,
+                    trace_id=row.trace_id,
                     created_at=_iso(row.created_at),
                     guardrail_id=row.guardrail_id,
                     guardrail_version=row.guardrail_version,
@@ -1888,9 +1968,94 @@ class ControlPlaneService:
                 for row in rows
             )
 
+    def deployment_runtime_traces(
+        self,
+        deployment_id: str,
+        *,
+        limit: int = 100,
+    ) -> tuple[DeploymentRuntimeTrace, ...]:
+        """Return recent privacy-safe runtime decisions for one Deployment."""
+
+        self.deployment(deployment_id)
+        with self._database.session() as session:
+            decisions = session.scalars(
+                select(RuntimeMetricEventModel)
+                .where(RuntimeMetricEventModel.deployment_id == deployment_id)
+                .order_by(
+                    RuntimeMetricEventModel.created_at.desc(),
+                    RuntimeMetricEventModel.id.desc(),
+                )
+                .limit(max(1, min(limit, 200)))
+            ).all()
+            if not decisions:
+                return ()
+            trace_ids = tuple(row.trace_id or row.id for row in decisions)
+            finding_rows = session.scalars(
+                select(RuntimeFindingEventModel)
+                .where(RuntimeFindingEventModel.trace_id.in_(trace_ids))
+                .order_by(
+                    RuntimeFindingEventModel.created_at.asc(),
+                    RuntimeFindingEventModel.id.asc(),
+                )
+            ).all()
+            step_rows = session.scalars(
+                select(RuntimeStepMetricEventModel)
+                .where(RuntimeStepMetricEventModel.trace_id.in_(trace_ids))
+                .order_by(
+                    RuntimeStepMetricEventModel.created_at.asc(),
+                    RuntimeStepMetricEventModel.id.asc(),
+                )
+            ).all()
+
+        findings_by_trace: dict[str, list[RuntimeFindingEvent]] = {}
+        for row in finding_rows:
+            findings_by_trace.setdefault(row.trace_id, []).append(
+                _runtime_finding_from_model(row)
+            )
+        steps_by_trace: dict[str, list[RuntimeStepMetricEvent]] = {}
+        for row in step_rows:
+            steps_by_trace.setdefault(row.trace_id, []).append(
+                _runtime_step_from_model(row)
+            )
+        severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+        traces = []
+        for row in decisions:
+            trace_id = row.trace_id or row.id
+            findings = tuple(findings_by_trace.get(trace_id, ()))
+            severity = max(
+                (item.severity for item in findings),
+                key=lambda item: severity_rank[item],
+                default=None,
+            )
+            traces.append(
+                DeploymentRuntimeTrace(
+                    id=trace_id,
+                    created_at=_iso(row.created_at),
+                    deployment_id=deployment_id,
+                    guardrail_id=row.guardrail_id,
+                    guardrail_version=row.guardrail_version,
+                    integration_id=row.integration_id,
+                    protocol=row.protocol,
+                    phase=row.phase,
+                    outcome=row.outcome,
+                    action=row.action,
+                    risk=row.risk,
+                    severity=severity,
+                    latency_ms=row.latency_ms,
+                    timed_out=row.timed_out,
+                    runtime_engine=row.runtime_engine,
+                    config_checksum=row.config_checksum,
+                    detail=row.detail,
+                    findings=findings,
+                    steps=tuple(steps_by_trace.get(trace_id, ())),
+                )
+            )
+        return tuple(traces)
+
     def record_runtime_steps(
         self,
         *,
+        trace_id: str | None = None,
         guardrail_id: str | None,
         guardrail_version: int | None,
         deployment_id: str | None,
@@ -1903,6 +2068,7 @@ class ControlPlaneService:
     ) -> None:
         if guardrail_id is None or guardrail_version is None:
             return
+        resolved_trace_id = trace_id or f"trace-{uuid.uuid4().hex}"
         rows: list[RuntimeStepMetricEventModel] = []
         now = _utcnow()
         for step in trace:
@@ -1918,6 +2084,7 @@ class ControlPlaneService:
             rows.append(
                 RuntimeStepMetricEventModel(
                     id=f"step-metric-{uuid.uuid4().hex[:12]}",
+                    trace_id=resolved_trace_id,
                     created_at=now,
                     guardrail_id=guardrail_id,
                     guardrail_version=guardrail_version,
@@ -1953,6 +2120,7 @@ class ControlPlaneService:
     def record_decision(
         self,
         *,
+        trace_id: str | None = None,
         outcome: str,
         guardrail_id: str | None,
         deployment_id: str | None,
@@ -1978,8 +2146,10 @@ class ControlPlaneService:
         fail_closed: bool = False,
         active_concurrency: int = 0,
         provider_latency_ms: int = 0,
+        findings: tuple[RiskFinding, ...] = (),
     ) -> None:
         now = _utcnow()
+        resolved_trace_id = trace_id or f"trace-{uuid.uuid4().hex}"
         with self._database.transaction() as session:
             self._insert_evidence_record(
                 session,
@@ -1994,6 +2164,7 @@ class ControlPlaneService:
             session.add(
                 RuntimeMetricEventModel(
                     id=f"metric-{uuid.uuid4().hex[:12]}",
+                    trace_id=resolved_trace_id,
                     created_at=now,
                     guardrail_id=guardrail_id,
                     guardrail_version=guardrail_version,
@@ -2020,7 +2191,29 @@ class ControlPlaneService:
                     active_concurrency=max(0, active_concurrency),
                     provider_latency_ms=max(0, provider_latency_ms),
                     slo_breached=latency_ms > self._runtime_p99_budget_ms,
+                    detail=detail,
                 ),
+            )
+            session.add_all(
+                RuntimeFindingEventModel(
+                    id=f"finding-{uuid.uuid4().hex[:12]}",
+                    trace_id=resolved_trace_id,
+                    created_at=now,
+                    guardrail_id=guardrail_id,
+                    guardrail_version=guardrail_version,
+                    deployment_id=deployment_id,
+                    integration_id=integration_id,
+                    phase=phase,
+                    severity=_runtime_finding_severity(item),
+                    risk=item.risk,
+                    verdict=item.verdict,
+                    confidence=max(0.0, min(1.0, item.confidence)),
+                    recommended_action=item.recommended_action,
+                    policy_id=item.policy_id,
+                    rule_id=item.rule_id,
+                    detail=_runtime_finding_detail(item),
+                )
+                for item in findings
             )
 
     def summary(self) -> dict[str, object]:
@@ -3224,6 +3417,86 @@ def _deployment_from_model(row: DeploymentModel) -> Deployment:
         enabled=row.enabled,
         updated_at=_iso(row.updated_at),
     )
+
+
+def _runtime_step_from_model(row: RuntimeStepMetricEventModel) -> RuntimeStepMetricEvent:
+    return RuntimeStepMetricEvent(
+        id=row.id,
+        trace_id=row.trace_id,
+        created_at=_iso(row.created_at),
+        guardrail_id=row.guardrail_id,
+        guardrail_version=row.guardrail_version,
+        deployment_id=row.deployment_id,
+        integration_id=row.integration_id,
+        protocol=row.protocol,
+        phase=row.phase,
+        kind=row.kind,
+        name=row.name,
+        risk=row.risk,
+        stage=row.stage,
+        outcome=row.outcome,
+        latency_ms=row.latency_ms,
+        timed_out=row.timed_out,
+        runtime_engine=row.runtime_engine,
+        config_checksum=row.config_checksum,
+        policy_id=row.policy_id,
+        policy_version=row.policy_version,
+        rail_type=row.rail_type,
+        flow_name=row.flow_name,
+        action_name=row.action_name,
+        action_version=row.action_version,
+        parallel_group=row.parallel_group,
+        timeout_ms=row.timeout_ms,
+        provider_latency_ms=row.provider_latency_ms,
+    )
+
+
+def _runtime_finding_from_model(row: RuntimeFindingEventModel) -> RuntimeFindingEvent:
+    return RuntimeFindingEvent(
+        id=row.id,
+        trace_id=row.trace_id,
+        created_at=_iso(row.created_at),
+        guardrail_id=row.guardrail_id,
+        guardrail_version=row.guardrail_version,
+        deployment_id=row.deployment_id,
+        integration_id=row.integration_id,
+        phase=row.phase,
+        severity=row.severity,  # type: ignore[arg-type]
+        risk=row.risk,
+        verdict=row.verdict,
+        confidence=row.confidence,
+        recommended_action=row.recommended_action,
+        policy_id=row.policy_id,
+        rule_id=row.rule_id,
+        detail=row.detail,
+    )
+
+
+def _runtime_finding_severity(
+    finding: RiskFinding,
+) -> str:
+    confidence = max(0.0, min(1.0, finding.confidence))
+    if (
+        finding.verdict in {"unsafe", "error"}
+        and finding.recommended_action in {"reject", "fallback"}
+        and confidence >= 0.85
+    ):
+        return "critical"
+    if finding.verdict in {"unsafe", "error"} and confidence >= 0.75:
+        return "high"
+    if finding.verdict in {"unsafe", "uncertain", "error"}:
+        return "medium"
+    return "low"
+
+
+def _runtime_finding_detail(finding: RiskFinding) -> str:
+    """Describe a match without persisting user or model content."""
+
+    if finding.policy_id and finding.rule_id:
+        return f"Policy {finding.policy_id} matched Rule {finding.rule_id}."
+    if finding.policy_id:
+        return f"Policy {finding.policy_id} produced an unsafe assessment."
+    return f"The {finding.risk.replace('_', ' ')} check produced an unsafe assessment."
 
 
 def _validation_run_from_model(row: ValidationRunModel) -> ValidationRun:

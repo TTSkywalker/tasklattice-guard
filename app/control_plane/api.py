@@ -320,6 +320,12 @@ class UpdateDeploymentRequest(BaseModel):
     enabled: bool
 
 
+class UpdateDeploymentTrafficScopeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    traffic_scope: TrafficScopeExpressionInput
+
+
 class CreateIntegrationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1211,6 +1217,25 @@ class ControlPlaneAPI:
         def deployments():
             return _collection([_deployment_payload(item) for item in self._service.deployments()])
 
+        @router.get("/deployments/{deployment_id}")
+        def deployment(deployment_id: str):
+            try:
+                item = self._service.deployment(deployment_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _deployment_payload(item)
+
+        @router.get("/deployments/{deployment_id}/traces")
+        def deployment_traces(deployment_id: str, limit: int = 100):
+            try:
+                items = self._service.deployment_runtime_traces(
+                    deployment_id,
+                    limit=limit,
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return _collection([asdict(item) for item in items])
+
         @router.get("/traffic-scope-fields")
         def traffic_scope_fields():
             return _collection(_traffic_scope_fields())
@@ -1259,6 +1284,20 @@ class ControlPlaneAPI:
         def update_deployment(deployment_id: str, request: UpdateDeploymentRequest):
             try:
                 item = self._service.set_deployment_enabled(deployment_id, request.enabled)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _deployment_payload(item)
+
+        @router.put("/deployments/{deployment_id}/traffic-scope")
+        def update_deployment_traffic_scope(
+            deployment_id: str,
+            request: UpdateDeploymentTrafficScopeRequest,
+        ):
+            try:
+                item = self._service.update_deployment_traffic_scope(
+                    deployment_id,
+                    _traffic_scope_domain(request.traffic_scope),
+                )
             except ControlPlaneError as error:
                 _raise(error)
             return _deployment_payload(item)
@@ -1379,16 +1418,20 @@ class ControlPlaneAPI:
         def metrics(
             window: MetricWindow = "7d",
             guardrail_id: str | None = None,
+            deployment_id: str | None = None,
         ):
             try:
                 if guardrail_id:
                     self._service.guardrail(guardrail_id)
+                if deployment_id:
+                    self._service.deployment(deployment_id)
             except ControlPlaneError as error:
                 _raise(error)
             return _metrics_payload(
                 self._service,
                 window=window,
                 guardrail_id=guardrail_id,
+                deployment_id=deployment_id,
             )
 
         @router.get("/system-status")
@@ -1812,6 +1855,7 @@ def _metrics_payload(
     *,
     window: MetricWindow = "7d",
     guardrail_id: str | None = None,
+    deployment_id: str | None = None,
 ) -> dict[str, object]:
     now = datetime.now(UTC)
     duration = _metric_window_duration(window)
@@ -1819,9 +1863,21 @@ def _metrics_payload(
     window_start = now - duration
     comparison_start = window_start - duration
     integrations = service.integrations()
+    all_deployments = service.deployments()
+    deployment_guardrail_id = next(
+        (
+            item.guardrail_id
+            for item in all_deployments
+            if item.id == deployment_id
+        ),
+        None,
+    )
 
     def in_scope(item) -> bool:
-        return not guardrail_id or item.guardrail_id == guardrail_id
+        return (
+            (not guardrail_id or item.guardrail_id == guardrail_id)
+            and (not deployment_id or item.deployment_id == deployment_id)
+        )
 
     all_events = tuple(
         item
@@ -1855,7 +1911,17 @@ def _metrics_payload(
 
     all_guardrails = service.guardrails()
     guardrails = tuple(
-        item for item in all_guardrails if not guardrail_id or item.id == guardrail_id
+        item
+        for item in all_guardrails
+        if (not guardrail_id or item.id == guardrail_id)
+        and (
+            not deployment_id
+            or any(
+                deployment.id == deployment_id
+                and deployment.guardrail_id == item.id
+                for deployment in all_deployments
+            )
+        )
     )
     needs_testing = 0
     for guardrail in guardrails:
@@ -1866,10 +1932,13 @@ def _metrics_payload(
         needs_testing += int(not tested_current)
     deployments = tuple(
         item
-        for item in service.deployments()
-        if not guardrail_id or item.guardrail_id == guardrail_id
+        for item in all_deployments
+        if (not guardrail_id or item.guardrail_id == guardrail_id)
+        and (not deployment_id or item.id == deployment_id)
     )
-    validation_runs = service.validation_runs(guardrail_id)
+    validation_runs = service.validation_runs(
+        guardrail_id or deployment_guardrail_id
+    )
     latest_validation_p95 = (
         validation_runs[0].metrics.p95_latency_ms if validation_runs else 0
     )

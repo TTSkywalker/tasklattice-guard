@@ -23,7 +23,7 @@ from app.integrations import (
 from app.nemo.actions import local_action_providers
 from app.nemo.action_registry import action_name_for
 from app.nemo.actions.contracts import ActionResult
-from app.runtime.contracts import EngineRequest, RequestContext
+from app.runtime.contracts import EngineRequest, RequestContext, RiskFinding, RuntimeTraceStep
 from tests.nemo_helpers import nemo_engine
 
 
@@ -529,6 +529,126 @@ def test_existing_deployment_table_receives_additive_binding_columns(tmp_path):
     assert {"integration_id", "route_order"} <= deployment_columns
     assert service.deployment(DEFAULT_DEPLOYMENT_ID).route_order == 100
 
+
+def test_deployment_selector_can_change_without_changing_guardrail_binding(tmp_path):
+    service = ControlPlaneService(tmp_path / "selector-update.db")
+    guardrail = service.create_guardrail(
+        name="Gateway protection",
+        purpose="Protect one authenticated Gateway route.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+    pass_current_guardrail(service, guardrail.id)
+    integration = service.create_integration(
+        name="Production LiteLLM",
+        description="Production Gateway",
+        adapter_id=LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+    ).integration
+    deployment = service.create_deployment(
+        name="Finance route",
+        guardrail_id=guardrail.id,
+        integration_id=integration.id,
+        traffic_scope=filter_expression(
+            filter_rule("model", "glob", "finance/*")
+        ),
+    )
+    bound_version = deployment.guardrail_version
+
+    updated = service.update_deployment_traffic_scope(
+        deployment.id,
+        filter_expression(),
+    )
+
+    assert updated.traffic_scope.conditions == ()
+    assert updated.guardrail_id == guardrail.id
+    assert updated.guardrail_version == bound_version
+    assert updated.integration_id == integration.id
+    assert service.resolve(
+        RequestContext(
+            "litellm",
+            integration_id=integration.id,
+            fields=(("model", "general/chat"),),
+        )
+    ).deployment_id == deployment.id
+
+
+def test_deployment_trace_correlates_critical_rule_and_nemo_steps_without_content(
+    tmp_path,
+):
+    service = ControlPlaneService(tmp_path / "deployment-trace.db")
+    guardrail = service.create_guardrail(
+        name="Injection protection",
+        purpose="Block obvious SQL injection attempts.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+    pass_current_guardrail(service, guardrail.id)
+    deployment = service.create_deployment(
+        name="SQL protected traffic",
+        guardrail_id=guardrail.id,
+        traffic_scope=filter_expression(
+            filter_rule("http.path", "starts_with", "/v1/chat")
+        ),
+    )
+    trace_id = "trace-critical-sql"
+    finding = RiskFinding(
+        risk="builtin_content_filter",
+        verdict="unsafe",
+        confidence=0.99,
+        evidence="raw matched content must not be persisted: UNION SELECT password",
+        recommended_action="reject",
+        policy_id="filter-prompt-injection-sql",
+        rule_id="sql-injection-blocker/blocked-word-1",
+    )
+    service.record_decision(
+        trace_id=trace_id,
+        outcome="block",
+        guardrail_id=guardrail.id,
+        guardrail_version=deployment.guardrail_version,
+        deployment_id=deployment.id,
+        integration_id=None,
+        protocol="http",
+        phase="input",
+        action="reject",
+        risk=finding.risk,
+        latency_ms=18,
+        runtime_engine="llmrails",
+        config_checksum="checksum",
+        detail="The active Guardrail blocked the request.",
+        findings=(finding,),
+    )
+    service.record_runtime_steps(
+        trace_id=trace_id,
+        guardrail_id=guardrail.id,
+        guardrail_version=deployment.guardrail_version,
+        deployment_id=deployment.id,
+        integration_id=None,
+        protocol="http",
+        phase="input",
+        trace=(
+            RuntimeTraceStep(
+                id="nemo:action:sql",
+                kind="action",
+                name="SQL injection filter",
+                status="unsafe",
+                detail="raw content must not be persisted",
+                duration_ms=7,
+                risk=finding.risk,
+                action_name="GuardContentFilterAction",
+                action_version="1.0.0",
+            ),
+        ),
+        runtime_engine="llmrails",
+        config_checksum="checksum",
+    )
+
+    trace = service.deployment_runtime_traces(deployment.id)[0]
+
+    assert trace.id == trace_id
+    assert trace.severity == "critical"
+    assert trace.findings[0].policy_id == "filter-prompt-injection-sql"
+    assert trace.findings[0].rule_id == "sql-injection-blocker/blocked-word-1"
+    assert "UNION SELECT" not in trace.findings[0].detail
+    assert trace.steps[0].action_name == "GuardContentFilterAction"
+
 def test_nested_traffic_scope_matches_either_trusted_finance_identity(tmp_path):
     service = ControlPlaneService(tmp_path / "nested.db")
     guardrail = service.create_guardrail(
@@ -594,11 +714,13 @@ def test_policy_library_exposes_rules_and_executable_test_cases(tmp_path):
 
     policies = service.library_policies()
 
-    assert len(policies) == 17
+    assert len(policies) == 38
     assert {item.id for item in policies} >= {
         "topic-filtering",
         "mas-ai-risk-management",
         "advanced-au-pii-protection",
+        "pattern-matching",
+        "block-code-execution",
     }
     assert all(item.rules and item.test_cases for item in policies)
     assert all(item.test_count for item in policies)

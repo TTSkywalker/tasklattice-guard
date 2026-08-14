@@ -382,7 +382,7 @@ async def test_control_plane_exposes_enterprise_product_resources(tmp_path):
     )
     assert contact_policy["rules"]
     assert contact_policy["test_cases"]
-    assert policy_library["count"] == 26
+    assert policy_library["count"] == 47
     assert all(item["rules"] for item in policy_library["items"])
     assert {
         "sg-pdpa-contact-information/sg_phone",
@@ -1134,6 +1134,28 @@ async def test_deployment_binding_api_fans_out_one_route_per_integration(tmp_pat
                 "enabled": True,
             },
         )
+        deployment_id = bindings.json()["items"][0]["id"]
+        detail = await client.get(f"/api/v1/deployments/{deployment_id}")
+        updated_scope = await client.put(
+            f"/api/v1/deployments/{deployment_id}/traffic-scope",
+            json={
+                "traffic_scope": {
+                    "combinator": "and",
+                    "conditions": [
+                        {
+                            "field": "model",
+                            "operator": "glob",
+                            "value": "finance/*",
+                        }
+                    ],
+                }
+            },
+        )
+        traces = await client.get(f"/api/v1/deployments/{deployment_id}/traces")
+        metrics = await client.get(
+            "/api/v1/metrics",
+            params={"deployment_id": deployment_id, "window": "24h"},
+        )
 
     assert bindings.status_code == 201
     assert bindings.json()["count"] == 2
@@ -1145,6 +1167,15 @@ async def test_deployment_binding_api_fans_out_one_route_per_integration(tmp_pat
         item["traffic_scope"] == {"combinator": "and", "conditions": []}
         for item in bindings.json()["items"]
     )
+    assert detail.status_code == 200
+    assert detail.json()["guardrail_id"] == guardrail_id
+    assert updated_scope.status_code == 200
+    assert updated_scope.json()["guardrail_id"] == guardrail_id
+    assert updated_scope.json()["guardrail_version"] == detail.json()["guardrail_version"]
+    assert updated_scope.json()["traffic_scope"]["conditions"][0]["field"] == "model"
+    assert traces.json() == {"items": [], "count": 0}
+    assert metrics.status_code == 200
+    assert metrics.json()["total_decisions"] == 0
 
 
 @pytest.mark.asyncio
