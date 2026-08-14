@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, Cable, FlaskConical, LayoutDashboard, LibraryBig, ListChecks, Rocket, ShieldCheck } from "lucide-react";
+import { Activity, Cable, CircleHelp, FlaskConical, LayoutDashboard, LibraryBig, ListChecks, Rocket, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AccountMenu } from "@/components/account-menu";
@@ -120,6 +120,29 @@ export function ControlPlaneSidebar() {
             </SidebarGroup>
           );
         })}
+        <SidebarGroup className="mt-auto px-0 pt-3 pb-0 group-data-[collapsible=icon]:px-1">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/help"}
+                  tooltip={t("nav.helpCenter")}
+                  className="h-10 rounded-lg px-2.5 text-[13px] text-sidebar-foreground/80 data-active:bg-accent data-active:font-medium data-active:text-accent-foreground group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
+                >
+                  <Link
+                    to="/help"
+                    aria-label={state === "collapsed" ? t("nav.helpCenter") : undefined}
+                    onClick={() => setOpenMobile(false)}
+                  >
+                    <CircleHelp className="size-4.5" strokeWidth={pathname === "/help" ? 2.2 : 1.8} />
+                    <span className="group-data-[collapsible=icon]:hidden">{t("nav.helpCenter")}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter className="gap-1.5 border-t border-sidebar-border p-2.5">

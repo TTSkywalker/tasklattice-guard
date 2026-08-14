@@ -35,6 +35,7 @@ const names: Record<string, { group: string; page: string }> = {
   "/evidence": { group: "nav.assurance", page: "nav.evidence" },
   "/access": { group: "nav.system", page: "nav.access" },
   "/account": { group: "nav.system", page: "account.title" },
+  "/help": { group: "nav.helpResources", page: "nav.helpCenter" },
 };
 
 export function ControlPlaneLayout() {
