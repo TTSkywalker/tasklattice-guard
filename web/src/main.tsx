@@ -29,7 +29,11 @@ const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path
 const policyLibrarySearch = (search: Record<string, unknown>) => ({ policy: typeof search.policy === "string" ? search.policy : undefined });
 const policyLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/policy-library", validateSearch: policyLibrarySearch, component: PolicyLibraryPage });
 const guardrailSearch = (search: Record<string, unknown>) => ({ guardrail: typeof search.guardrail === "string" ? search.guardrail : undefined });
-const playgroundRoute = createRoute({ getParentRoute: () => rootRoute, path: "/playground", validateSearch: guardrailSearch, component: PlaygroundPage });
+const playgroundSearch = (search: Record<string, unknown>) => {
+  const version = Number(search.version);
+  return { ...guardrailSearch(search), version: Number.isInteger(version) && version > 0 ? version : undefined };
+};
+const playgroundRoute = createRoute({ getParentRoute: () => rootRoute, path: "/playground", validateSearch: playgroundSearch, component: PlaygroundPage });
 const validationRoute = createRoute({ getParentRoute: () => rootRoute, path: "/validation", validateSearch: guardrailSearch, component: ValidationPage });
 const deploymentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/deployments", component: DeploymentsPage });
 const deploymentDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/deployments/$deploymentId", component: DeploymentDetailPage });

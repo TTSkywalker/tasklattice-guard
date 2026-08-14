@@ -180,7 +180,9 @@ async def test_customer_data_policy_runs_create_to_real_http_on_one_version(tmp_
             ["flow/input/check_customer_identifier_input"],
             ["flow/output/check_customer_identifier_output"],
         ]
-        guardrail_version = validation_run.json()["guardrail_version"]
+        published = await client.post(f"/api/v1/guardrails/{guardrail_id}/publish")
+        assert published.status_code == 201, published.text
+        guardrail_version = published.json()["version"]
 
         deployment = await client.post(
             "/api/v1/deployments",

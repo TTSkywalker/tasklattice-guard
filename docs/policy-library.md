@@ -126,9 +126,10 @@ declared Rules must not match. This prevents an unrelated blocker from making a
 case appear successful.
 
 Generated cases follow the current Guardrail draft. User-created cases remain
-user-owned. Passing a **Validation Run** creates or confirms an immutable
-Guardrail Version; a failed run remains Evidence and never creates a deployable
-version.
+user-owned. Passing a **Validation Run** approves the current draft and records
+immutable Evidence, but does not release it. A separate explicit **Publish**
+action creates or confirms the immutable Guardrail Version that Deployments can
+reference. A failed run remains Evidence and cannot be published.
 
 ## NeMo execution mapping
 

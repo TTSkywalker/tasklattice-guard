@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Deployment, GuardrailPolicyBinding, GuardrailVersion, GuardrailVersionDetail, Metrics, Policy, TestCase } from "@/lib/api";
+import type { Deployment, Guardrail, GuardrailPolicyBinding, GuardrailVersion, GuardrailVersionDetail, Metrics, Policy, TestCase } from "@/lib/api";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
+import { DraftReleaseView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
@@ -12,6 +14,12 @@ vi.mock("react-i18next", () => ({
     t: (key: string, values?: Record<string, string | number>) => Object.entries(values ?? {}).reduce((label, [name, value]) => `${label} ${name}:${value}`, key),
     i18n: { language: "en", exists: () => false },
   }),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children }: { children: ReactNode }) => <a href="#test">{children}</a>,
+  useNavigate: () => vi.fn(),
+  useParams: () => ({}),
 }));
 
 vi.mock("@/components/dashboard/runtime-health-alert", () => ({ RuntimeHealthAlert: () => null }));
@@ -67,16 +75,27 @@ describe("Guardrail detail information hierarchy", () => {
       }],
     } as Metrics;
 
-    render(<GuardrailRuntimeView metrics={metrics} loading={false} error={null} deployments={[deployment]} window="24h" onWindowChange={() => undefined} />);
+    render(<GuardrailRuntimeView metrics={metrics} loading={false} error={null} deployments={[deployment]} versions={[{
+      guardrail_id: "guardrail-observed",
+      version: 2,
+      source_draft_version: 3,
+      compiler_version: "tasklattice-nemo-config-v7",
+      plan_checksum: "plan-checksum",
+      config_checksum: "config-checksum",
+      created_at: "2026-08-13T08:00:00Z",
+      active: true,
+      runtime_engine: "llmrails",
+      execution_mode: "nemo_only",
+    }]} window="24h" onWindowChange={() => undefined} />);
 
     expect(screen.getByText("Observed LiteLLM")).toBeTruthy();
     expect(screen.getByText("Observed traffic")).toBeTruthy();
     expect(screen.getByText("Observed traffic scope")).toBeTruthy();
-    expect(screen.getByText("v2")).toBeTruthy();
+    expect(screen.getByText("20260813-080000Z")).toBeTruthy();
     expect(screen.getByText("runtime-chart")).toBeTruthy();
   });
 
-  it("shows immutable configuration before generated artifacts", () => {
+  it("shows immutable configuration before the unified compiled runtime", () => {
     const version: GuardrailVersion = {
       guardrail_id: "guardrail-observed",
       version: 2,
@@ -106,13 +125,20 @@ describe("Guardrail detail information hierarchy", () => {
     };
 
     const client = new QueryClient();
-    render(<QueryClientProvider client={client}><ImmutableVersionView detail={detail} activeVersion={version} versions={[version]} loading={false} guardrailId="guardrail-observed" validation={null} onChanged={async () => undefined} onOpenDraft={() => undefined} /></QueryClientProvider>);
+    render(<QueryClientProvider client={client}><TooltipProvider><ImmutableVersionView detail={detail} selectedVersion={version} versions={[version]} loading={false} comparisonActive={false} comparisonLoading={false} compareOptions={[]} guardrailId="guardrail-observed" validation={null} onChanged={async () => undefined} onOpenDraft={() => undefined} onSelectVersion={() => undefined} onStartCompare={() => undefined} onCompareBaseChange={() => undefined} onCloseCompare={() => undefined} /></TooltipProvider></QueryClientProvider>);
 
-    const configuration = screen.getByText(/guardrails\.immutableConfiguration/);
-    const artifacts = screen.getByText("guardrails.generatedArtifacts");
-    expect(configuration.compareDocumentPosition(artifacts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const configuration = screen.getAllByText("20260813-080000Z")[1];
+    const compiledRuntime = screen.getByText("guardrails.compiledRuntime");
+    expect(configuration.compareDocumentPosition(compiledRuntime) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("pii@1.95.0")).toBeTruthy();
-    expect(screen.getByText("config.yml")).toBeTruthy();
+    expect(screen.getByText("guardrails.compiledRailsActions")).toBeTruthy();
+    expect(screen.getByText("guardrails.dependenciesModels")).toBeTruthy();
+
+    const generatedFilesTab = screen.getByRole("tab", { name: "guardrails.generatedFilesTab count:1" });
+    fireEvent.mouseDown(generatedFilesTab, { button: 0, ctrlKey: false });
+    fireEvent.mouseUp(generatedFilesTab, { button: 0, ctrlKey: false });
+    fireEvent.click(generatedFilesTab);
+    expect(screen.getAllByText("config.yml").length).toBeGreaterThan(0);
   });
 
   it("groups inherited and Guardrail-specific Test Cases by source and keeps groups collapsed", () => {
@@ -137,21 +163,25 @@ describe("Guardrail detail information hierarchy", () => {
       expected_reasoning_result: null,
       case_type: "rule_acceptance",
       required: true,
+      excluded: false,
     } satisfies Partial<TestCase>;
     const cases = [
       { ...baseCase, id: "case-1", name: "First inherited Case", policy_id: "policy-one", origin: "generated", source_policy_id: "policy-one", source_policy_version: "1.0.0", source_case_id: "source-1", covered_rule_ids: ["rule-1"] },
-      { ...baseCase, id: "case-2", name: "Second inherited Case", policy_id: "policy-one", origin: "generated", source_policy_id: "policy-one", source_policy_version: "1.0.0", source_case_id: "source-2", covered_rule_ids: ["rule-2"] },
+      { ...baseCase, id: "case-2", name: "Second inherited Case", policy_id: "policy-one", origin: "generated", source_policy_id: "policy-one", source_policy_version: "1.0.0", source_case_id: "source-2", covered_rule_ids: ["rule-2"], excluded: true },
       { ...baseCase, id: "case-3", name: "Other Policy Case", policy_id: "policy-two", origin: "generated", source_policy_id: "policy-two", source_policy_version: "2.0.0", source_case_id: "source-3", covered_rule_ids: ["rule-3"] },
       { ...baseCase, id: "case-4", name: "Guardrail regression Case", policy_id: "policy-one", origin: "custom", source_policy_id: null, source_policy_version: null, source_case_id: null, covered_rule_ids: [] },
     ] as TestCase[];
     const onAdd = vi.fn();
+    const onExclude = vi.fn();
+    const onRestore = vi.fn();
 
-    render(<TestCases cases={cases} bindings={bindings} policies={policies} loading={false} onAdd={onAdd} />);
+    render(<TestCases cases={cases} bindings={bindings} policies={policies} loading={false} onAdd={onAdd} onExclude={onExclude} onRestore={onRestore} />);
 
     expect(screen.getByText("First Policy")).toBeTruthy();
     expect(screen.getByText("Second Policy")).toBeTruthy();
     expect(screen.getByText("guardrails.guardrailCustomTests")).toBeTruthy();
-    expect(screen.getByText(/inherited:3 policies:2 custom:1/)).toBeTruthy();
+    expect(screen.getByText(/inherited:2 policies:2 custom:1/)).toBeTruthy();
+    expect(screen.getByText(/guardrails\.excludedTestCount count:1/)).toBeTruthy();
 
     const firstPolicyGroup = screen.getByTestId("test-source-policy:policy-one") as HTMLDetailsElement;
     const secondPolicyGroup = screen.getByTestId("test-source-policy:policy-two") as HTMLDetailsElement;
@@ -162,7 +192,57 @@ describe("Guardrail detail information hierarchy", () => {
 
     fireEvent.click(firstPolicyGroup.querySelector("summary")!);
     expect(firstPolicyGroup.open).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "guardrails.restoreTestCase" }));
+    expect(onRestore).toHaveBeenCalledWith("case-2");
+    fireEvent.click(screen.getAllByRole("button", { name: "guardrails.excludeTestCase" })[0]);
+    expect(onExclude).toHaveBeenCalledWith("case-1");
     fireEvent.click(screen.getAllByRole("button", { name: "guardrails.addTestCase" })[0]);
     expect(onAdd).toHaveBeenCalledOnce();
+  });
+
+  it("requires explicit publication after Validation passes", () => {
+    const validatedGuardrail = {
+      id: "guardrail-release",
+      name: "Release Guardrail",
+      purpose: "Protect the release workflow.",
+      allowed_topics: [],
+      restricted_topics: [],
+      policy_bindings: [{ policy_id: "policy-one", policy_version: "1.0.0", parameter_values: {}, enabled_rule_ids: ["rule-1"], rule_actions: {}, enabled_rails: ["input"] }],
+      safety_level: "balanced",
+      output_delivery: "window_buffered",
+      updated_at: "2026-08-14T08:00:00Z",
+      status: "ready",
+      latest_validation_run: {
+        id: "validation-release",
+        guardrail_id: "guardrail-release",
+        guardrail_version: null,
+        source_draft_version: 2,
+        status: "passed",
+        created_at: "2026-08-14T08:00:00Z",
+        metrics: { total: 5, passed: 5, compliance_rate: 100, false_positive_rate: 0, false_negative_rate: 0, deep_escalation_rate: 0, p95_latency_ms: 20 },
+        results: [],
+        excluded_case_ids: [],
+      },
+      deployment_count: 0,
+      test_case_count: 5,
+      excluded_test_case_count: 0,
+      excluded_test_case_ids: [],
+      tested_current: true,
+      published_current: false,
+      is_default: false,
+      system_managed: false,
+      local_only: false,
+      coverage: [],
+    } satisfies Guardrail;
+    const client = new QueryClient();
+    const props = { guardrail: validatedGuardrail, policies: [], cases: [], casesLoading: false, activeVersion: undefined, deployments: [], onEdit: vi.fn(), onAddCase: vi.fn(), onCreateDeployment: vi.fn(), onChanged: async () => undefined };
+
+    const view = render(<QueryClientProvider client={client}><DraftReleaseView {...props} /></QueryClientProvider>);
+    expect(screen.getByRole("button", { name: "guardrails.publishVersion" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "guardrails.createDeployment" })).toBeNull();
+
+    view.rerender(<QueryClientProvider client={client}><DraftReleaseView {...props} guardrail={{ ...validatedGuardrail, published_current: true }} activeVersion={{ guardrail_id: validatedGuardrail.id, version: 1, source_draft_version: 2, compiler_version: "compiler", plan_checksum: "plan", config_checksum: "config", created_at: "2026-08-14T08:00:00Z", active: true, runtime_engine: "llmrails", execution_mode: "nemo_only" }} /></QueryClientProvider>);
+    expect(screen.queryByRole("button", { name: "guardrails.publishVersion" })).toBeNull();
+    expect(screen.getByRole("button", { name: "guardrails.createDeployment" })).toBeTruthy();
   });
 });

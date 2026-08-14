@@ -138,6 +138,7 @@ export type ValidationRun = {
   status: "passed" | "failed" | "incomplete";
   metrics: ValidationMetrics;
   results: TestCaseResult[];
+  excluded_case_ids: string[];
   created_at: string;
 };
 
@@ -167,7 +168,8 @@ export type PlaygroundCheckResult = {
   guardrail: {
     id: string;
     name: string;
-    draft_version: number;
+    version: number;
+    published_at: string;
     compiler_version: string;
   };
   phase: "input" | "output";
@@ -224,6 +226,7 @@ export type TestCase = {
   covered_rule_ids: string[];
   case_type: string;
   required: boolean;
+  excluded: boolean;
 };
 
 export type PolicyCoverage = {
@@ -357,7 +360,11 @@ export type Guardrail = {
   latest_validation_run: ValidationRun | null;
   deployment_count: number;
   test_case_count: number;
+  excluded_test_case_count: number;
+  excluded_test_case_ids: string[];
   tested_current: boolean;
+  published_current: boolean;
+  published_version_count?: number;
   is_default: boolean;
   system_managed: boolean;
   local_only: boolean;
@@ -1010,6 +1017,7 @@ export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
 export const getGuardrailVersion = (guardrailId: string, version: number) => read<GuardrailVersionDetail>(`/api/v1/guardrail-versions/${encodeURIComponent(guardrailId)}/${version}`);
 export const rollbackGuardrail = (guardrailId: string, version: number) => mutate<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/rollback/${version}`, "POST");
+export const publishGuardrail = (guardrailId: string) => mutate<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/publish`, "POST");
 
 export const getPolicies = () => read<Collection<Policy>>("/api/v1/policies");
 export const getPolicy = (id: string) => read<Policy>(`/api/v1/policies/${encodeURIComponent(id)}`);
@@ -1039,6 +1047,7 @@ export const getPlaygroundModels = () => read<Collection<PlaygroundModel>>("/api
 export const createPlaygroundInteraction = (
   guardrailId: string,
   input: {
+    guardrail_version: number;
     model_id: string;
     message: string;
     history?: { role: "user" | "assistant"; content: string }[];
@@ -1047,6 +1056,8 @@ export const createPlaygroundInteraction = (
 export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
 export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "policy_id" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
 export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");
+export const excludeGuardrailTestCase = (guardrailId: string, caseId: string) => mutate<TestCase>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-cases/${encodeURIComponent(caseId)}/exclusion`, "PUT");
+export const restoreGuardrailTestCase = (guardrailId: string, caseId: string) => mutate<TestCase>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-cases/${encodeURIComponent(caseId)}/exclusion`, "DELETE");
 
 export const getDeployments = () => read<Collection<Deployment>>("/api/v1/deployments");
 export const getDeployment = (id: string) => read<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);

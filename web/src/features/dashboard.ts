@@ -21,8 +21,8 @@ export function useGuardrailsDashboard(filters: DashboardFilters) {
   });
   const evidence = useQuery({
     queryKey: [...queryKeys.evidence, filters],
-    queryFn: () => getEvidence({ ...filters, kind: "interaction.decision", limit: 8 }),
-    refetchInterval: 15_000,
+    queryFn: () => getEvidence({ ...filters, kind: "interaction.decision", limit: 50 }),
+    refetchInterval: 2_000,
   });
   const guardrails = useQuery({
     queryKey: queryKeys.guardrails,

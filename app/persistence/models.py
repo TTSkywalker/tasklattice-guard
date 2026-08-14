@@ -36,6 +36,9 @@ class GuardrailModel(Base):
     policy_bindings_json: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list
     )
+    excluded_test_case_ids_json: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     draft_version: Mapped[int] = mapped_column(Integer, nullable=False)
     active_version: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -170,6 +173,9 @@ class ValidationRunModel(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     results_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    excluded_case_ids_json: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

@@ -10,7 +10,7 @@ export const queryKeys = {
   actionCatalog: ["resources", "actions"] as const,
   intentAnalysisStatus: ["resources", "intent-analysis-status"] as const,
   playgroundModels: ["resources", "playground-models"] as const,
-  playgroundSession: (guardrailId: string) => ["resources", "playground-session", guardrailId] as const,
+  playgroundSession: (guardrailId: string, guardrailVersion: number) => ["resources", "playground-session", guardrailId, guardrailVersion] as const,
   validationRuns: (guardrailId: string) => ["resources", "validation-runs", { guardrailId }] as const,
   allValidationRuns: ["resources", "validation-runs"] as const,
   validationRun: (runId: string) => ["resources", "validation-runs", runId] as const,

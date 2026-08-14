@@ -4,9 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PlaygroundTurn } from "@/components/playground/types";
 import { queryKeys } from "@/features/query-keys";
 
-export function usePlaygroundSession(guardrailId: string) {
+export function usePlaygroundSession(guardrailId: string, guardrailVersion: number) {
   const queryClient = useQueryClient();
-  const queryKey = queryKeys.playgroundSession(guardrailId);
+  const queryKey = queryKeys.playgroundSession(guardrailId, guardrailVersion);
   const session = useQuery({
     queryKey,
     queryFn: async () => [] as PlaygroundTurn[],

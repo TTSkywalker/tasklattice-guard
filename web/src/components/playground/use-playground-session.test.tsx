@@ -20,16 +20,30 @@ describe("usePlaygroundSession", () => {
     const wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
-    const first = renderHook(() => usePlaygroundSession("guardrail-1"), { wrapper });
+    const first = renderHook(() => usePlaygroundSession("guardrail-1", 2), { wrapper });
 
     act(() => first.result.current.appendTurn(turn));
     await waitFor(() => expect(first.result.current.turns).toEqual([turn]));
     first.unmount();
 
-    const restored = renderHook(() => usePlaygroundSession("guardrail-1"), { wrapper });
+    const restored = renderHook(() => usePlaygroundSession("guardrail-1", 2), { wrapper });
     expect(restored.result.current.turns).toEqual([turn]);
 
     act(() => restored.result.current.clearTurns());
     await waitFor(() => expect(restored.result.current.turns).toEqual([]));
+  });
+
+  it("keeps conversations isolated between published versions", async () => {
+    const client = new QueryClient();
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const versionOne = renderHook(() => usePlaygroundSession("guardrail-1", 1), { wrapper });
+    const versionTwo = renderHook(() => usePlaygroundSession("guardrail-1", 2), { wrapper });
+
+    act(() => versionOne.result.current.appendTurn(turn));
+
+    await waitFor(() => expect(versionOne.result.current.turns).toEqual([turn]));
+    expect(versionTwo.result.current.turns).toEqual([]);
   });
 });

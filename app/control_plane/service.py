@@ -559,6 +559,7 @@ class ControlPlaneService:
                     safety_level=safety_level,
                     output_delivery=output_delivery,
                     policy_bindings_json=[asdict(item) for item in policy_bindings],
+                    excluded_test_case_ids_json=[],
                     draft_version=1,
                     active_version=None,
                     updated_at=_datetime(now),
@@ -794,7 +795,7 @@ class ControlPlaneService:
         self._nemo_runtime_reloader = reloader
 
     def activate_tested_version(self, guardrail_id: str) -> TestedGuardrailVersion:
-        """Create the immutable deployable snapshot after a passing Validation Run."""
+        """Explicitly publish an immutable deployable snapshot after Validation passes."""
         guardrail = self.guardrail(guardrail_id)
         latest = self.latest_validation_run(guardrail_id)
         if (
@@ -889,7 +890,10 @@ class ControlPlaneService:
                 kind="guardrail.version.created",
                 outcome="passed",
                 guardrail_id=guardrail_id,
-                detail=f"Tests passed; created a new immutable version of {guardrail.name}.",
+                detail=(
+                    f"Published immutable version {next_version} of {guardrail.name} "
+                    "from passing Validation evidence."
+                ),
             )
         self._reload_runtime()
         if self._nemo_runtime_reloader is not None:
@@ -1031,6 +1035,7 @@ class ControlPlaneService:
         status: str,
         metrics: ValidationMetrics,
         results: tuple[TestCaseResult, ...],
+        excluded_case_ids: tuple[str, ...] = (),
     ) -> ValidationRun:
         run_id = f"validation-{uuid.uuid4().hex[:12]}"
         created_at = _now()
@@ -1044,6 +1049,7 @@ class ControlPlaneService:
                     status=status,
                     metrics_json=asdict(metrics),
                     results_json=[asdict(item) for item in results],
+                    excluded_case_ids_json=list(excluded_case_ids),
                     created_at=_datetime(created_at),
                 ),
             )
@@ -1079,7 +1085,8 @@ class ControlPlaneService:
         return runs[0] if runs else None
 
     def test_cases(self, guardrail_id: str) -> tuple[GuardrailTestCase, ...]:
-        self.guardrail(guardrail_id)
+        guardrail = self.guardrail(guardrail_id)
+        excluded = set(guardrail.excluded_test_case_ids)
         with self._database.session() as session:
             rows = session.scalars(
                 select(TestCaseModel)
@@ -1090,7 +1097,14 @@ class ControlPlaneService:
                     TestCaseModel.id,
                 )
             ).all()
-            return tuple(_test_case_from_model(row) for row in rows)
+            return tuple(
+                _test_case_from_model(row, excluded=row.id in excluded)
+                for row in rows
+            )
+
+    def active_test_cases(self, guardrail_id: str) -> tuple[GuardrailTestCase, ...]:
+        """Return the reviewed Validation scope for the current Guardrail draft."""
+        return tuple(item for item in self.test_cases(guardrail_id) if not item.excluded)
 
     def sync_generated_test_cases(
         self,
@@ -1146,7 +1160,84 @@ class ControlPlaneService:
                         updated_at=_datetime(now),
                     )
                 )
+            guardrail_row = session.get(GuardrailModel, guardrail_id)
+            assert guardrail_row is not None
+            generated_ids = {str(item.id) for item in cases}
+            guardrail_row.excluded_test_case_ids_json = sorted(
+                set(guardrail_row.excluded_test_case_ids_json or ())
+                & generated_ids
+            )
         return self.test_cases(guardrail_id)
+
+    def exclude_test_case(self, guardrail_id: str, case_id: str) -> GuardrailTestCase:
+        """Exclude an inherited Policy Test Case from only this Guardrail draft."""
+        if is_default_guardrail(guardrail_id):
+            raise ValidationError("The Default Guardrail is managed by TaskLattice.")
+        now = _now()
+        with self._database.transaction() as session:
+            case_row = session.get(TestCaseModel, (case_id, guardrail_id))
+            if case_row is None:
+                raise NotFoundError("Guardrail test case was not found.")
+            if case_row.origin != "generated":
+                raise ValidationError(
+                    "Only inherited Policy Test Cases can be excluded; delete a custom Test Case instead."
+                )
+            guardrail_row = session.scalar(
+                select(GuardrailModel)
+                .where(GuardrailModel.id == guardrail_id)
+                .with_for_update()
+            )
+            assert guardrail_row is not None
+            excluded = set(guardrail_row.excluded_test_case_ids_json or ())
+            if case_id not in excluded:
+                excluded.add(case_id)
+                guardrail_row.excluded_test_case_ids_json = sorted(excluded)
+                guardrail_row.draft_version += 1
+                guardrail_row.updated_at = _datetime(now)
+                self._insert_evidence_record(
+                    session,
+                    kind="guardrail.test_case.excluded",
+                    outcome="success",
+                    guardrail_id=guardrail_id,
+                    detail=(
+                        f"Excluded inherited Test Case {case_row.name} from this "
+                        "Guardrail's Validation scope."
+                    ),
+                )
+        return next(item for item in self.test_cases(guardrail_id) if item.id == case_id)
+
+    def restore_test_case(self, guardrail_id: str, case_id: str) -> GuardrailTestCase:
+        """Restore an inherited Policy Test Case to this Guardrail draft."""
+        if is_default_guardrail(guardrail_id):
+            raise ValidationError("The Default Guardrail is managed by TaskLattice.")
+        now = _now()
+        with self._database.transaction() as session:
+            case_row = session.get(TestCaseModel, (case_id, guardrail_id))
+            if case_row is None:
+                raise NotFoundError("Guardrail test case was not found.")
+            guardrail_row = session.scalar(
+                select(GuardrailModel)
+                .where(GuardrailModel.id == guardrail_id)
+                .with_for_update()
+            )
+            assert guardrail_row is not None
+            excluded = set(guardrail_row.excluded_test_case_ids_json or ())
+            if case_id in excluded:
+                excluded.remove(case_id)
+                guardrail_row.excluded_test_case_ids_json = sorted(excluded)
+                guardrail_row.draft_version += 1
+                guardrail_row.updated_at = _datetime(now)
+                self._insert_evidence_record(
+                    session,
+                    kind="guardrail.test_case.restored",
+                    outcome="success",
+                    guardrail_id=guardrail_id,
+                    detail=(
+                        f"Restored inherited Test Case {case_row.name} to this "
+                        "Guardrail's Validation scope."
+                    ),
+                )
+        return next(item for item in self.test_cases(guardrail_id) if item.id == case_id)
 
     def create_test_case(
         self,
@@ -1232,6 +1323,10 @@ class ControlPlaneService:
             row = session.get(TestCaseModel, (case_id, guardrail_id))
             if row is None:
                 raise NotFoundError("Guardrail test case was not found.")
+            if row.origin != "custom":
+                raise ValidationError(
+                    "Inherited Policy Test Cases cannot be deleted; exclude them from this Guardrail instead."
+                )
             name = row.name
             session.delete(row)
             guardrail_row = session.scalar(
@@ -1327,12 +1422,14 @@ class ControlPlaneService:
             raise ValidationError(
                 "The Default Guardrail is reserved for the Default Deployment."
             )
-        tested_current = any(
+        published_current = any(
             item.source_draft_version == guardrail.draft_version
             for item in self.versions(guardrail_id)
         )
-        if guardrail.active_version is None or not tested_current:
-            raise ValidationError("Validate the current Guardrail before creating a Deployment.")
+        if guardrail.active_version is None or not published_current:
+            raise ValidationError(
+                "Publish the validated current Guardrail before creating a Deployment."
+            )
         if not name.strip():
             raise ValidationError("Deployment name is required.")
         normalized = normalize_traffic_scope(traffic_scope)
@@ -2440,6 +2537,7 @@ class ControlPlaneService:
                     safety_level=guardrail.safety_level,
                     output_delivery=guardrail.output_delivery,
                     policy_bindings_json=[asdict(item) for item in policy_bindings],
+                    excluded_test_case_ids_json=[],
                     draft_version=1,
                     active_version=DEFAULT_GUARDRAIL_VERSION,
                     updated_at=_datetime(now),
@@ -3208,6 +3306,7 @@ def _guardrail_from_model(row: GuardrailModel) -> Guardrail:
             )
             for item in raw_bindings
         ),
+        excluded_test_case_ids=tuple(row.excluded_test_case_ids_json or ()),
     )
 
 
@@ -3512,6 +3611,7 @@ def _validation_run_from_model(row: ValidationRunModel) -> ValidationRun:
             for item in row.results_json
         ),
         created_at=_iso(row.created_at),
+        excluded_case_ids=tuple(row.excluded_case_ids_json or ()),
     )
 
 
@@ -3523,7 +3623,9 @@ def _test_case_result_from_payload(payload: dict[str, object]) -> TestCaseResult
     return TestCaseResult(**values)
 
 
-def _test_case_from_model(row: TestCaseModel) -> GuardrailTestCase:
+def _test_case_from_model(
+    row: TestCaseModel, *, excluded: bool = False
+) -> GuardrailTestCase:
     return GuardrailTestCase(
         id=row.id,
         guardrail_id=row.guardrail_id,
@@ -3547,6 +3649,7 @@ def _test_case_from_model(row: TestCaseModel) -> GuardrailTestCase:
         source_policy_version=row.source_policy_version,
         source_case_id=row.source_case_id,
         covered_rule_ids=tuple(row.covered_rule_ids_json),
+        excluded=excluded,
     )
 
 

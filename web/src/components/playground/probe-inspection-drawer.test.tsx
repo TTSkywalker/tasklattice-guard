@@ -63,7 +63,8 @@ function checkResult(
     guardrail: {
       id: "guardrail-1",
       name: "Customer safety",
-      draft_version: 3,
+      version: 3,
+      published_at: "2026-08-14T07:55:44Z",
       compiler_version: "nemo-native-v1",
     },
     phase,

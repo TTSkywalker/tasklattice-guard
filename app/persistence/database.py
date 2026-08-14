@@ -63,6 +63,22 @@ class Database:
         inspector = inspect(self.engine)
         tables = set(inspector.get_table_names())
         statements: list[str] = []
+        if "guardrails" in tables:
+            columns = {item["name"] for item in inspector.get_columns("guardrails")}
+            if "excluded_test_case_ids_json" not in columns:
+                statements.append(
+                    "ALTER TABLE guardrails ADD COLUMN "
+                    "excluded_test_case_ids_json JSON NOT NULL DEFAULT '[]'"
+                )
+        if "validation_runs" in tables:
+            columns = {
+                item["name"] for item in inspector.get_columns("validation_runs")
+            }
+            if "excluded_case_ids_json" not in columns:
+                statements.append(
+                    "ALTER TABLE validation_runs ADD COLUMN "
+                    "excluded_case_ids_json JSON NOT NULL DEFAULT '[]'"
+                )
         if "deployments" in tables:
             columns = {item["name"] for item in inspector.get_columns("deployments")}
             if "integration_id" not in columns:

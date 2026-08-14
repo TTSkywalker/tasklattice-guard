@@ -18,16 +18,16 @@ import { useTranslation } from "react-i18next";
 
 import { RuntimeMetricChart } from "@/components/dashboard/runtime-metric-chart";
 import { RuntimeHealthAlert } from "@/components/dashboard/runtime-health-alert";
-import { ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell";
+import { RuntimeEventStream } from "@/components/dashboard/runtime-event-stream";
+import { ErrorNotice, PageHeader } from "@/components/product-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useGuardrailsDashboard } from "@/features/dashboard";
 import { cn } from "@/lib/utils";
-import type { EvidenceRecord, MetricWindow, Metrics } from "@/lib/api";
+import type { MetricWindow, Metrics } from "@/lib/api";
 
 export function DashboardPage() {
   const { t } = useTranslation();
@@ -111,7 +111,7 @@ export function DashboardPage() {
           </div>
 
           <ProtectionOutcome metrics={dashboard.metrics.data} />
-          <RecentEvents
+          <RuntimeEventStream
             items={dashboard.evidence.data?.items ?? []}
             loading={dashboard.evidence.isLoading}
             guardrails={guardrails}
@@ -280,34 +280,6 @@ function ProtectionOutcome({ metrics }: { metrics: Metrics }) {
           </div>)}
         </div>
         {metrics.errors ? <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">{t("dashboard.errorsSeparate", { count: metrics.errors, rate: formatPercent(metrics.error_rate) })}</p> : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function RecentEvents({ items, loading, guardrails }: { items: EvidenceRecord[]; loading: boolean; guardrails: Array<{ id: string; name: string }> }) {
-  const { t, i18n } = useTranslation();
-  const guardrailNames = new Map(guardrails.map((item) => [item.id, item.name]));
-  return (
-    <Card className="shadow-none">
-      <CardHeader className="has-data-[slot=card-action]:grid-cols-1 sm:has-data-[slot=card-action]:grid-cols-[1fr_auto]">
-        <div><CardTitle>{t("dashboard.recentEvents")}</CardTitle><CardDescription className="mt-1">{t("dashboard.recentEventsDescription")}</CardDescription></div>
-        <CardAction className="col-start-1 row-span-1 row-start-2 justify-self-start sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end"><Button size="sm" variant="ghost" asChild><Link to="/evidence">{t("dashboard.viewAllEvents")}<ArrowRight /></Link></Button></CardAction>
-      </CardHeader>
-      <CardContent className="px-0">
-        {loading ? <div className="space-y-2 px-4 pb-2">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-11 w-full" />)}</div> : items.length ? (
-          <div className="overflow-x-auto">
-            <Table className="min-w-[680px]">
-              <TableHeader><TableRow><TableHead className="pl-4">{t("dashboard.time")}</TableHead><TableHead>{t("dashboard.event")}</TableHead><TableHead>{t("dashboard.guardrail")}</TableHead><TableHead className="pr-4 text-right">{t("dashboard.outcome")}</TableHead></TableRow></TableHeader>
-              <TableBody>{items.map((item) => <TableRow key={item.id}>
-                <TableCell className="pl-4 text-xs text-muted-foreground tabular-nums">{new Date(item.created_at).toLocaleString(i18n.language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</TableCell>
-                <TableCell className="max-w-[420px]"><p className="truncate text-sm" title={item.detail}>{item.detail}</p></TableCell>
-                <TableCell className="text-xs">{item.guardrail_id ? guardrailNames.get(item.guardrail_id) ?? item.guardrail_id : "—"}</TableCell>
-                <TableCell className="pr-4 text-right"><StateBadge state={item.outcome} /></TableCell>
-              </TableRow>)}</TableBody>
-            </Table>
-          </div>
-        ) : <div className="flex min-h-44 flex-col items-center justify-center px-6 text-center"><ShieldCheck className="size-6 text-muted-foreground" /><p className="mt-3 text-sm font-medium">{t("dashboard.noEventsTitle")}</p><p className="mt-1 max-w-md text-xs leading-5 text-muted-foreground">{t("dashboard.noEventsDescription")}</p></div>}
       </CardContent>
     </Card>
   );

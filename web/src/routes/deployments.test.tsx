@@ -83,11 +83,14 @@ const guardrail = {
   latest_validation_run: null,
   deployment_count: 0,
   tested_current: true,
+  published_current: true,
   is_default: false,
   system_managed: false,
   local_only: false,
   policy_bindings: [],
   test_case_count: 4,
+  excluded_test_case_count: 0,
+  excluded_test_case_ids: [],
   coverage: [],
 } satisfies Guardrail;
 

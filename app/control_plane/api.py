@@ -357,6 +357,7 @@ class PlaygroundInteractionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     guardrail_id: str = Field(min_length=1)
+    guardrail_version: int = Field(gt=0)
     model_id: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=8_000)
     history: list[PlaygroundContextMessage] = Field(
@@ -833,6 +834,14 @@ class ControlPlaneAPI:
                 _raise(error)
             return _guardrail_version_payload(item)
 
+        @router.post("/guardrails/{guardrail_id}/publish", status_code=201)
+        def publish_guardrail(guardrail_id: str):
+            try:
+                released = self._service.activate_tested_version(guardrail_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _guardrail_version_payload(released.version)
+
         @router.get("/test-cases")
         def test_cases(guardrail_id: str):
             try:
@@ -870,6 +879,26 @@ class ControlPlaneAPI:
                 _raise(error)
             return None
 
+        @router.put(
+            "/guardrails/{guardrail_id}/test-cases/{case_id}/exclusion"
+        )
+        def exclude_guardrail_test_case(guardrail_id: str, case_id: str):
+            try:
+                item = self._service.exclude_test_case(guardrail_id, case_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _test_case_payload(item)
+
+        @router.delete(
+            "/guardrails/{guardrail_id}/test-cases/{case_id}/exclusion"
+        )
+        def restore_guardrail_test_case(guardrail_id: str, case_id: str):
+            try:
+                item = self._service.restore_test_case(guardrail_id, case_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return _test_case_payload(item)
+
         @router.get("/validation-runs")
         def validation_runs(guardrail_id: str | None = None):
             try:
@@ -894,7 +923,8 @@ class ControlPlaneAPI:
             try:
                 guardrail = self._service.guardrail(guardrail_id)
                 plan = self._service.compile_draft(guardrail_id)
-                cases = self._service.test_cases(guardrail_id)
+                all_cases = self._service.test_cases(guardrail_id)
+                cases = tuple(item for item in all_cases if not item.excluded)
                 if not cases:
                     raise ValidationError(
                         "Add at least one reviewed test case before running tests."
@@ -1052,10 +1082,10 @@ class ControlPlaneAPI:
                     status=status,
                     metrics=metrics,
                     results=tuple(results),
+                    excluded_case_ids=tuple(
+                        item.id for item in all_cases if item.excluded
+                    ),
                 )
-                if status == "passed":
-                    self._service.activate_tested_version(guardrail_id)
-                    run = self._service.validation_run(run.id)
             except ControlPlaneError as error:
                 _raise(error)
             return _validation_run_payload(run)
@@ -1086,7 +1116,20 @@ class ControlPlaneAPI:
                 )
             try:
                 guardrail = self._service.guardrail(request.guardrail_id)
-                plan = self._service.compile_draft(request.guardrail_id)
+                published_version = next(
+                    (
+                        item
+                        for item in self._service.versions(request.guardrail_id)
+                        if item.version == request.guardrail_version
+                    ),
+                    None,
+                )
+                if published_version is None:
+                    raise NotFoundError("Guardrail Version was not found.")
+                plan = self._service.plan(
+                    request.guardrail_id,
+                    request.guardrail_version,
+                )
                 interaction_id = f"interaction-{uuid4().hex}"
                 history = tuple(item.model_dump() for item in request.history)
                 user_message = {"role": "user", "content": request.message}
@@ -1120,6 +1163,7 @@ class ControlPlaneAPI:
                 check_id=f"{interaction_id}:input",
                 guardrail=guardrail,
                 plan=plan,
+                published_at=published_version.created_at,
                 phase="input",
                 content=request.message,
                 decision=input_decision,
@@ -1183,6 +1227,7 @@ class ControlPlaneAPI:
                 check_id=f"{interaction_id}:output",
                 guardrail=guardrail,
                 plan=plan,
+                published_at=published_version.created_at,
                 phase="output",
                 content=model_response,
                 decision=output_decision,
@@ -1449,11 +1494,16 @@ class ControlPlaneAPI:
             test_cases = self._service.test_cases(guardrail_id)
         except ControlPlaneError as error:
             _raise(error)
-        tested_current = any(
+        published_current = any(
             item.source_draft_version == guardrail.draft_version for item in versions
         )
+        tested_current = bool(
+            latest
+            and latest.source_draft_version == guardrail.draft_version
+            and latest.status == "passed"
+        )
         protected = any(item.enabled for item in deployments)
-        status = "protected" if tested_current and protected else "ready" if tested_current else "needs_validation"
+        status = "protected" if protected else "ready" if tested_current else "needs_validation"
         payload: dict[str, object] = {
             "id": guardrail.id,
             "name": guardrail.name,
@@ -1470,8 +1520,12 @@ class ControlPlaneAPI:
             "status": status,
             "latest_validation_run": _validation_run_payload(latest) if latest else None,
             "deployment_count": len(deployments),
-            "test_case_count": len(test_cases),
+            "test_case_count": sum(not item.excluded for item in test_cases),
+            "excluded_test_case_count": sum(item.excluded for item in test_cases),
+            "excluded_test_case_ids": list(guardrail.excluded_test_case_ids),
             "tested_current": tested_current,
+            "published_current": published_current,
+            "published_version_count": len(versions),
             "is_default": is_default_guardrail(guardrail.id),
             "system_managed": is_default_guardrail(guardrail.id),
             "local_only": is_default_guardrail(guardrail.id),
@@ -1506,6 +1560,7 @@ def _validation_run_payload(item) -> dict[str, object]:
         "status": item.status,
         "metrics": asdict(item.metrics),
         "results": [asdict(result) for result in item.results],
+        "excluded_case_ids": list(item.excluded_case_ids),
         "created_at": item.created_at,
     }
 

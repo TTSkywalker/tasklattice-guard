@@ -4,7 +4,6 @@ import { Activity, ArrowRight, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -31,8 +30,6 @@ export type RuntimeMetricKey =
   | "error_rate"
   | "timeout_rate";
 
-type GroupBy = "none" | "guardrail";
-
 const colors = [
   "var(--chart-1)",
   "var(--chart-2)",
@@ -45,8 +42,7 @@ const colors = [
 export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
   const { t, i18n } = useTranslation();
   const [metric, setMetric] = useState<RuntimeMetricKey>("p95_latency");
-  const [groupBy, setGroupBy] = useState<GroupBy>("none");
-  const series = metrics.trend_series[groupBy];
+  const series = metrics.trend_series.none;
   const visibleSeries = series.slice(0, colors.length);
   const definition = t(`dashboard.metricDefinitions.${metric}`);
   const chart = useMemo(
@@ -74,16 +70,6 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
               <SelectTrigger className="h-9 min-w-0 flex-1 bg-card sm:w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {metricKeys.map((key) => <SelectItem key={key} value={key}>{t(`dashboard.metrics.${key}`)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </label>
-          <label className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-            {t("dashboard.groupBy")}
-            <Select value={groupBy} onValueChange={(value) => setGroupBy(value as GroupBy)}>
-              <SelectTrigger className="h-9 min-w-0 flex-1 bg-card sm:w-32"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{t("dashboard.group.none")}</SelectItem>
-                <SelectItem value="guardrail">{t("dashboard.group.guardrail")}</SelectItem>
               </SelectContent>
             </Select>
           </label>
@@ -116,7 +102,6 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
                   labelFormatter={(value) => new Date(String(value)).toLocaleString(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   formatter={(value, name) => [`${formatMetricValue(Number(value), metric, locale)}${unit ? ` ${unit}` : ""}`, String(name)]}
                 />
-                {chart.lines.length > 1 ? <Legend iconType="plainline" wrapperStyle={{ fontSize: 12, paddingTop: 12 }} /> : null}
                 {chart.lines.map((line, index) => (
                   <Line
                     key={line.key}

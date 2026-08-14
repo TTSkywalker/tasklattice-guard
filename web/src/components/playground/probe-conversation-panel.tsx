@@ -13,15 +13,16 @@ import {
   type TextMessagePartProps,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { Eraser, ExternalLink, LoaderCircle, MessageSquareText, Send, ShieldCheck } from "lucide-react";
+import { Eraser, ExternalLink, LoaderCircle, MessageSquareText, Send, ShieldCheck, Tags } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { GuardrailResultCard } from "@/components/playground/guardrail-result-card";
 import { ModelMark } from "@/components/playground/model-mark";
 import type { PlaygroundTurn } from "@/components/playground/types";
+import { formatGuardrailReleaseId } from "@/components/guardrail-version-workspace";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Guardrail, PlaygroundInteraction, PlaygroundModel } from "@/lib/api";
+import type { Guardrail, GuardrailVersion, PlaygroundInteraction, PlaygroundModel } from "@/lib/api";
 
 type PlaygroundThreadMessage = {
   id: string;
@@ -35,7 +36,9 @@ const MESSAGE_PARTS = { Text: PlaygroundMessageText };
 export function ProbeConversationPanel({
   guardrail,
   guardrails,
-  guardrailId,
+  versions,
+  selectedVersion,
+  versionsLoading,
   turns,
   models,
   modelId,
@@ -44,11 +47,14 @@ export function ProbeConversationPanel({
   onSubmitMessage,
   onClear,
   onGuardrailChange,
+  onVersionChange,
   onViewDetails,
 }: {
   guardrail: Guardrail;
   guardrails: Guardrail[];
-  guardrailId: string;
+  versions: GuardrailVersion[];
+  selectedVersion?: GuardrailVersion;
+  versionsLoading: boolean;
   turns: PlaygroundTurn[];
   models: PlaygroundModel[];
   modelId: string;
@@ -57,6 +63,7 @@ export function ProbeConversationPanel({
   onSubmitMessage: (message: string) => Promise<void>;
   onClear: () => void;
   onGuardrailChange: (guardrailId: string) => void;
+  onVersionChange: (version: number) => void;
   onViewDetails: (result: PlaygroundInteraction) => void;
 }) {
   const { t } = useTranslation();
@@ -75,8 +82,8 @@ export function ProbeConversationPanel({
     convertMessage,
     onNew,
     isRunning: pending,
-    isDisabled: !models.length,
-    isSendDisabled: !selectedModel,
+    isDisabled: !models.length || !selectedVersion,
+    isSendDisabled: !selectedModel || !selectedVersion,
   });
 
   return (
@@ -102,11 +109,14 @@ export function ProbeConversationPanel({
           <PlaygroundComposer
             guardrail={guardrail}
             guardrails={guardrails}
-            guardrailId={guardrailId}
+            versions={versions}
+            selectedVersion={selectedVersion}
+            versionsLoading={versionsLoading}
             models={models}
             modelId={modelId}
             pending={pending}
             onGuardrailChange={onGuardrailChange}
+            onVersionChange={onVersionChange}
             onModelChange={onModelChange}
           />
         </ThreadPrimitive.Root>
@@ -152,32 +162,36 @@ function PlaygroundAssistantMessage({ model, onViewDetails }: { model?: Playgrou
   );
 }
 
-function PlaygroundComposer({ guardrail, guardrails, guardrailId, models, modelId, pending, onGuardrailChange, onModelChange }: {
+function PlaygroundComposer({ guardrail, guardrails, versions, selectedVersion, versionsLoading, models, modelId, pending, onGuardrailChange, onVersionChange, onModelChange }: {
   guardrail: Guardrail;
   guardrails: Guardrail[];
-  guardrailId: string;
+  versions: GuardrailVersion[];
+  selectedVersion?: GuardrailVersion;
+  versionsLoading: boolean;
   models: PlaygroundModel[];
   modelId: string;
   pending: boolean;
   onGuardrailChange: (guardrailId: string) => void;
+  onVersionChange: (version: number) => void;
   onModelChange: (modelId: string) => void;
 }) {
   const { t } = useTranslation();
+  const latestVersion = versions.reduce((latest, item) => Math.max(latest, item.version), 0);
   return (
     <div className="border-t bg-card p-3 sm:p-4">
       <ComposerPrimitive.Root className="rounded-2xl border bg-background shadow-xs transition-shadow focus-within:border-primary/35 focus-within:ring-3 focus-within:ring-primary/10">
         <ComposerPrimitive.Input
           className="block max-h-48 min-h-20 w-full resize-none bg-transparent px-4 pt-4 text-sm leading-6 outline-none placeholder:text-muted-foreground"
-          placeholder={models.length ? t("playground.chatPlaceholder") : t("playground.noModelPlaceholder")}
+          placeholder={!models.length ? t("playground.noModelPlaceholder") : selectedVersion ? t("playground.chatPlaceholder") : t("playground.noPublishedVersionPlaceholder")}
           maxLength={8_000}
           submitMode="enter"
           unstable_insertNewlineOnTouchEnter
           aria-label={t("playground.messageModel")}
         />
-        <div className="flex flex-col gap-2 border-t border-border/70 p-2 lg:flex-row lg:items-center lg:justify-between">
-          <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:flex lg:items-center">
+        <div className="flex flex-col gap-2 border-t border-border/70 p-2 2xl:flex-row 2xl:items-center 2xl:justify-between">
+          <div className="grid min-w-0 gap-2 sm:grid-cols-3 2xl:flex 2xl:items-center">
             <Select value={modelId} onValueChange={onModelChange} disabled={!models.length || pending}>
-              <SelectTrigger className="h-11 w-full border-0 bg-muted/55 shadow-none lg:w-64" aria-label={t("playground.selectedModel")}>
+              <SelectTrigger className="h-11 w-full border-0 bg-muted/55 shadow-none 2xl:w-56" aria-label={t("playground.selectedModel")}>
                 <SelectValue placeholder={t("playground.selectModel")} />
               </SelectTrigger>
               <SelectContent>
@@ -185,8 +199,8 @@ function PlaygroundComposer({ guardrail, guardrails, guardrailId, models, modelI
               </SelectContent>
             </Select>
             <div className="flex min-w-0 items-center gap-1">
-              <Select value={guardrailId} onValueChange={onGuardrailChange} disabled={pending}>
-                <SelectTrigger className="h-11 min-w-0 flex-1 border-0 bg-muted/55 shadow-none lg:w-64" aria-label={t("playground.selectedGuardrail")}>
+              <Select value={guardrail.id} onValueChange={onGuardrailChange} disabled={pending}>
+                <SelectTrigger className="h-11 min-w-0 flex-1 border-0 bg-muted/55 shadow-none 2xl:w-56" aria-label={t("playground.selectedGuardrail")}>
                   <ShieldCheck className="size-4 shrink-0 text-emerald-600" /><SelectValue />
                 </SelectTrigger>
                 <SelectContent>{guardrails.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
@@ -195,6 +209,21 @@ function PlaygroundComposer({ guardrail, guardrails, guardrailId, models, modelI
                 <Link to="/guardrails/$guardrailId" params={{ guardrailId: guardrail.id }} aria-label={t("playground.openGuardrailDefinition")}><ExternalLink /></Link>
               </Button>
             </div>
+            <Select value={selectedVersion ? String(selectedVersion.version) : undefined} onValueChange={(value) => onVersionChange(Number(value))} disabled={pending || versionsLoading || !versions.length}>
+              <SelectTrigger className="h-11 w-full border-0 bg-muted/55 text-xs shadow-none 2xl:w-56" aria-label={t("playground.selectedGuardrailVersion")} title={!versionsLoading && !versions.length ? t("playground.noPublishedVersions") : undefined}>
+                {versionsLoading ? <LoaderCircle className="size-4 animate-spin text-muted-foreground" /> : <Tags className="size-4 text-muted-foreground" />}
+                <SelectValue placeholder={versionsLoading ? t("playground.loadingPublishedVersions") : versions.length ? t("playground.selectPublishedVersion") : t("playground.noPublishedVersions")}>
+                  {selectedVersion ? <><span className="font-mono font-medium">{t("playground.versionNumber", { version: selectedVersion.version })}</span>{selectedVersion.version === latestVersion ? <span className="text-muted-foreground">· {t("playground.latestVersion")}</span> : selectedVersion.active ? <span className="text-muted-foreground">· {t("playground.activeVersion")}</span> : null}</> : undefined}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {versions.map((item) => {
+                  const releaseId = formatGuardrailReleaseId(item.created_at);
+                  const state = item.version === latestVersion ? t("playground.latestVersion") : item.active ? t("playground.activeVersion") : "";
+                  return <SelectItem key={item.version} value={String(item.version)}><span className="font-mono font-medium">{t("playground.versionNumber", { version: item.version })}</span><span className="font-mono text-muted-foreground">{releaseId}</span>{state ? <span className="text-muted-foreground">· {state}</span> : null}</SelectItem>;
+                })}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center justify-end gap-3 pl-1">
             <span className="hidden text-[11px] text-muted-foreground sm:inline">{t("playground.keyboardHelp")}</span>

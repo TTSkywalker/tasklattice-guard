@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { TestCaseResult } from "@/lib/api";
+import type { TestCaseResult, ValidationRun } from "@/lib/api";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { DetailFact, TestCaseResultRow, ValidationCaseResults } from "./validation";
+import { DetailFact, filterValidationRuns, TestCaseResultRow, ValidationCaseResults } from "./validation";
 
 vi.mock("@/routes/guardrails", () => ({ AddTestCaseSheet: () => null }));
 vi.mock("react-i18next", () => ({
@@ -69,6 +69,18 @@ const result: TestCaseResult = {
   matched_rule_ids: ["competitor-comparison-intent"],
 };
 
+const validationRun = {
+  id: "validation-finance-001",
+  guardrail_id: "guardrail-finance",
+  guardrail_version: 1,
+  source_draft_version: 1,
+  status: "passed",
+  metrics: { total: 1, passed: 1, compliance_rate: 100, false_positive_rate: 0, false_negative_rate: 0, deep_escalation_rate: 0, p95_latency_ms: 7 },
+  results: [],
+  excluded_case_ids: [],
+  created_at: "2026-08-14T08:00:00Z",
+} satisfies ValidationRun;
+
 describe("Validation Run acceptance evidence", () => {
   beforeAll(() => {
     vi.stubGlobal("ResizeObserver", class {
@@ -79,6 +91,14 @@ describe("Validation Run acceptance evidence", () => {
   });
   afterAll(() => vi.unstubAllGlobals());
   afterEach(cleanup);
+
+  it("filters Validation Runs by the exact Guardrail ID", () => {
+    const otherRun = { ...validationRun, id: "validation-banker-001", guardrail_id: "guardrail-banker", status: "failed" as const };
+    const names = new Map([["guardrail-finance", "Finance Guardrail"], ["guardrail-banker", "Banker Guardrail"]]);
+
+    expect(filterValidationRuns([validationRun, otherRun], names, "", "guardrail-banker", "all")).toEqual([otherRun]);
+    expect(filterValidationRuns([validationRun, otherRun], names, "finance", "all", "passed")).toEqual([validationRun]);
+  });
 
   it("shows the pinned contract and actual Rule match", () => {
     const { container } = render(<TestCaseResultRow result={result} />);
@@ -116,6 +136,14 @@ describe("Validation Run acceptance evidence", () => {
     expect(screen.getByText("Why this Case failed")).toBeTruthy();
     expect(screen.getByText("Decision mismatch")).toBeTruthy();
     expect(screen.getByText("Rule contract mismatch")).toBeTruthy();
+  });
+
+  it("can exclude a failed inherited Case only from the current Guardrail", () => {
+    const onValidationScopeChange = vi.fn();
+    const { container } = render(<TestCaseResultRow result={result} onValidationScopeChange={onValidationScopeChange} />);
+    fireEvent.click(container.querySelector("summary")!);
+    fireEvent.click(screen.getByRole("button", { name: "guardrails.excludeTestCase" }));
+    expect(onValidationScopeChange).toHaveBeenCalledWith(result.case_id, "exclude");
   });
 
   it("explains a Validation metric from its compact Tips icon", () => {

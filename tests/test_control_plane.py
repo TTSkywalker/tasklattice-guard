@@ -451,6 +451,10 @@ def test_database_uses_only_current_orm_tables_and_columns(tmp_path):
         test_case_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(test_cases)")
         }
+        validation_run_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(validation_runs)")
+        }
 
     assert {
         "guardrails",
@@ -468,6 +472,7 @@ def test_database_uses_only_current_orm_tables_and_columns(tmp_path):
         "policy_bindings_json",
         "draft_version",
         "active_version",
+        "excluded_test_case_ids_json",
     } <= guardrail_columns
     assert {
         "guardrail_id",
@@ -490,6 +495,7 @@ def test_database_uses_only_current_orm_tables_and_columns(tmp_path):
     assert "key_hint" in credential_columns
     assert "secret_prefix" not in credential_columns
     assert "source_case_id" in test_case_columns
+    assert "excluded_case_ids_json" in validation_run_columns
     assert "source_suite_id" not in test_case_columns
     assert {
         "protections_json",

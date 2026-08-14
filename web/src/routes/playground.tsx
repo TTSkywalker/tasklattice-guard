@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -10,34 +10,63 @@ import type { PlaygroundTurn } from "@/components/playground/types";
 import { EmptyState, ErrorNotice, PageHeader } from "@/components/product-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { queryKeys } from "@/features/query-keys";
-import { createPlaygroundInteraction, getGuardrails, getPlaygroundModels, type Guardrail, type PlaygroundInteraction, type PlaygroundModel } from "@/lib/api";
+import { createPlaygroundInteraction, getGuardrails, getGuardrailVersions, getPlaygroundModels, type Guardrail, type GuardrailVersion, type PlaygroundInteraction, type PlaygroundModel } from "@/lib/api";
 
 export function PlaygroundPage() {
   const { t } = useTranslation();
   const guardrailsQuery = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
   const modelsQuery = useQuery({ queryKey: queryKeys.playgroundModels, queryFn: getPlaygroundModels });
   const guardrails = guardrailsQuery.data?.items ?? [];
+  const publishedGuardrails = useMemo(() => guardrails.filter(hasPublishedVersion), [guardrails]);
   const models = modelsQuery.data?.items ?? [];
-  const [guardrailId, setGuardrailId] = useGuardrailSelection(guardrails);
-  const selected = guardrails.find((item) => item.id === guardrailId);
+  const { guardrailId, guardrailVersion, selectGuardrail, selectVersion } = usePlaygroundSelection(publishedGuardrails);
+  const selected = publishedGuardrails.find((item) => item.id === guardrailId);
+  const versionsQuery = useQuery({
+    queryKey: queryKeys.guardrailVersions(guardrailId),
+    queryFn: () => getGuardrailVersions(guardrailId),
+    enabled: Boolean(guardrailId),
+  });
+  const versions = versionsQuery.data?.items ?? [];
+  const selectedVersion = versions.find((item) => item.version === guardrailVersion);
+
+  useEffect(() => {
+    if (!versionsQuery.isSuccess) return;
+    const resolved = resolvePublishedVersion(versions, guardrailVersion);
+    if (resolved !== guardrailVersion) selectVersion(resolved);
+  }, [guardrailVersion, selectVersion, versions, versionsQuery.isSuccess]);
+
   const loading = guardrailsQuery.isLoading || modelsQuery.isLoading;
   return (
     <section className="py-6 sm:py-8">
       <PageHeader title={t("pages.playground.title")} description={t("pages.playground.description")} />
       {guardrailsQuery.error ? <div className="mt-5"><ErrorNotice error={guardrailsQuery.error} /></div> : null}
       {modelsQuery.error ? <div className="mt-5"><ErrorNotice error={modelsQuery.error} /></div> : null}
+      {versionsQuery.error ? <div className="mt-5"><ErrorNotice error={versionsQuery.error} /></div> : null}
       {loading ? <Skeleton className="mt-5 h-[calc(100dvh-14rem)] min-h-[34rem] rounded-2xl" /> : null}
       {!loading && !guardrails.length ? <div className="mt-5"><EmptyState title={t("validation.noGuardrails")} description={t("validation.noGuardrailsDescription")} /></div> : null}
-      {!loading && selected ? <PlaygroundWorkspace key={selected.id} guardrail={selected} guardrails={guardrails} models={models} value={selected.id} onChange={setGuardrailId} /> : null}
+      {!loading && guardrails.length > 0 && !publishedGuardrails.length ? <div className="mt-5"><EmptyState title={t("playground.noPublishedGuardrails")} description={t("playground.noPublishedGuardrailsDescription")} /></div> : null}
+      {!loading && selected ? (
+        <PlaygroundWorkspace
+          key={`${selected.id}:${selectedVersion?.version ?? 0}`}
+          guardrail={selected}
+          guardrails={publishedGuardrails}
+          versions={versions}
+          selectedVersion={selectedVersion}
+          versionsLoading={versionsQuery.isLoading}
+          models={models}
+          onGuardrailChange={selectGuardrail}
+          onVersionChange={selectVersion}
+        />
+      ) : null}
     </section>
   );
 }
 
-function PlaygroundWorkspace({ guardrail, guardrails, models, value, onChange }: { guardrail: Guardrail; guardrails: Guardrail[]; models: PlaygroundModel[]; value: string; onChange: (value: string) => void }) {
+function PlaygroundWorkspace({ guardrail, guardrails, versions, selectedVersion, versionsLoading, models, onGuardrailChange, onVersionChange }: { guardrail: Guardrail; guardrails: Guardrail[]; versions: GuardrailVersion[]; selectedVersion?: GuardrailVersion; versionsLoading: boolean; models: PlaygroundModel[]; onGuardrailChange: (value: string) => void; onVersionChange: (value: number) => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [modelId, setModelId] = useState("");
-  const { turns, appendTurn, clearTurns } = usePlaygroundSession(guardrail.id);
+  const { turns, appendTurn, clearTurns } = usePlaygroundSession(guardrail.id, selectedVersion?.version ?? 0);
   const [details, setDetails] = useState<PlaygroundInteraction | null>(null);
 
   useEffect(() => {
@@ -45,7 +74,7 @@ function PlaygroundWorkspace({ guardrail, guardrails, models, value, onChange }:
   }, [modelId, models]);
 
   const interaction = useMutation({
-    mutationFn: (input: { model_id: string; message: string; history: { role: "user" | "assistant"; content: string }[] }) => createPlaygroundInteraction(guardrail.id, input),
+    mutationFn: (input: { guardrail_version: number; model_id: string; message: string; history: { role: "user" | "assistant"; content: string }[] }) => createPlaygroundInteraction(guardrail.id, input),
     onSuccess: (result) => {
       appendTurn(result);
       void Promise.all([
@@ -57,8 +86,9 @@ function PlaygroundWorkspace({ guardrail, guardrails, models, value, onChange }:
   });
   const submit = async (message: string) => {
     const trimmed = message.trim();
-    if (!trimmed || interaction.isPending || !modelId) return;
+    if (!trimmed || interaction.isPending || !modelId || !selectedVersion) return;
     await interaction.mutateAsync({
+      guardrail_version: selectedVersion.version,
       model_id: modelId,
       message: trimmed,
       history: conversationHistory(turns),
@@ -75,12 +105,15 @@ function PlaygroundWorkspace({ guardrail, guardrails, models, value, onChange }:
         <ProbeConversationPanel
           guardrail={guardrail}
           guardrails={guardrails}
-          guardrailId={value}
+          versions={versions}
+          selectedVersion={selectedVersion}
+          versionsLoading={versionsLoading}
           turns={turns}
           models={models}
           modelId={modelId}
           pending={interaction.isPending}
-          onGuardrailChange={onChange}
+          onGuardrailChange={onGuardrailChange}
+          onVersionChange={onVersionChange}
           onModelChange={setModelId}
           onSubmitMessage={submit}
           onClear={clear}
@@ -102,19 +135,57 @@ function conversationHistory(turns: PlaygroundTurn[]): { role: "user" | "assista
   });
 }
 
-function useGuardrailSelection(guardrails: Guardrail[]) {
-  const initial = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("guardrail") ?? "";
-  const [guardrailId, setGuardrailId] = useState(initial);
+function hasPublishedVersion(guardrail: Guardrail) {
+  return guardrail.published_version_count === undefined
+    ? guardrail.published_current
+    : guardrail.published_version_count > 0;
+}
+
+export function resolvePublishedVersion(versions: GuardrailVersion[], requested: number) {
+  if (versions.some((item) => item.version === requested)) return requested;
+  return versions.reduce((latest, item) => Math.max(latest, item.version), 0);
+}
+
+function usePlaygroundSelection(guardrails: Guardrail[]) {
+  const initial = initialPlaygroundSelection();
+  const [selection, setSelection] = useState(initial);
   useEffect(() => {
-    if (guardrails.length && !guardrails.some((item) => item.id === guardrailId)) setGuardrailId(guardrails[0].id);
-  }, [guardrailId, guardrails]);
-  const select = (next: string) => {
-    setGuardrailId(next);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      url.searchParams.set("guardrail", next);
-      window.history.replaceState(window.history.state, "", url);
-    }
+    if (!guardrails.length || guardrails.some((item) => item.id === selection.guardrailId)) return;
+    const next = { guardrailId: guardrails[0].id, guardrailVersion: 0 };
+    setSelection(next);
+    syncPlaygroundSearch(next);
+  }, [guardrails, selection.guardrailId]);
+  const selectGuardrail = useCallback((guardrailId: string) => {
+    const next = { guardrailId, guardrailVersion: 0 };
+    setSelection(next);
+    syncPlaygroundSearch(next);
+  }, []);
+  const selectVersion = useCallback((guardrailVersion: number) => {
+    setSelection((current) => {
+      const next = { ...current, guardrailVersion };
+      syncPlaygroundSearch(next);
+      return next;
+    });
+  }, []);
+  return { ...selection, selectGuardrail, selectVersion };
+}
+
+function initialPlaygroundSelection() {
+  if (typeof window === "undefined") return { guardrailId: "", guardrailVersion: 0 };
+  const search = new URLSearchParams(window.location.search);
+  const version = Number(search.get("version"));
+  return {
+    guardrailId: search.get("guardrail") ?? "",
+    guardrailVersion: Number.isInteger(version) && version > 0 ? version : 0,
   };
-  return [guardrailId, select] as const;
+}
+
+function syncPlaygroundSearch(selection: { guardrailId: string; guardrailVersion: number }) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (selection.guardrailId) url.searchParams.set("guardrail", selection.guardrailId);
+  else url.searchParams.delete("guardrail");
+  if (selection.guardrailVersion > 0) url.searchParams.set("version", String(selection.guardrailVersion));
+  else url.searchParams.delete("version");
+  window.history.replaceState(window.history.state, "", url);
 }

@@ -14,6 +14,7 @@ def playground_check_payload(
     check_id: str,
     guardrail: Guardrail,
     plan: GuardrailPlanSnapshot,
+    published_at: str,
     phase: str,
     content: str,
     decision: ProtectionDecision,
@@ -67,7 +68,8 @@ def playground_check_payload(
         "guardrail": {
             "id": guardrail.id,
             "name": guardrail.name,
-            "draft_version": guardrail.draft_version,
+            "version": plan.guardrail_version,
+            "published_at": published_at,
             "compiler_version": plan.compiler_version,
         },
         "phase": phase,

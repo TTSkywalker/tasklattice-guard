@@ -73,6 +73,31 @@ def filter_expression(
     return TrafficScopeExpression(combinator=combinator, conditions=conditions)
 
 
+def publish_test_guardrail(control_plane, guardrail_id: str):
+    guardrail = control_plane.guardrail(guardrail_id)
+    control_plane.save_validation_run(
+        guardrail_id=guardrail_id,
+        guardrail_version=None,
+        source_draft_version=guardrail.draft_version,
+        status="passed",
+        metrics=ValidationMetrics(1, 1, 100, 0, 0, 1, 1),
+        results=(
+            TestCaseResult(
+                "case",
+                "case",
+                "secrets",
+                "block",
+                "block",
+                True,
+                "deterministic",
+                1,
+                "blocked",
+            ),
+        ),
+    )
+    return control_plane.activate_tested_version(guardrail_id).version
+
+
 class Engine:
     name = "test"
     supported_phases = frozenset({"input", "output"})
@@ -507,7 +532,7 @@ async def test_compliance_document_upload_rejects_pdf_and_more_than_three_files(
 
 
 @pytest.mark.asyncio
-async def test_tests_create_a_deployable_guardrail_version(tmp_path):
+async def test_validation_requires_explicit_publish_before_a_version_is_deployable(tmp_path):
     app = create_app(settings=settings(tmp_path))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -531,9 +556,32 @@ async def test_tests_create_a_deployable_guardrail_version(tmp_path):
         validation = await client.post(
             "/api/v1/validation-runs", json={"guardrail_id": guardrail_id}
         )
-        guardrail = await client.get(f"/api/v1/guardrails/{guardrail_id}")
-        immutable = await client.get(
+        validated_guardrail = await client.get(f"/api/v1/guardrails/{guardrail_id}")
+        missing_immutable = await client.get(
             f"/api/v1/guardrail-versions/{guardrail_id}/1"
+        )
+        premature_deployment = await client.post(
+            "/api/v1/deployments",
+            json={
+                "name": "Unpublished traffic",
+                "guardrail_id": guardrail_id,
+                "traffic_scope": {
+                    "combinator": "and",
+                    "conditions": [
+                        {
+                            "field": "protocol",
+                            "operator": "equals",
+                            "value": "http",
+                        }
+                    ],
+                },
+            },
+        )
+        published = await client.post(f"/api/v1/guardrails/{guardrail_id}/publish")
+        guardrail = await client.get(f"/api/v1/guardrails/{guardrail_id}")
+        immutable = await client.get(f"/api/v1/guardrail-versions/{guardrail_id}/1")
+        released_validation = await client.get(
+            f"/api/v1/validation-runs/{validation.json()['id']}"
         )
         added_after_pass = await client.post(
             "/api/v1/test-cases",
@@ -553,11 +601,20 @@ async def test_tests_create_a_deployable_guardrail_version(tmp_path):
     assert len(cases.json()["items"]) >= 2
     assert validation.status_code == 201
     assert validation.json()["status"] == "passed"
-    assert validation.json()["guardrail_version"] == 1
+    assert validation.json()["guardrail_version"] is None
     assert validation.json()["source_draft_version"] == 1
+    assert validated_guardrail.json()["tested_current"] is True
+    assert validated_guardrail.json()["published_current"] is False
+    assert missing_immutable.status_code == 404
+    assert premature_deployment.status_code == 422
+    assert "Publish" in premature_deployment.json()["detail"]
+    assert published.status_code == 201
+    assert published.json()["version"] == 1
+    assert released_validation.json()["guardrail_version"] == 1
     assert "draft_version" not in guardrail.json()
     assert "active_version" not in guardrail.json()
     assert guardrail.json()["status"] == "ready"
+    assert guardrail.json()["published_current"] is True
     assert immutable.status_code == 200
     assert immutable.json()["version"] == 1
     assert immutable.json()["active"] is True
@@ -683,7 +740,7 @@ async def test_guardrail_creation_persists_selected_builtin_policy_rules(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_playground_chat_runs_both_checks_and_returns_model_response(
+async def test_playground_chat_runs_the_requested_published_version(
     tmp_path,
 ):
     model = StubPlaygroundChatModel()
@@ -699,17 +756,30 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
         created = await client.post(
             "/api/v1/guardrails",
             json={
-                "name": "Draft smoke check",
-                "purpose": "Check draft behavior without creating release evidence.",
+                "name": "Published version smoke check",
+                "purpose": "Check an explicitly selected immutable release.",
                 "policy_bindings": [policy_binding_payload("secrets", "reject")],
             },
         )
         guardrail_id = created.json()["id"]
+        first_version = publish_test_guardrail(
+            app.state.control_plane,
+            guardrail_id,
+        )
+        updated = await client.patch(
+            f"/api/v1/guardrails/{guardrail_id}",
+            json={"purpose": "Check that a historical immutable release stays selectable."},
+        )
+        second_version = publish_test_guardrail(
+            app.state.control_plane,
+            guardrail_id,
+        )
         models = await client.get("/api/v1/playground/models")
         interaction = await client.post(
             "/api/v1/playground/interactions",
             json={
                 "guardrail_id": guardrail_id,
+                "guardrail_version": first_version.version,
                 "model_id": "playground-chat",
                 "message": "Give me a concise answer.",
                 "history": [
@@ -756,6 +826,8 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
         ],
         "count": 1,
     }
+    assert updated.status_code == 200
+    assert second_version.version > first_version.version
     assert interaction.status_code == 200
     payload = interaction.json()
     assert payload["interaction_id"].startswith("interaction-")
@@ -765,8 +837,11 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
     assert payload["assistant_message"] == "A complete model response."
     assert payload["input_check"]["phase"] == "input"
     assert payload["input_check"]["decision"] == "allow"
+    assert payload["input_check"]["guardrail"]["version"] == first_version.version
+    assert payload["input_check"]["guardrail"]["published_at"] == first_version.created_at
     assert payload["output_check"]["phase"] == "output"
     assert payload["output_check"]["decision"] == "allow"
+    assert payload["output_check"]["guardrail"]["version"] == first_version.version
     assert payload["model"]["id"] == "playground-chat"
     assert payload["model"]["provider"] == "DeepSeek"
     assert isinstance(payload["model"]["latency_ms"], int)
@@ -778,10 +853,11 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
     ]
     assert removed_probe.status_code == 404
     assert removed_quick_test.status_code == 404
-    assert runs.json()["count"] == 0
-    assert versions.json()["count"] == 0
-    assert guardrail.json()["status"] == "needs_validation"
-    assert guardrail.json()["tested_current"] is False
+    assert runs.json()["count"] == 2
+    assert versions.json()["count"] == 2
+    assert guardrail.json()["status"] == "ready"
+    assert guardrail.json()["tested_current"] is True
+    assert guardrail.json()["published_version_count"] == 2
     assert metrics.status_code == 200
     assert metrics.json()["total_decisions"] == 2
     assert metrics.json()["allowed"] == 2
@@ -792,6 +868,9 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
     assert {(item.protocol, item.phase) for item in runtime_events} == {
         ("playground", "input"),
         ("playground", "output"),
+    }
+    assert {item.guardrail_version for item in runtime_events} == {
+        first_version.version
     }
 
 
@@ -828,10 +907,15 @@ async def test_playground_chat_withholds_output_and_exposes_both_inspection_chec
                 ],
             },
         )
+        version = publish_test_guardrail(
+            app.state.control_plane,
+            created.json()["id"],
+        )
         interaction = await client.post(
             "/api/v1/playground/interactions",
             json={
                 "guardrail_id": created.json()["id"],
+                "guardrail_version": version.version,
                 "model_id": "playground-chat",
                 "message": "Give me a reviewed response.",
                 "history": [
@@ -897,10 +981,16 @@ async def test_playground_chat_does_not_call_model_when_input_is_blocked(tmp_pat
     ) as client:
         await login_default_admin(client)
         guardrails = await client.get("/api/v1/guardrails")
+        guardrail_id = guardrails.json()["items"][0]["id"]
+        versions = await client.get(
+            "/api/v1/guardrail-versions",
+            params={"guardrail_id": guardrail_id},
+        )
         response = await client.post(
             "/api/v1/playground/interactions",
             json={
-                "guardrail_id": guardrails.json()["items"][0]["id"],
+                "guardrail_id": guardrail_id,
+                "guardrail_version": versions.json()["items"][0]["version"],
                 "model_id": "playground-chat",
                 "message": "This blocked sample must stop before the model.",
             },
@@ -1022,7 +1112,10 @@ async def test_topic_safety_policy_validates_and_runs_locally_without_a_gateway(
             },
         )
         guardrail_id = created.json()["id"]
-        validation_run = await client.post("/api/v1/validation-runs", json={"guardrail_id": guardrail_id})
+        validation_run = await client.post(
+            "/api/v1/validation-runs", json={"guardrail_id": guardrail_id}
+        )
+        published = await client.post(f"/api/v1/guardrails/{guardrail_id}/publish")
         integrations = await client.get("/api/v1/integrations")
         deployment = await client.post(
             "/api/v1/deployments",
@@ -1053,6 +1146,7 @@ async def test_topic_safety_policy_validates_and_runs_locally_without_a_gateway(
         )
 
     assert validation_run.json()["status"] == "passed"
+    assert published.status_code == 201
     assert validation_run.json()["metrics"]["total"] == 12
     assert validation_run.json()["metrics"]["compliance_rate"] == 100
     assert integrations.json() == {"items": [], "count": 0}
@@ -1218,6 +1312,67 @@ async def test_guardrail_test_cases_are_visible_and_editable(tmp_path):
     assert stale.json()["status"] == "needs_validation"
     assert removed.status_code == 204
     assert len(final.json()["items"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_inherited_test_case_can_be_excluded_only_for_one_guardrail(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Scoped regression suite",
+                "purpose": "Validate a reviewed subset without changing the Policy Library.",
+                "policy_bindings": [policy_binding_payload("secrets", "reject")],
+            },
+        )
+        guardrail_id = created.json()["id"]
+        initial = await client.get(
+            "/api/v1/test-cases", params={"guardrail_id": guardrail_id}
+        )
+        excluded_case = initial.json()["items"][0]
+        excluded = await client.put(
+            f"/api/v1/guardrails/{guardrail_id}/test-cases/"
+            f"{excluded_case['id']}/exclusion"
+        )
+        delete_inherited = await client.delete(
+            f"/api/v1/test-cases/{excluded_case['id']}"
+        )
+        scoped = await client.get(f"/api/v1/guardrails/{guardrail_id}")
+        cases_after_exclusion = await client.get(
+            "/api/v1/test-cases", params={"guardrail_id": guardrail_id}
+        )
+        run = await client.post(
+            "/api/v1/validation-runs", json={"guardrail_id": guardrail_id}
+        )
+        restored = await client.delete(
+            f"/api/v1/guardrails/{guardrail_id}/test-cases/"
+            f"{excluded_case['id']}/exclusion"
+        )
+        restored_guardrail = await client.get(f"/api/v1/guardrails/{guardrail_id}")
+
+    assert excluded.status_code == 200
+    assert delete_inherited.status_code == 422
+    assert excluded.json()["excluded"] is True
+    assert scoped.json()["test_case_count"] == initial.json()["count"] - 1
+    assert scoped.json()["excluded_test_case_count"] == 1
+    assert scoped.json()["excluded_test_case_ids"] == [excluded_case["id"]]
+    assert len(cases_after_exclusion.json()["items"]) == initial.json()["count"]
+    assert sum(item["excluded"] for item in cases_after_exclusion.json()["items"]) == 1
+    assert run.status_code == 201
+    assert run.json()["metrics"]["total"] == initial.json()["count"] - 1
+    assert run.json()["excluded_case_ids"] == [excluded_case["id"]]
+    assert excluded_case["id"] not in {
+        item["case_id"] for item in run.json()["results"]
+    }
+    assert restored.status_code == 200
+    assert restored.json()["excluded"] is False
+    assert restored_guardrail.json()["test_case_count"] == initial.json()["count"]
+    assert restored_guardrail.json()["excluded_test_case_count"] == 0
+    assert restored_guardrail.json()["tested_current"] is False
 
 
 @pytest.mark.asyncio

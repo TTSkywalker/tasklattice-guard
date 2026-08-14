@@ -192,6 +192,7 @@ class Guardrail:
     active_version: int | None
     updated_at: str
     policy_bindings: tuple[GuardrailPolicyBinding, ...] = ()
+    excluded_test_case_ids: tuple[str, ...] = ()
 
 @dataclass(frozen=True, slots=True)
 class GuardrailVersion:
@@ -326,6 +327,7 @@ class GuardrailTestCase:
     source_policy_version: str | None = None
     source_case_id: str | None = None
     covered_rule_ids: tuple[str, ...] = ()
+    excluded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,6 +391,7 @@ class ValidationRun:
     metrics: ValidationMetrics
     results: tuple[TestCaseResult, ...]
     created_at: str
+    excluded_case_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
