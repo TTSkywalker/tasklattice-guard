@@ -29,6 +29,12 @@ import { cn } from "@/lib/utils";
 
 const EMPTY_POLICIES: Policy[] = [];
 const HIDDEN_POLICY_TAG_NAMESPACES = new Set(["engine"]);
+const JURISDICTION_FLAGS: Record<string, string> = {
+  au: "🇦🇺",
+  eu: "🇪🇺",
+  sg: "🇸🇬",
+  uae: "🇦🇪",
+};
 
 export function PolicyLibraryPage() {
   const { t } = useTranslation();
@@ -183,11 +189,11 @@ function TagFilters({ facets, selected, onChange }: { facets: Map<string, Policy
               <button
                 key={tag.id}
                 type="button"
-                className={cn("inline-flex min-h-11 min-w-11 items-center rounded-lg bg-secondary px-3 text-left text-xs text-secondary-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring", selected.has(tag.id) && "bg-primary/10 text-primary ring-1 ring-primary/25")}
+                className={cn("inline-flex min-h-11 min-w-11 items-center gap-2 rounded-lg bg-secondary px-3 text-left text-xs text-secondary-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring", selected.has(tag.id) && "bg-primary/10 text-primary ring-1 ring-primary/25")}
                 aria-pressed={selected.has(tag.id)}
                 onClick={() => toggle(tag.id)}
               >
-                <span className="max-w-52 truncate">{tag.label}</span>
+                <PolicyTagLabel tag={tag} truncate />
               </button>
             ))}
           </div>
@@ -210,7 +216,7 @@ function PolicyCard({ policy, onOpen }: { policy: Policy; onOpen: () => void }) 
         <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-muted-foreground">{policy.description}</p>
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {visiblePolicyTags(policy.tags).filter((tag) => !["implementation", "stage"].includes(tag.namespace)).slice(0, 3).map((tag) => <Badge key={tag.id} variant="secondary" className="font-normal">{tag.label}</Badge>)}
+        {visiblePolicyTags(policy.tags).filter((tag) => !["implementation", "stage"].includes(tag.namespace)).slice(0, 3).map((tag) => <Badge key={tag.id} variant="secondary" className="font-normal"><PolicyTagLabel tag={tag} /></Badge>)}
       </div>
       <div className="mt-auto pt-5">
         <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/35 p-3 text-xs">
@@ -244,7 +250,7 @@ export function PolicyDetail({ policy, onClose, onEdit }: { policy: Policy | nul
       footer={policy.implementation === "nemo_native" ? <Button onClick={() => onEdit(policy)}>{t("policyLibrary.editPolicy")}</Button> : <Button variant="outline" onClick={onClose}>{t("common.close")}</Button>}
     >
       <div className="flex flex-wrap gap-2">
-        {visiblePolicyTags(policy.tags).map((tag) => <Badge key={tag.id} variant={tag.source === "derived" ? "outline" : "secondary"}>{tag.label}</Badge>)}
+        {visiblePolicyTags(policy.tags).map((tag) => <Badge key={tag.id} variant={tag.source === "derived" ? "outline" : "secondary"}><PolicyTagLabel tag={tag} /></Badge>)}
       </div>
       <Tabs key={policy.id} defaultValue="policy" className="mt-5">
         <div className="overflow-x-auto">
@@ -343,17 +349,20 @@ function Implementation({ policy }: { policy: Policy }) {
         <Fact label={t("policyLibrary.ruleForms")} value={policy.forms.map((form) => t(`policyLibrary.forms.${form}`)).join(", ")} />
       </dl>
       <div className="mt-4 divide-y overflow-hidden rounded-lg border">
-        {policy.rules.map((rule) => (
-          <div key={rule.id} className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-[minmax(0,1fr)_10rem_12rem]">
-            <div className="min-w-0"><strong className="block truncate font-medium">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.implementation.binding_id}</span></div>
-            <span className="font-mono text-muted-foreground">{rule.implementation.flow_name ?? rule.implementation.detector ?? rule.form}</span>
-            {rule.implementation.action_name ? (
-              <code className="truncate text-muted-foreground" title={rule.implementation.action_name}>{rule.implementation.action_name}</code>
-            ) : (
-              <span className="truncate text-muted-foreground">{t("policyLibrary.runtimeManaged")}</span>
-            )}
-          </div>
-        ))}
+        {policy.rules.map((rule) => {
+          const implementation = rule.implementation.flow_name ?? rule.implementation.detector ?? rule.form;
+          return (
+            <div key={rule.id} className="grid items-center gap-x-5 gap-y-2 px-4 py-3 text-xs sm:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(8rem,0.75fr)]">
+              <div className="min-w-0"><strong className="block truncate font-medium">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.implementation.binding_id}</span></div>
+              <span className="min-w-0 truncate font-mono text-muted-foreground" title={implementation}>{implementation}</span>
+              {rule.implementation.action_name ? (
+                <code className="min-w-0 truncate text-muted-foreground sm:text-right" title={rule.implementation.action_name}>{rule.implementation.action_name}</code>
+              ) : (
+                <span className="min-w-0 truncate text-muted-foreground sm:text-right" title={t("policyLibrary.runtimeManaged")}>{t("policyLibrary.runtimeManaged")}</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -385,6 +394,21 @@ function tagFacets(policies: Policy[]) {
 
 function visiblePolicyTags(tags: PolicyTag[]) {
   return tags.filter((tag) => !HIDDEN_POLICY_TAG_NAMESPACES.has(tag.namespace));
+}
+
+function PolicyTagLabel({ tag, truncate = false }: { tag: PolicyTag; truncate?: boolean }) {
+  const { t } = useTranslation();
+  const jurisdiction = tag.namespace === "jurisdiction";
+  const label = jurisdiction
+    ? t(`policyLibrary.jurisdictions.${tag.value}`, { defaultValue: tag.label })
+    : tag.label;
+  const flag = jurisdiction ? JURISDICTION_FLAGS[tag.value] : undefined;
+  return (
+    <>
+      {flag ? <span aria-hidden="true" className="shrink-0 text-base leading-none">{flag}</span> : null}
+      <span className={cn(truncate && "max-w-52 truncate")}>{label}</span>
+    </>
+  );
 }
 
 function policySearchText(policy: Policy) {

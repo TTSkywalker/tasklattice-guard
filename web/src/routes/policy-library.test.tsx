@@ -29,6 +29,7 @@ vi.mock("react-i18next", () => ({
         "policyLibrary.ruleForm": "Rule form",
         "policyLibrary.effectLabel": "Effect",
         "policyLibrary.runtimeManaged": "Runtime managed",
+        "policyLibrary.jurisdictions.au": "Australia",
         "policyLibrary.forms.category": "Category",
         "policyLibrary.stages.input": "Before model",
         "policyLibrary.effects.block": "Block",
@@ -55,6 +56,7 @@ const policy: Policy = {
   version: "1.0.0",
   tags: [
     { id: "capability:topic-safety", namespace: "capability", value: "topic-safety", label: "Topic Safety", source: "declared" },
+    { id: "jurisdiction:au", namespace: "jurisdiction", value: "au", label: "Australia", source: "declared" },
     { id: "engine:nemo-guardrails", namespace: "engine", value: "nemo-guardrails", label: "NeMo Guardrails", source: "derived" },
   ],
   parameters: [],
@@ -134,6 +136,7 @@ describe("Policy detail", () => {
     expect(screen.getByRole("tablist", { name: "Policy detail views" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Policy" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByText("NeMo Guardrails")).toBeNull();
+    expect(screen.getByText("Australia").parentElement?.textContent).toBe("🇦🇺Australia");
     expect(screen.getByText("Rules (1)")).toBeTruthy();
     expect(screen.getByText("Competitor comparison intent")).toBeTruthy();
 
