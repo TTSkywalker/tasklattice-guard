@@ -49,6 +49,26 @@ export function toTrafficScopeExpression(
   };
 }
 
+export function fromTrafficScopeExpression(
+  expression: TrafficScopeExpression,
+  definitions: TrafficScopeFieldDefinition[],
+): TrafficScopeQuery {
+  return {
+    combinator: expression.combinator,
+    rules: expression.conditions.map((item) => {
+      if ("conditions" in item) return fromTrafficScopeExpression(item, definitions);
+      const definition = definitions.find((candidate) => candidate.id === item.field);
+      return {
+        field: item.field,
+        operator: item.operator,
+        value: definition?.custom_key
+          ? { key: item.key ?? "", value: item.value }
+          : item.value,
+      };
+    }),
+  };
+}
+
 export function isTrafficScopeValid(
   query: TrafficScopeQuery,
   definitions: TrafficScopeFieldDefinition[],

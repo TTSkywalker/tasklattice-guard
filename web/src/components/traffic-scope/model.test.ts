@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  fromTrafficScopeExpression,
   getTrafficScopeConflicts,
   isTrafficScopeValid,
   setTrafficGroupCombinator,
@@ -117,5 +118,28 @@ describe("traffic scope model", () => {
         },
       ],
     });
+  });
+
+  it("restores a persisted selector for Deployment editing", () => {
+    const expression = {
+      combinator: "and" as const,
+      conditions: [
+        {
+          field: "http.header",
+          key: "x-app-id",
+          operator: "equals" as const,
+          value: "finance-agent",
+        },
+      ],
+    };
+
+    const query = fromTrafficScopeExpression(expression, definitions);
+
+    expect(query.rules[0]).toMatchObject({
+      field: "http.header",
+      operator: "equals",
+      value: { key: "x-app-id", value: "finance-agent" },
+    });
+    expect(toTrafficScopeExpression(query, definitions)).toEqual(expression);
   });
 });

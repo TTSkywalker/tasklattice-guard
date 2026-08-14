@@ -7,6 +7,7 @@ import { ThemeProvider } from "next-themes";
 import { ControlPlaneLayout } from "@/routes/layout";
 import { GuardrailDetailPage, GuardrailsPage } from "@/routes/guardrails";
 import { DeploymentsPage } from "@/routes/deployments";
+import { DeploymentDetailPage } from "@/routes/deployment-detail";
 import { EvidencePage } from "@/routes/evidence";
 import { IntegrationsPage } from "@/routes/integrations";
 import { ValidationPage } from "@/routes/validation";
@@ -31,6 +32,7 @@ const guardrailSearch = (search: Record<string, unknown>) => ({ guardrail: typeo
 const playgroundRoute = createRoute({ getParentRoute: () => rootRoute, path: "/playground", validateSearch: guardrailSearch, component: PlaygroundPage });
 const validationRoute = createRoute({ getParentRoute: () => rootRoute, path: "/validation", validateSearch: guardrailSearch, component: ValidationPage });
 const deploymentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/deployments", component: DeploymentsPage });
+const deploymentDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/deployments/$deploymentId", component: DeploymentDetailPage });
 const integrationsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/integrations", component: IntegrationsPage });
 const evidenceRoute = createRoute({ getParentRoute: () => rootRoute, path: "/evidence", component: EvidencePage });
 const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
@@ -44,6 +46,7 @@ const routeTree = rootRoute.addChildren([
   playgroundRoute,
   validationRoute,
   deploymentsRoute,
+  deploymentDetailRoute,
   integrationsRoute,
   evidenceRoute,
   usersRoute,

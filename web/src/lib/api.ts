@@ -247,6 +247,77 @@ export type Deployment = {
   updated_at: string;
 };
 
+export type DeploymentTraceFinding = {
+  id: string;
+  trace_id: string;
+  created_at: string;
+  guardrail_id: string | null;
+  guardrail_version: number | null;
+  deployment_id: string | null;
+  integration_id: string | null;
+  phase: string;
+  severity: "critical" | "high" | "medium" | "low";
+  risk: string;
+  verdict: string;
+  confidence: number;
+  recommended_action: string;
+  policy_id: string | null;
+  rule_id: string | null;
+  detail: string;
+};
+
+export type DeploymentTraceStep = {
+  id: string;
+  trace_id: string;
+  created_at: string;
+  guardrail_id: string;
+  guardrail_version: number;
+  deployment_id: string | null;
+  integration_id: string | null;
+  protocol: string;
+  phase: string;
+  kind: "rail" | "action" | string;
+  name: string;
+  risk: string | null;
+  stage: string | null;
+  outcome: string;
+  latency_ms: number;
+  timed_out: boolean;
+  runtime_engine: string;
+  config_checksum: string;
+  policy_id: string | null;
+  policy_version: string | null;
+  rail_type: string | null;
+  flow_name: string | null;
+  action_name: string | null;
+  action_version: string | null;
+  parallel_group: string | null;
+  timeout_ms: number | null;
+  provider_latency_ms: number;
+};
+
+export type DeploymentRuntimeTrace = {
+  id: string;
+  created_at: string;
+  deployment_id: string;
+  guardrail_id: string | null;
+  guardrail_version: number | null;
+  integration_id: string | null;
+  protocol: string;
+  phase: string;
+  outcome: string;
+  action: string;
+  risk: string | null;
+  severity: DeploymentTraceFinding["severity"] | null;
+  latency_ms: number;
+  timed_out: boolean;
+  runtime_engine: string;
+  config_checksum: string;
+  detail: string;
+  findings: DeploymentTraceFinding[];
+  steps: DeploymentTraceStep[];
+};
+
 export type TrafficScopeSource = "field" | "header" | "jwt_claim";
 export type TrafficScopeOperator = "equals" | "contains" | "starts_with" | "glob";
 
@@ -350,7 +421,7 @@ export type PolicyTag = {
 
 export type PolicyRuleImplementation = {
   engine: string;
-  form: "regex" | "keyword" | "category" | "colang_flow";
+  form: "regex" | "keyword" | "category" | "code_block" | "competitor_intent" | "colang_flow";
   binding_id: string;
   implementation_rule_id: string;
   detector: string | null;
@@ -362,12 +433,14 @@ export type PolicyRule = {
   id: string;
   name: string;
   description: string;
-  form: "regex" | "keyword" | "category" | "colang_flow";
+  form: "regex" | "keyword" | "category" | "code_block" | "competitor_intent" | "colang_flow";
   effect: string;
   stages: NativeRailType[];
   implementation: PolicyRuleImplementation;
   expression: string | null;
   context_expression: string | null;
+  context_max_gap_words?: number | null;
+  allow_word_numbers?: boolean;
   redaction: string | null;
   severity_threshold: string | null;
   identifiers: string[];
@@ -976,11 +1049,14 @@ export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name"
 export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");
 
 export const getDeployments = () => read<Collection<Deployment>>("/api/v1/deployments");
+export const getDeployment = (id: string) => read<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
+export const getDeploymentTraces = (id: string, limit = 100) => read<Collection<DeploymentRuntimeTrace>>(`/api/v1/deployments/${encodeURIComponent(id)}/traces${query({ limit })}`);
 export const getTrafficScopeFields = () => read<Collection<TrafficScopeField>>("/api/v1/traffic-scope-fields");
 export const createDeployment = (input: { name: string; guardrail_id: string; integration_id?: string | null; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<Deployment>("/api/v1/deployments", "POST", input);
 export const createDeploymentBindings = (input: { name: string; guardrail_id: string; integration_ids: string[]; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<Collection<Deployment>>("/api/v1/deployments/bindings", "POST", input);
 export const reorderDeploymentRoutes = (integrationId: string, deploymentIds: string[]) => mutate<Collection<Deployment>>(`/api/v1/deployments/routes/${encodeURIComponent(integrationId)}/order`, "PUT", { deployment_ids: deploymentIds });
 export const setDeploymentEnabled = (id: string, enabled: boolean) => mutate<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`, "PATCH", { enabled });
+export const updateDeploymentTrafficScope = (id: string, trafficScope: TrafficScopeExpression) => mutate<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/traffic-scope`, "PUT", { traffic_scope: trafficScope });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
 export const getIntegration = (id: string) => read<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`);
 export const createIntegration = (input: { name: string; adapter_id: IntegrationAdapterId }) => mutate<IntegrationRegistration>("/api/v1/integrations", "POST", input);
@@ -988,5 +1064,5 @@ export const setIntegrationEnabled = (id: string, enabled: boolean) => mutate<In
 export const rotateIntegrationCredential = (id: string) => mutate<IntegrationRegistration>(`/api/v1/integrations/${encodeURIComponent(id)}/credentials`, "POST");
 export const revokeIntegrationCredential = (integrationId: string, credentialId: string) => mutate<void>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/credentials/${encodeURIComponent(credentialId)}`, "DELETE");
 export const getEvidence = (filters: { limit?: number; guardrailId?: string; deploymentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<EvidenceRecord>>(`/api/v1/evidence${query({ limit: filters.limit, guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);
-export const getMetrics = (filters: { guardrailId?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, window: filters.window })}`);
+export const getMetrics = (filters: { guardrailId?: string; deploymentId?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

@@ -16,10 +16,12 @@ export const queryKeys = {
   validationRun: (runId: string) => ["resources", "validation-runs", runId] as const,
   testCases: (guardrailId: string) => ["resources", "test-cases", { guardrailId }] as const,
   deployments: ["resources", "deployments"] as const,
+  deployment: (id: string) => ["resources", "deployments", id] as const,
+  deploymentTraces: (id: string) => ["resources", "deployments", id, "traces"] as const,
   trafficScopeFields: ["resources", "traffic-scope-fields"] as const,
   integrations: ["resources", "integrations"] as const,
   evidence: ["resources", "evidence"] as const,
   metrics: ["resources", "metrics"] as const,
-  metricsScope: (filters: { guardrailId?: string; window: string }) => ["resources", "metrics", filters] as const,
+  metricsScope: (filters: { guardrailId?: string; deploymentId?: string; window: string }) => ["resources", "metrics", filters] as const,
   systemStatus: ["resources", "system-status"] as const,
 };

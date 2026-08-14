@@ -41,7 +41,10 @@ export function ControlPlaneLayout() {
   const { t } = useTranslation();
   const auth = useAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const location = names[pathname] ?? (pathname.startsWith("/guardrails/") ? names["/guardrails"] : { group: "nav.home", page: "nav.dashboard" });
+  const location = names[pathname]
+    ?? (pathname.startsWith("/guardrails/") ? names["/guardrails"] : undefined)
+    ?? (pathname.startsWith("/deployments/") ? names["/deployments"] : undefined)
+    ?? { group: "nav.home", page: "nav.dashboard" };
   const systemStatus = useQuery({ queryKey: queryKeys.systemStatus, queryFn: getSystemStatus, refetchInterval: 15_000, enabled: Boolean(auth.status?.authenticated) });
 
   if (auth.isLoading) {
