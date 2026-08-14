@@ -24,7 +24,7 @@ async def test_openai_compatible_chat_model_returns_complete_text(monkeypatch):
 
     monkeypatch.setenv("PLAYGROUND_TEST_KEY", "secret")
     model = OpenAICompatibleChatModel(
-        model_id="deep-judge",
+        model_id="playground-chat",
         provider="DeepSeek",
         base_url="https://api.deepseek.com",
         model="deepseek-test",
@@ -51,7 +51,7 @@ async def test_openai_compatible_chat_model_requires_configured_credential(
 ):
     monkeypatch.delenv("PLAYGROUND_TEST_KEY", raising=False)
     model = OpenAICompatibleChatModel(
-        model_id="deep-judge",
+        model_id="playground-chat",
         provider="DeepSeek",
         base_url="https://api.deepseek.com",
         model="deepseek-test",

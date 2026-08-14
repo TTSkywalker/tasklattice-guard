@@ -109,7 +109,6 @@ _BUILTIN_RUNTIME_ACTIONS = (
     ("TaskLatticeBuiltinContentFilterAction", ("builtin_content_filter",), ("input", "output")),
     ("TaskLatticeTopicDeterministicAction", ("topic_control",), ("input", "output")),
     ("TaskLatticePromptSecurityFastAction", ("prompt_injection", "jailbreak"), ("input",)),
-    ("TaskLatticePromptSecurityJudgeAction", ("prompt_injection", "jailbreak"), ("input",)),
     ("TaskLatticeTopicJudgeAction", ("topic_control", "company_policy"), ("input", "output")),
     ("TaskLatticeGroundingAction", ("contextual_grounding",), ("output",)),
     ("TaskLatticeAutomatedReasoningAction", ("automated_reasoning",), ("output",)),
@@ -133,7 +132,6 @@ def runtime_action_registry(*evaluators: object) -> RuntimeActionRegistry:
             for name in {
                 "fast_semantic": ("TaskLatticePromptSecurityFastAction",),
                 "deep_judge": (
-                    "TaskLatticePromptSecurityJudgeAction",
                     "TaskLatticeTopicJudgeAction",
                     "TaskLatticeGroundingAction",
                     "TaskLatticeAutomatedReasoningAction",
@@ -176,8 +174,6 @@ def action_name_for(risk: str, stage: str) -> str:
             else _dynamic_action_name(risk)
         )
     return {
-        "prompt_injection": "TaskLatticePromptSecurityJudgeAction",
-        "jailbreak": "TaskLatticePromptSecurityJudgeAction",
         "topic_control": "TaskLatticeTopicJudgeAction",
         "company_policy": "TaskLatticeTopicJudgeAction",
         "contextual_grounding": "TaskLatticeGroundingAction",
@@ -199,7 +195,6 @@ BUILTIN_ACTION_CATALOG = ActionCatalog(
                 side_effects=False,
                 concurrent=True,
                 network_access=name in {
-                    "TaskLatticePromptSecurityJudgeAction",
                     "TaskLatticeTopicJudgeAction",
                     "TaskLatticeGroundingAction",
                     "TaskLatticeAutomatedReasoningAction",

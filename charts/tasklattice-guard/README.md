@@ -44,13 +44,16 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `database.existingSecret` | empty | Existing Secret containing the production database URL |
 | `database.secretKey` | `database-url` | Key within `database.existingSecret` |
 | `runtime.publicBaseUrl` | `http://localhost:38081` | Stable public origin used to generate per-Integration callback URLs |
+| `playgroundChat.model` | empty | General-purpose model used only to generate Playground conversations |
+| `playgroundChat.existingSecret` | empty | Existing Secret containing the Playground model API key |
 | `evaluators.nvidia.baseUrl` | empty | Base URL for optional NVIDIA Guard Models |
+| `evaluators.nvidia.contentSafetyModel` | empty | Dedicated NVIDIA model for harmful-content input/output checks |
+| `evaluators.nvidia.topicControlModel` | empty | Dedicated NVIDIA model for Topic and Organization Policy checks |
 | `evaluators.nvidia.groundingModel` | empty | NVIDIA-hosted Guard Model used for contextual-grounding evidence |
-| `evaluators.deepJudge.model` | empty | Provider-neutral runtime Policy Judge model for prompt security, Topic Safety, and contextual grounding |
-| `evaluators.deepJudge.existingSecret` | empty | Existing Secret containing the runtime Policy Judge API key |
 | `evaluators.automatedReasoning.endpointUrl` | empty | Formal-reasoning provider endpoint returning detection-only findings |
 | `evaluators.automatedReasoning.existingSecret` | empty | Existing Secret containing the reasoning provider API key |
 | `evaluators.jailbreakDetection.nimBaseUrl` | empty | Optional NeMo Jailbreak Detection NIM base URL |
+| `evaluators.jailbreakDetection.serverEndpoint` | `classify` | Classification path appended by NeMo; use `/v1/security/nvidia/nemoguard-jailbreak-detect` for NVIDIA's hosted API |
 | `evaluators.jailbreakDetection.existingSecret` | empty | Existing Secret containing the Jailbreak Detection API key |
 | `observability.runtimeP95BudgetMs` | `2500` | Runtime P95 latency budget shown on the operational dashboard |
 | `observability.runtimeP99BudgetMs` | `5000` | Runtime P99 latency budget shown on the operational dashboard |
@@ -59,6 +62,21 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `observability.openTelemetry.endpoint` | empty | OTLP/HTTP collector base URL or traces endpoint |
 | `controlPlaneAgent.deepseek.model` | `deepseek-v4-flash` | Model used only to structure policy intent |
 | `controlPlaneAgent.deepseek.existingSecret` | empty | Existing Secret containing the DeepSeek API key |
+
+For the NVIDIA-hosted Runtime path, configure the dedicated model roles with
+one NVIDIA Secret. The Jailbreak Detection endpoint reuses that credential:
+
+```sh
+helm upgrade tasklattice-guard . --namespace tali \
+  --set evaluators.nvidia.baseUrl=https://integrate.api.nvidia.com/v1 \
+  --set evaluators.nvidia.contentSafetyModel=nvidia/llama-3.1-nemotron-safety-guard-8b-v3 \
+  --set evaluators.nvidia.topicControlModel=nvidia/llama-3.1-nemoguard-8b-topic-control \
+  --set evaluators.nvidia.existingSecret=tasklattice-guard-nvidia \
+  --set evaluators.jailbreakDetection.nimBaseUrl=https://ai.api.nvidia.com \
+  --set evaluators.jailbreakDetection.serverEndpoint=/v1/security/nvidia/nemoguard-jailbreak-detect
+```
+
+These values never configure a `main` model inside NeMo Runtime.
 
 Application persistence is managed through SQLAlchemy ORM. New deployments
 create the current ORM schema directly; there is no legacy-schema compatibility
@@ -77,20 +95,20 @@ helm upgrade tasklattice-guard . --namespace tali \
   --set replicaCount=3
 ```
 
-A runtime Policy Judge and the optional control-plane assistant may safely
-share an existing DeepSeek Secret, but they remain separate capabilities. The
-Judge backs NeMo runtime Actions for selected Policies. The assistant only turns
-business intent into an editable Policy draft and never inspects runtime
-traffic. Configure both without placing the key in Helm history by creating a
-Secret and referencing it:
+The Playground chat model and optional control-plane assistant may share an
+existing DeepSeek Secret, but they remain outside Runtime evaluation. The
+Playground model generates test conversations; the assistant only turns
+business intent into an editable Policy draft. NeMo Runtime never registers
+either model as an evaluator. Configure both without placing the key in Helm
+history by creating a Secret and referencing it:
 
 ```sh
 kubectl --namespace tali create secret generic tasklattice-guard-deepseek \
   --from-literal=api-key='replace-me'
 helm upgrade tasklattice-guard . --namespace tali \
-  --set evaluators.deepJudge.baseUrl=https://api.deepseek.com \
-  --set evaluators.deepJudge.model=deepseek-v4-flash \
-  --set evaluators.deepJudge.existingSecret=tasklattice-guard-deepseek \
+  --set playgroundChat.baseUrl=https://api.deepseek.com \
+  --set playgroundChat.model=deepseek-v4-flash \
+  --set playgroundChat.existingSecret=tasklattice-guard-deepseek \
   --set controlPlaneAgent.deepseek.existingSecret=tasklattice-guard-deepseek
 ```
 

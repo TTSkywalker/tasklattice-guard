@@ -123,7 +123,7 @@ class ControlPlaneService:
         *,
         public_runtime_base_url: str = "http://localhost:8091",
         fast_semantic_configured: bool = False,
-        deep_judge_configured: bool = False,
+        specialized_evaluator_risks: frozenset[str] = frozenset(),
         automated_reasoning_configured: bool = False,
         nemo_compiler: NeMoConfigCompiler | None = None,
         action_catalog: ActionCatalog | None = None,
@@ -133,10 +133,10 @@ class ControlPlaneService:
         self._database = database if isinstance(database, Database) else Database(database)
         self._public_runtime_base_url = public_runtime_base_url.rstrip("/")
         self._fast_semantic_configured = fast_semantic_configured
-        self._deep_judge_configured = deep_judge_configured
+        self._specialized_evaluator_risks = specialized_evaluator_risks
         self._automated_reasoning_configured = automated_reasoning_configured
         self._compiler = GuardrailCompiler(
-            deep_judge_configured=deep_judge_configured,
+            specialized_evaluator_risks=specialized_evaluator_risks,
         )
         self._nemo_compiler = nemo_compiler or NeMoConfigCompiler()
         self._action_catalog = action_catalog or BUILTIN_ACTION_CATALOG
@@ -1269,8 +1269,55 @@ class ControlPlaneService:
         name: str,
         guardrail_id: str,
         traffic_scope: TrafficScopeExpression,
+        integration_id: str | None = None,
         enabled: bool = True,
     ) -> Deployment:
+        if integration_id is not None:
+            self.integration(integration_id)
+        return self._create_deployment_bindings(
+            name=name,
+            guardrail_id=guardrail_id,
+            integration_ids=(integration_id,),
+            traffic_scope=traffic_scope,
+            enabled=enabled,
+        )[0]
+
+    def create_deployment_bindings(
+        self,
+        *,
+        name: str,
+        guardrail_id: str,
+        integration_ids: tuple[str, ...],
+        traffic_scope: TrafficScopeExpression,
+        enabled: bool = True,
+    ) -> tuple[Deployment, ...]:
+        if not integration_ids:
+            raise ValidationError("Select at least one Integration.")
+        if len(integration_ids) != len(set(integration_ids)):
+            raise ValidationError("Each Integration may only be selected once.")
+        integrations = tuple(self.integration(item) for item in integration_ids)
+        adapter_ids = {item.adapter_id for item in integrations}
+        if len(adapter_ids) != 1:
+            raise ValidationError(
+                "A Deployment batch can only target Integrations using the same Adapter."
+            )
+        return self._create_deployment_bindings(
+            name=name,
+            guardrail_id=guardrail_id,
+            integration_ids=integration_ids,
+            traffic_scope=traffic_scope,
+            enabled=enabled,
+        )
+
+    def _create_deployment_bindings(
+        self,
+        *,
+        name: str,
+        guardrail_id: str,
+        integration_ids: tuple[str | None, ...],
+        traffic_scope: TrafficScopeExpression,
+        enabled: bool,
+    ) -> tuple[Deployment, ...]:
         guardrail = self.guardrail(guardrail_id)
         if is_default_guardrail(guardrail_id):
             raise ValidationError(
@@ -1285,48 +1332,132 @@ class ControlPlaneService:
         if not name.strip():
             raise ValidationError("Deployment name is required.")
         normalized = normalize_traffic_scope(traffic_scope)
-        if not normalized.conditions:
+        if not normalized.conditions and any(item is None for item in integration_ids):
             raise ValidationError(
                 "Unmatched traffic is already covered by the Default Deployment."
             )
         signature = traffic_scope_signature(normalized)
-        duplicate = next(
-            (
-                item
-                for item in self.deployments()
-                if traffic_scope_signature(item.traffic_scope) == signature
-            ),
-            None,
-        )
-        if duplicate is not None:
-            raise ValidationError(
-                f"This Traffic Scope is already used by Deployment {duplicate.name}."
+        existing = self.deployments()
+        for integration_id in integration_ids:
+            duplicate = next(
+                (
+                    item
+                    for item in existing
+                    if item.integration_id == integration_id
+                    and traffic_scope_signature(item.traffic_scope) == signature
+                ),
+                None,
             )
+            if duplicate is not None:
+                source = (
+                    self.integration(integration_id).name
+                    if integration_id is not None
+                    else "the direct runtime"
+                )
+                raise ValidationError(
+                    f"This Traffic Scope is already used by Deployment "
+                    f"{duplicate.name} for {source}."
+                )
 
-        deployment_id = f"deployment-{uuid.uuid4().hex[:12]}"
+        if enabled:
+            self._prewarm_nemo_runtime(guardrail_id, guardrail.active_version)
+
+        deployment_ids = tuple(
+            f"deployment-{uuid.uuid4().hex[:12]}" for _ in integration_ids
+        )
         now = _now()
         with self._database.transaction() as session:
-            session.add(
-                DeploymentModel(
+            for deployment_id, integration_id in zip(
+                deployment_ids, integration_ids, strict=True
+            ):
+                row = DeploymentModel(
                     id=deployment_id,
                     name=name.strip(),
                     guardrail_id=guardrail_id,
                     guardrail_version=guardrail.active_version,
+                    integration_id=integration_id,
+                    route_order=100,
                     traffic_scope_json=asdict(normalized),
                     enabled=enabled,
                     updated_at=_datetime(now),
                 )
+                if integration_id is not None:
+                    routes = list(
+                        session.scalars(
+                            select(DeploymentModel)
+                            .where(DeploymentModel.integration_id == integration_id)
+                            .order_by(
+                                DeploymentModel.route_order, DeploymentModel.id
+                            )
+                        ).all()
+                    )
+                    insert_at = len(routes)
+                    if normalized.conditions:
+                        catch_all = next(
+                            (
+                                index
+                                for index, item in enumerate(routes)
+                                if not traffic_scope_from_payload(
+                                    item.traffic_scope_json
+                                ).conditions
+                            ),
+                            None,
+                        )
+                        if catch_all is not None:
+                            insert_at = catch_all
+                    routes.insert(insert_at, row)
+                    for route_order, route in enumerate(routes, start=1):
+                        route.route_order = route_order
+                session.add(row)
+                self._insert_evidence_record(
+                    session,
+                    kind="deployment.created",
+                    outcome="success",
+                    guardrail_id=guardrail_id,
+                    deployment_id=deployment_id,
+                    integration_id=integration_id,
+                    detail=f"Created Deployment {name.strip()}.",
+                )
+        self._reload_runtime_and_registry()
+        return tuple(self.deployment(item) for item in deployment_ids)
+
+    def reorder_deployment_routes(
+        self, integration_id: str, deployment_ids: tuple[str, ...]
+    ) -> tuple[Deployment, ...]:
+        integration = self.integration(integration_id)
+        current = tuple(
+            item for item in self.deployments() if item.integration_id == integration_id
+        )
+        if len(deployment_ids) != len(set(deployment_ids)):
+            raise ValidationError("Deployment route order cannot contain duplicates.")
+        if set(deployment_ids) != {item.id for item in current}:
+            raise ValidationError(
+                "Route order must include every Deployment for this Integration exactly once."
             )
+        by_id = {item.id: item for item in current}
+        catch_all_positions = [
+            index
+            for index, deployment_id in enumerate(deployment_ids)
+            if not by_id[deployment_id].traffic_scope.conditions
+        ]
+        if catch_all_positions and catch_all_positions != [len(deployment_ids) - 1]:
+            raise ValidationError("The All traffic route must remain last.")
+        now = _utcnow()
+        with self._database.transaction() as session:
+            for route_order, deployment_id in enumerate(deployment_ids, start=1):
+                row = session.get(DeploymentModel, deployment_id)
+                assert row is not None
+                row.route_order = route_order
+                row.updated_at = now
             self._insert_evidence_record(
                 session,
-                kind="deployment.created",
+                kind="deployment.routes.reordered",
                 outcome="success",
-                guardrail_id=guardrail_id,
-                deployment_id=deployment_id,
-                detail=f"Created Deployment {name.strip()}.",
+                integration_id=integration_id,
+                detail=f"Reordered {len(deployment_ids)} routes for {integration.name}.",
             )
         self._reload_runtime()
-        return self.deployment(deployment_id)
+        return tuple(self.deployment(item) for item in deployment_ids)
 
     def set_deployment_enabled(self, deployment_id: str, enabled: bool) -> Deployment:
         current = self.deployment(deployment_id)
@@ -1334,6 +1465,10 @@ class ControlPlaneService:
             if not enabled:
                 raise ValidationError("The Default Deployment is always enabled.")
             return current
+        if enabled:
+            self._prewarm_nemo_runtime(
+                current.guardrail_id, current.guardrail_version
+            )
         with self._database.transaction() as session:
             row = session.get(DeploymentModel, deployment_id)
             assert row is not None
@@ -1347,36 +1482,67 @@ class ControlPlaneService:
                 deployment_id=deployment_id,
                 detail=f"Deployment {current.name} {'enabled' if enabled else 'paused'}.",
             )
-        self._reload_runtime()
+        self._reload_runtime_and_registry()
         return self.deployment(deployment_id)
 
     # Runtime resolution
 
     def resolve(self, context: RequestContext) -> PlanResolution:
         integration = self.integration(context.integration_id) if context.integration_id else None
-        candidates = [
+        integration_candidates = [
             item
             for item in self._deployments
             if item.enabled
+            and item.integration_id == context.integration_id
+            and item.integration_id is not None
             and traffic_scope_matches(item.traffic_scope, context)
             and (item.guardrail_id, item.guardrail_version) in self._plans
         ]
-        if not candidates:
-            raise ControlPlaneError("No Deployment matches this model interaction.")
-        ranked = sorted(
-            candidates,
-            key=lambda item: tuple(-value for value in traffic_scope_specificity(item.traffic_scope)) + (item.id,),
-        )
-        selected = ranked[0]
-        top_specificity = traffic_scope_specificity(selected.traffic_scope)
-        equally_specific = [
-            item
-            for item in ranked
-            if traffic_scope_specificity(item.traffic_scope) == top_specificity
-        ]
-        if len(equally_specific) > 1:
-            raise ControlPlaneError(
-                "Multiple equally specific Traffic Scopes match this model interaction."
+        if integration_candidates:
+            ranked = sorted(
+                integration_candidates, key=lambda item: (item.route_order, item.id)
+            )
+            selected = ranked[0]
+            selection_detail = (
+                f"Matched the first route in {integration.name}'s ordered route table "
+                f"(position {selected.route_order})."
+                if integration is not None
+                else "Matched the first ordered Integration route."
+            )
+        else:
+            candidates = [
+                item
+                for item in self._deployments
+                if item.enabled
+                and item.integration_id is None
+                and traffic_scope_matches(item.traffic_scope, context)
+                and (item.guardrail_id, item.guardrail_version) in self._plans
+            ]
+            if not candidates:
+                raise ControlPlaneError("No Deployment matches this model interaction.")
+            ranked = sorted(
+                candidates,
+                key=lambda item: tuple(
+                    -value for value in traffic_scope_specificity(item.traffic_scope)
+                )
+                + (item.id,),
+            )
+            selected = ranked[0]
+            top_specificity = traffic_scope_specificity(selected.traffic_scope)
+            equally_specific = [
+                item
+                for item in ranked
+                if traffic_scope_specificity(item.traffic_scope) == top_specificity
+            ]
+            if len(equally_specific) > 1:
+                raise ControlPlaneError(
+                    "Multiple equally specific Traffic Scopes match this model interaction."
+                )
+            selection_detail = (
+                "No explicit Deployment matched; selected the system-managed baseline."
+                if is_default_deployment(selected.id)
+                else f"Matched {len(candidates)} legacy Traffic Scope(s); selected "
+                f"{traffic_condition_count(selected.traffic_scope)} condition(s) by specificity."
             )
         plan = self._plans[(selected.guardrail_id, selected.guardrail_version)]
         trace = []
@@ -1390,17 +1556,11 @@ class ControlPlaneService:
                     "Resolved without an external Integration Adapter.",
                 )
             )
-        selected_default = is_default_deployment(selected.id)
         trace.extend((
             _resolution_step(
                 "deployment",
                 selected.name,
-                (
-                    "No explicit Deployment matched; selected the system-managed baseline."
-                    if selected_default
-                    else f"Matched {len(candidates)} Deployment Traffic Scope(s); selected "
-                    f"{traffic_condition_count(selected.traffic_scope)} condition(s) by specificity."
-                ),
+                selection_detail,
             ),
             _resolution_step(
                 "guardrail",
@@ -1870,7 +2030,8 @@ class ControlPlaneService:
         configured_capabilities = {
             "deterministic": True,
             "fast_semantic": self._fast_semantic_configured,
-            "deep_judge": self._deep_judge_configured,
+            "specialized_evaluators": sorted(self._specialized_evaluator_risks),
+            "generic_runtime_llm": False,
             "automated_reasoning": self._automated_reasoning_configured,
         }
         return {
@@ -2124,6 +2285,8 @@ class ControlPlaneService:
                     name=DEFAULT_DEPLOYMENT_NAME,
                     guardrail_id=DEFAULT_GUARDRAIL_ID,
                     guardrail_version=DEFAULT_GUARDRAIL_VERSION,
+                    integration_id=None,
+                    route_order=100,
                     traffic_scope_json={"combinator": "and", "conditions": []},
                     enabled=True,
                     updated_at=_datetime(now),
@@ -2215,6 +2378,21 @@ class ControlPlaneService:
         self._nemo_configs = nemo_configs
         self._deployments = self.deployments()
         self._credential_index = credentials
+
+    def _prewarm_nemo_runtime(self, guardrail_id: str, version: int) -> None:
+        """Construct a deployable runtime before making its route active."""
+        if self._nemo_runtime_validator is None:
+            return
+        self._nemo_runtime_validator(
+            self.plan(guardrail_id, version),
+            self.nemo_config(guardrail_id, version),
+        )
+
+    def _reload_runtime_and_registry(self) -> None:
+        """Refresh routing state, then synchronize every active runtime instance."""
+        self._reload_runtime()
+        if self._nemo_runtime_reloader is not None:
+            self._nemo_runtime_reloader()
 
     def _integration_from_model(
         self, session: Session, row: IntegrationModel
@@ -3019,6 +3197,8 @@ def _deployment_from_model(row: DeploymentModel) -> Deployment:
         name=row.name,
         guardrail_id=row.guardrail_id,
         guardrail_version=row.guardrail_version,
+        integration_id=row.integration_id,
+        route_order=row.route_order,
         traffic_scope=traffic_scope_from_payload(row.traffic_scope_json),
         enabled=row.enabled,
         updated_at=_iso(row.updated_at),

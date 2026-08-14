@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TypeAlias
 
-from sqlalchemy import Engine, create_engine, event, make_url
+from sqlalchemy import Engine, create_engine, event, inspect, make_url, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -54,8 +54,28 @@ class Database:
             yield session
 
     def create_schema(self) -> None:
-        """Create the current ORM schema for a new deployment."""
+        """Create the current ORM schema and apply additive compatibility updates."""
         Base.metadata.create_all(self.engine)
+        self._apply_additive_schema_updates()
+
+    def _apply_additive_schema_updates(self) -> None:
+        """Keep pre-migration installations readable without a migration framework."""
+        inspector = inspect(self.engine)
+        if "deployments" not in inspector.get_table_names():
+            return
+        columns = {item["name"] for item in inspector.get_columns("deployments")}
+        statements = []
+        if "integration_id" not in columns:
+            statements.append("ALTER TABLE deployments ADD COLUMN integration_id VARCHAR")
+        if "route_order" not in columns:
+            statements.append(
+                "ALTER TABLE deployments ADD COLUMN route_order INTEGER NOT NULL DEFAULT 100"
+            )
+        if not statements:
+            return
+        with self.engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
 
     def dispose(self) -> None:
         self.engine.dispose()

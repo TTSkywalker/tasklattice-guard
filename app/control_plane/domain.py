@@ -228,6 +228,8 @@ class Deployment:
     name: str
     guardrail_id: str
     guardrail_version: int
+    integration_id: str | None
+    route_order: int
     traffic_scope: TrafficScopeExpression
     enabled: bool
     updated_at: str

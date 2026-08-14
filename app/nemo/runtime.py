@@ -845,6 +845,9 @@ class NeMoGuardrailsEngine:
     def ready(self) -> bool:
         return self._registry.ready()
 
+    def readiness(self) -> dict[str, object]:
+        return self._registry.readiness()
+
 
 def _execution_scope() -> _ExecutionScope:
     scope = _CURRENT_SCOPE.get()

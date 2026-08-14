@@ -64,6 +64,16 @@
         "publicBaseUrl": {"type": "string", "pattern": "^https?://"}
       }
     },
+    "playgroundChat": {
+      "type": "object",
+      "properties": {
+        "baseUrl": {"type": "string"},
+        "model": {"type": "string"},
+        "apiKey": {"type": "string"},
+        "existingSecret": {"type": "string"},
+        "secretKey": {"type": "string", "minLength": 1}
+      }
+    },
     "evaluators": {
       "type": "object",
       "properties": {
@@ -74,16 +84,6 @@
             "contentSafetyModel": {"type": "string"},
             "topicControlModel": {"type": "string"},
             "groundingModel": {"type": "string"},
-            "apiKey": {"type": "string"},
-            "existingSecret": {"type": "string"},
-            "secretKey": {"type": "string", "minLength": 1}
-          }
-        },
-        "deepJudge": {
-          "type": "object",
-          "properties": {
-            "baseUrl": {"type": "string"},
-            "model": {"type": "string"},
             "apiKey": {"type": "string"},
             "existingSecret": {"type": "string"},
             "secretKey": {"type": "string", "minLength": 1}
@@ -100,8 +100,10 @@
         },
         "jailbreakDetection": {
           "type": "object",
+          "required": ["nimBaseUrl", "serverEndpoint", "apiKey", "existingSecret", "secretKey"],
           "properties": {
             "nimBaseUrl": {"type": "string"},
+            "serverEndpoint": {"type": "string", "minLength": 1},
             "apiKey": {"type": "string"},
             "existingSecret": {"type": "string"},
             "secretKey": {"type": "string", "minLength": 1}

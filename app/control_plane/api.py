@@ -289,10 +289,29 @@ class CreateDeploymentRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     guardrail_id: str
+    integration_id: str | None = None
     traffic_scope: TrafficScopeExpressionInput = Field(
         default_factory=TrafficScopeExpressionInput
     )
     enabled: bool = True
+
+
+class CreateDeploymentBindingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    guardrail_id: str
+    integration_ids: list[str] = Field(min_length=1, max_length=50)
+    traffic_scope: TrafficScopeExpressionInput = Field(
+        default_factory=TrafficScopeExpressionInput
+    )
+    enabled: bool = True
+
+
+class ReorderDeploymentRoutesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deployment_ids: list[str] = Field(min_length=1, max_length=100)
 
 
 class UpdateDeploymentRequest(BaseModel):
@@ -1202,12 +1221,39 @@ class ControlPlaneAPI:
                 item = self._service.create_deployment(
                     name=request.name,
                     guardrail_id=request.guardrail_id,
+                    integration_id=request.integration_id,
                     traffic_scope=_traffic_scope_domain(request.traffic_scope),
                     enabled=request.enabled,
                 )
             except ControlPlaneError as error:
                 _raise(error)
             return _deployment_payload(item)
+
+        @router.post("/deployments/bindings", status_code=201)
+        def create_deployment_bindings(request: CreateDeploymentBindingsRequest):
+            try:
+                items = self._service.create_deployment_bindings(
+                    name=request.name,
+                    guardrail_id=request.guardrail_id,
+                    integration_ids=tuple(request.integration_ids),
+                    traffic_scope=_traffic_scope_domain(request.traffic_scope),
+                    enabled=request.enabled,
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return _collection([_deployment_payload(item) for item in items])
+
+        @router.put("/deployments/routes/{integration_id}/order")
+        def reorder_deployment_routes(
+            integration_id: str, request: ReorderDeploymentRoutesRequest
+        ):
+            try:
+                items = self._service.reorder_deployment_routes(
+                    integration_id, tuple(request.deployment_ids)
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return _collection([_deployment_payload(item) for item in items])
 
         @router.patch("/deployments/{deployment_id}")
         def update_deployment(deployment_id: str, request: UpdateDeploymentRequest):
@@ -1633,6 +1679,8 @@ def _deployment_payload(item) -> dict[str, object]:
         "name": item.name,
         "guardrail_id": item.guardrail_id,
         "guardrail_version": item.guardrail_version,
+        "integration_id": item.integration_id,
+        "route_order": item.route_order,
         "traffic_scope": asdict(item.traffic_scope),
         "enabled": item.enabled,
         "is_default": is_default_deployment(item.id),

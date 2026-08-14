@@ -41,10 +41,10 @@ _COLANG1_STANDARD_ACTIONS = {
     "TaskLatticeBuiltinContentFilterAction",
     "TaskLatticeTopicDeterministicAction",
     "TaskLatticePromptSecurityFastAction",
-    "TaskLatticePromptSecurityJudgeAction",
     "TaskLatticeTopicJudgeAction",
 }
 _COLANG1_COMPLEX_RISKS = {"contextual_grounding", "automated_reasoning"}
+_ALLOWED_RUNTIME_MODEL_TYPES = frozenset({"content_safety", "topic_control"})
 
 
 class NeMoConfigCompiler:
@@ -61,6 +61,12 @@ class NeMoConfigCompiler:
     ) -> None:
         self._models = tuple(dict(item) for item in models)
         self._model_types = frozenset(str(item.get("type", "")) for item in models)
+        unsupported_model_types = self._model_types - _ALLOWED_RUNTIME_MODEL_TYPES
+        if unsupported_model_types:
+            raise ValueError(
+                "NeMo Runtime only accepts dedicated Guard Models; unsupported model "
+                "types: " + ", ".join(sorted(unsupported_model_types)) + "."
+            )
         self._builtin_prompts = _prompts(builtin_prompts_yaml)
         self._prompt_tasks = frozenset(
             str(item.get("task", "")) for item in self._builtin_prompts
@@ -114,7 +120,7 @@ class NeMoConfigCompiler:
                         required_models.add("content_safety")
                     elif risk == "topic_control":
                         required_models.add("topic_control")
-                    elif risk == "jailbreak":
+                    elif risk in {"prompt_injection", "jailbreak"}:
                         required_features.add("jailbreak_detection")
                     continue
 
@@ -368,7 +374,7 @@ class NeMoConfigCompiler:
         ):
             return "topic safety check input $model=topic_control"
         if (
-            risk == "jailbreak"
+            risk in {"prompt_injection", "jailbreak"}
             and phase == "input"
             and self._jailbreak_detection is not None
         ):
@@ -582,7 +588,6 @@ def _binding_can_modify(binding: NeMoActionBinding) -> bool:
     if binding.action_name in {
         "TaskLatticeTopicDeterministicAction",
         "TaskLatticePromptSecurityFastAction",
-        "TaskLatticePromptSecurityJudgeAction",
         "TaskLatticeTopicJudgeAction",
     }:
         # These Actions can return ``uncertain``.  The standard lane maps that

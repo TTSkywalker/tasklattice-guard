@@ -27,7 +27,6 @@ from .nemo.actions.deterministic import FastPassEngine
 from .nemo.actions.grounding import ContextualGroundingJudgeEngine
 from .nemo.actions.prompt_security import (
     PromptSecurityFastEngine,
-    PromptSecurityJudgeEngine,
 )
 from .nemo.actions.topic import PurposeAwareTopicJudgeEngine
 from .nemo.builtin_policies import prompt_catalog_yaml
@@ -58,27 +57,6 @@ def create_engine(
 def create_action_registry(settings: Settings) -> RuntimeActionRegistry:
     """Build direct, versioned providers registered as NeMo Actions."""
     evaluators: list[object] = [FastPassEngine(), PromptSecurityFastEngine()]
-    generic_deep_judge = _deep_judge_configured(settings)
-    if generic_deep_judge:
-        evaluators.append(
-            PromptSecurityJudgeEngine(
-                base_url=settings.deep_judge_base_url or "",
-                model=settings.deep_judge_model or "",
-                api_key_env_var=settings.deep_judge_api_key_env_var,
-                request_options=_deepseek_options(
-                    settings.deep_judge_base_url or "",
-                    json_output=True,
-                ),
-            )
-        )
-    elif settings.content_safety_model and settings.nvidia_base_url:
-        evaluators.append(
-            PromptSecurityJudgeEngine(
-                base_url=settings.nvidia_base_url,
-                model=settings.content_safety_model,
-                api_key_env_var=settings.nvidia_api_key_env_var,
-            )
-        )
     if settings.topic_control_model and settings.nvidia_base_url:
         evaluators.append(
             PurposeAwareTopicJudgeEngine(
@@ -87,34 +65,12 @@ def create_action_registry(settings: Settings) -> RuntimeActionRegistry:
                 api_key_env_var=settings.nvidia_api_key_env_var,
             )
         )
-    elif generic_deep_judge:
-        evaluators.append(
-            PurposeAwareTopicJudgeEngine(
-                base_url=settings.deep_judge_base_url or "",
-                model=settings.deep_judge_model or "",
-                api_key_env_var=settings.deep_judge_api_key_env_var,
-                request_options=_deepseek_options(
-                    settings.deep_judge_base_url or ""
-                ),
-            )
-        )
     if settings.grounding_model and settings.nvidia_base_url:
         evaluators.append(
             ContextualGroundingJudgeEngine(
                 base_url=settings.nvidia_base_url,
                 model=settings.grounding_model,
                 api_key_env_var=settings.nvidia_api_key_env_var,
-            )
-        )
-    elif generic_deep_judge:
-        evaluators.append(
-            ContextualGroundingJudgeEngine(
-                base_url=settings.deep_judge_base_url or "",
-                model=settings.deep_judge_model or "",
-                api_key_env_var=settings.deep_judge_api_key_env_var,
-                request_options=_deepseek_options(
-                    settings.deep_judge_base_url or ""
-                ),
             )
         )
     if settings.automated_reasoning_endpoint_url:
@@ -199,10 +155,23 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/health/ready")
-    async def ready() -> dict[str, str]:
+    async def ready() -> dict[str, object]:
+        runtime_readiness = getattr(runtime_engine, "readiness", None)
+        if runtime_readiness is not None:
+            detail = runtime_readiness()
+            if not bool(detail.get("ready")):
+                raise HTTPException(status_code=503, detail=detail)
+            return detail
         runtime_ready = getattr(runtime_engine, "ready", None)
         if runtime_ready is not None and not runtime_ready():
-            raise HTTPException(status_code=503, detail="NeMo runtime is not prewarmed.")
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "ready": False,
+                    "status": "not_ready",
+                    "reason": "runtime_not_prewarmed",
+                },
+            )
         return {"status": "ready"}
 
     if configured.ui_dist_path.is_dir():
@@ -228,49 +197,30 @@ def _intent_analyzer(settings: Settings) -> IntentAnalyzer | None:
 
 
 def _playground_chat_models(settings: Settings) -> tuple[PlaygroundChatModel, ...]:
-    candidates = (
-        (
-            "deep-judge",
-            settings.deep_judge_base_url,
-            settings.deep_judge_model,
-            settings.deep_judge_api_key_env_var,
-        ),
-        (
-            "control-plane-ai",
-            settings.control_plane_ai_base_url,
-            settings.control_plane_ai_model,
-            settings.control_plane_ai_api_key_env_var,
+    base_url = settings.playground_chat_base_url
+    model = settings.playground_chat_model
+    api_key_env_var = settings.playground_chat_api_key_env_var
+    if (
+        not base_url
+        or not model
+        or not os.environ.get(api_key_env_var, "").strip()
+    ):
+        return ()
+    provider = (
+        "DeepSeek"
+        if urlsplit(base_url).hostname == "api.deepseek.com"
+        else "OpenAI compatible"
+    )
+    return (
+        OpenAICompatibleChatModel(
+            model_id="playground-chat",
+            provider=provider,
+            base_url=base_url,
+            model=model,
+            api_key_env_var=api_key_env_var,
+            request_options=_deepseek_options(base_url),
         ),
     )
-    models: list[PlaygroundChatModel] = []
-    configured: set[tuple[str, str, str]] = set()
-    for model_id, base_url, model, api_key_env_var in candidates:
-        if (
-            not base_url
-            or not model
-            or not os.environ.get(api_key_env_var, "").strip()
-        ):
-            continue
-        identity = (base_url, model, api_key_env_var)
-        if identity in configured:
-            continue
-        configured.add(identity)
-        provider = (
-            "DeepSeek"
-            if urlsplit(base_url).hostname == "api.deepseek.com"
-            else "OpenAI compatible"
-        )
-        models.append(
-            OpenAICompatibleChatModel(
-                model_id=model_id,
-                provider=provider,
-                base_url=base_url,
-                model=model,
-                api_key_env_var=api_key_env_var,
-                request_options=_deepseek_options(base_url),
-            )
-        )
-    return tuple(models)
 
 
 def _create_policy_plane(
@@ -282,14 +232,7 @@ def _create_policy_plane(
         fast_semantic_configured=bool(
             settings.content_safety_model and settings.nvidia_base_url
         ),
-        deep_judge_configured=bool(
-            _deep_judge_configured(settings)
-            or (
-                (settings.topic_control_model or settings.grounding_model)
-                and settings.nvidia_base_url
-            )
-            or settings.automated_reasoning_endpoint_url
-        ),
+        specialized_evaluator_risks=_specialized_evaluator_risks(settings),
         automated_reasoning_configured=bool(
             settings.automated_reasoning_endpoint_url
         ),
@@ -325,7 +268,7 @@ def _nemo_compiler(settings: Settings) -> NeMoConfigCompiler:
     if settings.jailbreak_detection_nim_base_url:
         jailbreak_detection = {
             "nim_base_url": settings.jailbreak_detection_nim_base_url,
-            "nim_server_endpoint": "classify",
+            "nim_server_endpoint": settings.jailbreak_detection_nim_server_endpoint,
             "api_key_env_var": settings.jailbreak_detection_api_key_env_var,
         }
     return NeMoConfigCompiler(
@@ -369,21 +312,23 @@ def _otlp_trace_endpoint(endpoint: str) -> str:
     return normalized if normalized.endswith("/v1/traces") else f"{normalized}/v1/traces"
 
 
-def _deepseek_options(
-    base_url: str,
-    *,
-    json_output: bool = False,
-) -> dict[str, object]:
+def _deepseek_options(base_url: str) -> dict[str, object]:
     if urlsplit(base_url).hostname != "api.deepseek.com":
         return {}
-    options: dict[str, object] = {"thinking": {"type": "disabled"}}
-    if json_output:
-        options["response_format"] = {"type": "json_object"}
-    return options
+    return {"thinking": {"type": "disabled"}}
 
 
-def _deep_judge_configured(settings: Settings) -> bool:
-    return bool(settings.deep_judge_model and settings.deep_judge_base_url)
+def _specialized_evaluator_risks(settings: Settings) -> frozenset[str]:
+    risks: set[str] = set()
+    if settings.topic_control_model and settings.nvidia_base_url:
+        risks.update({"topic_control", "company_policy"})
+    if settings.jailbreak_detection_nim_base_url:
+        risks.update({"prompt_injection", "jailbreak"})
+    if settings.grounding_model and settings.nvidia_base_url:
+        risks.add("contextual_grounding")
+    if settings.automated_reasoning_endpoint_url:
+        risks.add("automated_reasoning")
+    return frozenset(risks)
 
 
 app = create_app()

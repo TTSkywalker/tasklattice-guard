@@ -29,7 +29,9 @@ def test_topic_judge_receives_guardrail_purpose_and_primary_intent_rule():
         active_version=None,
         updated_at="2026-08-10T00:00:00Z",
     )
-    plan = GuardrailCompiler(deep_judge_configured=True).compile(
+    plan = GuardrailCompiler(
+        specialized_evaluator_risks=frozenset({"topic_control"})
+    ).compile(
         guardrail,
         1,
         resolved_policies=(ResolvedPolicyCapability("topic_control", "redirect"),),
@@ -77,7 +79,9 @@ def test_topic_judge_preserves_prior_conversation_for_input():
         active_version=None,
         updated_at="2026-08-10T00:00:00Z",
     )
-    plan = GuardrailCompiler(deep_judge_configured=True).compile(
+    plan = GuardrailCompiler(
+        specialized_evaluator_risks=frozenset({"topic_control"})
+    ).compile(
         guardrail,
         1,
         resolved_policies=(ResolvedPolicyCapability("topic_control", "redirect"),),

@@ -15,6 +15,10 @@ class PurposeAwareTopicJudgeEngine:
     name = "Purpose-Aware Topic Judge"
     stage = "deep_judge"
     supported_phases = frozenset({"input", "output"})
+    # Organization policies use the same dedicated NVIDIA Topic Control
+    # evaluator because both capabilities classify an interaction against
+    # explicit, compiled business boundaries. No general-purpose LLM fallback
+    # is registered for either risk.
     supported_risks = frozenset({"topic_control", "company_policy"})
 
     def __init__(
@@ -38,7 +42,7 @@ class PurposeAwareTopicJudgeEngine:
         steps: tuple[GuardrailPlanStep, ...],
     ) -> StageResult:
         configured = tuple(
-            step for step in steps if step.risk in {"topic_control", "company_policy"}
+            step for step in steps if step.risk in self.supported_risks
         )
         if not configured:
             return StageResult(verdict="safe", content=request.text)

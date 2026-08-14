@@ -152,3 +152,50 @@ def test_sqlite_fallback_rejects_multiple_replicas():
 
     assert result.returncode != 0
     assert "database.url or database.existingSecret" in result.stderr
+
+
+def test_helm_routes_runtime_checks_to_nvidia_guard_models_only():
+    rendered = subprocess.run(
+        [
+            "helm",
+            "template",
+            "nvidia-runtime",
+            str(CHART),
+            "--set-string",
+            "evaluators.nvidia.baseUrl=https://integrate.api.nvidia.com/v1",
+            "--set-string",
+            "evaluators.nvidia.contentSafetyModel=nvidia/content-safety",
+            "--set-string",
+            "evaluators.nvidia.topicControlModel=nvidia/topic-control",
+            "--set-string",
+            "evaluators.nvidia.existingSecret=nvidia-key",
+            "--set-string",
+            "evaluators.jailbreakDetection.nimBaseUrl=https://ai.api.nvidia.com",
+            "--set-string",
+            "evaluators.jailbreakDetection.serverEndpoint=/v1/security/nvidia/nemoguard-jailbreak-detect",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    documents = [item for item in yaml.safe_load_all(rendered) if item]
+    deployment = next(
+        item for item in documents if item.get("kind") == "Deployment"
+    )
+    environment = {
+        item["name"]: item
+        for item in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
+
+    assert environment["MODEL_GUARDRAILS_CONTENT_SAFETY_MODEL"]["value"] == (
+        "nvidia/content-safety"
+    )
+    assert environment["MODEL_GUARDRAILS_TOPIC_CONTROL_MODEL"]["value"] == (
+        "nvidia/topic-control"
+    )
+    assert environment["MODEL_GUARDRAILS_JAILBREAK_NIM_SERVER_ENDPOINT"]["value"].endswith(
+        "nemoguard-jailbreak-detect"
+    )
+    assert environment["MODEL_GUARDRAILS_NVIDIA_API_KEY"]["valueFrom"] == {
+        "secretKeyRef": {"name": "nvidia-key", "key": "api-key"}
+    }

@@ -40,7 +40,8 @@ class UpdateUserRequest(BaseModel):
 
 
 class UpdateMeRequest(BaseModel):
-    preferred_language: Literal["en", "zh-CN"]
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    preferred_language: Literal["en", "zh-CN"] | None = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -97,8 +98,10 @@ class IdentityAPI:
         def update_me(request: UpdateMeRequest, http_request: Request):
             user = self.require_user(http_request)
             try:
-                updated = self._service.update_preferred_language(
-                    user.id, request.preferred_language
+                updated = self._service.update_profile(
+                    user.id,
+                    display_name=request.display_name,
+                    preferred_language=request.preferred_language,
                 )
             except IdentityError as error:
                 _raise_identity(error)

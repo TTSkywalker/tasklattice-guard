@@ -13,6 +13,10 @@ import {
 import { queryKeys } from "@/features/query-keys";
 
 type LoginInput = { email: string; password: string };
+type ProfileInput = {
+  display_name?: string;
+  preferred_language?: SupportedLanguage;
+};
 
 type AuthContextValue = {
   status: AuthStatus | undefined;
@@ -22,6 +26,7 @@ type AuthContextValue = {
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
   setLanguage: (language: SupportedLanguage) => Promise<void>;
+  updateProfile: (input: ProfileInput) => Promise<void>;
   loginPending: boolean;
   logoutPending: boolean;
 };
@@ -83,6 +88,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await setApplicationLanguage(result.user.preferred_language);
   }, [setAuthenticatedUser, user]);
 
+  const updateProfile = useCallback(async (input: ProfileInput) => {
+    if (!user) return;
+    const result = await updateMe(input);
+    setAuthenticatedUser(result.user);
+    if (
+      input.preferred_language
+      && result.user.preferred_language !== i18n.language
+    ) {
+      await setApplicationLanguage(result.user.preferred_language);
+    }
+  }, [setAuthenticatedUser, user]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -93,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login: async (input) => { await loginMutation.mutateAsync(input); },
         logout: async () => { await logoutMutation.mutateAsync(); },
         setLanguage,
+        updateProfile,
         loginPending: loginMutation.isPending,
         logoutPending: logoutMutation.isPending,
       }}

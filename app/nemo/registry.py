@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from collections import OrderedDict
@@ -14,6 +15,9 @@ from ..control_plane.domain import PlanCompilationError
 from ..runtime.contracts import GuardrailPlanSnapshot, NeMoConfigSnapshot
 from .action_registry import RuntimeActionRegistry
 from .artifacts import config_checksum
+
+
+logger = logging.getLogger("uvicorn.error.tasklattice.nemo.registry")
 
 
 _PROFILE_RUNTIME = {
@@ -71,6 +75,7 @@ class NeMoRailsRegistry:
         self._lock = threading.RLock()
         self._hits = 0
         self._misses = 0
+        self._last_missing_versions: tuple[tuple[str, int], ...] | None = None
         self.reload()
 
     def get(self, plan: GuardrailPlanSnapshot) -> NeMoRailsInstance:
@@ -92,7 +97,7 @@ class NeMoRailsRegistry:
                 self._items.move_to_end(key)
                 return item, True, queue_latency_ms
             self._misses += 1
-            return self._build(plan, config, key), False, queue_latency_ms
+            return self._build_with_logging(plan, config, key), False, queue_latency_ms
 
     def validate(
         self, plan: GuardrailPlanSnapshot, config: NeMoConfigSnapshot
@@ -100,13 +105,29 @@ class NeMoRailsRegistry:
         key = (plan.guardrail_id, plan.guardrail_version, config_checksum(config))
         with self._lock:
             if key not in self._items:
-                self._build(plan, config, key)
+                self._build_with_logging(plan, config, key)
 
     def reload(self) -> None:
-        active = set(self._store.active_plan_keys())
-        with self._lock:
-            for guardrail_id, version in active:
-                self.get(self._store.plan(guardrail_id, version))
+        active = tuple(sorted(set(self._store.active_plan_keys())))
+        started = time.perf_counter()
+        before = self.stats()["entries"]
+        logger.info("Synchronizing %d active NeMo Guardrail Version(s).", len(active))
+        try:
+            with self._lock:
+                for guardrail_id, version in active:
+                    self.get(self._store.plan(guardrail_id, version))
+        except Exception:
+            logger.exception("NeMo runtime synchronization failed.")
+            raise
+        duration_ms = max(0, round((time.perf_counter() - started) * 1_000))
+        after = self.stats()["entries"]
+        logger.info(
+            "NeMo runtime synchronization completed: active=%d newly_prewarmed=%d duration_ms=%d.",
+            len(active),
+            max(0, after - before),
+            duration_ms,
+        )
+        self.readiness()
 
     def stats(self) -> dict[str, int]:
         with self._lock:
@@ -118,9 +139,46 @@ class NeMoRailsRegistry:
             }
 
     def ready(self) -> bool:
+        return bool(self.readiness()["ready"])
+
+    def readiness(self) -> dict[str, object]:
         with self._lock:
+            active = set(self._store.active_plan_keys())
             available = {key[:2] for key in self._items}
-            return set(self._store.active_plan_keys()) <= available
+            missing = tuple(sorted(active - available))
+            if missing != self._last_missing_versions:
+                if missing:
+                    logger.warning(
+                        "NeMo registry is not ready: active=%d prewarmed_active=%d missing=%s.",
+                        len(active),
+                        len(active & available),
+                        ",".join(f"{guardrail_id}@{version}" for guardrail_id, version in missing),
+                    )
+                else:
+                    logger.info(
+                        "NeMo registry is ready: active=%d prewarmed_active=%d.",
+                        len(active),
+                        len(active & available),
+                    )
+                self._last_missing_versions = missing
+            return {
+                "ready": not missing,
+                "status": "ready" if not missing else "not_ready",
+                "reason": (
+                    "all_active_guardrail_versions_prewarmed"
+                    if not missing
+                    else "missing_prewarmed_guardrail_versions"
+                ),
+                "active_versions": len(active),
+                "prewarmed_active_versions": len(active & available),
+                "missing_versions": [
+                    {
+                        "guardrail_id": guardrail_id,
+                        "guardrail_version": version,
+                    }
+                    for guardrail_id, version in missing
+                ],
+            }
 
     async def shutdown(self) -> None:
         with self._lock:
@@ -183,6 +241,37 @@ class NeMoRailsRegistry:
                 continue
             retired = self._items.pop(candidate)
             self._retired.append(retired.rails)
+        return item
+
+    def _build_with_logging(
+        self,
+        plan: GuardrailPlanSnapshot,
+        config: NeMoConfigSnapshot,
+        key: tuple[str, int, str],
+    ) -> NeMoRailsInstance:
+        started = time.perf_counter()
+        logger.info(
+            "Prewarming NeMo runtime: guardrail_id=%s version=%d profile=%s.",
+            plan.guardrail_id,
+            plan.guardrail_version,
+            config.runtime_profile,
+        )
+        try:
+            item = self._build(plan, config, key)
+        except Exception:
+            logger.exception(
+                "NeMo runtime prewarm failed: guardrail_id=%s version=%d profile=%s.",
+                plan.guardrail_id,
+                plan.guardrail_version,
+                config.runtime_profile,
+            )
+            raise
+        logger.info(
+            "NeMo runtime prewarm completed: guardrail_id=%s version=%d duration_ms=%d.",
+            plan.guardrail_id,
+            plan.guardrail_version,
+            max(0, round((time.perf_counter() - started) * 1_000)),
+        )
         return item
 
     def _validate_runtime_profile(self, config: NeMoConfigSnapshot) -> None:

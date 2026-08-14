@@ -106,10 +106,10 @@ async def test_prompt_security_allows_ordinary_business_input_without_deep_judge
     await engine.shutdown()
 
 
-def test_prompt_security_strict_profiles_only_escalate_uncertain_fast_results():
+def test_prompt_security_never_compiles_a_generic_runtime_judge():
     guardrail = prompt_guardrail()
     strict = replace(guardrail, safety_level="strict")
-    plan = GuardrailCompiler(deep_judge_configured=True).compile(
+    plan = GuardrailCompiler().compile(
         strict,
         1,
         resolved_policies=(
@@ -118,6 +118,5 @@ def test_prompt_security_strict_profiles_only_escalate_uncertain_fast_results():
     )
 
     fast = plan.steps_for("input", "fast_semantic")[0]
-    deep = plan.steps_for("input", "deep_judge")[0]
-    assert fast.escalation == "on_uncertain"
-    assert deep.escalation == "on_uncertain"
+    assert fast.escalation == "never"
+    assert plan.steps_for("input", "deep_judge") == ()

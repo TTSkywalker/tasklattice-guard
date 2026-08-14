@@ -185,12 +185,32 @@ class IdentityService:
     def update_preferred_language(
         self, user_id: str, preferred_language: str
     ) -> IdentityUser:
-        _validate_language(preferred_language)
+        return self.update_profile(
+            user_id,
+            preferred_language=preferred_language,
+        )
+
+    def update_profile(
+        self,
+        user_id: str,
+        *,
+        display_name: str | None = None,
+        preferred_language: str | None = None,
+    ) -> IdentityUser:
         with self._database.transaction() as session:
             row = session.get(UserModel, user_id)
             if row is None:
                 raise IdentityValidationError("User was not found.")
-            row.preferred_language = preferred_language
+            next_name = row.display_name if display_name is None else display_name.strip()
+            next_language = (
+                row.preferred_language
+                if preferred_language is None
+                else preferred_language
+            )
+            _validate_name(next_name)
+            _validate_language(next_language)
+            row.display_name = next_name
+            row.preferred_language = next_language
             row.updated_at = _utcnow()
         return self.user(user_id)
 

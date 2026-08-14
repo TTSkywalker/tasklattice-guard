@@ -16,6 +16,10 @@ from app.control_plane.domain import (
     ValidationMetrics,
 )
 from app.control_plane.service import ControlPlaneService
+from app.integrations import (
+    GENERIC_HTTP_GUARD_ADAPTER_ID,
+    LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+)
 from app.nemo.actions.deterministic import FastPassEngine
 from app.runtime.contracts import EngineRequest, RequestContext, StageResult
 from tests.nemo_helpers import nemo_engine
@@ -211,6 +215,142 @@ def test_equally_specific_deployment_matches_fail_closed(tmp_path):
         )
 
 
+def test_integration_routes_are_first_match_and_keep_all_traffic_last(tmp_path):
+    service = ControlPlaneService(tmp_path / "ordered-routes.db")
+    gateway = service.create_integration(
+        name="Production LiteLLM",
+        description="",
+        adapter_id=LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+    ).integration
+    guardrails = []
+    for name in ("Gateway baseline", "Model route", "Finance route"):
+        guardrail = service.create_guardrail(
+            name=name,
+            purpose=f"Protect traffic selected by the {name} binding.",
+            policy_bindings=(policy_binding("secrets", "reject"),),
+        )
+        pass_current_guardrail(service, guardrail.id)
+        guardrails.append(service.guardrail(guardrail.id))
+
+    catch_all = service.create_deployment(
+        name="All remaining traffic",
+        guardrail_id=guardrails[0].id,
+        integration_id=gateway.id,
+        traffic_scope=filter_expression(),
+    )
+    model_route = service.create_deployment(
+        name="Qwen traffic",
+        guardrail_id=guardrails[1].id,
+        integration_id=gateway.id,
+        traffic_scope=filter_expression(filter_rule("model", "glob", "qwen/*")),
+    )
+    finance_route = service.create_deployment(
+        name="Finance traffic",
+        guardrail_id=guardrails[2].id,
+        integration_id=gateway.id,
+        traffic_scope=filter_expression(
+            filter_rule("litellm.team_id", "equals", "finance")
+        ),
+    )
+
+    routes = sorted(
+        (item for item in service.deployments() if item.integration_id == gateway.id),
+        key=lambda item: item.route_order,
+    )
+    assert [item.id for item in routes] == [
+        model_route.id,
+        finance_route.id,
+        catch_all.id,
+    ]
+
+    context = RequestContext(
+        protocol="litellm",
+        integration_id=gateway.id,
+        fields=(("model", "qwen/chat"), ("litellm.team_id", "finance")),
+    )
+    assert service.resolve(context).deployment_id == model_route.id
+
+    reordered = service.reorder_deployment_routes(
+        gateway.id, (finance_route.id, model_route.id, catch_all.id)
+    )
+    assert [item.route_order for item in reordered] == [1, 2, 3]
+    assert service.resolve(context).deployment_id == finance_route.id
+
+    with pytest.raises(ValidationError, match="All traffic route must remain last"):
+        service.reorder_deployment_routes(
+            gateway.id, (catch_all.id, finance_route.id, model_route.id)
+        )
+
+    unmatched = service.resolve(
+        RequestContext(
+            protocol="litellm",
+            integration_id=gateway.id,
+            fields=(("model", "other/chat"), ("litellm.team_id", "support")),
+        )
+    )
+    assert unmatched.deployment_id == catch_all.id
+
+
+def test_batch_bindings_create_independent_routes_for_compatible_integrations(tmp_path):
+    service = ControlPlaneService(tmp_path / "batch-bindings.db")
+    gateways = tuple(
+        service.create_integration(
+            name=name,
+            description="",
+            adapter_id=LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+        ).integration
+        for name in ("Gateway CN", "Gateway US")
+    )
+    http_gateway = service.create_integration(
+        name="HTTP Gateway",
+        description="",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
+    ).integration
+    guardrail = service.create_guardrail(
+        name="Shared regional protection",
+        purpose="Protect equivalent regional Gateway traffic.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+    pass_current_guardrail(service, guardrail.id)
+
+    with pytest.raises(ControlPlaneError, match="Integration was not found"):
+        service.create_deployment(
+            name="Missing Gateway",
+            guardrail_id=guardrail.id,
+            integration_id="integration-missing",
+            traffic_scope=filter_expression(),
+        )
+
+    bindings = service.create_deployment_bindings(
+        name="Regional Gateways",
+        guardrail_id=guardrail.id,
+        integration_ids=tuple(item.id for item in gateways),
+        traffic_scope=filter_expression(),
+    )
+
+    assert len(bindings) == 2
+    assert {item.integration_id for item in bindings} == {item.id for item in gateways}
+    assert len({item.id for item in bindings}) == 2
+    assert all(item.route_order == 1 for item in bindings)
+    assert all(not item.traffic_scope.conditions for item in bindings)
+
+    with pytest.raises(ValidationError, match="same Adapter"):
+        service.create_deployment_bindings(
+            name="Mixed protocols",
+            guardrail_id=guardrail.id,
+            integration_ids=(gateways[0].id, http_gateway.id),
+            traffic_scope=filter_expression(filter_rule("model", "glob", "qwen/*")),
+        )
+
+    with pytest.raises(ValidationError, match="already used"):
+        service.create_deployment_bindings(
+            name="Duplicate regional binding",
+            guardrail_id=guardrail.id,
+            integration_ids=(gateways[0].id,),
+            traffic_scope=filter_expression(),
+        )
+
+
 def test_new_control_plane_starts_with_an_always_on_local_default(tmp_path):
     service = ControlPlaneService(tmp_path / "v5.db")
 
@@ -320,7 +460,13 @@ def test_database_uses_only_current_orm_tables_and_columns(tmp_path):
         "draft_version",
         "active_version",
     } <= guardrail_columns
-    assert {"guardrail_id", "guardrail_version", "traffic_scope_json"} <= deployment_columns
+    assert {
+        "guardrail_id",
+        "guardrail_version",
+        "integration_id",
+        "route_order",
+        "traffic_scope_json",
+    } <= deployment_columns
     assert {
         "adapter_id",
         "enabled",
@@ -346,6 +492,33 @@ def test_database_uses_only_current_orm_tables_and_columns(tmp_path):
     }.isdisjoint(
         guardrail_columns | deployment_columns
     )
+
+
+def test_existing_deployment_table_receives_additive_binding_columns(tmp_path):
+    database_path = tmp_path / "pre-binding-schema.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE deployments (
+                id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                guardrail_id VARCHAR NOT NULL,
+                guardrail_version INTEGER NOT NULL,
+                traffic_scope_json JSON NOT NULL,
+                enabled BOOLEAN NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+            """
+        )
+
+    service = ControlPlaneService(database_path)
+
+    with sqlite3.connect(database_path) as connection:
+        deployment_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(deployments)")
+        }
+    assert {"integration_id", "route_order"} <= deployment_columns
+    assert service.deployment(DEFAULT_DEPLOYMENT_ID).route_order == 100
 
 def test_nested_traffic_scope_matches_either_trusted_finance_identity(tmp_path):
     service = ControlPlaneService(tmp_path / "nested.db")

@@ -34,6 +34,7 @@ const names: Record<string, { group: string; page: string }> = {
   "/integrations": { group: "nav.runtime", page: "nav.integrations" },
   "/evidence": { group: "nav.assurance", page: "nav.evidence" },
   "/access": { group: "nav.system", page: "nav.access" },
+  "/account": { group: "nav.system", page: "account.title" },
 };
 
 export function ControlPlaneLayout() {
@@ -90,7 +91,7 @@ function RuntimeHealthMenu({ loading, status }: { loading: boolean; status?: Awa
   const capabilities = status ? [
     [t("integrations.localDetection"), status.capabilities.deterministic],
     [t("integrations.fastSemantic"), status.capabilities.fast_semantic],
-    [t("integrations.deepJudge"), status.capabilities.deep_judge],
+    [t("integrations.specializedEvaluators"), status.capabilities.specialized_evaluators.length > 0],
     [t("integrations.automatedReasoning"), status.capabilities.automated_reasoning],
   ] as const : [];
   return (

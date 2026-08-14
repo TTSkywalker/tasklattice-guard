@@ -238,6 +238,8 @@ export type Deployment = {
   name: string;
   guardrail_id: string;
   guardrail_version: number;
+  integration_id: string | null;
+  route_order: number;
   traffic_scope: TrafficScopeExpression;
   enabled: boolean;
   is_default: boolean;
@@ -656,7 +658,8 @@ export type SystemStatus = {
   capabilities: {
     deterministic: boolean;
     fast_semantic: boolean;
-    deep_judge: boolean;
+    specialized_evaluators: string[];
+    generic_runtime_llm: false;
     automated_reasoning: boolean;
   };
 };
@@ -921,7 +924,7 @@ const query = (params: Record<string, string | number | undefined>) => {
 export const getAuthStatus = () => read<AuthStatus>("/api/v1/session");
 export const login = (input: { email: string; password: string }) => mutate<{ user: IdentityUser }>("/api/v1/session", "POST", input);
 export const logout = () => mutate<void>("/api/v1/session", "DELETE");
-export const updateMe = (input: { preferred_language: "en" | "zh-CN" }) => mutate<{ user: IdentityUser }>("/api/v1/me", "PATCH", input);
+export const updateMe = (input: { display_name?: string; preferred_language?: "en" | "zh-CN" }) => mutate<{ user: IdentityUser }>("/api/v1/me", "PATCH", input);
 export const changePassword = (input: { current_password: string; new_password: string }) => mutate<{ user: IdentityUser }>("/api/v1/me/password", "PATCH", input);
 export const getUsers = () => read<{ users: IdentityUser[] }>("/api/v1/users");
 export const createUser = (input: { display_name: string; email: string; password: string; role: IdentityRole; preferred_language: "en" | "zh-CN" }) => mutate<IdentityUser>("/api/v1/users", "POST", input);
@@ -974,7 +977,9 @@ export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cas
 
 export const getDeployments = () => read<Collection<Deployment>>("/api/v1/deployments");
 export const getTrafficScopeFields = () => read<Collection<TrafficScopeField>>("/api/v1/traffic-scope-fields");
-export const createDeployment = (input: { name: string; guardrail_id: string; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<Deployment>("/api/v1/deployments", "POST", input);
+export const createDeployment = (input: { name: string; guardrail_id: string; integration_id?: string | null; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<Deployment>("/api/v1/deployments", "POST", input);
+export const createDeploymentBindings = (input: { name: string; guardrail_id: string; integration_ids: string[]; traffic_scope: TrafficScopeExpression; enabled: boolean }) => mutate<Collection<Deployment>>("/api/v1/deployments/bindings", "POST", input);
+export const reorderDeploymentRoutes = (integrationId: string, deploymentIds: string[]) => mutate<Collection<Deployment>>(`/api/v1/deployments/routes/${encodeURIComponent(integrationId)}/order`, "PUT", { deployment_ids: deploymentIds });
 export const setDeploymentEnabled = (id: string, enabled: boolean) => mutate<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`, "PATCH", { enabled });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
 export const getIntegration = (id: string) => read<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`);

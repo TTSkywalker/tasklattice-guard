@@ -27,6 +27,8 @@ const deployment: Deployment = {
   name: "Observed traffic",
   guardrail_id: "guardrail-observed",
   guardrail_version: 2,
+  integration_id: "integration-observed",
+  route_order: 1,
   traffic_scope: { combinator: "and", conditions: [{ field: "protocol", operator: "equals", value: "litellm" }] },
   enabled: true,
   is_default: false,

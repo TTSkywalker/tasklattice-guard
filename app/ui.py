@@ -27,6 +27,7 @@ class ControlPlaneStaticFiles(StaticFiles):
                     "integrations",
                     "evidence",
                     "access",
+                    "account",
                 }
             ):
                 raise

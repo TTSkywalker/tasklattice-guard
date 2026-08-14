@@ -309,7 +309,16 @@ def test_all_ten_policy_execution_paths_compile_into_native_rails_or_nemo_action
         active_version=None,
         updated_at="2026-08-12T00:00:00+00:00",
     )
-    plan = GuardrailCompiler(deep_judge_configured=True).compile(
+    plan = GuardrailCompiler(
+        specialized_evaluator_risks=frozenset(
+            {
+                "topic_control",
+                "company_policy",
+                "contextual_grounding",
+                "automated_reasoning",
+            }
+        )
+    ).compile(
         guardrail, 1, resolved_policies=resolved_policies
     )
     prompts = prompts_yaml()
@@ -346,20 +355,19 @@ def test_all_ten_policy_execution_paths_compile_into_native_rails_or_nemo_action
         "content_safety" if "ContentSafety" in flow else
         "pii" if "SensitiveData" in flow else
         "topic_control" if "TopicSafety" in flow else
-        "jailbreak" if "Jailbreak" in flow else
         ""
         for flow in flows
     } - {""}
+    if any("Jailbreak" in flow for flow in flows):
+        native_risks.update({"prompt_injection", "jailbreak"})
     action_risks = {binding.risk for binding in config.action_bindings}
 
-    # The strict plan keeps PII in a versioned Python Action and preserves the
-    # topic/jailbreak multi-stage chains instead of silently collapsing them to
-    # one native check. Content Safety is the only single terminal native flow.
-    assert native_risks == {"content_safety"}
+    # Prompt injection and jailbreak are intentionally handled by NVIDIA's
+    # dedicated Jailbreak Detection NIM. They never fall back to a generic LLM.
+    assert native_risks == {"content_safety", "prompt_injection", "jailbreak"}
     assert {item.risk for item in resolved_policies} == native_risks | action_risks
     assert {
         "secrets",
-        "prompt_injection",
         "builtin_content_filter",
         "company_policy",
         "contextual_grounding",
@@ -367,7 +375,8 @@ def test_all_ten_policy_execution_paths_compile_into_native_rails_or_nemo_action
     } <= action_risks
     assert config.runtime_engine == "llmrails"
     assert payload["colang_version"] == "2.x"
-    assert "TaskLatticePromptSecurityFastAction" in config.colang_content
+    assert "TaskLatticePromptSecurityFastAction" not in config.colang_content
+    assert ("input", "jailbreak detection model") in config.rail_flows
     assert "TaskLatticeAutomatedReasoningAction" in config.colang_content
     assert "TaskLatticeResolveAction" in config.colang_content
     assert "start tasklattice_module_input" in config.colang_content
@@ -449,6 +458,143 @@ async def test_registry_prewarms_and_never_builds_on_the_active_hot_path(tmp_pat
     assert after["misses"] == before["misses"]
     assert after["hits"] >= before["hits"] + 3
     await engine.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_creating_deployment_prewarms_previously_inactive_guardrail(tmp_path):
+    database = tmp_path / "deployment-prewarm.db"
+    authoring = ControlPlaneService(database)
+    guardrail = authoring.create_guardrail(
+        name="Previously inactive protection",
+        purpose="Protect traffic only after its first Deployment is created.",
+        policy_bindings=(_policy("secrets", "reject"),),
+    )
+    _pass_current_draft(authoring, guardrail.id)
+    released = authoring.activate_tested_version(guardrail.id)
+
+    restarted = ControlPlaneService(database)
+    registry = NeMoRailsRegistry(
+        restarted, runtime_action_registry(FastPassEngine())
+    )
+    restarted.bind_nemo_runtime(
+        validator=registry.validate,
+        reloader=registry.reload,
+    )
+    before = registry.stats()
+
+    deployment = restarted.create_deployment(
+        name="First protected HTTP traffic",
+        guardrail_id=guardrail.id,
+        traffic_scope=TrafficScopeExpression(
+            "and", (TrafficCondition("protocol", "equals", "http"),)
+        ),
+    )
+
+    assert deployment.guardrail_version == released.version.version
+    assert registry.ready() is True
+    assert registry.readiness()["missing_versions"] == []
+    assert registry.stats()["entries"] == before["entries"] + 1
+    await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enabling_deployment_prewarms_previously_inactive_guardrail(tmp_path):
+    database = tmp_path / "deployment-enable-prewarm.db"
+    authoring = ControlPlaneService(database)
+    guardrail = authoring.create_guardrail(
+        name="Paused protection",
+        purpose="Protect traffic after a paused Deployment is enabled.",
+        policy_bindings=(_policy("secrets", "reject"),),
+    )
+    _pass_current_draft(authoring, guardrail.id)
+    authoring.activate_tested_version(guardrail.id)
+
+    restarted = ControlPlaneService(database)
+    registry = NeMoRailsRegistry(
+        restarted, runtime_action_registry(FastPassEngine())
+    )
+    restarted.bind_nemo_runtime(
+        validator=registry.validate,
+        reloader=registry.reload,
+    )
+    before = registry.stats()
+    deployment = restarted.create_deployment(
+        name="Paused HTTP traffic",
+        guardrail_id=guardrail.id,
+        traffic_scope=TrafficScopeExpression(
+            "and", (TrafficCondition("protocol", "equals", "http"),)
+        ),
+        enabled=False,
+    )
+
+    assert registry.stats()["entries"] == before["entries"]
+    assert registry.ready() is True
+
+    restarted.set_deployment_enabled(deployment.id, True)
+
+    assert registry.stats()["entries"] == before["entries"] + 1
+    assert registry.ready() is True
+    await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_registry_readiness_reports_missing_versions_and_recovers(caplog):
+    active = _plan(
+        "active-runtime",
+        GuardrailPlanStep(
+            "secrets:deterministic", "secrets", "deterministic", ("input",), "reject"
+        ),
+    )
+    newly_routed = _plan(
+        "newly-routed-runtime",
+        GuardrailPlanStep(
+            "secrets:deterministic", "secrets", "deterministic", ("input",), "reject"
+        ),
+    )
+    compiler = NeMoConfigCompiler()
+
+    class MutableActiveStore(_StaticStore):
+        active_keys = ((active.guardrail_id, active.guardrail_version),)
+
+        def active_plan_keys(self):
+            return self.active_keys
+
+    store = MutableActiveStore(
+        (active, newly_routed),
+        (compiler.compile(active), compiler.compile(newly_routed)),
+    )
+    registry = NeMoRailsRegistry(
+        store, runtime_action_registry(FastPassEngine())
+    )
+    store.active_keys = (
+        (active.guardrail_id, active.guardrail_version),
+        (newly_routed.guardrail_id, newly_routed.guardrail_version),
+    )
+
+    with caplog.at_level(
+        "WARNING", logger="uvicorn.error.tasklattice.nemo.registry"
+    ):
+        detail = registry.readiness()
+        registry.readiness()
+
+    assert detail == {
+        "ready": False,
+        "status": "not_ready",
+        "reason": "missing_prewarmed_guardrail_versions",
+        "active_versions": 2,
+        "prewarmed_active_versions": 1,
+        "missing_versions": [
+            {
+                "guardrail_id": newly_routed.guardrail_id,
+                "guardrail_version": newly_routed.guardrail_version,
+            }
+        ],
+    }
+    assert sum("NeMo registry is not ready" in item.message for item in caplog.records) == 1
+
+    registry.reload()
+    assert registry.ready() is True
+    await registry.shutdown()
 
 
 @pytest.mark.asyncio

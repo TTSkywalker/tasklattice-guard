@@ -148,7 +148,7 @@ class PlaygroundTraceEngine:
 
 
 class StubPlaygroundChatModel:
-    id = "deep-judge"
+    id = "playground-chat"
     provider = "DeepSeek"
     model = "deepseek-test"
 
@@ -212,6 +212,46 @@ async def login_default_admin(client: httpx.AsyncClient) -> dict[str, object]:
     )
     assert response.status_code == 200
     return response.json()["user"]
+
+
+@pytest.mark.asyncio
+async def test_health_ready_exposes_missing_prewarmed_guardrail_versions(tmp_path):
+    class NotReadyEngine(Engine):
+        def readiness(self):
+            return {
+                "ready": False,
+                "status": "not_ready",
+                "reason": "missing_prewarmed_guardrail_versions",
+                "active_versions": 2,
+                "prewarmed_active_versions": 1,
+                "missing_versions": [
+                    {
+                        "guardrail_id": "guardrail-finance",
+                        "guardrail_version": 3,
+                    }
+                ],
+            }
+
+    app = create_app(settings=settings(tmp_path), engine=NotReadyEngine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "ready": False,
+        "status": "not_ready",
+        "reason": "missing_prewarmed_guardrail_versions",
+        "active_versions": 2,
+        "prewarmed_active_versions": 1,
+        "missing_versions": [
+            {
+                "guardrail_id": "guardrail-finance",
+                "guardrail_version": 3,
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -670,7 +710,7 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
             "/api/v1/playground/interactions",
             json={
                 "guardrail_id": guardrail_id,
-                "model_id": "deep-judge",
+                "model_id": "playground-chat",
                 "message": "Give me a concise answer.",
                 "history": [
                     {"role": "assistant", "content": "Earlier model response."}
@@ -708,7 +748,7 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
     assert models.json() == {
         "items": [
             {
-                "id": "deep-judge",
+                "id": "playground-chat",
                 "provider": "DeepSeek",
                 "name": "deepseek-test",
                 "icon": "deepseek",
@@ -727,7 +767,7 @@ async def test_playground_chat_runs_both_checks_and_returns_model_response(
     assert payload["input_check"]["decision"] == "allow"
     assert payload["output_check"]["phase"] == "output"
     assert payload["output_check"]["decision"] == "allow"
-    assert payload["model"]["id"] == "deep-judge"
+    assert payload["model"]["id"] == "playground-chat"
     assert payload["model"]["provider"] == "DeepSeek"
     assert isinstance(payload["model"]["latency_ms"], int)
     assert model.calls == [
@@ -792,7 +832,7 @@ async def test_playground_chat_withholds_output_and_exposes_both_inspection_chec
             "/api/v1/playground/interactions",
             json={
                 "guardrail_id": created.json()["id"],
-                "model_id": "deep-judge",
+                "model_id": "playground-chat",
                 "message": "Give me a reviewed response.",
                 "history": [
                     {"role": "assistant", "content": "How can I help?"}
@@ -861,7 +901,7 @@ async def test_playground_chat_does_not_call_model_when_input_is_blocked(tmp_pat
             "/api/v1/playground/interactions",
             json={
                 "guardrail_id": guardrails.json()["items"][0]["id"],
-                "model_id": "deep-judge",
+                "model_id": "playground-chat",
                 "message": "This blocked sample must stop before the model.",
             },
         )
@@ -1030,8 +1070,81 @@ async def test_topic_safety_policy_validates_and_runs_locally_without_a_gateway(
     }
     assert "filter" not in deployment.json()
     assert "selector" not in deployment.json()
-    assert "integration_id" not in deployment.json()
+    assert deployment.json()["integration_id"] is None
+    assert deployment.json()["route_order"] == 100
     assert obsolete_payload.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_deployment_binding_api_fans_out_one_route_per_integration(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "Regional Gateway protection",
+                "purpose": "Protect equivalent LiteLLM traffic in every active region.",
+                "policy_bindings": [policy_binding_payload("secrets", "reject")],
+            },
+        )
+        guardrail_id = created.json()["id"]
+        guardrail = app.state.control_plane.guardrail(guardrail_id)
+        app.state.control_plane.save_validation_run(
+            guardrail_id=guardrail_id,
+            guardrail_version=None,
+            source_draft_version=guardrail.draft_version,
+            status="passed",
+            metrics=ValidationMetrics(1, 1, 100, 0, 0, 1, 1),
+            results=(
+                TestCaseResult(
+                    "case",
+                    "case",
+                    "secrets",
+                    "block",
+                    "block",
+                    True,
+                    "deterministic",
+                    1,
+                    "blocked",
+                ),
+            ),
+        )
+        app.state.control_plane.activate_tested_version(guardrail_id)
+        integration_ids = []
+        for name in ("Gateway CN", "Gateway US"):
+            response = await client.post(
+                "/api/v1/integrations",
+                json={
+                    "name": name,
+                    "adapter_id": LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
+                },
+            )
+            integration_ids.append(response.json()["integration"]["id"])
+
+        bindings = await client.post(
+            "/api/v1/deployments/bindings",
+            json={
+                "name": "All regional traffic",
+                "guardrail_id": guardrail_id,
+                "integration_ids": integration_ids,
+                "traffic_scope": {"combinator": "and", "conditions": []},
+                "enabled": True,
+            },
+        )
+
+    assert bindings.status_code == 201
+    assert bindings.json()["count"] == 2
+    assert {
+        item["integration_id"] for item in bindings.json()["items"]
+    } == set(integration_ids)
+    assert all(item["route_order"] == 1 for item in bindings.json()["items"])
+    assert all(
+        item["traffic_scope"] == {"combinator": "and", "conditions": []}
+        for item in bindings.json()["items"]
+    )
 
 
 @pytest.mark.asyncio
@@ -1095,7 +1208,11 @@ async def test_admin_can_manage_users_and_language(tmp_path):
         )
         users = await client.get("/api/v1/users")
         language = await client.patch(
-            "/api/v1/me", json={"preferred_language": "zh-CN"}
+            "/api/v1/me",
+            json={
+                "display_name": "Guard Administrator",
+                "preferred_language": "zh-CN",
+            },
         )
         disabled = await client.patch(
             f"/api/v1/users/{created.json()['id']}", json={"enabled": False}
@@ -1112,6 +1229,7 @@ async def test_admin_can_manage_users_and_language(tmp_path):
     assert created.status_code == 201
     assert len(users.json()["users"]) == 2
     assert language.json()["user"]["preferred_language"] == "zh-CN"
+    assert language.json()["user"]["display_name"] == "Guard Administrator"
     assert disabled.json()["enabled"] is False
     assert self_disable.status_code == 400
     assert disabled_login.status_code == 401
@@ -1849,6 +1967,7 @@ async def test_final_product_routes_fall_back_to_spa_entrypoint(tmp_path):
             "/integrations",
             "/evidence",
             "/access",
+            "/account",
         )
         responses = [
             await client.get(route, headers={"accept": "text/html"})

@@ -14,6 +14,7 @@ import { PlaygroundPage } from "@/routes/playground";
 import { UsersPage } from "@/routes/users";
 import { DashboardPage } from "@/routes/dashboard";
 import { PolicyLibraryPage } from "@/routes/policy-library";
+import { AccountPage } from "@/routes/account";
 import { AuthProvider } from "@/lib/auth";
 import "@/i18n";
 import "@/styles.css";
@@ -33,6 +34,7 @@ const deploymentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/
 const integrationsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/integrations", component: IntegrationsPage });
 const evidenceRoute = createRoute({ getParentRoute: () => rootRoute, path: "/evidence", component: EvidencePage });
 const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
+const accountRoute = createRoute({ getParentRoute: () => rootRoute, path: "/account", component: AccountPage });
 const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
@@ -45,6 +47,7 @@ const routeTree = rootRoute.addChildren([
   integrationsRoute,
   evidenceRoute,
   usersRoute,
+  accountRoute,
 ]);
 const router = createRouter({ routeTree, history: createBrowserHistory() });
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }

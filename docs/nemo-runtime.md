@@ -52,16 +52,31 @@ three separate dimensions with different concurrency semantics:
 | --- | --- | --- |
 | NeMo runtime profile | `iorails_native`, `llmrails_colang1_standard`, `llmrails_colang2_programmable` | One immutable Guardrail Version selects exactly one profile. Profiles never run in parallel or fall back into one another. |
 | Policy Module | Data Protection, Interaction Safety, Business Assurance | Independent modules in the same dependency wave may run concurrently. Grounding and Automated Reasoning wait for required upstream results such as masking. |
-| Detection depth | Local Rule matcher, Guard Model, Policy Judge | Checks for the same Rule run in an ordered route. A later check runs only when the compiled escalation mode requires it, for example after an uncertain result or in strict mode. |
+| Detection depth | Local Rule matcher, dedicated Guard Model, specialized evaluator | Checks for the same Rule run in an ordered route. The compiler only admits evaluators explicitly registered for that capability. |
 
 Parallelism therefore exists between independent Policy Modules, Policies, and
-Rules. It does not mean that local matching, a Guard Model, and a Policy Judge
+Rules. It does not mean that local matching, a Guard Model, and a specialized evaluator
 always run as three parallel evaluators.
 
-Provider names describe implementation, not orchestration. NVIDIA models are
-Guard Models for configured capabilities. A provider-neutral model such as
-DeepSeek may back several runtime Policy Judge Actions. The control-plane
-assistant is a separate authoring aid and never inspects production traffic.
+General-purpose chat models are not Runtime dependencies. NVIDIA Guard Models
+and formal reasoning providers are admitted only for their declared
+capabilities. DeepSeek can generate Playground conversations or translate
+human intent into a reviewable control-plane draft, but it is never registered
+as a NeMo Runtime Action and never receives production traffic for evaluation.
+
+The NVIDIA runtime mapping is explicit rather than provider-wide:
+
+| Runtime capability | Dedicated evaluator |
+| --- | --- |
+| Harmful input/output | `content_safety` model |
+| Allowed/restricted topics and organization policy | `topic_control` model |
+| Prompt injection and jailbreak | Jailbreak Detection NIM `/classify` endpoint |
+| Contextual grounding | Explicit grounding evaluator only |
+| Automated reasoning | Explicit immutable-policy provider only |
+
+An NVIDIA credential grants access; it does not make an arbitrary NVIDIA chat
+model a Runtime evaluator. `NeMoConfigCompiler` rejects `main` and every model
+type other than the dedicated Guard Model roles admitted above.
 
 ## Runtime profiles
 
@@ -141,13 +156,13 @@ not independently re-resolve the policy.
 | --- | --- |
 | Content Safety | Native input/output content-safety flow when admitted to IORails; otherwise the configured LLMRails Action/flow. |
 | Personal information | Version-pinned Python detection/masking Action in the standard lane unless a complex composition requires Colang 2. |
-| Topic Safety | Native topic-safety flow for an IORails-compatible NeMo-owned generation; deterministic or single-judge Python Action in the standard lane; escalation in the programmable lane. |
-| Jailbreak | Native model flow when IORails-compatible; fast/judge Actions otherwise. |
-| Prompt Injection | Fast or judge Python Actions because NeMo 0.23's injection library flow does not represent the product's input contract; escalation remains programmable. |
+| Topic Safety | Native topic-safety flow for an IORails-compatible NeMo-owned generation; deterministic or dedicated Topic Control Action otherwise. |
+| Jailbreak | Dedicated Jailbreak Detection model when configured; local fast detection otherwise. |
+| Prompt Injection | Dedicated Jailbreak Detection model when configured; local fast detection otherwise. |
 | Secrets | Deterministic Python Action, normally standard. |
 | Built-in content policies | Versioned Python Actions over TaskLattice Policy Rules, normally standard. |
-| Organization Policy | A single Policy Judge may be standard; escalation or dependent policy is programmable. |
-| Contextual Grounding | Programmable full-output Action over query and source Content Blocks. |
+| Organization Policy | Dedicated NVIDIA Topic Control Action evaluated against compiled business boundaries; no generic LLM fallback exists. |
+| Contextual Grounding | Programmable full-output Action backed only by a configured grounding-specific evaluator. |
 | Automated Reasoning | Programmable full-output Action bound to an immutable external policy ID/version. |
 
 Built-in prompt assets live with their owning Policy implementation under

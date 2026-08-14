@@ -1,22 +1,9 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, Cable, ChevronsUpDown, FlaskConical, Globe2, KeyRound, LayoutDashboard, LibraryBig, ListChecks, LogOut, Rocket, ShieldCheck, UsersRound } from "lucide-react";
+import { Activity, Cable, FlaskConical, LayoutDashboard, LibraryBig, ListChecks, Rocket, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ChangePasswordSheet } from "@/components/change-password-sheet";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { AccountMenu } from "@/components/account-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -33,8 +20,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { queryKeys } from "@/features/query-keys";
-import type { SupportedLanguage } from "@/i18n";
-import { useAuth } from "@/lib/auth";
 import { getDeployments, getGuardrails, getIntegrations } from "@/lib/api";
 
 const navigation = [
@@ -69,10 +54,8 @@ const navigation = [
 ] as const;
 
 export function ControlPlaneSidebar() {
-  const { t, i18n } = useTranslation();
-  const { user, logout, logoutPending, setLanguage } = useAuth();
-  const { setOpenMobile, state } = useSidebar();
-  const [passwordOpen, setPasswordOpen] = useState(false);
+  const { t } = useTranslation();
+  const { isMobile, setOpenMobile, state } = useSidebar();
   const pathname = useRouterState({ select: (routerState) => routerState.location.pathname });
   const guardrails = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
   const deployments = useQuery({ queryKey: queryKeys.deployments, queryFn: getDeployments });
@@ -82,28 +65,8 @@ export function ControlPlaneSidebar() {
     deployments: deployments.data?.count,
     integrations: integrations.data?.count,
   };
-  const language: SupportedLanguage = i18n.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
-
-  async function signOut() {
-    try {
-      await logout();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("common.unknownError"));
-    }
-  }
-
-  async function changeLanguage(value: string) {
-    try {
-      await setLanguage(value as SupportedLanguage);
-      toast.success(t("sidebar.languageUpdated"));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("common.unknownError"));
-    }
-  }
-
   return (
-    <>
-      <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       <SidebarHeader className="h-16 justify-center border-b border-sidebar-border px-4 group-data-[collapsible=icon]:px-3">
         <Link
           to="/dashboard"
@@ -120,7 +83,6 @@ export function ControlPlaneSidebar() {
 
       <SidebarContent className="px-2 py-3">
         {navigation.map((group) => {
-          const items = group.items.filter((item) => !("adminOnly" in item && item.adminOnly && user?.role !== "admin"));
           return (
             <SidebarGroup key={group.label} className="px-0 py-2 group-data-[collapsible=icon]:px-1">
               {group.label ? <SidebarGroupLabel className="h-7 px-2.5 text-[11px] font-medium text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden">
@@ -128,7 +90,7 @@ export function ControlPlaneSidebar() {
               </SidebarGroupLabel> : null}
               <SidebarGroupContent>
                 <SidebarMenu className="gap-1">
-                  {items.map((item) => {
+                  {group.items.map((item) => {
                     const active = pathname === item.to || (item.to === "/guardrails" && pathname.startsWith("/guardrails/"));
                     const count = "count" in item ? counts[item.count] : undefined;
                     const label = t(item.label);
@@ -161,42 +123,9 @@ export function ControlPlaneSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="gap-1.5 border-t border-sidebar-border p-2.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button" className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-transparent px-1.5 text-left outline-none transition-colors hover:border-sidebar-border hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[state=open]:border-sidebar-border data-[state=open]:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0" aria-label={t("sidebar.accountMenu")}>
-              <Avatar className="size-8 rounded-lg"><AvatarFallback>{initials(user?.display_name ?? "")}</AvatarFallback></Avatar>
-              <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{user?.display_name}</span><span className="mt-0.5 block truncate text-[10px] text-sidebar-foreground/50">{user?.email}</span></span>
-              <ChevronsUpDown className="mr-1 size-3.5 text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-64">
-            <div className="flex items-center gap-3 px-2.5 py-2.5">
-              <Avatar className="size-9"><AvatarFallback>{initials(user?.display_name ?? "")}</AvatarFallback></Avatar>
-              <div className="min-w-0"><p className="truncate text-sm font-semibold">{user?.display_name}</p><p className="truncate text-xs text-muted-foreground">{user?.email}</p><p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-primary">{t(user?.role === "admin" ? "common.admin" : "common.member")}</p></div>
-            </div>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="flex items-center gap-2"><Globe2 />{t("sidebar.profilePreferences")}</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={language} onValueChange={(value) => void changeLanguage(value)}>
-              <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="zh-CN">简体中文</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => { setPasswordOpen(true); setOpenMobile(false); }}><KeyRound />{t("auth.changePassword")}</DropdownMenuItem>
-            {user?.role === "admin" ? <DropdownMenuItem asChild><Link to="/access" onClick={() => setOpenMobile(false)}><UsersRound />{t("auth.manageUsers")}</Link></DropdownMenuItem> : null}
-            <DropdownMenuItem variant="destructive" disabled={logoutPending} onSelect={() => void signOut()}><LogOut />{t(logoutPending ? "auth.signingOut" : "auth.signOut")}</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AccountMenu collapsed={!isMobile && state === "collapsed"} onNavigate={() => setOpenMobile(false)} />
       </SidebarFooter>
       <SidebarRail />
-      </Sidebar>
-      <ChangePasswordSheet open={passwordOpen} onOpenChange={setPasswordOpen} />
-    </>
+    </Sidebar>
   );
-}
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "U";
-  if (parts.length === 1) return Array.from(parts[0]).slice(0, 2).join("").toUpperCase();
-  return `${Array.from(parts[0])[0] ?? ""}${Array.from(parts.at(-1) ?? "")[0] ?? ""}`.toUpperCase();
 }

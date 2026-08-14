@@ -65,18 +65,19 @@ database:
 runtime:
   publicBaseUrl: http://localhost:38081
 
+playgroundChat:
+  baseUrl: ""
+  model: ""
+  apiKey: ""
+  existingSecret: ""
+  secretKey: api-key
+
 evaluators:
   nvidia:
     baseUrl: ""
     contentSafetyModel: ""
     topicControlModel: ""
     groundingModel: ""
-    apiKey: ""
-    existingSecret: ""
-    secretKey: api-key
-  deepJudge:
-    baseUrl: ""
-    model: ""
     apiKey: ""
     existingSecret: ""
     secretKey: api-key
@@ -87,6 +88,7 @@ evaluators:
     secretKey: api-key
   jailbreakDetection:
     nimBaseUrl: ""
+    serverEndpoint: classify
     apiKey: ""
     existingSecret: ""
     secretKey: api-key

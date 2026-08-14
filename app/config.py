@@ -16,9 +16,11 @@ class Settings:
     topic_control_model: str | None = None
     grounding_model: str | None = None
     nvidia_api_key_env_var: str = "MODEL_GUARDRAILS_NVIDIA_API_KEY"
-    deep_judge_base_url: str | None = None
-    deep_judge_model: str | None = None
-    deep_judge_api_key_env_var: str = "MODEL_GUARDRAILS_DEEP_JUDGE_API_KEY"
+    playground_chat_base_url: str | None = None
+    playground_chat_model: str | None = None
+    playground_chat_api_key_env_var: str = (
+        "MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY"
+    )
     automated_reasoning_endpoint_url: str | None = None
     automated_reasoning_api_key_env_var: str = (
         "MODEL_GUARDRAILS_AUTOMATED_REASONING_API_KEY"
@@ -32,8 +34,9 @@ class Settings:
     runtime_p99_budget_ms: int = 5_000
     runtime_max_concurrency_per_guardrail: int = 64
     jailbreak_detection_nim_base_url: str | None = None
+    jailbreak_detection_nim_server_endpoint: str = "classify"
     jailbreak_detection_api_key_env_var: str = (
-        "MODEL_GUARDRAILS_JAILBREAK_API_KEY"
+        "MODEL_GUARDRAILS_NVIDIA_API_KEY"
     )
     otel_enabled: bool = False
     otel_exporter_endpoint: str | None = None
@@ -74,18 +77,18 @@ class Settings:
             "MODEL_GUARDRAILS_NVIDIA_API_KEY_ENV_VAR",
             "MODEL_GUARDRAILS_NVIDIA_API_KEY",
         ).strip() or "MODEL_GUARDRAILS_NVIDIA_API_KEY"
-        deep_judge_base_url = os.environ.get(
-            "MODEL_GUARDRAILS_DEEP_JUDGE_BASE_URL",
+        playground_chat_base_url = os.environ.get(
+            "MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL",
             "",
         ).strip()
-        deep_judge_model = os.environ.get(
-            "MODEL_GUARDRAILS_DEEP_JUDGE_MODEL",
+        playground_chat_model = os.environ.get(
+            "MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL",
             "",
         ).strip()
-        deep_judge_api_key_env_var = os.environ.get(
-            "MODEL_GUARDRAILS_DEEP_JUDGE_API_KEY_ENV_VAR",
-            "MODEL_GUARDRAILS_DEEP_JUDGE_API_KEY",
-        ).strip() or "MODEL_GUARDRAILS_DEEP_JUDGE_API_KEY"
+        playground_chat_api_key_env_var = os.environ.get(
+            "MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY_ENV_VAR",
+            "MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY",
+        ).strip() or "MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY"
         automated_reasoning_endpoint_url = os.environ.get(
             "MODEL_GUARDRAILS_AUTOMATED_REASONING_ENDPOINT_URL",
             "",
@@ -105,10 +108,14 @@ class Settings:
         jailbreak_detection_nim_base_url = os.environ.get(
             "MODEL_GUARDRAILS_JAILBREAK_NIM_BASE_URL", ""
         ).strip()
+        jailbreak_detection_nim_server_endpoint = os.environ.get(
+            "MODEL_GUARDRAILS_JAILBREAK_NIM_SERVER_ENDPOINT",
+            "classify",
+        ).strip() or "classify"
         jailbreak_detection_api_key_env_var = os.environ.get(
             "MODEL_GUARDRAILS_JAILBREAK_API_KEY_ENV_VAR",
-            "MODEL_GUARDRAILS_JAILBREAK_API_KEY",
-        ).strip() or "MODEL_GUARDRAILS_JAILBREAK_API_KEY"
+            nvidia_api_key_env_var,
+        ).strip() or nvidia_api_key_env_var
         otel_enabled = os.environ.get(
             "MODEL_GUARDRAILS_OTEL_ENABLED", "false"
         ).strip().casefold() in {"1", "true", "yes", "on"}
@@ -127,20 +134,25 @@ class Settings:
             raise ValueError(
                 "MODEL_GUARDRAILS_JAILBREAK_NIM_BASE_URL must be an HTTP(S) URL."
             )
+        if jailbreak_detection_nim_base_url and not jailbreak_detection_nim_server_endpoint:
+            raise ValueError(
+                "MODEL_GUARDRAILS_JAILBREAK_NIM_SERVER_ENDPOINT is required when "
+                "MODEL_GUARDRAILS_JAILBREAK_NIM_BASE_URL is configured."
+            )
         if (content_safety_model or topic_control_model or grounding_model) and not nvidia_base_url:
             raise ValueError(
                 "MODEL_GUARDRAILS_NVIDIA_BASE_URL is required when an NVIDIA "
                 "guardrail model is configured."
             )
-        if control_plane_ai_model and not control_plane_ai_base_url:
+        if bool(playground_chat_base_url) != bool(playground_chat_model):
             raise ValueError(
-                "MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL is required when "
-                "a control-plane AI model is configured."
+                "MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL and "
+                "MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL must be configured together."
             )
-        if bool(deep_judge_base_url) != bool(deep_judge_model):
+        if bool(control_plane_ai_base_url) != bool(control_plane_ai_model):
             raise ValueError(
-                "MODEL_GUARDRAILS_DEEP_JUDGE_BASE_URL and "
-                "MODEL_GUARDRAILS_DEEP_JUDGE_MODEL must be configured together."
+                "MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL and "
+                "MODEL_GUARDRAILS_CONTROL_PLANE_AI_MODEL must be configured together."
             )
         if automated_reasoning_endpoint_url:
             if not automated_reasoning_endpoint_url.startswith(("https://", "http://")):
@@ -189,9 +201,9 @@ class Settings:
             topic_control_model=topic_control_model or None,
             grounding_model=grounding_model or None,
             nvidia_api_key_env_var=nvidia_api_key_env_var,
-            deep_judge_base_url=deep_judge_base_url.rstrip("/") or None,
-            deep_judge_model=deep_judge_model or None,
-            deep_judge_api_key_env_var=deep_judge_api_key_env_var,
+            playground_chat_base_url=playground_chat_base_url.rstrip("/") or None,
+            playground_chat_model=playground_chat_model or None,
+            playground_chat_api_key_env_var=playground_chat_api_key_env_var,
             automated_reasoning_endpoint_url=(
                 automated_reasoning_endpoint_url or None
             ),
@@ -205,6 +217,9 @@ class Settings:
             ),
             jailbreak_detection_nim_base_url=(
                 jailbreak_detection_nim_base_url.rstrip("/") or None
+            ),
+            jailbreak_detection_nim_server_endpoint=(
+                jailbreak_detection_nim_server_endpoint
             ),
             jailbreak_detection_api_key_env_var=(
                 jailbreak_detection_api_key_env_var

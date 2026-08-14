@@ -146,6 +146,12 @@ class DeploymentModel(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     guardrail_id: Mapped[str] = mapped_column(String, nullable=False)
     guardrail_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    integration_id: Mapped[str | None] = mapped_column(
+        ForeignKey("integrations.id", ondelete="CASCADE"), nullable=True
+    )
+    route_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=100, server_default="100"
+    )
     traffic_scope_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

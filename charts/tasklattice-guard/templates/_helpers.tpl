@@ -66,8 +66,8 @@ app.kubernetes.io/part-of: tali
 {{- default (printf "%s-deepseek" (include "tasklattice-guard.fullname" .)) .Values.controlPlaneAgent.deepseek.existingSecret }}
 {{- end }}
 
-{{- define "tasklattice-guard.deepJudgeSecretName" -}}
-{{- default (printf "%s-deep-judge" (include "tasklattice-guard.fullname" .)) .Values.evaluators.deepJudge.existingSecret }}
+{{- define "tasklattice-guard.playgroundChatSecretName" -}}
+{{- default (printf "%s-playground-chat" (include "tasklattice-guard.fullname" .)) .Values.playgroundChat.existingSecret }}
 {{- end }}
 
 {{- define "tasklattice-guard.automatedReasoningSecretName" -}}
@@ -92,17 +92,17 @@ app.kubernetes.io/part-of: tali
 {{- if and .Values.evaluators.nvidia.apiKey .Values.evaluators.nvidia.existingSecret }}
 {{- fail "set either evaluators.nvidia.apiKey or evaluators.nvidia.existingSecret, not both" }}
 {{- end }}
-{{- if and .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret }}
-{{- fail "set either evaluators.deepJudge.apiKey or evaluators.deepJudge.existingSecret, not both" }}
+{{- if and .Values.playgroundChat.apiKey .Values.playgroundChat.existingSecret }}
+{{- fail "set either playgroundChat.apiKey or playgroundChat.existingSecret, not both" }}
 {{- end }}
-{{- if ne (empty .Values.evaluators.deepJudge.baseUrl) (empty .Values.evaluators.deepJudge.model) }}
-{{- fail "evaluators.deepJudge.baseUrl and evaluators.deepJudge.model must be configured together" }}
+{{- if ne (empty .Values.playgroundChat.baseUrl) (empty .Values.playgroundChat.model) }}
+{{- fail "playgroundChat.baseUrl and playgroundChat.model must be configured together" }}
 {{- end }}
-{{- if and (or .Values.evaluators.deepJudge.baseUrl .Values.evaluators.deepJudge.model) (not (or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret)) }}
-{{- fail "a runtime Policy Judge credential is required when evaluators.deepJudge is configured" }}
+{{- if and (or .Values.playgroundChat.baseUrl .Values.playgroundChat.model) (not (or .Values.playgroundChat.apiKey .Values.playgroundChat.existingSecret)) }}
+{{- fail "a Playground chat credential is required when playgroundChat is configured" }}
 {{- end }}
-{{- if and (or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret) (not (and .Values.evaluators.deepJudge.baseUrl .Values.evaluators.deepJudge.model)) }}
-{{- fail "evaluators.deepJudge.baseUrl and evaluators.deepJudge.model are required when a runtime Policy Judge credential is configured" }}
+{{- if and (or .Values.playgroundChat.apiKey .Values.playgroundChat.existingSecret) (not (and .Values.playgroundChat.baseUrl .Values.playgroundChat.model)) }}
+{{- fail "playgroundChat.baseUrl and playgroundChat.model are required when a Playground chat credential is configured" }}
 {{- end }}
 {{- if and .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret }}
 {{- fail "set either evaluators.automatedReasoning.apiKey or evaluators.automatedReasoning.existingSecret, not both" }}

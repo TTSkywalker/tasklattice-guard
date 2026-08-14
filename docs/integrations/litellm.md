@@ -122,8 +122,10 @@ restart is required while waiting for verification.
 
 ## Multiple LiteLLM Gateways
 
-Create one TaskLattice Integration for each LiteLLM Gateway. Each Gateway gets
-an independent Endpoint and Secret:
+Create one TaskLattice Integration for each logical LiteLLM Gateway or cluster.
+Horizontal replicas of the same Gateway use the same stable Endpoint and Secret;
+adding or removing replicas does not require a Deployment change. Independent
+regions, tenants, or credential boundaries use separate Integrations:
 
 ```text
 Gateway A -> /runtime/v1/integrations/11111111-1111-4111-8111-111111111111 + Secret A
@@ -131,8 +133,18 @@ Gateway B -> /runtime/v1/integrations/22222222-2222-4222-8222-222222222222 + Sec
 ```
 
 TaskLattice rejects mixed pairs such as Gateway A's Endpoint with Secret B.
-The Integration ID is also available as `integration.id` in Traffic Scope, so
-Deployments can select different Guardrails for different Gateways.
+
+When creating a Deployment, select one or more compatible Gateway Integrations.
+TaskLattice creates one independent Deployment binding per Integration, even
+when they are selected in one bulk action. This keeps rollout, pause, rollback,
+and route ordering independent for every Gateway.
+
+Within one Integration, Deployment routes run from top to bottom and the first
+enabled matching route wins. An **All traffic** route has no request-fact
+conditions and is always kept last. A request that matches no Integration route
+uses the system-managed baseline. The Integration ID remains available as
+`integration.id` in legacy Traffic Scope expressions, but new bindings store
+the Integration relationship explicitly.
 
 Reusing a LiteLLM `litellm_call_id` in two Gateways is safe. TaskLattice
 namespaces call context by Integration, so input/output state does not cross

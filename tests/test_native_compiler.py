@@ -342,6 +342,34 @@ def test_standalone_native_check_uses_llmrails_colang1_not_iorails():
     assert owned.colang_version == "1.0"
 
 
+def test_runtime_compiler_rejects_general_purpose_models():
+    with pytest.raises(ValueError, match="only accepts dedicated Guard Models"):
+        NeMoConfigCompiler(
+            models=(
+                {
+                    "type": "main",
+                    "engine": "openai",
+                    "model": "general-chat-model",
+                },
+            )
+        )
+
+
+def test_prompt_injection_uses_dedicated_jailbreak_detection_when_configured():
+    snapshot = NeMoConfigCompiler(
+        jailbreak_detection={
+            "nim_base_url": "https://jailbreak.example/v1",
+            "nim_server_endpoint": "classify",
+        }
+    ).compile(_plan(_step("prompt_injection", stage="fast_semantic")))
+
+    assert snapshot.required_features == ("jailbreak_detection",)
+    assert ("input", "jailbreak detection model") in snapshot.rail_flows
+    assert not any(
+        binding.action_name == "TaskLatticePromptSecurityFastAction"
+        for binding in snapshot.action_bindings
+    )
+
 @pytest.mark.parametrize(
     "plan",
     (

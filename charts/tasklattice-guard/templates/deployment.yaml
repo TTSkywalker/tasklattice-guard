@@ -21,6 +21,7 @@ spec:
     metadata:
       annotations:
         checksum/evaluator-secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/playground-chat-secret: {{ include (print $.Template.BasePath "/playground-chat-secret.yaml") . | sha256sum }}
         checksum/automated-reasoning-secret: {{ include (print $.Template.BasePath "/automated-reasoning-secret.yaml") . | sha256sum }}
         checksum/jailbreak-detection-secret: {{ include (print $.Template.BasePath "/jailbreak-detection-secret.yaml") . | sha256sum }}
         checksum/control-plane-agent-secret: {{ include (print $.Template.BasePath "/control-plane-agent-secret.yaml") . | sha256sum }}
@@ -103,20 +104,20 @@ spec:
                   name: {{ include "tasklattice-guard.nvidiaSecretName" . }}
                   key: {{ .Values.evaluators.nvidia.secretKey }}
             {{- end }}
-            {{- with .Values.evaluators.deepJudge.baseUrl }}
-            - name: MODEL_GUARDRAILS_DEEP_JUDGE_BASE_URL
+            {{- with .Values.playgroundChat.baseUrl }}
+            - name: MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL
               value: {{ . | quote }}
             {{- end }}
-            {{- with .Values.evaluators.deepJudge.model }}
-            - name: MODEL_GUARDRAILS_DEEP_JUDGE_MODEL
+            {{- with .Values.playgroundChat.model }}
+            - name: MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL
               value: {{ . | quote }}
             {{- end }}
-            {{- if or .Values.evaluators.deepJudge.apiKey .Values.evaluators.deepJudge.existingSecret }}
-            - name: MODEL_GUARDRAILS_DEEP_JUDGE_API_KEY
+            {{- if or .Values.playgroundChat.apiKey .Values.playgroundChat.existingSecret }}
+            - name: MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tasklattice-guard.deepJudgeSecretName" . }}
-                  key: {{ .Values.evaluators.deepJudge.secretKey }}
+                  name: {{ include "tasklattice-guard.playgroundChatSecretName" . }}
+                  key: {{ .Values.playgroundChat.secretKey }}
             {{- end }}
             {{- with .Values.evaluators.automatedReasoning.endpointUrl }}
             - name: MODEL_GUARDRAILS_AUTOMATED_REASONING_ENDPOINT_URL
@@ -132,6 +133,8 @@ spec:
             {{- with .Values.evaluators.jailbreakDetection.nimBaseUrl }}
             - name: MODEL_GUARDRAILS_JAILBREAK_NIM_BASE_URL
               value: {{ . | quote }}
+            - name: MODEL_GUARDRAILS_JAILBREAK_NIM_SERVER_ENDPOINT
+              value: {{ $.Values.evaluators.jailbreakDetection.serverEndpoint | quote }}
             {{- end }}
             {{- if or .Values.evaluators.jailbreakDetection.apiKey .Values.evaluators.jailbreakDetection.existingSecret }}
             - name: MODEL_GUARDRAILS_JAILBREAK_API_KEY
@@ -139,6 +142,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "tasklattice-guard.jailbreakDetectionSecretName" . }}
                   key: {{ .Values.evaluators.jailbreakDetection.secretKey }}
+            - name: MODEL_GUARDRAILS_JAILBREAK_API_KEY_ENV_VAR
+              value: MODEL_GUARDRAILS_JAILBREAK_API_KEY
             {{- end }}
             {{- with .Values.controlPlaneAgent.deepseek.baseUrl }}
             - name: MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL

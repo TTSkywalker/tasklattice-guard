@@ -11,8 +11,11 @@ LOCAL_ENV_FILE := $(if $(wildcard .env),--env-file .env,)
 LOCAL_PROVIDER_SECRET ?= tasklattice-guard-provider-keys
 NVIDIA_BASE_URL ?= https://integrate.api.nvidia.com/v1
 NVIDIA_CONTENT_SAFETY_MODEL ?= nvidia/llama-3.1-nemotron-safety-guard-8b-v3
-DEEP_JUDGE_BASE_URL ?= https://api.deepseek.com
-DEEP_JUDGE_MODEL ?= deepseek-v4-flash
+NVIDIA_TOPIC_CONTROL_MODEL ?= nvidia/llama-3.1-nemoguard-8b-topic-control
+NVIDIA_JAILBREAK_NIM_BASE_URL ?= https://ai.api.nvidia.com
+NVIDIA_JAILBREAK_NIM_SERVER_ENDPOINT ?= /v1/security/nvidia/nemoguard-jailbreak-detect
+PLAYGROUND_CHAT_BASE_URL ?= https://api.deepseek.com
+PLAYGROUND_CHAT_MODEL ?= deepseek-v4-flash
 
 .PHONY: sync test web-dev web-build run image helm-lint helm-template helm-install helm-test helm-uninstall deploy-local
 
@@ -49,26 +52,29 @@ helm-install: image helm-lint
 		if [ -f .env ]; then \
 			if grep -Eq '^NVAPI_API_KEY=.+$$' .env; then \
 				provider_configured=true; \
-				helm_args="$$helm_args \
+					helm_args="$$helm_args \
 					--set-string evaluators.nvidia.baseUrl=$(NVIDIA_BASE_URL) \
 					--set-string evaluators.nvidia.contentSafetyModel=$(NVIDIA_CONTENT_SAFETY_MODEL) \
+					--set-string evaluators.nvidia.topicControlModel=$(NVIDIA_TOPIC_CONTROL_MODEL) \
 					--set-string evaluators.nvidia.existingSecret=$(LOCAL_PROVIDER_SECRET) \
-					--set-string evaluators.nvidia.secretKey=NVAPI_API_KEY"; \
-				echo "Configuring NVIDIA guard model from .env: content_safety=$(NVIDIA_CONTENT_SAFETY_MODEL)"; \
+					--set-string evaluators.nvidia.secretKey=NVAPI_API_KEY \
+					--set-string evaluators.jailbreakDetection.nimBaseUrl=$(NVIDIA_JAILBREAK_NIM_BASE_URL) \
+					--set-string evaluators.jailbreakDetection.serverEndpoint=$(NVIDIA_JAILBREAK_NIM_SERVER_ENDPOINT)"; \
+				echo "Configuring NVIDIA Guardrail runtime evaluators from .env: content_safety=$(NVIDIA_CONTENT_SAFETY_MODEL) topic_control=$(NVIDIA_TOPIC_CONTROL_MODEL) jailbreak_detection=enabled"; \
 			fi; \
 			if grep -Eq '^DEEPSEEK_API_KEY=.+$$' .env; then \
 				provider_configured=true; \
 				helm_args="$$helm_args \
-					--set-string evaluators.deepJudge.baseUrl=$(DEEP_JUDGE_BASE_URL) \
-					--set-string evaluators.deepJudge.model=$(DEEP_JUDGE_MODEL) \
-					--set-string evaluators.deepJudge.existingSecret=$(LOCAL_PROVIDER_SECRET) \
-					--set-string evaluators.deepJudge.secretKey=DEEPSEEK_API_KEY \
-					--set-string controlPlaneAgent.deepseek.baseUrl=$(DEEP_JUDGE_BASE_URL) \
-					--set-string controlPlaneAgent.deepseek.model=$(DEEP_JUDGE_MODEL) \
+					--set-string playgroundChat.baseUrl=$(PLAYGROUND_CHAT_BASE_URL) \
+					--set-string playgroundChat.model=$(PLAYGROUND_CHAT_MODEL) \
+					--set-string playgroundChat.existingSecret=$(LOCAL_PROVIDER_SECRET) \
+					--set-string playgroundChat.secretKey=DEEPSEEK_API_KEY \
+					--set-string controlPlaneAgent.deepseek.baseUrl=$(PLAYGROUND_CHAT_BASE_URL) \
+					--set-string controlPlaneAgent.deepseek.model=$(PLAYGROUND_CHAT_MODEL) \
 					--set-string controlPlaneAgent.deepseek.existingSecret=$(LOCAL_PROVIDER_SECRET) \
 					--set-string controlPlaneAgent.deepseek.secretKey=DEEPSEEK_API_KEY"; \
-				echo "Configuring runtime Policy Judges from .env: provider=DeepSeek capabilities=prompt_security,topic_control,contextual_grounding"; \
-				echo "Configuring control-plane assistant from .env: provider=DeepSeek runtime_traffic=false"; \
+				echo "Configuring Playground chat model from .env: provider=DeepSeek"; \
+				echo "Configuring control-plane authoring model from .env: provider=DeepSeek capabilities=intent_translation,compliance_document_analysis"; \
 			fi; \
 			if [ "$$provider_configured" = true ]; then \
 				kubectl create namespace $(DEV_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f - >/dev/null; \
