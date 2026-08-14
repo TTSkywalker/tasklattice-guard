@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MultiSelectCombobox, type MultiSelectOption } from "@/components/ui/multi-select-combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import type { EnforcementAction, GuardrailPolicyBinding, Policy } from "@/lib/api";
 
 const ACTIONS: EnforcementAction[] = [
@@ -131,13 +132,22 @@ export function PolicyBindingEditor({
                       <div className="grid gap-4 sm:grid-cols-2">
                         {policy.parameters.map((parameter) => (
                           <Field key={parameter.name} label={`${parameter.label ?? parameter.name}${parameter.required ? " *" : ""}`} hint={parameter.description}>
-                            <Input
-                              className="min-h-11 bg-card"
-                              type={parameter.kind === "secret" ? "password" : "text"}
-                              value={binding.parameter_values[parameter.name] ?? parameter.default ?? ""}
-                              placeholder={parameter.placeholder}
-                              onChange={(event) => update(binding.policy_id, { parameter_values: { ...binding.parameter_values, [parameter.name]: event.target.value } })}
-                            />
+                            {parameter.kind === "textarea" ? (
+                              <Textarea
+                                className="min-h-24 bg-card"
+                                value={binding.parameter_values[parameter.name] ?? parameter.default ?? ""}
+                                placeholder={parameter.placeholder}
+                                onChange={(event) => update(binding.policy_id, { parameter_values: { ...binding.parameter_values, [parameter.name]: event.target.value } })}
+                              />
+                            ) : (
+                              <Input
+                                className="min-h-11 bg-card"
+                                type={parameter.kind === "secret" ? "password" : "text"}
+                                value={binding.parameter_values[parameter.name] ?? parameter.default ?? ""}
+                                placeholder={parameter.placeholder}
+                                onChange={(event) => update(binding.policy_id, { parameter_values: { ...binding.parameter_values, [parameter.name]: event.target.value } })}
+                              />
+                            )}
                           </Field>
                         ))}
                       </div>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import httpx
@@ -21,15 +22,41 @@ from tests.nemo_helpers import nemo_engine
 _REVIEWED_PARAMETERS = {
     "brand_name": "Example Airways",
     "competitors": "Qatar Airways\nSingapore Airlines",
+    "blocked_words": "forbidden phrase",
+}
+
+_LOCAL_CONTENT_FILTER_IDS = {
+    "filter-denied-financial-advice",
+    "filter-denied-insults",
+    "filter-denied-legal-advice",
+    "filter-denied-medical-advice",
+    "filter-harmful-violence",
+    "filter-harmful-self-harm",
+    "filter-harmful-child-safety",
+    "filter-harmful-illegal-weapons",
+    "filter-bias-gender",
+    "filter-bias-racial",
+    "filter-bias-religious",
+    "filter-bias-sexual-orientation",
+    "filter-prompt-injection-jailbreak",
+    "filter-prompt-injection-data-exfiltration",
+    "filter-prompt-injection-sql",
+    "filter-prompt-injection-malicious-code",
+    "filter-prompt-injection-system-prompt",
+    "filter-harm-toxic-abuse",
+    "pattern-matching",
+    "keyword-blocking",
+    "block-code-execution",
+    "competitor-mention-detection",
 }
 
 
 def test_canonical_policy_catalog_owns_rules_and_real_test_cases():
     items = policies()
 
-    assert len(items) == 17
-    assert sum(len(item.rules) for item in items) == 222
-    assert sum(item.test_count for item in items) == 272
+    assert len(items) == 38
+    assert sum(len(item.rules) for item in items) == 318
+    assert sum(item.test_count for item in items) == 368
     assert all(item.rules for item in items)
     assert all(item.test_cases for item in items)
     assert all(
@@ -37,6 +64,169 @@ def test_canonical_policy_catalog_owns_rules_and_real_test_cases():
         for item in items
         for case in item.test_cases
     )
+
+
+def test_policy_library_exposes_all_22_local_content_filter_modules():
+    local_filters = {
+        item.id
+        for item in policies()
+        if any(tag.id == "collection:local-content-filter" for tag in item.tags)
+    }
+
+    assert local_filters == _LOCAL_CONTENT_FILTER_IDS
+    assert len(policy("pattern-matching").rules) == 82
+
+
+def test_pattern_context_is_near_value_and_supports_spelled_numbers():
+    runtime = BuiltinContentFilter()
+
+    far_context = runtime.evaluate(
+        text="My BSN is on file. The unrelated identifier is 123456789.",
+        phase="input",
+        policies=("pattern-matching",),
+        enabled_rules={"pattern-matching": ("pattern/nl_bsn_contextual",)},
+    )
+    spoken = runtime.evaluate(
+        text="BSN one two three four five six seven eight nine",
+        phase="input",
+        policies=("pattern-matching",),
+        enabled_rules={"pattern-matching": ("pattern/nl_bsn_contextual",)},
+    )
+
+    assert far_context.verdict == "safe"
+    assert spoken.verdict == "unsafe"
+    assert spoken.content == "BSN [nl_bsn_contextual_REDACTED]"
+
+
+def test_code_filter_distinguishes_review_from_execution_and_enforces_output():
+    runtime = BuiltinContentFilter()
+    code = "```py\nprint('hello')\n```"
+
+    review = runtime.evaluate(
+        text=f"Explain what this code does, but don't run it.\n{code}",
+        phase="input",
+        policies=("block-code-execution",),
+    )
+    execution = runtime.evaluate(
+        text=f"Please run this code.\n{code}",
+        phase="input",
+        policies=("block-code-execution",),
+        policy_parameters={
+            "block-code-execution": {"blocked_languages": "python"}
+        },
+    )
+    output = runtime.evaluate(
+        text=code,
+        phase="output",
+        policies=("block-code-execution",),
+        policy_rule_actions={
+            "block-code-execution": {"code/execution": "redact"}
+        },
+    )
+
+    assert review.verdict == "safe"
+    assert execution.verdict == "unsafe"
+    assert output.content == "[CODE_BLOCK_REDACTED]"
+    assert output.findings[0].recommended_action == "redact"
+
+
+def test_competitor_filter_normalizes_obfuscation_and_allows_destination_context():
+    runtime = BuiltinContentFilter()
+    parameters = {
+        "brand_name": "Emirates",
+        "competitors": "Qatar Airways\nSingapore Airlines",
+    }
+
+    obfuscated = runtime.evaluate(
+        text="Is Q@t@r Airways better than Emirates?",
+        phase="input",
+        policies=("competitor-mention-detection",),
+        policy_parameters={"competitor-mention-detection": parameters},
+    )
+    destination = runtime.evaluate(
+        text="Do you have flights to Qatar?",
+        phase="input",
+        policies=("competitor-mention-detection",),
+        policy_parameters={"competitor-mention-detection": parameters},
+    )
+
+    assert obfuscated.verdict == "unsafe"
+    assert destination.verdict == "safe"
+
+
+def test_multiple_filters_are_order_independent():
+    runtime = BuiltinContentFilter()
+    arguments = {
+        "text": "Email alice@example.com and mention forbidden phrase.",
+        "phase": "input",
+        "policy_parameters": {
+            "keyword-blocking": {"blocked_words": "forbidden phrase"}
+        },
+        "policy_rule_actions": {
+            "keyword-blocking": {"keyword/blocked-words": "redact"}
+        },
+    }
+
+    first = runtime.evaluate(
+        **arguments,
+        policies=("pattern-matching", "keyword-blocking"),
+        enabled_rules={"pattern-matching": ("pattern/email",)},
+    )
+    second = runtime.evaluate(
+        **arguments,
+        policies=("keyword-blocking", "pattern-matching"),
+        enabled_rules={"pattern-matching": ("pattern/email",)},
+    )
+
+    assert first == second
+    assert first.content == (
+        "Email [email_REDACTED] and mention [KEYWORD_REDACTED]."
+    )
+
+
+def test_compiler_namespaces_parameters_and_rule_actions_by_policy(tmp_path):
+    service = ControlPlaneService(tmp_path / "namespaced-content-filter.db")
+    guardrail = service.create_guardrail(
+        name="Independent local filter settings",
+        purpose="Keep settings isolated when several local filters share an Action.",
+        policy_bindings=(
+            GuardrailPolicyBinding(
+                policy_id="aviation-operations-security",
+                policy_version="1.95.0",
+                parameter_values=(
+                    ("brand_name", "TaskLattice Air"),
+                    ("competitors", "Example Air"),
+                ),
+            ),
+            GuardrailPolicyBinding(
+                policy_id="competitor-mention-detection",
+                policy_version="1.95.0",
+                parameter_values=(
+                    ("brand_name", "TaskLattice Bank"),
+                    ("competitors", "Example Bank"),
+                ),
+                rule_actions=(("competitor/intent", "redact"),),
+            ),
+        ),
+    )
+
+    plan = service.compile_draft(guardrail.id)
+    step = next(item for item in plan.steps if item.risk == "builtin_content_filter")
+    parameters = dict(step.parameters)
+
+    assert json.loads(parameters["policy_parameters_json"]) == {
+        "aviation-operations-security": {
+            "brand_name": "TaskLattice Air",
+            "competitors": "Example Air",
+        },
+        "competitor-mention-detection": {
+            "brand_name": "TaskLattice Bank",
+            "competitors": "Example Bank",
+        },
+    }
+    assert json.loads(parameters["rule_actions_json"]) == {
+        "competitor-mention-detection": {"competitor/intent": "redact"}
+    }
 
 
 def test_every_policy_rule_has_an_executable_acceptance_case():
@@ -163,6 +353,49 @@ async def test_parameterized_policy_uses_reviewed_guardrail_values(tmp_path):
         finding.policy_id == "competitor-mention-detection"
         for finding in result.findings
     )
+    await engine.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_compiled_local_modules_receive_scoped_parameters_and_actions(tmp_path):
+    service = ControlPlaneService(tmp_path / "compiled-local-modules.db")
+    guardrail = service.create_guardrail(
+        name="Local deterministic modules",
+        purpose="Exercise keyword and executable-code Policies through NeMo.",
+        policy_bindings=(
+            GuardrailPolicyBinding(
+                policy_id="keyword-blocking",
+                policy_version="1.95.0",
+                parameter_values=(("blocked_words", "internal only"),),
+                rule_actions=(("keyword/blocked-words", "redact"),),
+            ),
+            GuardrailPolicyBinding(
+                policy_id="block-code-execution",
+                policy_version="1.95.0",
+                parameter_values=(("blocked_languages", "python"),),
+            ),
+        ),
+    )
+    plan = service.compile_draft(guardrail.id)
+    engine = nemo_engine(plan, *local_action_providers())
+
+    keyword = await engine.evaluate(
+        EngineRequest("input", "This is internal only material.", plan)
+    )
+    code = await engine.evaluate(
+        EngineRequest(
+            "input",
+            "Please run this code.\n```py\nprint('hello')\n```",
+            plan,
+        )
+    )
+
+    assert keyword.decision == "transform"
+    assert keyword.texts == ("This is [KEYWORD_REDACTED] material.",)
+    assert code.decision == "block"
+    assert {finding.policy_id for finding in code.findings} == {
+        "block-code-execution"
+    }
     await engine.shutdown()
 
 

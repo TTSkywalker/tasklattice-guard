@@ -637,10 +637,15 @@ def _binding_can_modify(binding: NeMoActionBinding) -> bool:
             return True
         selected = enabled.get(policy_id)
         selected_ids = set(selected) if isinstance(selected, list) else None
+        policy_overrides = overrides.get(policy_id, {})
+        if not isinstance(policy_overrides, dict):
+            policy_overrides = {}
         for rule in definition.rules:
             if selected_ids is not None and rule.id not in selected_ids:
                 continue
-            action = overrides.get(rule.id, rule.effect)
+            # Flat overrides are accepted for already-compiled snapshots; new
+            # plans namespace Rule actions by Policy ID.
+            action = policy_overrides.get(rule.id, overrides.get(rule.id, rule.effect))
             if _is_modifying_rule_action(str(action)):
                 return True
     return False

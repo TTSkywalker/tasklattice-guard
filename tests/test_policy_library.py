@@ -9,11 +9,11 @@ from app.policy_library import policies, policy, policy_catalog
 def test_policy_library_loads_canonical_product_policies():
     items = policies()
 
-    assert len(items) == 17
+    assert len(items) == 38
     # Reused implementation rules are intentionally materialized in each
     # Policy that owns them; the product contract is Policy-scoped.
-    assert sum(len(item.rules) for item in items) == 222
-    assert sum(item.test_count for item in items) == 272
+    assert sum(len(item.rules) for item in items) == 318
+    assert sum(item.test_count for item in items) == 368
     assert all(item.rules for item in items)
     assert all(item.test_cases for item in items)
     assert all(item.parameters is not None for item in items)
@@ -92,7 +92,7 @@ async def test_policy_api_is_the_single_product_catalog(tmp_path, monkeypatch):
         programmable = await client.get("/api/v1/policies/builtin-secrets")
 
     assert response.status_code == 200
-    assert response.json()["count"] == 26
+    assert response.json()["count"] == 47
     assert all(item["rules"] for item in response.json()["items"])
     assert all(item["test_cases"] for item in response.json()["items"])
     assert all(item["test_count"] > 0 for item in response.json()["items"])

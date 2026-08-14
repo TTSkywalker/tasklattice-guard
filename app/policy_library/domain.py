@@ -11,6 +11,8 @@ PolicyRuleForm = Literal[
     "regex",
     "keyword",
     "category",
+    "code_block",
+    "competitor_intent",
     "colang_flow",
 ]
 PolicyStage = RailType
@@ -72,6 +74,8 @@ class PolicyRuleSpec:
     implementation: PolicyImplementationRef
     expression: str | None = None
     context_expression: str | None = None
+    context_max_gap_words: int | None = None
+    allow_word_numbers: bool = False
     redaction: str | None = None
     severity_threshold: str | None = None
     identifiers: tuple[str, ...] = ()

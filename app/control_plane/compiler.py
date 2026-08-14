@@ -292,19 +292,15 @@ class GuardrailCompiler:
                 if binding.enabled_rule_ids
             }
             rule_actions = {
-                rule_id: action
+                binding.policy_id: dict(binding.rule_actions)
                 for binding, _policy in selections
-                for rule_id, action in binding.rule_actions
+                if binding.rule_actions
             }
-            parameters: dict[str, str] = {}
-            for binding, _policy in selections:
-                for name, value in binding.parameter_values:
-                    previous = parameters.get(name)
-                    if previous is not None and previous != value:
-                        raise PlanCompilationError(
-                            f"Policy parameter {name!r} has conflicting values."
-                        )
-                    parameters[name] = value
+            policy_parameters = {
+                binding.policy_id: dict(binding.parameter_values)
+                for binding, _policy in selections
+                if binding.parameter_values
+            }
             return (
                 (
                     "policy_versions_json",
@@ -327,11 +323,15 @@ class GuardrailCompiler:
                     "rule_actions_json",
                     json.dumps(rule_actions, sort_keys=True, separators=(",", ":")),
                 ),
-                ("custom_rules_json", "[]"),
-                *tuple(
-                    (f"parameter.{key}", value)
-                    for key, value in sorted(parameters.items())
+                (
+                    "policy_parameters_json",
+                    json.dumps(
+                        policy_parameters,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
                 ),
+                ("custom_rules_json", "[]"),
             )
         if risk == "contextual_grounding":
             configured_parameters = _binding_parameters(guardrail, risk)

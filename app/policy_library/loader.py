@@ -13,16 +13,30 @@ from .domain import (
 )
 
 
-_ASSET_PATH = Path(__file__).resolve().parent / "assets" / "builtin_policies.json"
+_ASSET_DIR = Path(__file__).resolve().parent / "assets"
+_ASSET_PATHS = (
+    _ASSET_DIR / "builtin_policies.json",
+    _ASSET_DIR / "local_content_filters.json",
+)
 
 
 def load_builtin_policies() -> tuple[PolicySpec, ...]:
     """Load TaskLattice's canonical, versioned built-in Policy catalog."""
 
-    payload = json.loads(_ASSET_PATH.read_text())
-    if not isinstance(payload, list):
-        raise RuntimeError("The built-in Policy catalog must be a JSON list.")
-    return tuple(_policy(item) for item in payload)
+    merged: dict[str, dict[str, object]] = {}
+    for path in _ASSET_PATHS:
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text())
+        if not isinstance(payload, list):
+            raise RuntimeError(f"The built-in Policy catalog {path.name} must be a JSON list.")
+        for item in payload:
+            if not isinstance(item, dict) or not item.get("id"):
+                raise RuntimeError(f"The built-in Policy catalog {path.name} contains an invalid Policy.")
+            # Later, focused asset collections may intentionally replace a legacy
+            # definition while keeping the public Policy ID stable.
+            merged[str(item["id"])] = item
+    return tuple(_policy(item) for item in merged.values())
 
 
 def _policy(payload: dict[str, object]) -> PolicySpec:
