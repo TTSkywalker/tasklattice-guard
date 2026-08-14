@@ -20,8 +20,10 @@ from app.integrations import (
     GENERIC_HTTP_GUARD_ADAPTER_ID,
     LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID,
 )
-from app.nemo.actions.deterministic import FastPassEngine
-from app.runtime.contracts import EngineRequest, RequestContext, StageResult
+from app.nemo.actions import local_action_providers
+from app.nemo.action_registry import action_name_for
+from app.nemo.actions.contracts import ActionResult
+from app.runtime.contracts import EngineRequest, RequestContext
 from tests.nemo_helpers import nemo_engine
 
 
@@ -387,20 +389,27 @@ async def test_default_safe_blocks_locally_without_calling_semantic_stages(tmp_p
     resolution = service.resolve(RequestContext(protocol="local"))
 
     class SemanticStage:
-        supported_phases = frozenset({"input", "output"})
+        version = "1.0.0"
+        rails = frozenset({"input", "output"})
 
         def __init__(self, stage: str):
-            self.stage = stage
-            self.name = stage
+            risk = f"unused_{stage}"
+            self.name = action_name_for(risk, stage)
+            self.risks = frozenset({risk})
             self.calls = 0
 
-        async def evaluate(self, request, steps):
+        async def execute(self, request):
             self.calls += 1
-            return StageResult("safe", request.text)
+            return ActionResult("safe", request.content)
 
     fast = SemanticStage("fast_semantic")
     deep = SemanticStage("deep_judge")
-    engine = nemo_engine(resolution.plan, FastPassEngine(), fast, deep)
+    engine = nemo_engine(
+        resolution.plan,
+        *local_action_providers(),
+        fast,
+        deep,
+    )
 
     decision = await engine.evaluate(
         EngineRequest(

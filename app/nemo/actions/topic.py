@@ -6,20 +6,20 @@ from typing import Any
 
 import httpx
 
-from ...runtime.contracts import EngineRequest, GuardrailPlanStep, RiskFinding, StageResult
+from ...runtime.contracts import RiskFinding
+from .contracts import ActionRequest, ActionResult, action_result
+from .names import ACTION_TOPIC_JUDGE
 
 
-class PurposeAwareTopicJudgeEngine:
-    """Judge organization-specific topic intent with the compiled Guardrail context."""
+class TopicJudgeActionProvider:
+    """Judge organization-specific topic intent as a native NeMo Action."""
 
-    name = "Purpose-Aware Topic Judge"
-    stage = "deep_judge"
-    supported_phases = frozenset({"input", "output"})
-    # Organization policies use the same dedicated NVIDIA Topic Control
-    # evaluator because both capabilities classify an interaction against
-    # explicit, compiled business boundaries. No general-purpose LLM fallback
-    # is registered for either risk.
-    supported_risks = frozenset({"topic_control", "company_policy"})
+    name = ACTION_TOPIC_JUDGE
+    version = "1.0.0"
+    rails = frozenset({"input", "output"})
+    # Both capabilities classify an interaction against explicit, compiled
+    # business boundaries with the dedicated NVIDIA Topic Control model.
+    risks = frozenset({"topic_control", "company_policy"})
 
     def __init__(
         self,
@@ -36,22 +36,14 @@ class PurposeAwareTopicJudgeEngine:
         self._timeout_seconds = timeout_seconds
         self._request_options = dict(request_options or {})
 
-    async def evaluate(
-        self,
-        request: EngineRequest,
-        steps: tuple[GuardrailPlanStep, ...],
-    ) -> StageResult:
-        configured = tuple(
-            step for step in steps if step.risk in self.supported_risks
-        )
-        if not configured:
-            return StageResult(verdict="safe", content=request.text)
+    async def execute(self, request: ActionRequest) -> ActionResult:
         credential = os.environ.get(self._api_key_env_var, "").strip()
         if not credential:
-            return StageResult(
-                verdict="error",
-                content=request.text,
-                reason=f"{self.name} credential is not configured.",
+            return action_result(
+                request,
+                "error",
+                request.content,
+                reason="Topic Judge credential is not configured.",
             )
 
         try:
@@ -63,89 +55,86 @@ class PurposeAwareTopicJudgeEngine:
                         "model": self._model,
                         "temperature": 0.01,
                         "max_tokens": 16,
-                        "messages": _topic_messages(request, configured),
+                        "messages": _topic_messages(request),
                         **self._request_options,
                     },
                 )
                 response.raise_for_status()
                 payload = _response_payload(response.json())
-        except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            return StageResult(
-                verdict="error",
-                content=request.text,
-                reason=f"{self.name} evaluator failed: {type(error).__name__}.",
+        except (
+            httpx.HTTPError,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            return action_result(
+                request,
+                "error",
+                request.content,
+                reason=f"Topic Judge failed: {type(error).__name__}.",
             )
 
         verdict = str(payload.get("verdict", "uncertain")).lower()
         reason = str(payload.get("reason", "Topic decision returned without a reason."))
         if verdict == "safe":
-            return StageResult(verdict="safe", content=request.text, reason=reason)
+            return action_result(request, "safe", request.content, reason=reason)
         if verdict not in {"unsafe", "uncertain"}:
             verdict = "uncertain"
-        step = configured[0]
         findings = () if verdict == "uncertain" else (
             RiskFinding(
-                risk=step.risk,
+                risk=request.risk,
                 verdict="unsafe",
                 confidence=_confidence(payload.get("confidence")),
                 evidence=reason,
-                recommended_action=step.on_unsafe,
+                recommended_action=request.proposed_action,
             ),
         )
-        return StageResult(
-            verdict=verdict,
-            content=request.text,
+        return action_result(
+            request,
+            verdict,  # type: ignore[arg-type]
+            request.content,
             findings=findings,
             reason=reason,
         )
 
 
-def topic_judge_prompt(steps: tuple[GuardrailPlanStep, ...]) -> str:
-    policies: list[str] = []
-    for step in steps:
-        parameters = dict(step.parameters)
-        policies.append(
-            "\n".join(
-                (
-                    "You are the topic policy for an enterprise assistant whose authorized role is: "
-                    f"{parameters.get('purpose', '')}",
-                    f"You may help with these allowed business tasks:\n{parameters.get('allowed_topics', '')}",
-                    f"Do not help with requests whose primary task belongs to these restricted domains:\n{parameters.get('restricted_topics', '')}",
-                    "Classify by the primary requested task, never by an industry, product, or entity merely mentioned as context. "
-                    "Financial analysis of a company in any industry is financial analysis. For example, analysis of a chemical manufacturer's revenue, "
-                    "profit margin, or cash flow is allowed when financial analysis is an allowed task; chemical process or refining guidance is restricted.",
-                    "A request unrelated to the authorized business purpose is off-topic.",
-                )
-            )
-        )
-    return "\n\n".join(
+def topic_judge_prompt(parameters: tuple[tuple[str, str], ...]) -> str:
+    configured = dict(parameters)
+    return "\n".join(
         (
-            *policies,
+            "You are the topic policy for an enterprise assistant whose authorized role is: "
+            f"{configured.get('purpose', '')}",
+            f"You may help with these allowed business tasks:\n{configured.get('allowed_topics', '')}",
+            f"Do not help with requests whose primary task belongs to these restricted domains:\n{configured.get('restricted_topics', '')}",
+            "Classify by the primary requested task, never by an industry, product, or entity merely mentioned as context. "
+            "Financial analysis of a company in any industry is financial analysis. For example, analysis of a chemical manufacturer's revenue, "
+            "profit margin, or cash flow is allowed when financial analysis is an allowed task; chemical process or refining guidance is restricted.",
+            "A request unrelated to the authorized business purpose is off-topic.",
             'If any of the above conditions are violated, please respond with "off-topic". Otherwise, respond with "on-topic". '
             'You must respond with "on-topic" or "off-topic".',
         )
     )
 
 
-def _interaction_text(request: EngineRequest) -> str:
-    if request.phase == "input":
-        # Topic Guard expects the conversation to end with the user message that
-        # is being moderated. Keep the input turn verbatim instead of wrapping it
-        # in evaluator-oriented instructions.
-        return request.text
+def _interaction_text(request: ActionRequest) -> str:
+    if request.rail_type == "input":
+        return request.content
     context = "\n".join(
         f"{message.get('role', 'unknown')}: {message.get('content', '')}"
         for message in request.context_messages[-6:]
     )
-    return f"Conversation context:\n{context}\n\nModel output to evaluate:\n{request.text}"
+    return (
+        f"Conversation context:\n{context}\n\n"
+        f"Model output to evaluate:\n{request.content}"
+    )
 
 
-def _topic_messages(
-    request: EngineRequest,
-    steps: tuple[GuardrailPlanStep, ...],
-) -> list[dict[str, str]]:
-    messages = [{"role": "system", "content": topic_judge_prompt(steps)}]
-    if request.phase == "output":
+def _topic_messages(request: ActionRequest) -> list[dict[str, str]]:
+    messages = [
+        {"role": "system", "content": topic_judge_prompt(request.parameters)}
+    ]
+    if request.rail_type == "output":
         messages.append({"role": "user", "content": _interaction_text(request)})
         return messages
 
@@ -157,9 +146,9 @@ def _topic_messages(
     if not (
         len(messages) > 1
         and messages[-1]["role"] == "user"
-        and messages[-1]["content"] == request.text
+        and messages[-1]["content"] == request.content
     ):
-        messages.append({"role": "user", "content": request.text})
+        messages.append({"role": "user", "content": request.content})
     return messages
 
 

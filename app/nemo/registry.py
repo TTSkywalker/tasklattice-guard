@@ -6,7 +6,7 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 import yaml
 from nemoguardrails import Guardrails, RailsConfig
@@ -19,7 +19,8 @@ from .action_registry import (
     ACTION_RECORD_NATIVE,
     ACTION_RECORD_POLICY,
     ACTION_RESOLVE,
-    RuntimeActionRegistry,
+    ActionProviders,
+    action_providers,
 )
 from .artifacts import config_checksum
 
@@ -49,22 +50,21 @@ class NeMoConfigStore(Protocol):
 
 
 @dataclass(slots=True)
-class NeMoRailsInstance:
+class NeMoRuntimeInstance:
     config: NeMoConfigSnapshot
     plan: GuardrailPlanSnapshot
     rails: Guardrails
-    actions: Any
     admission: asyncio.BoundedSemaphore
     active_requests: int = 0
 
 
-class NeMoRailsRegistry:
+class NeMoRuntimeRegistry:
     """Prewarmed, version-isolated NeMo Runtime registry."""
 
     def __init__(
         self,
         store: NeMoConfigStore,
-        actions: RuntimeActionRegistry,
+        providers: ActionProviders,
         *,
         max_entries: int = 128,
         max_concurrency_per_guardrail: int = 64,
@@ -73,11 +73,11 @@ class NeMoRailsRegistry:
         ] = "standalone_check",
     ) -> None:
         self._store = store
-        self._actions = actions
+        self._providers = providers
         self._max_entries = max(1, max_entries)
         self._max_concurrency_per_guardrail = max(1, max_concurrency_per_guardrail)
         self._execution_surface = execution_surface
-        self._items: OrderedDict[tuple[str, int, str], NeMoRailsInstance] = OrderedDict()
+        self._items: OrderedDict[tuple[str, int, str], NeMoRuntimeInstance] = OrderedDict()
         self._retired: list[Guardrails] = []
         self._lock = threading.RLock()
         self._hits = 0
@@ -85,12 +85,12 @@ class NeMoRailsRegistry:
         self._last_missing_versions: tuple[tuple[str, int], ...] | None = None
         self.reload()
 
-    def get(self, plan: GuardrailPlanSnapshot) -> NeMoRailsInstance:
+    def get(self, plan: GuardrailPlanSnapshot) -> NeMoRuntimeInstance:
         return self.acquire(plan)[0]
 
     def acquire(
         self, plan: GuardrailPlanSnapshot
-    ) -> tuple[NeMoRailsInstance, bool, int]:
+    ) -> tuple[NeMoRuntimeInstance, bool, int]:
         config = self._store.nemo_config(plan.guardrail_id, plan.guardrail_version)
         key = (plan.guardrail_id, plan.guardrail_version, config_checksum(config))
         waiting_started = time.perf_counter()
@@ -204,8 +204,8 @@ class NeMoRailsRegistry:
         plan: GuardrailPlanSnapshot,
         config: NeMoConfigSnapshot,
         key: tuple[str, int, str],
-    ) -> NeMoRailsInstance:
-        from .runtime import NeMoActionExecutor
+    ) -> NeMoRuntimeInstance:
+        from .runtime import NeMoActionBridge
 
         self._validate_runtime_profile(config)
         self._validate_bindings(config)
@@ -219,21 +219,20 @@ class NeMoRailsRegistry:
             use_iorails=use_iorails,
             require_iorails=use_iorails,
         )
-        actions = NeMoActionExecutor(
+        bridge = NeMoActionBridge(
             plan,
             config,
-            self._actions_for(config),
+            self._providers_for(config),
         )
         if config.runtime_profile in {
             "llmrails_colang1_standard",
             "llmrails_colang2_programmable",
         }:
-            actions.register(rails)
-        item = NeMoRailsInstance(
+            bridge.register(rails)
+        item = NeMoRuntimeInstance(
             config,
             plan,
             rails,
-            actions,
             asyncio.BoundedSemaphore(self._max_concurrency_per_guardrail),
         )
         self._items[key] = item
@@ -255,7 +254,7 @@ class NeMoRailsRegistry:
         plan: GuardrailPlanSnapshot,
         config: NeMoConfigSnapshot,
         key: tuple[str, int, str],
-    ) -> NeMoRailsInstance:
+    ) -> NeMoRuntimeInstance:
         started = time.perf_counter()
         logger.info(
             "Prewarming NeMo runtime: guardrail_id=%s version=%d profile=%s.",
@@ -436,12 +435,12 @@ class NeMoRailsRegistry:
                 )
                 or (
                     name not in _EXECUTOR_ACTION_VERSIONS
-                    and not self._actions.contains(name, version)
+                    and (name, version) not in self._providers
                 )
             )
         )
         if "sensitive_data_detection" in config.required_features and not (
-            self._actions.contains(ACTION_PII, "1.0.0")
+            (ACTION_PII, "1.0.0") in self._providers
         ):
             raise PlanCompilationError(
                 "NeMo sensitive-data rails require a configured PII Action provider."
@@ -465,7 +464,7 @@ class NeMoRailsRegistry:
                 f"NeMo Action providers are unavailable for: {names}."
             )
 
-    def _actions_for(self, config: NeMoConfigSnapshot) -> RuntimeActionRegistry:
+    def _providers_for(self, config: NeMoConfigSnapshot) -> ActionProviders:
         """Scope name-based NeMo registration to artifact-pinned providers."""
         references = {
             (name, version)
@@ -474,9 +473,9 @@ class NeMoRailsRegistry:
         }
         if "sensitive_data_detection" in config.required_features:
             references.add((ACTION_PII, "1.0.0"))
-        return RuntimeActionRegistry(
-            tuple(
-                self._actions.get(name, version)
+        return action_providers(
+            *(
+                self._providers[(name, version)]
                 for name, version in sorted(references)
             )
         )

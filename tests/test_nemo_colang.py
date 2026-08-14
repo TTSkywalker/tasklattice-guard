@@ -4,13 +4,14 @@ import asyncio
 
 import pytest
 
+from app.nemo.action_registry import action_name_for
+from app.nemo.actions.contracts import ActionResult
 from app.runtime.contracts import (
     EngineRequest,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
     RiskFinding,
-    StageResult,
 )
 from app.control_plane.domain import PlanCompilationError
 from tests.nemo_helpers import nemo_engine
@@ -31,22 +32,28 @@ def _plan(
     )
 
 
-class ConcurrentStage:
-    stage = "fast_semantic"
-    name = "Concurrent"
-    supported_phases = frozenset({"input"})
-
+class ConcurrentTracker:
     def __init__(self) -> None:
         self.entered = 0
         self.all_entered = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def evaluate(self, request, steps):
-        self.entered += 1
-        if self.entered == 2:
-            self.all_entered.set()
-        await self.release.wait()
-        return StageResult("safe", request.text)
+
+class ConcurrentProvider:
+    version = "1.0.0"
+    rails = frozenset({"input"})
+
+    def __init__(self, risk: str, tracker: ConcurrentTracker) -> None:
+        self.name = action_name_for(risk, "fast_semantic")
+        self.risks = frozenset({risk})
+        self._tracker = tracker
+
+    async def execute(self, request):
+        self._tracker.entered += 1
+        if self._tracker.entered == 2:
+            self._tracker.all_entered.set()
+        await self._tracker.release.wait()
+        return ActionResult("safe", request.content)
 
 
 @pytest.mark.asyncio
@@ -79,15 +86,19 @@ async def test_independent_modules_execute_concurrently():
             step_ids=(second.id,),
         ),
     )
-    stage = ConcurrentStage()
+    tracker = ConcurrentTracker()
     selected_plan = _plan((first, second), modules)
-    engine = nemo_engine(selected_plan, stage)
+    engine = nemo_engine(
+        selected_plan,
+        ConcurrentProvider("prompt_injection", tracker),
+        ConcurrentProvider("company_policy", tracker),
+    )
     runtime_check = asyncio.create_task(
         engine.evaluate(EngineRequest("input", "request", selected_plan))
     )
 
-    await asyncio.wait_for(stage.all_entered.wait(), timeout=1)
-    stage.release.set()
+    await asyncio.wait_for(tracker.all_entered.wait(), timeout=1)
+    tracker.release.set()
     result = await asyncio.wait_for(runtime_check, timeout=1)
 
     assert result.decision == "allow"
@@ -96,18 +107,19 @@ async def test_independent_modules_execute_concurrently():
 
 
 class DeterministicMask:
-    stage = "deterministic"
-    name = "Mask"
-    supported_phases = frozenset({"input"})
+    name = action_name_for("pii", "deterministic")
+    version = "1.0.0"
+    risks = frozenset({"pii"})
+    rails = frozenset({"input"})
 
     def __init__(self) -> None:
         self.view = None
 
-    async def evaluate(self, request, steps):
+    async def execute(self, request):
         self.view = request.content_view
-        return StageResult(
+        return ActionResult(
             "unsafe",
-            request.text.replace("a@example.com", "[EMAIL]"),
+            request.content.replace("a@example.com", "[EMAIL]"),
             (
                 RiskFinding(
                     risk="pii",
@@ -121,18 +133,19 @@ class DeterministicMask:
 
 
 class BusinessJudge:
-    stage = "deep_judge"
-    name = "Business"
-    supported_phases = frozenset({"input"})
+    name = action_name_for("company_policy", "deep_judge")
+    version = "1.0.0"
+    risks = frozenset({"company_policy"})
+    rails = frozenset({"input"})
 
     def __init__(self) -> None:
         self.received = ""
         self.view = None
 
-    async def evaluate(self, request, steps):
-        self.received = request.text
+    async def execute(self, request):
+        self.received = request.content
         self.view = request.content_view
-        return StageResult("safe", request.text)
+        return ActionResult("safe", request.content)
 
 
 @pytest.mark.asyncio
@@ -191,11 +204,12 @@ async def test_dependent_module_can_read_masked_immutable_view():
 
 
 class NeverReturns:
-    stage = "fast_semantic"
-    name = "Never returns"
-    supported_phases = frozenset({"input"})
+    name = action_name_for("prompt_injection", "fast_semantic")
+    version = "1.0.0"
+    risks = frozenset({"prompt_injection"})
+    rails = frozenset({"input"})
 
-    async def evaluate(self, request, steps):
+    async def execute(self, request):
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
 
@@ -240,12 +254,13 @@ async def test_flat_plan_without_modules_is_rejected_before_runtime():
     flat_plan = _plan((step,), ())
 
     class SafeStage:
-        stage = "fast_semantic"
-        name = "Safe"
-        supported_phases = frozenset({"input"})
+        name = action_name_for("prompt_injection", "fast_semantic")
+        version = "1.0.0"
+        risks = frozenset({"prompt_injection"})
+        rails = frozenset({"input"})
 
-        async def evaluate(self, request, steps):
-            return StageResult("safe", request.text)
+        async def execute(self, request):
+            return ActionResult("safe", request.content)
 
     with pytest.raises(PlanCompilationError, match="module"):
         nemo_engine(flat_plan, SafeStage())

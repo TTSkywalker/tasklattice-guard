@@ -11,10 +11,10 @@ import pytest
 from app.control_plane.catalog import BUILTIN_POLICY_CAPABILITIES
 from app.control_plane.nemo_compiler import NEMO_COMPILER_VERSION, NeMoConfigCompiler
 from app.control_plane.service import ControlPlaneService
-from app.nemo.action_registry import runtime_action_registry
-from app.nemo.actions.deterministic import FastPassEngine
-from app.nemo.registry import NeMoRailsRegistry
-from app.nemo.runtime import NeMoGuardrailsEngine
+from app.nemo.action_registry import action_providers
+from app.nemo.actions import local_action_providers
+from app.nemo.registry import NeMoRuntimeRegistry
+from app.nemo.runtime import NeMoRuntime
 from app.runtime.contracts import EngineRequest, RequestContext
 
 
@@ -89,12 +89,12 @@ def test_gate_c_every_released_version_and_deployment_is_current_nemo_only(tmp_p
 @pytest.mark.asyncio
 async def test_gate_c_representative_load_stays_inside_configured_p95_p99(tmp_path):
     service = ControlPlaneService(tmp_path / "gate-c-load.db")
-    registry = NeMoRailsRegistry(
+    registry = NeMoRuntimeRegistry(
         service,
-        runtime_action_registry(FastPassEngine()),
+        action_providers(*local_action_providers()),
         max_concurrency_per_guardrail=32,
     )
-    engine = NeMoGuardrailsEngine(registry)
+    engine = NeMoRuntime(registry)
     plan = service.resolve(RequestContext("test")).plan
     samples = (
         "Summarize this approved quarterly report.",

@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from app.runtime.contracts import EngineRequest, GuardrailPlanSnapshot, GuardrailPlanStep
-from app.nemo.actions.deterministic import FastPassEngine
+from app.runtime.contracts import (
+    EngineRequest,
+    GuardrailPlanModule,
+    GuardrailPlanSnapshot,
+    GuardrailPlanStep,
+)
+from app.nemo.actions import local_action_providers
+from tests.nemo_helpers import nemo_engine
 
 
 PLAN = GuardrailPlanSnapshot(
@@ -16,26 +22,35 @@ PLAN = GuardrailPlanSnapshot(
         GuardrailPlanStep("secret", "secrets", "deterministic", ("input", "output"), "reject"),
         GuardrailPlanStep("pii", "pii", "deterministic", ("input", "output"), "redact"),
     ),
+    modules=tuple(
+        GuardrailPlanModule(
+            f"data-protection-{phase}",
+            "data_protection",
+            phase,
+            ("secret", "pii"),
+        )
+        for phase in ("input", "output")
+    ),
 )
 
 
 @pytest.mark.asyncio
 async def test_deterministic_stage_detects_secret_and_pii():
-    engine = FastPassEngine()
-    steps = PLAN.steps_for("input", "deterministic")
+    engine = nemo_engine(PLAN, *local_action_providers())
 
     secret = await engine.evaluate(
-        EngineRequest("input", "api_key=abcdefghijklmnop", PLAN), steps
+        EngineRequest("input", "api_key=abcdefghijklmnop", PLAN)
     )
     pii = await engine.evaluate(
-        EngineRequest("input", "Email alice@example.com", PLAN), steps
+        EngineRequest("input", "Email alice@example.com", PLAN)
     )
     safe = await engine.evaluate(
-        EngineRequest("input", "Summarize the approved guide.", PLAN), steps
+        EngineRequest("input", "Summarize the approved guide.", PLAN)
     )
 
-    assert secret.verdict == "unsafe"
+    assert secret.decision == "block"
     assert secret.findings[0].recommended_action == "reject"
-    assert pii.verdict == "unsafe"
-    assert "[PII_REDACTED]" in pii.content
-    assert safe.verdict == "safe"
+    assert pii.decision == "transform"
+    assert "[PII_REDACTED]" in pii.texts[0]
+    assert safe.decision == "allow"
+    await engine.shutdown()

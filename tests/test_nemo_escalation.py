@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import pytest
 
+from app.nemo.action_registry import action_name_for
+from app.nemo.actions.contracts import ActionResult
 from app.runtime.contracts import (
     EngineRequest,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
     RiskFinding,
-    StageResult,
 )
 from tests.nemo_helpers import nemo_engine
 
@@ -33,15 +34,22 @@ def plan(*steps: GuardrailPlanStep) -> GuardrailPlanSnapshot:
 
 
 class Stage:
-    supported_phases = frozenset({"input", "output"})
+    version = "1.0.0"
+    rails = frozenset({"input", "output"})
 
-    def __init__(self, stage: str, result: StageResult):
-        self.stage = stage
-        self.name = stage
+    def __init__(
+        self,
+        stage: str,
+        result: ActionResult,
+        risk: str = "company_policy",
+    ):
+        self.name = action_name_for(risk, stage)
+        self.risks = frozenset({risk})
         self.result = result
         self.calls = 0
 
-    async def evaluate(self, request, steps):
+    async def execute(self, request):
+        del request
         self.calls += 1
         return self.result
 
@@ -76,8 +84,8 @@ DEEP_STEP = GuardrailPlanStep(
 
 @pytest.mark.asyncio
 async def test_uncertain_fast_verdict_escalates_to_deep_judge():
-    fast = Stage("fast_semantic", StageResult("uncertain", "request", (finding(),)))
-    deep = Stage("deep_judge", StageResult("safe", "request"))
+    fast = Stage("fast_semantic", ActionResult("uncertain", "request", (finding(),)))
+    deep = Stage("deep_judge", ActionResult("safe", "request"))
     engine = nemo_engine(plan(FAST_STEP, DEEP_STEP), fast, deep)
 
     result = await engine.evaluate(
@@ -92,8 +100,8 @@ async def test_uncertain_fast_verdict_escalates_to_deep_judge():
 
 @pytest.mark.asyncio
 async def test_decisive_fast_verdict_skips_deep_judge():
-    fast = Stage("fast_semantic", StageResult("safe", "request"))
-    deep = Stage("deep_judge", StageResult("safe", "request"))
+    fast = Stage("fast_semantic", ActionResult("safe", "request"))
+    deep = Stage("deep_judge", ActionResult("safe", "request"))
     engine = nemo_engine(plan(FAST_STEP, DEEP_STEP), fast, deep)
 
     result = await engine.evaluate(
@@ -109,8 +117,11 @@ async def test_decisive_fast_verdict_skips_deep_judge():
 
 @pytest.mark.asyncio
 async def test_unsafe_fast_verdict_enforces_and_stops():
-    fast = Stage("fast_semantic", StageResult("unsafe", "request", (finding("unsafe"),)))
-    deep = Stage("deep_judge", StageResult("safe", "request"))
+    fast = Stage(
+        "fast_semantic",
+        ActionResult("unsafe", "request", (finding("unsafe"),)),
+    )
+    deep = Stage("deep_judge", ActionResult("safe", "request"))
     engine = nemo_engine(plan(FAST_STEP, DEEP_STEP), fast, deep)
 
     result = await engine.evaluate(
@@ -141,8 +152,8 @@ async def test_mandatory_deep_step_runs_after_safe_fast_verdict():
         on_unsafe="redirect",
         escalation="always",
     )
-    fast = Stage("fast_semantic", StageResult("safe", "request"))
-    deep = Stage("deep_judge", StageResult("safe", "request"))
+    fast = Stage("fast_semantic", ActionResult("safe", "request"), "topic_control")
+    deep = Stage("deep_judge", ActionResult("safe", "request"), "topic_control")
     selected_plan = plan(fast_step, deep_step)
     engine = nemo_engine(selected_plan, fast, deep)
 

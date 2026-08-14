@@ -6,7 +6,6 @@ from typing import Any, Protocol
 
 import httpx
 
-from ...runtime.content_views import request_view
 from ...runtime.contracts import (
     AutomatedReasoningFinding,
     AutomatedReasoningPolicySnapshot,
@@ -14,11 +13,10 @@ from ...runtime.contracts import (
     AutomatedReasoningRuleEvidence,
     AutomatedReasoningScenario,
     AutomatedReasoningTranslation,
-    EngineRequest,
-    GuardrailPlanStep,
     RiskFinding,
-    StageResult,
 )
+from .contracts import ActionRequest, ActionResult, action_result, action_view
+from .names import ACTION_AUTOMATED_REASONING
 
 
 _RESULT_SEVERITY: dict[AutomatedReasoningResult, int] = {
@@ -91,54 +89,46 @@ class HTTPAutomatedReasoningProvider:
             return parse_reasoning_findings(response.json())
 
 
-class AutomatedReasoningPolicyEngine:
+class ReasoningActionProvider:
     """Evaluate complete output against one immutable formal policy snapshot."""
 
-    name = "Automated Reasoning Policy"
-    stage = "deep_judge"
-    supported_phases = frozenset({"output"})
-    supported_risks = frozenset({"automated_reasoning"})
+    name = ACTION_AUTOMATED_REASONING
+    version = "1.0.0"
+    rails = frozenset({"output"})
+    risks = frozenset({"automated_reasoning"})
 
     def __init__(self, provider: AutomatedReasoningProvider) -> None:
         self._provider = provider
 
-    async def evaluate(
-        self,
-        request: EngineRequest,
-        steps: tuple[GuardrailPlanStep, ...],
-    ) -> StageResult:
-        step = next((item for item in steps if item.risk == "automated_reasoning"), None)
-        if step is None:
-            return StageResult("safe", request.text)
-
-        view = request_view(request)
+    async def execute(self, request: ActionRequest) -> ActionResult:
+        view = action_view(request)
         active = view.active_block
         if "query" in active.qualifiers:
-            return StageResult(
+            return action_result(request,
                 "safe",
-                request.text,
+                request.content,
                 reason="The active block supplies reasoning context and is not an output target.",
             )
         if active.role != "model_output":
-            return StageResult(
+            return action_result(request,
                 "safe",
-                request.text,
+                request.content,
                 reason="Automated Reasoning evaluates complete model-output blocks only.",
             )
 
-        snapshot_id = step.parameter("policy_snapshot_id")
+        snapshot_id = dict(request.parameters).get("policy_snapshot_id")
         if not snapshot_id:
-            return StageResult(
+            return action_result(request,
                 "error",
-                request.text,
+                request.content,
                 reason="Automated Reasoning plan step has no policy snapshot.",
             )
         try:
             policy = request.plan.reasoning_policy(snapshot_id)
         except KeyError:
-            return StageResult(
+            return action_result(request,
                 "error",
-                request.text,
+                request.content,
                 reason="Automated Reasoning policy snapshot is unavailable.",
             )
 
@@ -149,19 +139,19 @@ class AutomatedReasoningPolicyEngine:
             findings = await self._provider.evaluate(
                 policy=policy,
                 query_content=query_content,
-                guard_content=request.text,
+                guard_content=request.content,
             )
         except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError) as error:
-            return StageResult(
+            return action_result(request,
                 "error",
-                request.text,
+                request.content,
                 reason=f"{self.name} evaluator failed: {type(error).__name__}.",
             )
 
         if not findings:
-            return StageResult(
+            return action_result(request,
                 "error",
-                request.text,
+                request.content,
                 reason="Automated Reasoning provider returned no findings.",
             )
         ordered = order_reasoning_findings(findings)
@@ -172,16 +162,16 @@ class AutomatedReasoningPolicyEngine:
             _result_message(result),
         )
         risk_finding = RiskFinding(
-            risk=step.risk,
+            risk=request.risk,
             verdict="unsafe" if detected else "safe",
             confidence=min(item.confidence for item in ordered),
             evidence=message,
             recommended_action="pass",
             reasoning=ordered,
         )
-        return StageResult(
+        return action_result(request,
             "unsafe" if detected else "safe",
-            request.text,
+            request.content,
             findings=(
                 (risk_finding,)
                 if detected or request.evidence_scope == "full"

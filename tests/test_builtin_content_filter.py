@@ -9,12 +9,13 @@ from app.config import Settings
 from app.control_plane.domain import GuardrailPolicyBinding
 from app.control_plane.service import ControlPlaneService
 from app.main import create_app
+from app.nemo.actions import local_action_providers
 from app.nemo.actions.content_filter import BuiltinContentFilter
-from app.nemo.actions.deterministic import FastPassEngine
 from app.policy_library import policies, policy
 from app.policy_library.materialization import materialize_test_content
 from app.policy_library.registry import PolicyLibraryRegistry
 from app.runtime.contracts import EngineRequest
+from tests.nemo_helpers import nemo_engine
 
 
 _REVIEWED_PARAMETERS = {
@@ -118,21 +119,20 @@ async def test_guardrail_executes_only_selected_policy_rules(tmp_path):
         ),
     )
     plan = service.compile_draft(guardrail.id)
-    step = plan.steps_for("input", "deterministic")[0]
+    engine = nemo_engine(plan, *local_action_providers())
 
-    email = await FastPassEngine().evaluate(
-        EngineRequest("input", "Contact alice@example.com", plan),
-        (step,),
+    email = await engine.evaluate(
+        EngineRequest("input", "Contact alice@example.com", plan)
     )
-    postal = await FastPassEngine().evaluate(
-        EngineRequest("input", "The postal code is 018989", plan),
-        (step,),
+    postal = await engine.evaluate(
+        EngineRequest("input", "The postal code is 018989", plan)
     )
 
-    assert email.verdict == "safe"
-    assert postal.verdict == "unsafe"
-    assert postal.content == "The postal code is [sg_postal_code_REDACTED]"
+    assert email.decision == "allow"
+    assert postal.decision == "transform"
+    assert postal.texts == ("The postal code is [sg_postal_code_REDACTED]",)
     assert {finding.rule_id for finding in postal.findings} == {rule_id}
+    await engine.shutdown()
 
 
 @pytest.mark.asyncio
@@ -153,17 +153,17 @@ async def test_parameterized_policy_uses_reviewed_guardrail_values(tmp_path):
         ),
     )
     plan = service.compile_draft(guardrail.id)
-    step = plan.steps_for("input", "deterministic")[0]
-    result = await FastPassEngine().evaluate(
-        EngineRequest("input", "You should switch to Example Bank", plan),
-        (step,),
+    engine = nemo_engine(plan, *local_action_providers())
+    result = await engine.evaluate(
+        EngineRequest("input", "You should switch to Example Bank", plan)
     )
 
-    assert result.verdict == "unsafe"
+    assert result.decision == "block"
     assert any(
         finding.policy_id == "competitor-mention-detection"
         for finding in result.findings
     )
+    await engine.shutdown()
 
 
 @pytest.mark.asyncio

@@ -10,12 +10,26 @@ from app.control_plane.nemo_compiler import NeMoConfigCompiler
 from app.nemo.action_registry import (
     BUILTIN_ACTION_CATALOG,
     action_name_for,
-    runtime_action_registry,
+    action_providers,
+)
+from app.nemo.actions import (
+    ContentFilterActionProvider,
+    PiiActionProvider,
+    PromptSecurityActionProvider,
+    SecretsActionProvider,
+    TopicRulesActionProvider,
+    local_action_providers,
 )
 from app.nemo.actions.contracts import ActionRequest, ActionResult
-from app.nemo.actions.deterministic import FastPassEngine
-from app.nemo.runtime import NeMoGuardrailsEngine
-from app.nemo.registry import NeMoRailsRegistry
+from app.nemo.actions.names import (
+    ACTION_CONTENT_FILTER,
+    ACTION_PII,
+    ACTION_PROMPT_SECURITY,
+    ACTION_SECRETS,
+    ACTION_TOPIC_RULES,
+)
+from app.nemo.runtime import NeMoRuntime
+from app.nemo.registry import NeMoRuntimeRegistry
 from app.runtime.contracts import (
     EngineRequest,
     GuardrailPlanModule,
@@ -63,13 +77,32 @@ def test_owned_action_ids_use_one_compact_structured_namespace():
     )
 
 
+def test_local_deterministic_actions_use_explicit_providers_without_an_engine_adapter():
+    registry = action_providers(*local_action_providers())
+
+    assert isinstance(
+        registry[(ACTION_CONTENT_FILTER, "1.0.0")],
+        ContentFilterActionProvider,
+    )
+    assert isinstance(registry[(ACTION_SECRETS, "1.0.0")], SecretsActionProvider)
+    assert isinstance(registry[(ACTION_PII, "1.0.0")], PiiActionProvider)
+    assert isinstance(
+        registry[(ACTION_TOPIC_RULES, "1.0.0")],
+        TopicRulesActionProvider,
+    )
+    assert isinstance(
+        registry[(ACTION_PROMPT_SECURITY, "1.0.0")],
+        PromptSecurityActionProvider,
+    )
+
+
 @pytest.mark.asyncio
 async def test_direct_action_has_fixed_request_and_result_schema():
     plan = _plan()
     config = NeMoConfigCompiler().compile(plan)
     binding = config.action_bindings[0]
-    registry = runtime_action_registry(FastPassEngine())
-    provider = registry.get(binding.action_name or "", binding.action_version or "")
+    registry = action_providers(SecretsActionProvider())
+    provider = registry[(binding.action_name or "", binding.action_version or "")]
 
     result = await provider.execute(
         ActionRequest(
@@ -96,14 +129,14 @@ async def test_direct_action_has_fixed_request_and_result_schema():
     assert result.findings[0].risk == "secrets"
 
 
-class _CancellableEvaluator:
-    name = "Cancellable"
-    stage = "deterministic"
-    supported_risks = frozenset({"secrets"})
-    supported_phases = frozenset({"input"})
+class _CancellableProvider:
+    name = ACTION_SECRETS
+    version = "1.0.0"
+    risks = frozenset({"secrets"})
+    rails = frozenset({"input"})
 
-    async def evaluate(self, request, steps):
-        del request, steps
+    async def execute(self, request):
+        del request
         await asyncio.sleep(10)
 
 
@@ -111,10 +144,10 @@ class _CancellableEvaluator:
 async def test_action_execution_propagates_cancellation():
     plan = _plan()
     config = NeMoConfigCompiler().compile(plan)
-    engine = NeMoGuardrailsEngine(
-        NeMoRailsRegistry(
+    engine = NeMoRuntime(
+        NeMoRuntimeRegistry(
             StaticNeMoStore((plan,), (config,)),
-            runtime_action_registry(_CancellableEvaluator()),
+            action_providers(_CancellableProvider()),
         )
     )
     task = asyncio.create_task(
@@ -127,14 +160,14 @@ async def test_action_execution_propagates_cancellation():
     await engine.shutdown()
 
 
-class _SensitiveFailureEvaluator:
-    name = "Sensitive failure"
-    stage = "deterministic"
-    supported_risks = frozenset({"secrets"})
-    supported_phases = frozenset({"input"})
+class _SensitiveFailureProvider:
+    name = ACTION_SECRETS
+    version = "1.0.0"
+    risks = frozenset({"secrets"})
+    rails = frozenset({"input"})
 
-    async def evaluate(self, request, steps):
-        del request, steps
+    async def execute(self, request):
+        del request
         raise RuntimeError(
             "credential=super-secret prompt=private provider_response=private"
         )
@@ -144,10 +177,10 @@ class _SensitiveFailureEvaluator:
 async def test_action_errors_are_privacy_safe_and_fail_closed():
     plan = _plan()
     config = NeMoConfigCompiler().compile(plan)
-    engine = NeMoGuardrailsEngine(
-        NeMoRailsRegistry(
+    engine = NeMoRuntime(
+        NeMoRuntimeRegistry(
             StaticNeMoStore((plan,), (config,)),
-            runtime_action_registry(_SensitiveFailureEvaluator()),
+            action_providers(_SensitiveFailureProvider()),
         )
     )
 

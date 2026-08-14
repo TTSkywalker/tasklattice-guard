@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ..control_plane.domain import Integration, IntegrationAuthenticationError, ControlPlaneError
 from ..control_plane.service import ControlPlaneService
 from ..runtime.contracts import ProtectionRequest, GuardContentBlock, RequestContext
-from ..runtime.gateway import ModelGuardrailsEngineService
+from ..runtime.service import GuardrailRuntimeService
 from ..integrations import (
     A2A_GUARD_ADAPTER_ID,
     GENERIC_HTTP_GUARD_ADAPTER_ID,
@@ -129,7 +129,7 @@ class HTTPAdapter:
 
     def __init__(
         self,
-        service: ModelGuardrailsEngineService,
+        service: GuardrailRuntimeService,
         control_plane: ControlPlaneService,
     ) -> None:
         self._service = service

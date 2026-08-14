@@ -18,71 +18,69 @@ from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyze
 from .control_plane.nemo_compiler import NeMoConfigCompiler
 from .control_plane.service import ControlPlaneService
 from .identity import IdentityAPI, IdentityService
-from .nemo.action_registry import RuntimeActionRegistry, runtime_action_registry
+from .nemo.action_registry import ActionProviders, action_providers
+from .nemo.actions import local_action_providers
 from .nemo.actions.automated_reasoning import (
-    AutomatedReasoningPolicyEngine,
     HTTPAutomatedReasoningProvider,
+    ReasoningActionProvider,
 )
-from .nemo.actions.deterministic import FastPassEngine
-from .nemo.actions.grounding import ContextualGroundingJudgeEngine
-from .nemo.actions.prompt_security import (
-    PromptSecurityFastEngine,
-)
-from .nemo.actions.topic import PurposeAwareTopicJudgeEngine
+from .nemo.actions.contracts import ActionProvider
+from .nemo.actions.grounding import GroundingActionProvider
+from .nemo.actions.topic import TopicJudgeActionProvider
 from .nemo.builtin_policies import prompt_catalog_yaml
-from .nemo.registry import NeMoRailsRegistry
-from .nemo.runtime import NeMoGuardrailsEngine
+from .nemo.registry import NeMoRuntimeRegistry
+from .nemo.runtime import NeMoRuntime
 from .persistence import Database
 from .runtime.contracts import NeMoPolicyRuntime
-from .runtime.gateway import ModelGuardrailsEngineService
+from .runtime.service import GuardrailRuntimeService
 from .ui import ControlPlaneStaticFiles
 
 
-def create_engine(
+def create_runtime(
     settings: Settings,
     control_plane: ControlPlaneService | None = None,
-) -> NeMoGuardrailsEngine:
+) -> NeMoRuntime:
     store = control_plane or _create_policy_plane(settings)
-    registry = NeMoRailsRegistry(
+    registry = NeMoRuntimeRegistry(
         store,
-        create_action_registry(settings),
+        create_action_providers(settings),
         max_concurrency_per_guardrail=(
             settings.runtime_max_concurrency_per_guardrail
         ),
     )
     store.bind_nemo_runtime(validator=registry.validate, reloader=registry.reload)
-    return NeMoGuardrailsEngine(registry)
+    return NeMoRuntime(registry)
 
 
-def create_action_registry(settings: Settings) -> RuntimeActionRegistry:
+def create_action_providers(settings: Settings) -> ActionProviders:
     """Build direct, versioned providers registered as NeMo Actions."""
-    evaluators: list[object] = [FastPassEngine(), PromptSecurityFastEngine()]
+    components: list[ActionProvider] = list(local_action_providers())
     if settings.topic_control_model and settings.nvidia_base_url:
-        evaluators.append(
-            PurposeAwareTopicJudgeEngine(
+        components.append(
+            TopicJudgeActionProvider(
                 base_url=settings.nvidia_base_url,
                 model=settings.topic_control_model,
                 api_key_env_var=settings.nvidia_api_key_env_var,
             )
         )
     if settings.grounding_model and settings.nvidia_base_url:
-        evaluators.append(
-            ContextualGroundingJudgeEngine(
+        components.append(
+            GroundingActionProvider(
                 base_url=settings.nvidia_base_url,
                 model=settings.grounding_model,
                 api_key_env_var=settings.nvidia_api_key_env_var,
             )
         )
     if settings.automated_reasoning_endpoint_url:
-        evaluators.append(
-            AutomatedReasoningPolicyEngine(
+        components.append(
+            ReasoningActionProvider(
                 HTTPAutomatedReasoningProvider(
                     endpoint_url=settings.automated_reasoning_endpoint_url,
                     api_key_env_var=settings.automated_reasoning_api_key_env_var,
                 )
             )
         )
-    return runtime_action_registry(*evaluators)
+    return action_providers(*components)
 
 
 def create_app(
@@ -97,12 +95,12 @@ def create_app(
     database = Database(configured.database_locator)
     control_plane = _create_policy_plane(configured, database=database)
     if engine is None:
-        runtime_engine: NeMoPolicyRuntime = create_engine(configured, control_plane)
+        runtime_engine: NeMoPolicyRuntime = create_runtime(configured, control_plane)
     else:
         # Explicit injection is reserved for tests and embedding. Production
         # construction always installs the version-pinned NeMo runtime above.
         runtime_engine = engine
-    service = ModelGuardrailsEngineService(
+    service = GuardrailRuntimeService(
         runtime_engine,
         control_plane,
     )

@@ -14,7 +14,7 @@ from app.control_plane.domain import (
     ResolvedPolicyCapability,
 )
 from app.nemo.actions.automated_reasoning import (
-    AutomatedReasoningPolicyEngine,
+    ReasoningActionProvider,
     HTTPAutomatedReasoningProvider,
     aggregate_reasoning_result,
     parse_reasoning_findings,
@@ -132,7 +132,7 @@ def _request(plan: GuardrailPlanSnapshot, evidence_scope="full") -> EngineReques
 async def test_resolver_maps_detection_only_results(result, decision, action):
     provider = FindingProvider(_finding(result))
     plan = _plan()
-    engine = nemo_engine(plan, AutomatedReasoningPolicyEngine(provider))
+    engine = nemo_engine(plan, ReasoningActionProvider(provider))
 
     observed = await engine.evaluate(_request(plan))
 
@@ -152,7 +152,7 @@ async def test_valid_finding_is_omitted_from_compact_evidence():
     plan = _plan()
     engine = nemo_engine(
         plan,
-        AutomatedReasoningPolicyEngine(FindingProvider(_finding("valid"))),
+        ReasoningActionProvider(FindingProvider(_finding("valid"))),
     )
 
     observed = await engine.evaluate(_request(plan, "interventions"))
@@ -167,7 +167,7 @@ async def test_detect_mode_records_resolver_action_without_enforcing_it():
     plan = _plan()
     engine = nemo_engine(
         plan,
-        AutomatedReasoningPolicyEngine(FindingProvider(_finding("invalid"))),
+        ReasoningActionProvider(FindingProvider(_finding("invalid"))),
     )
     request = _request(plan)
     request = EngineRequest(
@@ -195,7 +195,7 @@ async def test_provider_failure_is_not_converted_into_a_logical_finding():
             raise ValueError("invalid proof payload")
 
     plan = _plan()
-    engine = nemo_engine(plan, AutomatedReasoningPolicyEngine(BrokenProvider()))
+    engine = nemo_engine(plan, ReasoningActionProvider(BrokenProvider()))
 
     observed = await engine.evaluate(_request(plan))
 

@@ -4,13 +4,18 @@ from app.control_plane.domain import (
     GuardrailPolicyBinding,
     ResolvedPolicyCapability,
 )
-from app.runtime.contracts import EngineRequest, GuardrailPlanSnapshot
+from app.runtime.contracts import (
+    EngineRequest,
+    GuardrailPlanSnapshot,
+    GuardrailPlanStep,
+)
 from app.nemo.actions.topic import (
     _interaction_text,
     _response_payload,
     _topic_messages,
     topic_judge_prompt,
 )
+from tests.nemo_helpers import provider_request
 
 
 def test_topic_judge_receives_guardrail_purpose_and_primary_intent_rule():
@@ -36,7 +41,9 @@ def test_topic_judge_receives_guardrail_purpose_and_primary_intent_rule():
         1,
         resolved_policies=(ResolvedPolicyCapability("topic_control", "redirect"),),
     )
-    prompt = topic_judge_prompt(plan.steps_for("input", "deep_judge"))
+    prompt = topic_judge_prompt(
+        plan.steps_for("input", "deep_judge")[0].parameters
+    )
 
     assert guardrail.purpose in prompt
     assert "Financial analysis" in prompt
@@ -47,6 +54,13 @@ def test_topic_judge_receives_guardrail_purpose_and_primary_intent_rule():
 
 
 def test_topic_judge_keeps_input_turn_verbatim():
+    step = GuardrailPlanStep(
+        id="topic:deep",
+        risk="topic_control",
+        stage="deep_judge",
+        phases=("input",),
+        on_unsafe="redirect",
+    )
     request = EngineRequest(
         phase="input",
         text="Analyze a chemical company's quarterly revenue.",
@@ -56,11 +70,11 @@ def test_topic_judge_keeps_input_turn_verbatim():
             compiler_version="test",
             safety_level="balanced",
             output_delivery="window_buffered",
-            steps=(),
+            steps=(step,),
         ),
     )
 
-    assert _interaction_text(request) == request.text
+    assert _interaction_text(provider_request(request, step)) == request.text
 
 
 def test_topic_judge_preserves_prior_conversation_for_input():
@@ -97,7 +111,7 @@ def test_topic_judge_preserves_prior_conversation_for_input():
     )
 
     messages = _topic_messages(
-        request, plan.steps_for("input", "deep_judge")
+        provider_request(request, plan.steps_for("input", "deep_judge")[0])
     )
 
     assert [item["role"] for item in messages] == [

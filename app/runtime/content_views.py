@@ -71,7 +71,7 @@ def request_view(request: EngineRequest) -> ContentViewSnapshot:
             request.active_block_id is not None
             and request.active_block_id != request.content_view.active_block_id
         ):
-            raise ValueError("Engine request and content view select different active blocks.")
+            raise ValueError("NeMo request and content view select different active blocks.")
         return request.content_view
     block_id = request.active_block_id or f"{request.phase}:0"
     role = default_role(request.phase, request.target_source)

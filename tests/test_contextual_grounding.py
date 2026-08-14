@@ -14,9 +14,9 @@ from app.control_plane.domain import (
     ResolvedPolicyCapability,
 )
 from app.runtime.content_views import content_view
-from app.nemo.actions.grounding import ContextualGroundingJudgeEngine
+from app.nemo.actions.grounding import GroundingActionProvider
 from app.runtime.contracts import EngineRequest, GuardContentBlock
-from tests.nemo_helpers import nemo_engine
+from tests.nemo_helpers import nemo_engine, provider_request
 
 
 def _profile(*policies: ResolvedPolicyCapability, parameters=()) -> Guardrail:
@@ -118,7 +118,7 @@ def _transport(payload: dict) -> httpx.MockTransport:
 @pytest.mark.asyncio
 async def test_grounding_judge_returns_scores_and_claim_level_source_evidence(monkeypatch):
     monkeypatch.setenv("GROUNDING_TEST_KEY", "test-key")
-    judge = ContextualGroundingJudgeEngine(
+    judge = GroundingActionProvider(
         base_url="https://grounding.test/v1",
         model="grounding-test",
         api_key_env_var="GROUNDING_TEST_KEY",
@@ -142,9 +142,11 @@ async def test_grounding_judge_returns_scores_and_claim_level_source_evidence(mo
     )
     request = _request("London is the capital of France.")
 
-    result = await judge.evaluate(
-        request,
-        request.plan.steps_for("output", "deep_judge"),
+    result = await judge.execute(
+        provider_request(
+            request,
+            request.plan.steps_for("output", "deep_judge")[0],
+        )
     )
 
     assert result.verdict == "unsafe"
@@ -176,7 +178,7 @@ async def test_grounding_judge_retains_safe_evidence_only_for_full_scope(monkeyp
             }
         ],
     }
-    judge = ContextualGroundingJudgeEngine(
+    judge = GroundingActionProvider(
         base_url="https://grounding.test/v1",
         model="grounding-test",
         api_key_env_var="GROUNDING_TEST_KEY",
@@ -185,13 +187,14 @@ async def test_grounding_judge_retains_safe_evidence_only_for_full_scope(monkeyp
     full = _request("Paris is the capital of France.")
     interventions = _request("Paris is the capital of France.", full=False)
 
-    full_result = await judge.evaluate(
-        full,
-        full.plan.steps_for("output", "deep_judge"),
+    full_result = await judge.execute(
+        provider_request(full, full.plan.steps_for("output", "deep_judge")[0])
     )
-    compact_result = await judge.evaluate(
-        interventions,
-        interventions.plan.steps_for("output", "deep_judge"),
+    compact_result = await judge.execute(
+        provider_request(
+            interventions,
+            interventions.plan.steps_for("output", "deep_judge")[0],
+        )
     )
 
     assert full_result.verdict == compact_result.verdict == "safe"
@@ -202,7 +205,7 @@ async def test_grounding_judge_retains_safe_evidence_only_for_full_scope(monkeyp
 @pytest.mark.asyncio
 async def test_grounding_judge_detects_a_grounded_but_irrelevant_response(monkeypatch):
     monkeypatch.setenv("GROUNDING_TEST_KEY", "test-key")
-    judge = ContextualGroundingJudgeEngine(
+    judge = GroundingActionProvider(
         base_url="https://grounding.test/v1",
         model="grounding-test",
         api_key_env_var="GROUNDING_TEST_KEY",
@@ -224,9 +227,11 @@ async def test_grounding_judge_detects_a_grounded_but_irrelevant_response(monkey
     )
     request = _request("The source contains a supported but unrelated fact.")
 
-    result = await judge.evaluate(
-        request,
-        request.plan.steps_for("output", "deep_judge"),
+    result = await judge.execute(
+        provider_request(
+            request,
+            request.plan.steps_for("output", "deep_judge")[0],
+        )
     )
 
     assert result.verdict == "unsafe"
@@ -239,15 +244,14 @@ async def test_grounding_judge_requests_context_before_provider_access(monkeypat
     monkeypatch.delenv("GROUNDING_TEST_KEY", raising=False)
     plan = _compile(_profile(), 1)
     request = EngineRequest("output", "Paris is the capital.", plan)
-    judge = ContextualGroundingJudgeEngine(
+    judge = GroundingActionProvider(
         base_url="https://grounding.test/v1",
         model="grounding-test",
         api_key_env_var="GROUNDING_TEST_KEY",
     )
 
-    result = await judge.evaluate(
-        request,
-        plan.steps_for("output", "deep_judge"),
+    result = await judge.execute(
+        provider_request(request, plan.steps_for("output", "deep_judge")[0])
     )
 
     assert result.verdict == "uncertain"
@@ -258,7 +262,7 @@ async def test_grounding_judge_requests_context_before_provider_access(monkeypat
 async def test_grounding_provider_failure_fails_closed_at_module_boundary(monkeypatch):
     monkeypatch.delenv("GROUNDING_TEST_KEY", raising=False)
     request = _request("Paris is the capital of France.")
-    judge = ContextualGroundingJudgeEngine(
+    judge = GroundingActionProvider(
         base_url="https://grounding.test/v1",
         model="grounding-test",
         api_key_env_var="GROUNDING_TEST_KEY",

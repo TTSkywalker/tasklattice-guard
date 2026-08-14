@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from app.control_plane.nemo_compiler import NeMoConfigCompiler
-from app.nemo.runtime import NeMoGuardrailsEngine
-from app.nemo.registry import NeMoRailsRegistry
-from app.nemo.action_registry import runtime_action_registry
+from app.nemo.runtime import NeMoRuntime
+from app.nemo.registry import NeMoRuntimeRegistry
+from app.nemo.action_registry import action_providers
+from app.nemo.actions.contracts import ActionRequest
+from app.runtime.content_views import request_view
 from app.runtime.contracts import (
+    EngineRequest,
     GuardrailPlanSnapshot,
+    GuardrailPlanStep,
+    NeMoActionBinding,
     NeMoConfigSnapshot,
 )
 
@@ -37,23 +42,51 @@ def nemo_engine(
     plan: GuardrailPlanSnapshot,
     *actions: object,
     max_concurrency_per_guardrail: int = 64,
-) -> NeMoGuardrailsEngine:
+) -> NeMoRuntime:
     config = NeMoConfigCompiler().compile(plan)
-    for action in actions:
-        if not getattr(action, "supported_risks", frozenset()):
-            setattr(
-                action,
-                "supported_risks",
-                frozenset(
-                    step.risk
-                    for step in plan.steps
-                    if step.stage == getattr(action, "stage", "")
-                ),
-            )
-    return NeMoGuardrailsEngine(
-        NeMoRailsRegistry(
+    return NeMoRuntime(
+        NeMoRuntimeRegistry(
             StaticNeMoStore((plan,), (config,)),
-            runtime_action_registry(*actions),
+            action_providers(*actions),
             max_concurrency_per_guardrail=max_concurrency_per_guardrail,
         )
+    )
+
+
+def provider_request(
+    request: EngineRequest,
+    step: GuardrailPlanStep,
+) -> ActionRequest:
+    """Build the same immutable request that the native NeMo Action bridge uses."""
+    view = request_view(request)
+    binding = NeMoActionBinding(
+        id=step.id,
+        risk=step.risk,
+        stage=step.stage,
+        phases=step.phases,
+        on_unsafe=step.on_unsafe,
+        escalation=step.escalation,
+        parameters=step.parameters,
+    )
+    return ActionRequest(
+        content=request.text,
+        rail_type=request.phase,
+        guardrail_id=request.plan.guardrail_id,
+        guardrail_version=request.plan.guardrail_version,
+        policy_id=None,
+        policy_version=None,
+        trusted_context=(("trusted_instruction", request.trusted_instruction),),
+        content_blocks=view.blocks,
+        deadline=0,
+        parameters=step.parameters,
+        risk=step.risk,
+        proposed_action=step.on_unsafe,
+        plan=request.plan,
+        binding=binding,
+        context_messages=request.context_messages,
+        target_source=request.target_source,
+        mode=request.mode,
+        evidence_scope=request.evidence_scope,
+        content_view=view,
+        active_block_id=view.active_block_id,
     )

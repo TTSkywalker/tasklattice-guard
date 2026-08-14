@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from app.nemo.action_registry import action_name_for
+from app.nemo.actions.contracts import ActionResult
 from app.runtime.contracts import (
     ProtectionRequest,
     GuardContentBlock,
@@ -10,9 +12,8 @@ from app.runtime.contracts import (
     GuardrailPlanStep,
     PlanResolution,
     RequestContext,
-    StageResult,
 )
-from app.runtime.service import ModelGuardrailsEngineService
+from app.runtime.service import GuardrailRuntimeService
 from tests.nemo_helpers import nemo_engine
 
 
@@ -26,16 +27,17 @@ class StaticResolver:
 
 
 class ViewRecordingStage:
-    stage = "fast_semantic"
-    name = "View Recorder"
-    supported_phases = frozenset({"input", "output"})
+    name = action_name_for("document_policy", "fast_semantic")
+    version = "1.0.0"
+    risks = frozenset({"document_policy"})
+    rails = frozenset({"input", "output"})
 
     def __init__(self) -> None:
         self.requests = []
 
-    async def evaluate(self, request, steps):
+    async def execute(self, request):
         self.requests.append(request)
-        return StageResult("safe", request.text)
+        return ActionResult("safe", request.content)
 
 
 def _plan() -> GuardrailPlanSnapshot:
@@ -86,7 +88,7 @@ async def test_service_guards_only_qualified_untrusted_blocks_with_stable_views(
     stage = ViewRecordingStage()
     plan = _plan()
     engine = nemo_engine(plan, stage)
-    service = ModelGuardrailsEngineService(
+    service = GuardrailRuntimeService(
         engine,
         StaticResolver(plan),
     )
@@ -145,7 +147,8 @@ async def test_service_guards_only_qualified_untrusted_blocks_with_stable_views(
     )
     assert len({item.content_view.source_digest for item in stage.requests}) == 1
     assert all(
-        item.trusted_instruction == "Only summarize approved sources."
+        dict(item.trusted_context)["trusted_instruction"]
+        == "Only summarize approved sources."
         for item in stage.requests
     )
     assert tuple(item.content_block_id for item in result.assessments) == (
@@ -166,7 +169,7 @@ async def test_output_view_includes_pinned_input_blocks_from_the_call_context():
     stage = ViewRecordingStage()
     plan = _plan()
     engine = nemo_engine(plan, stage)
-    service = ModelGuardrailsEngineService(
+    service = GuardrailRuntimeService(
         engine,
         StaticResolver(plan),
     )

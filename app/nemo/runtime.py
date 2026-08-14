@@ -27,7 +27,6 @@ from ..runtime.contracts import (
     NeMoConfigSnapshot,
     RiskFinding,
     RuntimeCoverage,
-    StageResult,
     flow_rule_id,
 )
 from .action_registry import (
@@ -36,11 +35,11 @@ from .action_registry import (
     ACTION_RECORD_NATIVE,
     ACTION_RECORD_POLICY,
     ACTION_RESOLVE,
-    RuntimeActionRegistry,
+    ActionProviders,
 )
 from .actions.contracts import ActionRequest, ActionResult
 from .artifacts import config_checksum
-from .registry import NeMoRailsRegistry
+from .registry import NeMoRuntimeRegistry
 
 
 _CURRENT_SCOPE: ContextVar["_ExecutionScope | None"] = ContextVar(
@@ -62,7 +61,7 @@ _ACTION_PRIORITY = (
 @dataclass(slots=True)
 class _RuntimeResult:
     binding: NeMoActionBinding
-    result: StageResult
+    result: ActionResult
     latency_ms: int
     provider_latency_ms: int = 0
 
@@ -80,19 +79,19 @@ class _PatchConflict(ValueError):
     pass
 
 
-class NeMoActionExecutor:
-    """Expose version-pinned TaskLattice evaluators exclusively as NeMo actions."""
+class NeMoActionBridge:
+    """Bind version-pinned providers to official NeMo Python Actions."""
 
     def __init__(
         self,
         plan: GuardrailPlanSnapshot,
         config: NeMoConfigSnapshot,
-        registry: RuntimeActionRegistry,
+        providers: ActionProviders,
     ) -> None:
         self._plan = plan
         self._config = config
         self._bindings = {item.id: item for item in config.action_bindings}
-        self._registry = registry
+        self._providers = providers
 
     def register(self, rails: Guardrails) -> None:
         if self._config.runtime_profile == "llmrails_colang2_programmable":
@@ -112,7 +111,7 @@ class NeMoActionExecutor:
                 self.record_policy,
                 name=ACTION_RECORD_POLICY,
             )
-        for provider in self._registry.providers():
+        for provider in self._providers.values():
             rails.register_action(
                 self._action_handler(provider.name, provider.version),
                 name=provider.name,
@@ -177,7 +176,7 @@ class NeMoActionExecutor:
             return self._record(
                 context,
                 missing,
-                StageResult(
+                ActionResult(
                     "error",
                     text,
                     reason=f"NeMo action binding {binding_id!r} is unavailable.",
@@ -187,7 +186,7 @@ class NeMoActionExecutor:
         started = time.perf_counter()
         provider_latency_ms = 0
         try:
-            provider = self._registry.get(action_name, action_version)
+            provider = self._providers[(action_name, action_version)]
             supported_risks = getattr(provider, "risks", frozenset())
             supported_rails = getattr(provider, "rails", frozenset())
             if supported_risks and binding.risk not in supported_risks:
@@ -197,12 +196,16 @@ class NeMoActionExecutor:
             action_request = self._action_request(text, binding)
             async with asyncio.timeout(binding.timeout_ms / 1_000):
                 action_result = await provider.execute(action_request)
-            result = _stage_result(action_result)
+            result = (
+                replace(action_result, reason=action_result.evidence)
+                if action_result.reason is None and action_result.evidence
+                else action_result
+            )
             provider_latency_ms = action_result.usage.provider_latency_ms
         except asyncio.CancelledError:
             raise
         except TimeoutError:
-            result = StageResult(
+            result = ActionResult(
                 "error",
                 text,
                 reason=(
@@ -213,7 +216,7 @@ class NeMoActionExecutor:
         except Exception as error:
             # Do not include provider messages, responses, credentials, or model
             # content in production errors.
-            result = StageResult(
+            result = ActionResult(
                 "error",
                 text,
                 reason=(
@@ -364,7 +367,7 @@ class NeMoActionExecutor:
                 recommended_action=binding.on_unsafe,
             ),
         )
-        result = StageResult(
+        result = ActionResult(
             "safe" if safe else "unsafe",
             text,
             findings=findings,
@@ -419,7 +422,7 @@ class NeMoActionExecutor:
                 phases=(request.phase,),
                 on_unsafe="reject",
             )
-            result = StageResult(
+            result = ActionResult(
                 "error",
                 text,
                 reason=f"Policy Flow {flow_name!r} has no immutable Rail binding.",
@@ -441,7 +444,7 @@ class NeMoActionExecutor:
                 replacement=replacement,
             ),
         )
-        result = StageResult(
+        result = ActionResult(
             "safe" if safe else "unsafe",
             replacement if not safe and replacement is not None else text,
             findings=findings,
@@ -452,7 +455,7 @@ class NeMoActionExecutor:
     async def _pii(
         self,
         text: str,
-    ) -> tuple[StageResult, NeMoActionBinding, int]:
+    ) -> tuple[ActionResult, NeMoActionBinding, int]:
         request = self._request()
         phase = request.phase
         plan_step = next(
@@ -481,20 +484,18 @@ class NeMoActionExecutor:
             action_version="1.0.0",
         )
         started = time.perf_counter()
-        if plan_step is None or not self._registry.contains(ACTION_PII, "1.0.0"):
-            result = StageResult("error", text, reason="PII action is unavailable.")
+        if plan_step is None or (ACTION_PII, "1.0.0") not in self._providers:
+            result = ActionResult("error", text, reason="PII action is unavailable.")
         else:
             try:
                 async with asyncio.timeout(binding.timeout_ms / 1_000):
-                    result = _stage_result(
-                        await self._registry.get(ACTION_PII, "1.0.0").execute(
-                            self._action_request(text, binding)
-                        )
+                    result = await self._providers[(ACTION_PII, "1.0.0")].execute(
+                        self._action_request(text, binding)
                     )
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                result = StageResult(
+                result = ActionResult(
                     "error",
                     text,
                     reason=f"PII action failed with {type(error).__name__}.",
@@ -603,7 +604,7 @@ class NeMoActionExecutor:
         self,
         context: dict[str, Any] | None,
         binding: NeMoActionBinding,
-        result: StageResult,
+        result: ActionResult,
         latency_ms: int,
         provider_latency_ms: int | None = None,
     ) -> dict[str, Any]:
@@ -685,13 +686,13 @@ class NeMoActionExecutor:
         }
 
 
-class NeMoGuardrailsEngine:
+class NeMoRuntime:
     """Run every production Guardrail decision through a version-pinned NeMo runtime."""
 
     name = "nemo-guardrails"
     supported_phases = frozenset({"input", "output"})
 
-    def __init__(self, registry: NeMoRailsRegistry) -> None:
+    def __init__(self, registry: NeMoRuntimeRegistry) -> None:
         self._registry = registry
 
     async def evaluate(self, request: EngineRequest) -> ProtectionDecision:
@@ -1066,7 +1067,7 @@ def _colang1_runtime_result(
     )
     return _RuntimeResult(
         binding=binding,
-        result=StageResult(
+        result=ActionResult(
             verdict=verdict,  # type: ignore[arg-type]
             content=content,
             findings=findings,
@@ -2125,15 +2126,6 @@ def _native_reason(risk: str, details: Any) -> str:
         if labels:
             return f"{reason} Policy categories: {', '.join(labels[:8])}."
     return reason
-
-
-def _stage_result(result: ActionResult) -> StageResult:
-    return StageResult(
-        verdict=result.verdict,
-        content=result.content,
-        findings=result.findings,
-        reason=result.reason or result.evidence or None,
-    )
 
 
 def _compiled_policy_flow_name(binding: NeMoActionBinding) -> str:

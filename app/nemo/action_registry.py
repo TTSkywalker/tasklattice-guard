@@ -1,31 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import re
+from types import MappingProxyType
 from typing import Literal
 
 from ..runtime.contracts import RailType
-from .actions.contracts import (
-    ActionProvider,
-    ActionRequest,
-    ActionResult,
-    binding_step,
-    engine_request,
+from .actions.contracts import ActionProvider
+from .actions.names import (
+    ACTION_AUTOMATED_REASONING,
+    ACTION_CONTENT_FILTER,
+    ACTION_CUSTOMER_IDENTIFIER,
+    ACTION_GROUNDING,
+    ACTION_PII,
+    ACTION_PROMPT_SECURITY,
+    ACTION_RECORD_NATIVE,
+    ACTION_RECORD_POLICY,
+    ACTION_RESOLVE,
+    ACTION_SECRETS,
+    ACTION_TOPIC_JUDGE,
+    ACTION_TOPIC_RULES,
 )
-
-
-ACTION_SECRETS = "GuardSecretsAction"
-ACTION_PII = "GuardPiiAction"
-ACTION_CONTENT_FILTER = "GuardContentFilterAction"
-ACTION_TOPIC_RULES = "GuardTopicRulesAction"
-ACTION_PROMPT_SECURITY = "GuardPromptSecurityAction"
-ACTION_TOPIC_JUDGE = "GuardTopicJudgeAction"
-ACTION_GROUNDING = "GuardGroundingAction"
-ACTION_AUTOMATED_REASONING = "GuardReasoningAction"
-ACTION_CUSTOMER_IDENTIFIER = "GuardCustomerIdentifierAction"
-ACTION_RECORD_POLICY = "GuardRecordPolicyAction"
-ACTION_RECORD_NATIVE = "GuardRecordNativeAction"
-ACTION_RESOLVE = "GuardResolveAction"
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,55 +62,7 @@ class ActionCatalog:
         return (name, version) in self._definitions
 
 
-@dataclass(frozen=True, slots=True)
-class EvaluatorActionProvider:
-    """Temporary algorithm adapter with a direct, versioned NeMo Action contract."""
-
-    name: str
-    version: str
-    evaluator: object
-    risks: frozenset[str]
-    rails: frozenset[str]
-
-    async def execute(self, request: ActionRequest) -> ActionResult:
-        result = await self.evaluator.evaluate(
-            engine_request(request),
-            (binding_step(request.binding),),
-        )
-        confidence = next(
-            (item.confidence for item in result.findings), None
-        )
-        return ActionResult(
-            verdict=result.verdict,
-            content=result.content,
-            findings=result.findings,
-            confidence=confidence,
-            proposed_action=request.proposed_action,
-            evidence=result.reason or "",
-            reason=result.reason,
-        )
-
-
-class RuntimeActionRegistry:
-    def __init__(self, providers: tuple[ActionProvider, ...]) -> None:
-        keys = tuple((item.name, item.version) for item in providers)
-        if len(set(keys)) != len(keys):
-            raise ValueError("Runtime Action provider names and versions must be unique.")
-        self._providers = {
-            key: provider for key, provider in zip(keys, providers, strict=True)
-        }
-
-    def providers(self) -> tuple[ActionProvider, ...]:
-        return tuple(self._providers.values())
-
-    def get(self, name: str, version: str) -> ActionProvider:
-        try:
-            return self._providers[(name, version)]
-        except KeyError as error:
-            raise KeyError(f"Action provider {name}@{version} is unavailable.") from error
-
-    def contains(self, name: str, version: str) -> bool:
-        return (name, version) in self._providers
+ActionProviders = Mapping[tuple[str, str], ActionProvider]
 
 
 _BUILTIN_RUNTIME_ACTIONS = (
@@ -129,41 +77,14 @@ _BUILTIN_RUNTIME_ACTIONS = (
 )
 
 
-def runtime_action_registry(*evaluators: object) -> RuntimeActionRegistry:
-    providers: list[EvaluatorActionProvider] = []
-    for evaluator in evaluators:
-        stage = str(getattr(evaluator, "stage", ""))
-        risks = frozenset(getattr(evaluator, "supported_risks", frozenset()))
-        rails = frozenset(getattr(evaluator, "supported_phases", frozenset()))
-        if not risks and stage == "deterministic":
-            risks = frozenset(
-                {"secrets", "pii", "builtin_content_filter", "topic_control"}
-            )
-        grouped: dict[str, set[str]] = {}
-        for risk in risks:
-            grouped.setdefault(action_name_for(risk, stage), set()).add(risk)
-        if not risks:
-            for name in {
-                "fast_semantic": (ACTION_PROMPT_SECURITY,),
-                "deep_judge": (
-                    ACTION_TOPIC_JUDGE,
-                    ACTION_GROUNDING,
-                    ACTION_AUTOMATED_REASONING,
-                ),
-            }.get(stage, ()):
-                grouped[name] = set()
-        for name, selected_risks in grouped.items():
-            if rails:
-                providers.append(
-                    EvaluatorActionProvider(
-                        name=name,
-                        version="1.0.0",
-                        evaluator=evaluator,
-                        risks=frozenset(selected_risks),
-                        rails=rails,
-                    )
-                )
-    return RuntimeActionRegistry(tuple(providers))
+def action_providers(*providers: ActionProvider) -> ActionProviders:
+    """Return the immutable provider map bound into native NeMo Actions."""
+    keys = tuple((item.name, item.version) for item in providers)
+    if len(set(keys)) != len(keys):
+        raise ValueError("Action provider names and versions must be unique.")
+    return MappingProxyType(
+        {key: provider for key, provider in zip(keys, providers, strict=True)}
+    )
 
 
 def _dynamic_action_name(risk: str) -> str:

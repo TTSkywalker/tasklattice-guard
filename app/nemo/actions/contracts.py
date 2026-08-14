@@ -3,17 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from ...runtime.content_views import content_view
 from ...runtime.contracts import (
     ContentPatch,
     ContentViewSnapshot,
-    EngineRequest,
     EnforcementMode,
+    EnforcementAction,
     EvidenceScope,
+    EvaluatorVerdict,
     GuardContentBlock,
     GuardrailPhase,
     GuardrailPlanSnapshot,
     NeMoActionBinding,
     RiskFinding,
+    RuntimeTraceStep,
 )
 
 
@@ -30,7 +33,7 @@ class ActionRequest:
     deadline: float
     parameters: tuple[tuple[str, str], ...]
     risk: str
-    proposed_action: str
+    proposed_action: EnforcementAction
     plan: GuardrailPlanSnapshot
     binding: NeMoActionBinding
     context_messages: tuple[dict[str, object], ...] = ()
@@ -50,50 +53,59 @@ class ActionUsage:
 
 @dataclass(frozen=True, slots=True)
 class ActionResult:
-    verdict: str
+    verdict: EvaluatorVerdict
     content: str
     findings: tuple[RiskFinding, ...] = ()
     patches: tuple[ContentPatch, ...] = ()
     confidence: float | None = None
-    proposed_action: str = "pass"
+    proposed_action: EnforcementAction = "pass"
     evidence: str = ""
     reason: str | None = None
+    trace: tuple[RuntimeTraceStep, ...] = ()
     usage: ActionUsage = ActionUsage()
 
 
 class ActionProvider(Protocol):
     name: str
     version: str
+    risks: frozenset[str]
+    rails: frozenset[GuardrailPhase]
 
     async def execute(self, request: ActionRequest) -> ActionResult: ...
 
 
-def engine_request(request: ActionRequest) -> EngineRequest:
-    return EngineRequest(
-        phase=request.rail_type,
-        text=request.content,
-        plan=request.plan,
-        context_messages=request.context_messages,
-        trusted_instruction=dict(request.trusted_context).get(
-            "trusted_instruction", ""
-        ),
-        target_source=request.target_source,
-        mode=request.mode,
-        evidence_scope=request.evidence_scope,
-        content_view=request.content_view,
-        active_block_id=request.active_block_id,
-    )
+def action_view(request: ActionRequest) -> ContentViewSnapshot:
+    """Return the immutable content view supplied to a NeMo Action."""
+    if request.content_view is not None:
+        return request.content_view
+    if not request.content_blocks:
+        raise ValueError("A NeMo Action request must include a content view.")
+    active_block_id = request.active_block_id or request.content_blocks[0].id
+    return content_view(request.content_blocks, active_block_id)
 
 
-def binding_step(binding: NeMoActionBinding):
-    from ...runtime.contracts import GuardrailPlanStep
-
-    return GuardrailPlanStep(
-        id=binding.id,
-        risk=binding.risk,
-        stage=binding.stage,
-        phases=binding.phases,
-        on_unsafe=binding.on_unsafe,
-        escalation=binding.escalation,
-        parameters=binding.parameters,
+def action_result(
+    request: ActionRequest,
+    verdict: EvaluatorVerdict,
+    content: str,
+    *,
+    findings: tuple[RiskFinding, ...] = (),
+    patches: tuple[ContentPatch, ...] = (),
+    reason: str | None = None,
+    trace: tuple[RuntimeTraceStep, ...] = (),
+    usage: ActionUsage = ActionUsage(),
+) -> ActionResult:
+    """Build the single result contract returned by every NeMo Action provider."""
+    confidence = next((item.confidence for item in findings), None)
+    return ActionResult(
+        verdict=verdict,
+        content=content,
+        findings=findings,
+        patches=patches,
+        confidence=confidence,
+        proposed_action=request.proposed_action,
+        evidence=reason or "",
+        reason=reason,
+        trace=trace,
+        usage=usage,
     )

@@ -2,28 +2,29 @@ from __future__ import annotations
 
 import pytest
 
+from app.nemo.action_registry import action_name_for
+from app.nemo.actions.contracts import ActionResult
 from app.runtime.contracts import (
     EngineRequest,
     GuardrailPlanModule,
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
     RiskFinding,
-    StageResult,
 )
 from tests.nemo_helpers import nemo_engine
 
 
 class ResultAction:
-    stage = "deterministic"
-    supported_phases = frozenset({"input"})
+    version = "1.0.0"
+    rails = frozenset({"input"})
 
-    def __init__(self, risk: str, result: StageResult) -> None:
-        self.name = f"Action {risk}"
-        self.supported_risks = frozenset({risk})
+    def __init__(self, risk: str, result: ActionResult) -> None:
+        self.name = action_name_for(risk, "deterministic")
+        self.risks = frozenset({risk})
         self._result = result
 
-    async def evaluate(self, request, steps):
-        del request, steps
+    async def execute(self, request):
+        del request
         return self._result
 
 
@@ -83,7 +84,7 @@ async def test_nemo_resolve_action_preserves_multiple_interventions():
         plan,
         ResultAction(
             "private_data",
-            StageResult(
+            ActionResult(
                 "unsafe",
                 "[SECRET]",
                 (_finding("private_data", "redact"),),
@@ -91,7 +92,7 @@ async def test_nemo_resolve_action_preserves_multiple_interventions():
         ),
         ResultAction(
             "business_policy",
-            StageResult(
+            ActionResult(
                 "unsafe",
                 "secret",
                 (_finding("business_policy", "rewrite", replacement="safe rewrite"),),
@@ -118,7 +119,7 @@ async def test_nemo_resolve_action_fails_closed_on_conflicting_patches():
         plan,
         ResultAction(
             "first_data",
-            StageResult(
+            ActionResult(
                 "unsafe",
                 "Adef",
                 (_finding("first_data", "redact"),),
@@ -126,7 +127,7 @@ async def test_nemo_resolve_action_fails_closed_on_conflicting_patches():
         ),
         ResultAction(
             "second_data",
-            StageResult(
+            ActionResult(
                 "unsafe",
                 "abBf",
                 (_finding("second_data", "redact"),),
@@ -149,7 +150,7 @@ async def test_nemo_detect_mode_records_without_enforcing():
         plan,
         ResultAction(
             "attack",
-            StageResult(
+            ActionResult(
                 "unsafe",
                 "attack",
                 (_finding("attack", "reject"),),
@@ -174,7 +175,7 @@ async def test_colang1_uses_the_strongest_finding_and_applies_fallback_content()
         block_plan,
         ResultAction(
             "mixed_policy",
-            StageResult(
+            ActionResult(
                 "unsafe",
                 "[MASKED] and blocked",
                 (
@@ -198,7 +199,7 @@ async def test_colang1_uses_the_strongest_finding_and_applies_fallback_content()
         clarify_plan,
         ResultAction(
             "uncertain_policy",
-            StageResult("uncertain", "ambiguous", reason="More context is required."),
+            ActionResult("uncertain", "ambiguous", reason="More context is required."),
         ),
     )
 
@@ -222,7 +223,7 @@ async def test_required_action_errors_honor_module_failure_mode():
     )
     stage = ResultAction(
         "optional_policy",
-        StageResult("error", "request", reason="Provider unavailable."),
+        ActionResult("error", "request", reason="Provider unavailable."),
     )
     open_engine = nemo_engine(open_plan, stage)
     allowed = await open_engine.evaluate(EngineRequest("input", "request", open_plan))
@@ -242,7 +243,7 @@ async def test_required_action_errors_honor_module_failure_mode():
         closed_plan,
         ResultAction(
             "required_policy",
-            StageResult("error", "request", reason="Provider unavailable."),
+            ActionResult("error", "request", reason="Provider unavailable."),
         ),
     )
     blocked = await closed_engine.evaluate(

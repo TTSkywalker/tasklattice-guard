@@ -8,8 +8,8 @@ import yaml
 
 from app.control_plane.domain import ControlPlaneError, PlanCompilationError
 from app.control_plane.service import _nemo_config_from_payload
-from app.nemo.action_registry import RuntimeActionRegistry
-from app.nemo.registry import NeMoRailsRegistry
+from app.nemo.action_registry import ActionProviders, action_providers
+from app.nemo.registry import NeMoRuntimeRegistry
 from app.runtime.contracts import (
     GuardrailPlanSnapshot,
     NeMoActionBinding,
@@ -130,7 +130,7 @@ def test_registry_rejects_illegal_profile_engine_colang_combinations(
     engine: str,
     colang_version: str,
 ) -> None:
-    registry = NeMoRailsRegistry(_EmptyStore(), RuntimeActionRegistry(()))
+    registry = NeMoRuntimeRegistry(_EmptyStore(), action_providers())
 
     with pytest.raises(PlanCompilationError, match="requires runtime_engine"):
         registry.validate(
@@ -145,9 +145,9 @@ def test_registry_rejects_illegal_profile_engine_colang_combinations(
 
 
 def test_registry_rejects_actions_in_iorails_profile() -> None:
-    registry = NeMoRailsRegistry(
+    registry = NeMoRuntimeRegistry(
         _EmptyStore(),
-        RuntimeActionRegistry(()),
+        action_providers(),
         execution_surface="owned_generation",
     )
     config = _config(
@@ -165,7 +165,7 @@ def test_registry_rejects_actions_in_iorails_profile() -> None:
 
 
 def test_standalone_registry_rejects_iorails_before_reporting_ready() -> None:
-    registry = NeMoRailsRegistry(_EmptyStore(), RuntimeActionRegistry(()))
+    registry = NeMoRuntimeRegistry(_EmptyStore(), action_providers())
     config = _config(
         profile="iorails_native",
         engine="iorails",
@@ -178,7 +178,7 @@ def test_standalone_registry_rejects_iorails_before_reporting_ready() -> None:
 
 
 def test_registry_rejects_tracing_for_pinned_colang2_runtime() -> None:
-    registry = NeMoRailsRegistry(_EmptyStore(), RuntimeActionRegistry(()))
+    registry = NeMoRuntimeRegistry(_EmptyStore(), action_providers())
     config = _config(
         profile="llmrails_colang2_programmable",
         engine="llmrails",
@@ -206,7 +206,7 @@ def test_registry_rejects_metrics_for_llmrails_profiles(profile: str) -> None:
     config = replace(config, config_yaml=yaml.safe_dump(payload, sort_keys=False))
 
     with pytest.raises(PlanCompilationError, match="metrics to be disabled"):
-        NeMoRailsRegistry(_EmptyStore(), RuntimeActionRegistry(())).validate(
+        NeMoRuntimeRegistry(_EmptyStore(), action_providers()).validate(
             _plan(), config
         )
 
@@ -214,7 +214,7 @@ def test_registry_rejects_metrics_for_llmrails_profiles(profile: str) -> None:
 def test_registry_requires_unique_c1_result_variables() -> None:
     missing = _config(bindings=(_binding(result_var=None),))
     with pytest.raises(PlanCompilationError, match="explicit result variables"):
-        NeMoRailsRegistry(_EmptyStore(), RuntimeActionRegistry(())).validate(
+        NeMoRuntimeRegistry(_EmptyStore(), action_providers()).validate(
             _plan(), missing
         )
 
@@ -225,7 +225,7 @@ def test_registry_requires_unique_c1_result_variables() -> None:
         )
     )
     with pytest.raises(PlanCompilationError, match="must be unique"):
-        NeMoRailsRegistry(_EmptyStore(), RuntimeActionRegistry(())).validate(
+        NeMoRuntimeRegistry(_EmptyStore(), action_providers()).validate(
             _plan(), duplicate
         )
 
@@ -240,16 +240,16 @@ def test_registry_rejects_programmable_executor_actions_in_c1() -> None:
     )
 
     with pytest.raises(PlanCompilationError, match="programmable executor Actions"):
-        NeMoRailsRegistry(
+        NeMoRuntimeRegistry(
             _EmptyStore(),
-            RuntimeActionRegistry((_Provider("ExampleAction", "1.0.0"),)),
+            action_providers(_Provider("ExampleAction", "1.0.0")),
         ).validate(_plan(), config)
 
 
 def test_registry_requires_the_exact_provider_version() -> None:
-    registry = NeMoRailsRegistry(
+    registry = NeMoRuntimeRegistry(
         _EmptyStore(),
-        RuntimeActionRegistry((_Provider("ExampleAction", "1.0.0"),)),
+        action_providers(_Provider("ExampleAction", "1.0.0")),
     )
     config = _config(bindings=(_binding(version="2.0.0"),))
 
@@ -258,7 +258,7 @@ def test_registry_requires_the_exact_provider_version() -> None:
 
 
 def test_registry_requires_the_pinned_executor_action_version() -> None:
-    registry = NeMoRailsRegistry(_EmptyStore(), RuntimeActionRegistry(()))
+    registry = NeMoRuntimeRegistry(_EmptyStore(), action_providers())
     config = _config(
         profile="llmrails_colang2_programmable",
         engine="llmrails",
@@ -278,13 +278,11 @@ def test_registry_requires_the_pinned_executor_action_version() -> None:
 
 
 def test_registry_rejects_two_versions_under_one_action_name() -> None:
-    registry = NeMoRailsRegistry(
+    registry = NeMoRuntimeRegistry(
         _EmptyStore(),
-        RuntimeActionRegistry(
-            (
-                _Provider("ExampleAction", "1.0.0"),
-                _Provider("ExampleAction", "2.0.0"),
-            )
+        action_providers(
+            _Provider("ExampleAction", "1.0.0"),
+            _Provider("ExampleAction", "2.0.0"),
         ),
     )
     config = _config(
@@ -336,7 +334,7 @@ def test_registry_constructs_the_explicit_profile_engine(
             self,
             plan: GuardrailPlanSnapshot,
             config: NeMoConfigSnapshot,
-            actions: RuntimeActionRegistry,
+            actions: ActionProviders,
         ) -> None:
             self.plan = plan
             self.config = config
@@ -350,10 +348,10 @@ def test_registry_constructs_the_explicit_profile_engine(
 
     monkeypatch.setattr(registry_module, "RailsConfig", _RailsConfig)
     monkeypatch.setattr(registry_module, "Guardrails", _Guardrails)
-    monkeypatch.setattr(runtime_module, "NeMoActionExecutor", _Executor)
-    registry = NeMoRailsRegistry(
+    monkeypatch.setattr(runtime_module, "NeMoActionBridge", _Executor)
+    registry = NeMoRuntimeRegistry(
         _EmptyStore(),
-        RuntimeActionRegistry(()),
+        action_providers(),
         execution_surface=(
             "owned_generation" if profile == "iorails_native" else "standalone_check"
         ),
@@ -403,11 +401,11 @@ def test_registry_scopes_registration_to_the_artifact_pinned_provider(
             self,
             plan: GuardrailPlanSnapshot,
             config: NeMoConfigSnapshot,
-            actions: RuntimeActionRegistry,
+            actions: ActionProviders,
         ) -> None:
             del plan, config
             selected.append(
-                tuple((item.name, item.version) for item in actions.providers())
+                tuple((item.name, item.version) for item in actions.values())
             )
 
         def register(self, rails: Any) -> None:
@@ -415,14 +413,12 @@ def test_registry_scopes_registration_to_the_artifact_pinned_provider(
 
     monkeypatch.setattr(registry_module, "RailsConfig", _RailsConfig)
     monkeypatch.setattr(registry_module, "Guardrails", _Guardrails)
-    monkeypatch.setattr(runtime_module, "NeMoActionExecutor", _Executor)
-    registry = NeMoRailsRegistry(
+    monkeypatch.setattr(runtime_module, "NeMoActionBridge", _Executor)
+    registry = NeMoRuntimeRegistry(
         _EmptyStore(),
-        RuntimeActionRegistry(
-            (
-                _Provider("ExampleAction", "1.0.0"),
-                _Provider("ExampleAction", "2.0.0"),
-            )
+        action_providers(
+            _Provider("ExampleAction", "1.0.0"),
+            _Provider("ExampleAction", "2.0.0"),
         ),
     )
 

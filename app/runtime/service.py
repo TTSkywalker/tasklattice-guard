@@ -18,16 +18,16 @@ from .contracts import (
 )
 
 
-class ModelGuardrailsEngineService:
+class GuardrailRuntimeService:
     """Pin a tested Guardrail Plan and evaluate model input or output."""
 
     def __init__(
         self,
-        engine: NeMoPolicyRuntime,
+        runtime: NeMoPolicyRuntime,
         resolver: PlanResolver,
         contexts: CallContextStore | None = None,
     ) -> None:
-        self._engine = engine
+        self._runtime = runtime
         self._resolver = resolver
         self._contexts = contexts or CallContextStore()
 
@@ -100,7 +100,7 @@ class ModelGuardrailsEngineService:
             if not block.guard_content or block.trust == "trusted":
                 continue
             view = content_view(view_blocks, block.id)
-            decision = await self._engine.evaluate(
+            decision = await self._runtime.evaluate(
                 EngineRequest(
                     phase=request.phase,
                     text=block.text,

@@ -13,7 +13,7 @@ from ..control_plane.domain import (
 )
 from ..control_plane.service import ControlPlaneService
 from ..runtime.contracts import ProtectionDecision, ProtectionRequest, RequestContext
-from ..runtime.gateway import ModelGuardrailsEngineService
+from ..runtime.service import GuardrailRuntimeService
 from ..integrations import LITELLM_GENERIC_GUARDRAIL_ADAPTER_ID
 from .http import SENSITIVE_HEADERS
 from .observability import record_runtime_decision, record_runtime_failure
@@ -61,7 +61,7 @@ class LiteLLMAdapter:
 
     def __init__(
         self,
-        service: ModelGuardrailsEngineService,
+        service: GuardrailRuntimeService,
         control_plane: ControlPlaneService,
     ) -> None:
         self._service = service

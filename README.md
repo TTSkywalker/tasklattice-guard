@@ -32,30 +32,34 @@ Version.
                 ▼                                           │ input / output check
  ┌────────────────────────────────┐                          ▼
  │ TaskLattice Control Plane      │            ┌────────────────────────────┐
- │                                │            │ Trusted Integration Layer  │
- │ Define Policies & Guardrails   │            │ Authenticate · Normalize   │
- │ Validate with Test Cases       │            └──────────────┬─────────────┘
- │ Review · Release · Roll back   │                           │ trusted context
+ │ Define Policies & Guardrails   │            │ Integration Adapter        │
+ │ Validate with Test Cases       │            │ Authenticate · Normalize   │
+ │ Review · Release · Roll back   │            └──────────────┬─────────────┘
  └───────────────┬────────────────┘                           ▼
                  │                             ┌────────────────────────────┐
-                 ▼                             │ Deployment Resolver        │
- ┌────────────────────────────────┐            │ Match scope · Pin Version  │
+                 ▼                             │ GuardrailRuntimeService    │
+ ┌────────────────────────────────┐            │ Resolve route · Pin Version│
  │ Immutable Guardrail Version    │───────────▶└──────────────┬─────────────┘
- │                                │ release / rollback        │
- │ Reviewed policy snapshot       │ updates binding           ▼
+ │ Reviewed policy snapshot       │ release / rollback        ▼
  │ Compiled NeMo configuration    │            ┌────────────────────────────┐
- │ Bindings · dependencies · hash │            │ Versioned Runtime Registry │
- └────────────────────────────────┘            │ Load reviewed artifact     │
-                                               │ Prewarm active Versions    │
+ │ Bindings · dependencies · hash │            │ NeMoRuntimeRegistry       │
+ └────────────────────────────────┘            │ Prewarm versioned runtime  │
                                                └──────────────┬─────────────┘
                                                               ▼
                                                ┌────────────────────────────┐
-                                               │ NVIDIA NeMo Guardrails     │
-                                               │ Input / Output Rails       │
-                                               │ Native flows + TL Actions  │
+                                               │ NeMo Guardrails            │
+                                               │ Guardrails.generate_async  │
+                                               │ Colang Input / Output Rail │
                                                └──────────────┬─────────────┘
                                                               ▼
-                                                    Allow · Transform · Block
+                                               ┌────────────────────────────┐
+                                               │ NeMoActionBridge           │
+                                               │ Versioned ActionProviders  │
+                                               │ ActionResult               │
+                                               └──────────────┬─────────────┘
+                                                              ▼
+                                                  ProtectionDecision
+                                               Allow · Transform · Block
                                                               │
                                        ┌──────────────────────┴─────────────┐
                                        ▼                                    ▼
@@ -88,6 +92,28 @@ The architecture is built around six principles:
   Privacy-conscious telemetry and bounded runtime evidence exclude protected
   request and response bodies.
 
+### Runtime and model boundaries
+
+- The production Check API uses NeMo `llmrails`: straightforward plans compile
+  to standard Colang 1 rails, while plans that require dependencies or
+  programmable orchestration compile to Colang 2 flows. `iorails_native` is
+  reserved for a future host that owns model generation and is rejected by the
+  standalone Check API.
+- Deterministic checks and specialized model-backed checks are registered as
+  versioned Python Actions and are invoked by the active NeMo rail. There is no
+  second runtime evaluator pipeline beside NeMo.
+- NVIDIA safety, topic-control, grounding, and jailbreak models are dedicated
+  runtime guard models. A general-purpose chat model is never registered as a
+  runtime judge.
+- DeepSeek or another OpenAI-compatible general-purpose model may be configured
+  for Playground response generation and for control-plane intent or compliance
+  document translation. Those calls do not evaluate production traffic; the
+  Playground model's input and output are still checked by the selected
+  Guardrail.
+- Automated Reasoning is optional. When configured, NeMo invokes the provider
+  as a version-pinned output Action using an immutable policy reference and
+  returns proof findings for normal Guardrail enforcement.
+
 ## Core Product Concepts
 
 | Concept | Meaning |
@@ -99,10 +125,10 @@ The architecture is built around six principles:
 | **Guardrail** | A deployable composition of version-pinned Policies, business intent, parameter values, and enforcement actions. |
 | **Validation Run** | An immutable execution of a Guardrail's reviewed Test Cases through the same runtime used for production traffic. |
 | **Guardrail Version** | The immutable audit and rollback unit containing the reviewed policy snapshot and the executable NeMo artifact derived from it. |
-| **Deployment** | A binding from trusted Traffic Scope to the exact released Guardrail Version currently serving it. Release and rollback move this pointer atomically. |
-| **Traffic Scope** | The complete AND/OR expression that determines whether a Deployment applies. |
-| **Traffic Condition** | One leaf predicate inside a Traffic Scope, such as an Integration ID, model, protocol, or trusted request attribute. |
-| **Integration** | The connection between TaskLattice Guard and an AI application, agent, or gateway. |
+| **Deployment** | One ordered route for an Integration, or a direct/default route, binding a Traffic Scope to an exact released Guardrail Version. Selecting multiple Integrations backed by the same Adapter creates one independently ordered route per Integration. Release and rollback move their version pointers atomically. |
+| **Traffic Scope** | The complete AND/OR expression evaluated after the Integration route table is selected. An empty expression means any traffic from that Integration. |
+| **Traffic Condition** | One leaf predicate over authenticated request facts, such as principal, protocol, HTTP path/header, model, LiteLLM identity, JWT claim, or A2A metadata. |
+| **Integration** | An authenticated traffic source representing one AI application, agent, or gateway instance. Its matching Deployments form an ordered, first-match-wins route table; an empty Traffic Scope provides an any-traffic fallback. |
 | **NeMo Runtime** | The version-pinned execution environment for a Guardrail's rails, flows, Actions, and model references. |
 | **Evidence** | An immutable, bounded record of validation, configuration changes, deployments, and sanitized runtime decisions for review and audit. |
 
@@ -128,6 +154,31 @@ Guardrail Version is released. Existing Deployments bound to that Guardrail
 advance atomically to the released Version. Rollback validates and prewarms a
 historical artifact before atomically pointing those Deployments back; checks
 already in flight continue on the Version with which they started.
+
+## Local Development
+
+Requirements: Python 3.11–3.13, [uv](https://docs.astral.sh/uv/), Node.js, and
+npm. Provider credentials are optional for the deterministic local baseline.
+
+```bash
+cp .env.example .env
+make sync
+make web-build
+make run
+```
+
+Open `http://localhost:8091`. Run the Python tests, web type checking, and the
+production web build with:
+
+```bash
+make test
+```
+
+Runtime and provider settings are documented inline in
+[`.env.example`](.env.example). More implementation detail is available in
+[`docs/nemo-runtime.md`](docs/nemo-runtime.md),
+[`docs/policy-library.md`](docs/policy-library.md), and
+[`docs/integrations/litellm.md`](docs/integrations/litellm.md).
 
 ## Local Administrator
 

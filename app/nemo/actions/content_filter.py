@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from ...policy_library import PolicyRuleSpec, PolicySpec, policy
 from ...policy_library.matching import keyword_expression, severity_applies
-from ...runtime.contracts import GuardrailPhase, RiskFinding, StageResult
+from ...runtime.contracts import (
+    EvaluatorVerdict,
+    GuardrailPhase,
+    RiskFinding,
+    RuntimeTraceStep,
+)
+from .contracts import ActionRequest, ActionResult, action_result
+from .names import ACTION_CONTENT_FILTER
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +24,15 @@ class _Detection:
     rule: str
     action: str
     evidence: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ContentFilterResult:
+    verdict: EvaluatorVerdict
+    content: str
+    findings: tuple[RiskFinding, ...] = ()
+    reason: str | None = None
+    trace: tuple[RuntimeTraceStep, ...] = ()
 
 
 class BuiltinContentFilter:
@@ -31,7 +48,7 @@ class BuiltinContentFilter:
         enabled_rules: Mapping[str, Iterable[str]] | None = None,
         rule_actions: Mapping[str, str] | None = None,
         custom_rules: Iterable[Mapping[str, Any]] = (),
-    ) -> StageResult:
+    ) -> _ContentFilterResult:
         configured = parameters or {}
         selected_rules = {
             name: frozenset(rule_ids)
@@ -43,7 +60,7 @@ class BuiltinContentFilter:
         for name in policies:
             definition = policy(name)
             if definition is None:
-                return StageResult(
+                return _ContentFilterResult(
                     verdict="error",
                     content=text,
                     reason=f"Built-in Policy {name!r} is unavailable.",
@@ -65,7 +82,7 @@ class BuiltinContentFilter:
                 tuple(custom_rules), content, phase
             )
         except re.error as error:
-            return StageResult(
+            return _ContentFilterResult(
                 verdict="error",
                 content=text,
                 reason=f"Custom content-filter Rule is invalid: {error}.",
@@ -73,7 +90,7 @@ class BuiltinContentFilter:
         detections.extend(custom_detections)
 
         if not detections:
-            return StageResult(
+            return _ContentFilterResult(
                 verdict="safe",
                 content=text,
                 reason="No built-in content-filter rule matched.",
@@ -96,7 +113,7 @@ class BuiltinContentFilter:
             for item in detections
         )
         blocked = any(item.action == "BLOCK" for item in detections)
-        return StageResult(
+        return _ContentFilterResult(
             verdict="unsafe",
             content=content,
             findings=findings,
@@ -356,6 +373,63 @@ class BuiltinContentFilter:
         for key, replacement in parameters.items():
             rendered = rendered.replace(f"{{{{{key}}}}}", replacement)
         return rendered
+
+
+class ContentFilterActionProvider:
+    """Provide local Policy Library rules as a versioned NeMo Action."""
+
+    name = ACTION_CONTENT_FILTER
+    version = "1.0.0"
+    risks = frozenset({"builtin_content_filter"})
+    rails = frozenset({"input", "output"})
+
+    def __init__(self, content_filter: BuiltinContentFilter | None = None) -> None:
+        self._content_filter = content_filter or BuiltinContentFilter()
+
+    async def execute(self, request: ActionRequest) -> ActionResult:
+        parameters = dict(request.parameters)
+        selected_parameters = {
+            key.removeprefix("parameter."): value
+            for key, value in request.parameters
+            if key.startswith("parameter.")
+        }
+        result = self._content_filter.evaluate(
+            text=request.content,
+            phase=request.rail_type,
+            policies=tuple(
+                item.strip()
+                for item in parameters.get("policy_ids", "").splitlines()
+                if item.strip()
+            ),
+            parameters=selected_parameters,
+            enabled_rules=_json_mapping(parameters.get("enabled_rules_json", "{}")),
+            rule_actions=_json_mapping(parameters.get("rule_actions_json", "{}")),
+            custom_rules=_json_rules(parameters.get("custom_rules_json", "[]")),
+        )
+        return action_result(
+            request,
+            result.verdict,
+            result.content,
+            findings=result.findings,
+            reason=result.reason,
+            trace=result.trace,
+        )
+
+
+def _json_mapping(value: str) -> dict[str, Any]:
+    decoded = json.loads(value)
+    if not isinstance(decoded, dict):
+        raise ValueError("Content-filter mapping parameters must be JSON objects.")
+    return decoded
+
+
+def _json_rules(value: str) -> tuple[dict[str, Any], ...]:
+    decoded = json.loads(value)
+    if not isinstance(decoded, list) or not all(
+        isinstance(item, dict) for item in decoded
+    ):
+        raise ValueError("Custom content-filter rules must be a JSON array of objects.")
+    return tuple(decoded)
 
 
 def _source_action(effect: str) -> str:

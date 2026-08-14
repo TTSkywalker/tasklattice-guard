@@ -6,8 +6,8 @@ from app.config import Settings
 from app.main import (
     _nemo_compiler,
     _specialized_evaluator_risks,
-    create_action_registry,
-    create_engine,
+    create_action_providers,
+    create_runtime,
 )
 
 
@@ -121,7 +121,7 @@ def test_nvidia_guard_models_cover_runtime_without_a_generic_llm(tmp_path):
         "nim_server_endpoint": "/v1/security/nvidia/nemoguard-jailbreak-detect",
         "api_key_env_var": "MODEL_GUARDRAILS_NVIDIA_API_KEY",
     }
-    providers = create_action_registry(settings).providers()
+    providers = tuple(create_action_providers(settings).values())
     topic_provider = next(
         item for item in providers if item.name == "GuardTopicJudgeAction"
     )
@@ -158,9 +158,9 @@ def test_playground_model_is_not_registered_as_a_runtime_evaluator(tmp_path):
         playground_chat_api_key_env_var="DEEPSEEK_API_KEY",
     )
 
-    engine = create_engine(settings)
+    runtime = create_runtime(settings)
     runtime_actions = {
-        item.name for item in engine._registry._actions.providers()
+        item.name for item in runtime._registry._providers.values()
     }
 
     assert "GuardPromptSecurityJudgeAction" not in runtime_actions

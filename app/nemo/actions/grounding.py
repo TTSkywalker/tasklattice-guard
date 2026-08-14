@@ -6,15 +6,13 @@ from typing import Any
 
 import httpx
 
-from ...runtime.content_views import request_view
 from ...runtime.contracts import (
-    EngineRequest,
     GroundingClaimEvidence,
     GroundingFilterAssessment,
-    GuardrailPlanStep,
     RiskFinding,
-    StageResult,
 )
+from .contracts import ActionRequest, ActionResult, action_result, action_view
+from .names import ACTION_GROUNDING
 
 
 MAX_GROUNDING_CHARACTERS = 100_000
@@ -22,13 +20,13 @@ MAX_QUERY_CHARACTERS = 1_000
 MAX_RESPONSE_CHARACTERS = 5_000
 
 
-class ContextualGroundingJudgeEngine:
+class GroundingActionProvider:
     """Score an output against query/source blocks and retain claim-level evidence."""
 
-    name = "Contextual Grounding Judge"
-    stage = "deep_judge"
-    supported_phases = frozenset({"output"})
-    supported_risks = frozenset({"contextual_grounding"})
+    name = ACTION_GROUNDING
+    version = "1.0.0"
+    rails = frozenset({"output"})
+    risks = frozenset({"contextual_grounding"})
 
     def __init__(
         self,
@@ -47,24 +45,13 @@ class ContextualGroundingJudgeEngine:
         self._transport = transport
         self._request_options = dict(request_options or {})
 
-    async def evaluate(
-        self,
-        request: EngineRequest,
-        steps: tuple[GuardrailPlanStep, ...],
-    ) -> StageResult:
-        step = next(
-            (item for item in steps if item.risk == "contextual_grounding"),
-            None,
-        )
-        if step is None:
-            return StageResult("safe", request.text)
-
-        view = request_view(request)
+    async def execute(self, request: ActionRequest) -> ActionResult:
+        view = action_view(request)
         active = view.active_block
         if "query" in active.qualifiers or "grounding_source" in active.qualifiers:
-            return StageResult(
+            return action_result(request,
                 "safe",
-                request.text,
+                request.content,
                 reason="The active block supplies grounding context and is not a response target.",
             )
 
@@ -85,12 +72,12 @@ class ContextualGroundingJudgeEngine:
             elif sources:
                 missing = "query"
             reason = f"Contextual grounding requires a {missing} before evaluating output."
-            return StageResult(
+            return action_result(request,
                 "uncertain",
-                request.text,
+                request.content,
                 findings=(
                     RiskFinding(
-                        risk=step.risk,
+                        risk=request.risk,
                         verdict="uncertain",
                         confidence=0.0,
                         evidence=reason,
@@ -102,21 +89,21 @@ class ContextualGroundingJudgeEngine:
 
         query_text = "\n".join(block.text for block in queries)
         source_text = "\n".join(block.text for block in sources)
-        limit_error = _limit_error(query_text, source_text, request.text)
+        limit_error = _limit_error(query_text, source_text, request.content)
         if limit_error:
-            return StageResult("error", request.text, reason=limit_error)
+            return action_result(request, "error", request.content, reason=limit_error)
 
         try:
-            grounding_threshold = _threshold(step, "grounding_threshold")
-            relevance_threshold = _threshold(step, "relevance_threshold")
+            grounding_threshold = _threshold(request, "grounding_threshold")
+            relevance_threshold = _threshold(request, "relevance_threshold")
         except ValueError as error:
-            return StageResult("error", request.text, reason=str(error))
+            return action_result(request, "error", request.content, reason=str(error))
 
         credential = os.environ.get(self._api_key_env_var, "").strip()
         if not credential:
-            return StageResult(
+            return action_result(request,
                 "error",
-                request.text,
+                request.content,
                 reason=f"{self.name} credential is not configured.",
             )
 
@@ -149,7 +136,7 @@ class ContextualGroundingJudgeEngine:
                                         ],
                                         "response": {
                                             "block_id": active.id,
-                                            "text": request.text,
+                                            "text": request.content,
                                         },
                                     },
                                     ensure_ascii=False,
@@ -165,9 +152,9 @@ class ContextualGroundingJudgeEngine:
                     frozenset(block.id for block in sources),
                 )
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            return StageResult(
+            return action_result(request,
                 "error",
-                request.text,
+                request.content,
                 reason=f"{self.name} evaluator failed: {type(error).__name__}.",
             )
 
@@ -198,24 +185,24 @@ class ContextualGroundingJudgeEngine:
             else "The response is grounded in the supplied sources and relevant to the query."
         )
         finding = RiskFinding(
-            risk=step.risk,
+            risk=request.risk,
             verdict=verdict,
             confidence=min(grounding_score, relevance_score),
             evidence=reason,
-            recommended_action=step.on_unsafe if unsafe else "pass",
+            recommended_action=request.proposed_action if unsafe else "pass",
             grounding=grounding,
             claims=claims,
         )
-        return StageResult(
+        return action_result(request,
             verdict,
-            request.text,
+            request.content,
             findings=(finding,) if unsafe or request.evidence_scope == "full" else (),
             reason=reason,
         )
 
 
-def _threshold(step: GuardrailPlanStep, name: str) -> float:
-    raw = step.parameter(name) or "0.7"
+def _threshold(request: ActionRequest, name: str) -> float:
+    raw = dict(request.parameters).get(name, "0.7")
     try:
         value = float(raw)
     except ValueError as error:

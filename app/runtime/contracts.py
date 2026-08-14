@@ -569,15 +569,6 @@ class ContentBlockResult:
 
 
 @dataclass(frozen=True, slots=True)
-class StageResult:
-    verdict: EvaluatorVerdict
-    content: str
-    findings: tuple[RiskFinding, ...] = ()
-    reason: str | None = None
-    trace: tuple[RuntimeTraceStep, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class ProtectionDecision:
     decision: PolicyDecision
     action: EnforcementAction
