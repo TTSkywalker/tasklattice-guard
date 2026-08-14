@@ -2076,6 +2076,7 @@ class ControlPlaneService:
         try:
             with self._database.transaction() as session:
                 self._ensure_product_defaults(session)
+                self._refresh_stale_nemo_artifacts(session)
         except IntegrityError as error:
             # The schema bootstrap or another replica installed the defaults.
             with self._database.session() as session:
@@ -2274,30 +2275,6 @@ class ControlPlaneService:
                 guardrail_id=DEFAULT_GUARDRAIL_ID,
                 detail="Installed the local-only Default Guardrail.",
             )
-        else:
-            version_row = session.get(
-                GuardrailVersionModel,
-                (DEFAULT_GUARDRAIL_ID, DEFAULT_GUARDRAIL_VERSION),
-            )
-            if (
-                version_row is not None
-                and version_row.compiler_version != NEMO_COMPILER_VERSION
-            ):
-                guardrail = _guardrail_from_model(guardrail_row)
-                plan = self._compile_guardrail(
-                    guardrail,
-                    DEFAULT_GUARDRAIL_VERSION,
-                )
-                nemo_config = self._nemo_compiler.compile(plan)
-                nemo_checksum = self._nemo_compiler.checksum(nemo_config)
-                version_row.guardrail_json = asdict(guardrail)
-                version_row.plan_json = asdict(plan)
-                version_row.nemo_config_json = asdict(nemo_config)
-                version_row.compiler_version = nemo_config.compiler_version
-                version_row.plan_checksum = nemo_checksum
-                version_row.runtime_engine = nemo_config.runtime_engine
-                version_row.config_checksum = nemo_checksum
-
         session.flush()
         deployment_row = session.get(DeploymentModel, DEFAULT_DEPLOYMENT_ID)
         if deployment_row is None:
@@ -2323,6 +2300,27 @@ class ControlPlaneService:
                 deployment_id=DEFAULT_DEPLOYMENT_ID,
                 detail="Enabled the Default Deployment for unmatched traffic.",
             )
+
+    def _refresh_stale_nemo_artifacts(self, session: Session) -> None:
+        """Recompile stored runtime artifacts after the NeMo contract changes.
+
+        A released Guardrail plan is the immutable policy snapshot. Rebuilding
+        only its derived NeMo configuration preserves that intent while moving
+        every stored version onto the runtime's current Action contract.
+        """
+        rows = session.scalars(
+            select(GuardrailVersionModel)
+            .where(GuardrailVersionModel.compiler_version != NEMO_COMPILER_VERSION)
+            .with_for_update()
+        ).all()
+        for row in rows:
+            plan = _plan_from_payload(row.plan_json)
+            nemo_config = self._nemo_compiler.compile(plan)
+            checksum = self._nemo_compiler.checksum(nemo_config)
+            row.nemo_config_json = asdict(nemo_config)
+            row.compiler_version = nemo_config.compiler_version
+            row.runtime_engine = nemo_config.runtime_engine
+            row.config_checksum = checksum
 
     def _insert_credential(
         self,
