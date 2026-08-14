@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Quality gate
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  version:
+    name: Verify release version
+    runs-on: ubuntu-24.04
+    outputs:
+      value: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+
+      - name: Verify version metadata
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 tools/check_release_version.py "$RELEASE_TAG"
+          echo "value=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+  image:
+    name: Build signed multi-platform image
+    needs:
+      - quality
+      - version
+    uses: docker/github-builder/.github/workflows/build.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      output: image
+      push: true
+      context: .
+      file: ./Dockerfile
+      target: runtime
+      platforms: linux/amd64,linux/arm64
+      cache: true
+      cache-scope: tasklattice-guard-release
+      cache-mode: max
+      sbom: true
+      sign: auto
+      set-meta-labels: true
+      set-meta-annotations: true
+      meta-images: ghcr.io/${{ github.repository }}
+      meta-tags: |
+        type=ref,event=tag
+        type=semver,pattern={{version}}
+        type=semver,pattern={{major}}.{{minor}}
+        type=raw,value=latest
+        type=sha
+      meta-labels: |
+        org.opencontainers.image.title=TaskLattice Guard
+        org.opencontainers.image.description=Enterprise Guardrail control plane with a NeMo Guardrails runtime
+        org.opencontainers.image.version=${{ needs.version.outputs.value }}
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - quality
+      - version
+      - image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.0.0
+
+      - name: Package release assets
+        env:
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          RELEASE_VERSION: ${{ needs.version.outputs.value }}
+        run: |
+          mkdir -p dist
+          helm package charts/tasklattice-guard \
+            --destination dist \
+            --version "$RELEASE_VERSION" \
+            --app-version "$RELEASE_VERSION"
+          printf '%s\n' \
+            "image=ghcr.io/${GITHUB_REPOSITORY}" \
+            "digest=${IMAGE_DIGEST}" \
+            "platforms=linux/amd64,linux/arm64" \
+            "version=${RELEASE_VERSION}" \
+            > dist/release-metadata.txt
+          (cd dist && sha256sum ./* > SHA256SUMS)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: TaskLattice Guard ${{ github.ref_name }}
+          body: |
+            Container image: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`
+
+            Digest: `${{ needs.image.outputs.digest }}`
+
+            Platforms: `linux/amd64`, `linux/arm64`
+          files: |
+            dist/tasklattice-guard-${{ needs.version.outputs.value }}.tgz
+            dist/release-metadata.txt
+            dist/SHA256SUMS
+          generate_release_notes: true
+          make_latest: true

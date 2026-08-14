@@ -1,18 +1,21 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.14
 
-FROM node:24-alpine AS ui-build
+ARG NODE_VERSION=24
+ARG PYTHON_VERSION=3.12
+
+FROM node:${NODE_VERSION}-bookworm-slim AS ui-build
 
 WORKDIR /build/web
 
-COPY web/package.json web/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+COPY --link web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --no-audit --no-fund
 
-COPY web ./
+COPY --link web ./
 RUN npm run build
 
 
-FROM python:3.12-slim AS python-dependencies
+FROM python:${PYTHON_VERSION}-slim-bookworm AS python-dependencies
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
@@ -25,12 +28,12 @@ WORKDIR /build
 
 # This layer changes only when the dependency contract changes. Application
 # source is intentionally copied later so normal code edits reuse the venv.
-COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+COPY --link pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv sync --locked --no-install-project
 
 
-FROM python:3.12-slim AS runtime
+FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 
 ENV PATH="/opt/tasklattice/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -40,17 +43,18 @@ ENV PATH="/opt/tasklattice/venv/bin:$PATH" \
 
 WORKDIR /opt/tasklattice/model-guardrails
 
-RUN apt-get update \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
     && apt-get install --yes --no-install-recommends antiword \
-    && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 65532 --no-create-home tasklattice \
     && mkdir -p /var/lib/tasklattice/model-guardrails \
     && chown -R 65532:65532 /var/lib/tasklattice/model-guardrails
 
-COPY --from=python-dependencies /opt/tasklattice/venv /opt/tasklattice/venv
-COPY README.md THIRD_PARTY_NOTICES.md ./
-COPY app ./app
-COPY --from=ui-build /build/web/dist ./web/dist
+COPY --link --from=python-dependencies /opt/tasklattice/venv /opt/tasklattice/venv
+COPY --link README.md THIRD_PARTY_NOTICES.md ./
+COPY --link app ./app
+COPY --link --from=ui-build /build/web/dist ./web/dist
 
 USER 65532:65532
 EXPOSE 8091

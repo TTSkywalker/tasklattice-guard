@@ -136,7 +136,7 @@ def create_app(
 
     app = FastAPI(
         title="TaskLattice Model Guardrails",
-        version="0.0.1",
+        version="0.1.0",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,

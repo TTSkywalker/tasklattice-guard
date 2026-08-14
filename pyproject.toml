@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tasklattice-model-guardrails"
-version = "0.0.1"
+version = "0.1.0"
 description = "Enterprise Guardrail control plane with a NeMo Guardrails runtime."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
