@@ -1502,13 +1502,6 @@ def _native_policy_payload(item, versions) -> dict[str, object]:
     effects = sorted({binding.on_unsafe for binding in item.draft.rail_bindings})
     tags = [
         {
-            "id": "engine:nemo-guardrails",
-            "namespace": "engine",
-            "value": "nemo-guardrails",
-            "label": "NeMo Guardrails",
-            "source": "derived",
-        },
-        {
             "id": f"implementation:colang-{item.draft.colang_version}",
             "namespace": "implementation",
             "value": f"colang-{item.draft.colang_version}",

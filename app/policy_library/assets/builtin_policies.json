@@ -25,12 +25,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -2139,12 +2133,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -2270,12 +2258,6 @@
         "value": "uae",
         "label": "United Arab Emirates",
         "source": "declared"
-      },
-      {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
       },
       {
         "namespace": "stage",
@@ -3246,12 +3228,6 @@
         "value": "aviation",
         "label": "Aviation",
         "source": "declared"
-      },
-      {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
       },
       {
         "namespace": "stage",
@@ -5263,12 +5239,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -5929,12 +5899,6 @@
         "value": "health-insurance",
         "label": "Health Insurance",
         "source": "declared"
-      },
-      {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
       },
       {
         "namespace": "stage",
@@ -7087,12 +7051,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -7912,12 +7870,6 @@
         "value": "eu",
         "label": "European Union",
         "source": "declared"
-      },
-      {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
       },
       {
         "namespace": "stage",
@@ -9573,12 +9525,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -9969,12 +9915,6 @@
         "value": "multi-region",
         "label": "Multi-region",
         "source": "declared"
-      },
-      {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
       },
       {
         "namespace": "stage",
@@ -18145,12 +18085,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -25282,12 +25216,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -32066,12 +31994,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -33545,12 +33467,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -34270,12 +34186,6 @@
         "value": "sg",
         "label": "Singapore",
         "source": "declared"
-      },
-      {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
       },
       {
         "namespace": "stage",
@@ -35279,12 +35189,6 @@
         "source": "declared"
       },
       {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
-      },
-      {
         "namespace": "stage",
         "value": "input",
         "label": "Before model",
@@ -35900,12 +35804,6 @@
         "value": "uae",
         "label": "United Arab Emirates",
         "source": "declared"
-      },
-      {
-        "namespace": "engine",
-        "value": "nemo-guardrails",
-        "label": "NeMo Guardrails",
-        "source": "derived"
       },
       {
         "namespace": "stage",

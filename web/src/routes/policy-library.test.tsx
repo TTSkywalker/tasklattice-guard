@@ -24,8 +24,6 @@ vi.mock("react-i18next", () => ({
         "policyLibrary.testCasesDescription": "Executable Test Cases.",
         "policyLibrary.implementationTitle": "NeMo Guardrails implementation",
         "policyLibrary.implementationDescription": "Technical Rule bindings.",
-        "policyLibrary.engine": "Runtime engine",
-        "policyLibrary.nemoGuardrails": "NeMo Guardrails",
         "policyLibrary.stagesLabel": "Traffic stage",
         "policyLibrary.ruleForms": "Rule forms",
         "policyLibrary.ruleForm": "Rule form",
@@ -135,6 +133,7 @@ describe("Policy detail", () => {
     expect(screen.getByRole("heading", { name: "Competitor Discussion Policy" })).toBeTruthy();
     expect(screen.getByRole("tablist", { name: "Policy detail views" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Policy" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByText("NeMo Guardrails")).toBeNull();
     expect(screen.getByText("Rules (1)")).toBeTruthy();
     expect(screen.getByText("Competitor comparison intent")).toBeTruthy();
 
@@ -145,6 +144,9 @@ describe("Policy detail", () => {
 
     clickTab(screen.getByRole("tab", { name: "NeMo implementation" }));
     expect(screen.getByRole("heading", { name: "NeMo Guardrails implementation" })).toBeTruthy();
-    expect(screen.getByText("PolicyRuleAction")).toBeTruthy();
+    expect(screen.queryByText("Runtime engine")).toBeNull();
+    const actionName = screen.getByText("PolicyRule");
+    expect(actionName.tagName).toBe("CODE");
+    expect(actionName.getAttribute("title")).toBe("PolicyRuleAction");
   });
 });

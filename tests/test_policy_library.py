@@ -28,7 +28,7 @@ def test_policy_rule_ids_are_unique_and_every_test_references_policy_rules():
             assert set(case.covered_rule_ids) <= rule_ids
 
 
-def test_policy_metadata_is_non_exclusive_and_includes_runtime_provenance():
+def test_policy_metadata_is_non_exclusive_and_omits_invariant_runtime_engine():
     item = policy("mas-ai-risk-management")
 
     assert item is not None
@@ -36,9 +36,19 @@ def test_policy_metadata_is_non_exclusive_and_includes_runtime_provenance():
         "capability:regulatory-governance",
         "domain:financial-services",
         "framework:mas-ai-risk",
-        "engine:nemo-guardrails",
         "stage:input",
     } <= {tag.id for tag in item.tags}
+    assert all(tag.namespace != "engine" for tag in item.tags)
+
+
+def test_every_policy_rule_runs_on_nemo_guardrails():
+    engines = {
+        rule.implementation.engine
+        for item in policies()
+        for rule in item.rules
+    }
+
+    assert engines == {"nemo-guardrails"}
 
 
 def test_public_policy_payload_is_policy_rule_test_not_control_pack_control():
@@ -86,6 +96,16 @@ async def test_policy_api_is_the_single_product_catalog(tmp_path, monkeypatch):
     assert all(item["rules"] for item in response.json()["items"])
     assert all(item["test_cases"] for item in response.json()["items"])
     assert all(item["test_count"] > 0 for item in response.json()["items"])
+    assert all(
+        tag["namespace"] != "engine"
+        for item in response.json()["items"]
+        for tag in item["tags"]
+    )
+    assert {
+        rule["implementation"]["engine"]
+        for item in response.json()["items"]
+        for rule in item["rules"]
+    } == {"nemo-guardrails"}
     assert detail.status_code == 200
     assert detail.json()["name"].startswith("Singapore MAS")
     assert detail.json()["rules"]
