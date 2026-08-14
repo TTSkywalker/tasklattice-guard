@@ -9,7 +9,11 @@ spec:
   replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   strategy:
+    {{- if or .Values.database.url .Values.database.existingSecret }}
+    type: RollingUpdate
+    {{- else }}
     type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "tasklattice-guard.workloadSelectorLabels" . | nindent 6 }}
@@ -49,8 +53,19 @@ spec:
               containerPort: 8091
               protocol: TCP
           env:
+            {{- if .Values.database.existingSecret }}
+            - name: MODEL_GUARDRAILS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: {{ .Values.database.secretKey | quote }}
+            {{- else if .Values.database.url }}
+            - name: MODEL_GUARDRAILS_DATABASE_URL
+              value: {{ .Values.database.url | quote }}
+            {{- else }}
             - name: MODEL_GUARDRAILS_DATABASE_PATH
               value: {{ .Values.database.path | quote }}
+            {{- end }}
             - name: MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL
               value: {{ .Values.runtime.publicBaseUrl | quote }}
             - name: MODEL_GUARDRAILS_RUNTIME_P95_BUDGET_MS

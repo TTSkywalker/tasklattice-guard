@@ -17,21 +17,25 @@ from .control_plane.chat_model import (
 from .control_plane.intent_analyzer import DeepSeekIntentAnalyzer, IntentAnalyzer
 from .control_plane.nemo_compiler import NeMoConfigCompiler
 from .control_plane.service import ControlPlaneService
-from .runtime.contracts import NeMoPolicyRuntime
+from .identity import IdentityAPI, IdentityService
 from .nemo.action_registry import RuntimeActionRegistry, runtime_action_registry
 from .nemo.actions.automated_reasoning import (
     AutomatedReasoningPolicyEngine,
     HTTPAutomatedReasoningProvider,
 )
-from .nemo.actions.grounding import ContextualGroundingJudgeEngine
 from .nemo.actions.deterministic import FastPassEngine
-from .nemo.runtime import NeMoGuardrailsEngine
-from .nemo.registry import NeMoRailsRegistry
-from .nemo.actions.prompt_security import PromptSecurityFastEngine, PromptSecurityJudgeEngine
-from .runtime.gateway import ModelGuardrailsEngineService
+from .nemo.actions.grounding import ContextualGroundingJudgeEngine
+from .nemo.actions.prompt_security import (
+    PromptSecurityFastEngine,
+    PromptSecurityJudgeEngine,
+)
 from .nemo.actions.topic import PurposeAwareTopicJudgeEngine
 from .nemo.builtin_policies import prompt_catalog_yaml
-from .identity import IdentityAPI, IdentityService
+from .nemo.registry import NeMoRailsRegistry
+from .nemo.runtime import NeMoGuardrailsEngine
+from .persistence import Database
+from .runtime.contracts import NeMoPolicyRuntime
+from .runtime.gateway import ModelGuardrailsEngineService
 from .ui import ControlPlaneStaticFiles
 
 
@@ -134,7 +138,8 @@ def create_app(
 ) -> FastAPI:
     configured = settings or Settings.from_env()
     tracer_provider = _configure_telemetry(configured)
-    control_plane = _create_policy_plane(configured)
+    database = Database(configured.database_locator)
+    control_plane = _create_policy_plane(configured, database=database)
     if engine is None:
         runtime_engine: NeMoPolicyRuntime = create_engine(configured, control_plane)
     else:
@@ -145,7 +150,7 @@ def create_app(
         runtime_engine,
         control_plane,
     )
-    identity = IdentityService(configured.database_path)
+    identity = IdentityService(database)
     identity_api = IdentityAPI(identity)
     litellm = LiteLLMAdapter(service, control_plane)
     http_adapter = HTTPAdapter(service, control_plane)
@@ -171,6 +176,7 @@ def create_app(
             shutdown = getattr(runtime_engine, "shutdown", None)
             if shutdown is not None:
                 await shutdown()
+            database.dispose()
             if tracer_provider is not None:
                 tracer_provider.shutdown()
 
@@ -267,9 +273,11 @@ def _playground_chat_models(settings: Settings) -> tuple[PlaygroundChatModel, ..
     return tuple(models)
 
 
-def _create_policy_plane(settings: Settings) -> ControlPlaneService:
+def _create_policy_plane(
+    settings: Settings, *, database: Database | None = None
+) -> ControlPlaneService:
     return ControlPlaneService(
-        settings.database_path,
+        database or settings.database_locator,
         public_runtime_base_url=settings.public_runtime_base_url,
         fast_semantic_configured=bool(
             settings.content_safety_model and settings.nvidia_base_url

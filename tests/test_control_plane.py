@@ -4,20 +4,20 @@ import sqlite3
 
 import pytest
 
+from app.control_plane.catalog import builtin_policy_id
+from app.control_plane.defaults import DEFAULT_DEPLOYMENT_ID, DEFAULT_GUARDRAIL_ID
 from app.control_plane.domain import (
     ControlPlaneError,
-    TestCaseResult,
-    ValidationMetrics,
     GuardrailPolicyBinding,
-    ValidationError,
-    TrafficScopeExpression,
+    TestCaseResult,
     TrafficCondition,
+    TrafficScopeExpression,
+    ValidationError,
+    ValidationMetrics,
 )
-from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_DEPLOYMENT_ID
-from app.control_plane.catalog import builtin_policy_id
 from app.control_plane.service import ControlPlaneService
-from app.runtime.contracts import EngineRequest, RequestContext, StageResult
 from app.nemo.actions.deterministic import FastPassEngine
+from app.runtime.contracts import EngineRequest, RequestContext, StageResult
 from tests.nemo_helpers import nemo_engine
 
 
@@ -275,21 +275,7 @@ async def test_default_safe_blocks_locally_without_calling_semantic_stages(tmp_p
     await engine.shutdown()
 
 
-def test_v4_database_schema_is_rejected_without_migration(tmp_path):
-    database_path = tmp_path / "incompatible.db"
-    ControlPlaneService(database_path)
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            "UPDATE control_plane_meta SET value = 'tasklattice-guard-schema-v4' "
-            "WHERE key = 'schema_version'"
-        )
-        connection.commit()
-
-    with pytest.raises(ControlPlaneError, match="incompatible"):
-        ControlPlaneService(database_path)
-
-
-def test_database_uses_only_current_product_tables_and_columns(tmp_path):
+def test_database_uses_only_current_orm_tables_and_columns(tmp_path):
     database_path = tmp_path / "current.db"
     ControlPlaneService(database_path)
 
@@ -316,9 +302,6 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         test_case_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(test_cases)")
         }
-        schema_version = connection.execute(
-            "SELECT value FROM control_plane_meta WHERE key = 'schema_version'"
-        ).fetchone()[0]
 
     assert {
         "guardrails",
@@ -331,6 +314,7 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
         "evidence_records",
     } <= tables
     assert {"safes", "safe_revisions", "workloads", "adapter_instances"}.isdisjoint(tables)
+    assert {"alembic_version", "control_plane_meta"}.isdisjoint(tables)
     assert {
         "policy_bindings_json",
         "draft_version",
@@ -350,7 +334,6 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
     assert {"protocol", "environment"}.isdisjoint(integration_columns)
     assert "key_hint" in credential_columns
     assert "secret_prefix" not in credential_columns
-    assert schema_version == "tasklattice-guard-policy-schema-v3"
     assert "source_case_id" in test_case_columns
     assert "source_suite_id" not in test_case_columns
     assert {
@@ -363,30 +346,6 @@ def test_database_uses_only_current_product_tables_and_columns(tmp_path):
     }.isdisjoint(
         guardrail_columns | deployment_columns
     )
-
-
-def test_pre_policy_schema_is_rejected_instead_of_implicitly_migrated(tmp_path):
-    database_path = tmp_path / "legacy.db"
-    ControlPlaneService(database_path)
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            "UPDATE control_plane_meta SET value = 'tasklattice-guard-schema-v5' "
-            "WHERE key = 'schema_version'"
-        )
-        connection.commit()
-
-    with pytest.raises(ControlPlaneError, match="incompatible"):
-        ControlPlaneService(database_path)
-
-
-def test_nonempty_database_without_schema_metadata_is_rejected(tmp_path):
-    database_path = tmp_path / "unknown.db"
-    with sqlite3.connect(database_path) as connection:
-        connection.execute("CREATE TABLE unknown_state (id TEXT PRIMARY KEY)")
-
-    with pytest.raises(ControlPlaneError, match="incompatible"):
-        ControlPlaneService(database_path)
-
 
 def test_nested_traffic_scope_matches_either_trusted_finance_identity(tmp_path):
     service = ControlPlaneService(tmp_path / "nested.db")

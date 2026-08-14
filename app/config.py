@@ -9,6 +9,7 @@ from pathlib import Path
 class Settings:
     database_path: Path
     ui_dist_path: Path
+    database_url: str | None = None
     public_runtime_base_url: str = "http://localhost:8091"
     nvidia_base_url: str | None = None
     content_safety_model: str | None = None
@@ -37,8 +38,13 @@ class Settings:
     otel_enabled: bool = False
     otel_exporter_endpoint: str | None = None
 
+    @property
+    def database_locator(self) -> str | Path:
+        """Return the deployment-selected SQLAlchemy URL or local fallback path."""
+        return self.database_url or self.database_path
+
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         root = Path(__file__).resolve().parent.parent
         public_runtime_base_url = os.environ.get(
             "MODEL_GUARDRAILS_PUBLIC_RUNTIME_BASE_URL",
@@ -167,6 +173,9 @@ class Settings:
                     "MODEL_GUARDRAILS_DATABASE_PATH",
                     str(root / "data" / "tasklattice-guard-policy-schema-v3.db"),
                 )
+            ),
+            database_url=(
+                os.environ.get("MODEL_GUARDRAILS_DATABASE_URL", "").strip() or None
             ),
             ui_dist_path=Path(
                 os.environ.get(

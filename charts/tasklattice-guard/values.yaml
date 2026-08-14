@@ -1,4 +1,5 @@
-# TaskLattice Guard uses SQLite and a ReadWriteOnce volume. Keep one replica.
+# SQLite is the zero-configuration local fallback. Configure an external
+# database URL before scaling beyond one replica.
 replicaCount: 1
 
 image:
@@ -56,6 +57,9 @@ persistence:
   mountPath: /var/lib/tasklattice/model-guardrails
 
 database:
+  url: ""
+  existingSecret: ""
+  secretKey: database-url
   path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-policy-schema-v3.db
 
 runtime:

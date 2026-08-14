@@ -12,8 +12,8 @@
     },
     "replicaCount": {
       "type": "integer",
-      "const": 1,
-      "description": "TaskLattice Guard currently uses a single-writer SQLite database."
+      "minimum": 1,
+      "description": "Replica count; values above one require an external database URL."
     },
     "image": {
       "type": "object",
@@ -49,9 +49,12 @@
     },
     "database": {
       "type": "object",
-      "required": ["path"],
+      "required": ["path", "url", "existingSecret", "secretKey"],
       "properties": {
-        "path": {"type": "string", "pattern": "^/"}
+        "path": {"type": "string", "pattern": "^/"},
+        "url": {"type": "string"},
+        "existingSecret": {"type": "string"},
+        "secretKey": {"type": "string", "minLength": 1}
       }
     },
     "runtime": {

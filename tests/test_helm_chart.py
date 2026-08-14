@@ -5,7 +5,6 @@ from pathlib import Path
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "charts" / "tasklattice-guard"
 
@@ -97,3 +96,59 @@ def test_default_persistence_uses_the_tali_guard_claim():
     assert persistent_volume_claim["spec"]["accessModes"] == ["ReadWriteOnce"]
     assert persistent_volume_claim["spec"]["resources"]["requests"]["storage"] == "1Gi"
     assert data_volume["persistentVolumeClaim"]["claimName"] == "tali-guard"
+
+
+def test_external_database_secret_enables_rolling_multi_replica_deployment():
+    rendered = subprocess.run(
+        [
+            "helm",
+            "template",
+            "postgres-test",
+            str(CHART),
+            "--set",
+            "replicaCount=3",
+            "--set",
+            "database.existingSecret=tasklattice-guard-database",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    documents = [item for item in yaml.safe_load_all(rendered) if item]
+    deployment = next(
+        item for item in documents if item.get("kind") == "Deployment"
+    )
+    environment = {
+        item["name"]: item
+        for item in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
+
+    assert deployment["spec"]["replicas"] == 3
+    assert deployment["spec"]["strategy"]["type"] == "RollingUpdate"
+    assert environment["MODEL_GUARDRAILS_DATABASE_URL"]["valueFrom"] == {
+        "secretKeyRef": {
+            "name": "tasklattice-guard-database",
+            "key": "database-url",
+        }
+    }
+    assert "MODEL_GUARDRAILS_DATABASE_PATH" not in environment
+    assert all(item.get("kind") != "Job" for item in documents)
+
+
+def test_sqlite_fallback_rejects_multiple_replicas():
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "sqlite-test",
+            str(CHART),
+            "--set",
+            "replicaCount=2",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "database.url or database.existingSecret" in result.stderr

@@ -36,10 +36,13 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `workloadNameOverride` | `tali-guard` | Kubernetes Service and Deployment name; Pod names inherit this prefix |
 | `service.type` | `LoadBalancer` | Kubernetes Service exposure |
 | `service.port` | `38081` | Kubernetes Service port; the Guard container continues to listen on `8091` |
-| `persistence.enabled` | `true` | Persist SQLite control-plane state |
+| `persistence.enabled` | `true` | Persist the local SQLite fallback state |
 | `persistence.existingClaim` | empty | Existing PVC override; otherwise the chart creates `tali-guard` |
 | `persistence.retain` | `true` | Retain the PVC after uninstall |
 | `database.path` | `/var/lib/tasklattice/model-guardrails/tasklattice-guard-policy-schema-v3.db` | Persistent Policy, Guardrail, Deployment, Evidence, and identity database |
+| `database.url` | empty | SQLAlchemy database URL; intended for non-secret development configuration |
+| `database.existingSecret` | empty | Existing Secret containing the production database URL |
+| `database.secretKey` | `database-url` | Key within `database.existingSecret` |
 | `runtime.publicBaseUrl` | `http://localhost:38081` | Stable public origin used to generate per-Integration callback URLs |
 | `evaluators.nvidia.baseUrl` | empty | Base URL for optional NVIDIA Guard Models |
 | `evaluators.nvidia.groundingModel` | empty | NVIDIA-hosted Guard Model used for contextual-grounding evidence |
@@ -57,13 +60,22 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `controlPlaneAgent.deepseek.model` | `deepseek-v4-flash` | Model used only to structure policy intent |
 | `controlPlaneAgent.deepseek.existingSecret` | empty | Existing Secret containing the DeepSeek API key |
 
-The current early-development database contract is Policy schema v3. The
-project has not launched and does not provide historical schema compatibility;
-use a fresh database when the schema identifier changes.
+Application persistence is managed through SQLAlchemy ORM. New deployments
+create the current ORM schema directly; there is no legacy-schema compatibility
+or application migration layer. SQLite remains the zero-configuration,
+single-replica fallback. Operators can provide another SQLAlchemy URL through
+`database.existingSecret` and own its availability and rollout policy.
+Integration credentials are
+generated only when an Integration is registered in the UI. NVIDIA evaluator
+settings remain optional.
 
-TaskLattice Guard currently uses SQLite, so `replicaCount` is restricted to
-`1`. Integration credentials are generated only when an Integration is
-registered in the UI. NVIDIA evaluator settings remain optional.
+```sh
+kubectl --namespace tali create secret generic tasklattice-guard-database \
+  --from-literal=database-url='postgresql+psycopg://guard:replace-me@postgres:5432/guard'
+helm upgrade tasklattice-guard . --namespace tali \
+  --set database.existingSecret=tasklattice-guard-database \
+  --set replicaCount=3
+```
 
 A runtime Policy Judge and the optional control-plane assistant may safely
 share an existing DeepSeek Secret, but they remain separate capabilities. The

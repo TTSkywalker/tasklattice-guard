@@ -8,10 +8,28 @@ from app.main import create_engine
 
 def test_default_database_path_uses_current_policy_schema(monkeypatch):
     monkeypatch.delenv("MODEL_GUARDRAILS_DATABASE_PATH", raising=False)
+    monkeypatch.delenv("MODEL_GUARDRAILS_DATABASE_URL", raising=False)
 
     settings = Settings.from_env()
 
     assert settings.database_path.name == "tasklattice-guard-policy-schema-v3.db"
+
+
+def test_database_url_takes_precedence_over_local_path(monkeypatch):
+    database_url = "postgresql+psycopg://guard:secret@postgres/guard"
+    monkeypatch.setenv("MODEL_GUARDRAILS_DATABASE_URL", database_url)
+
+    settings = Settings.from_env()
+
+    assert settings.database_locator == database_url
+
+
+def test_database_url_is_not_restricted_by_core_configuration(monkeypatch):
+    monkeypatch.setenv("MODEL_GUARDRAILS_DATABASE_URL", "mysql://guard/db")
+
+    settings = Settings.from_env()
+
+    assert settings.database_locator == "mysql://guard/db"
 
 
 def test_public_runtime_base_url_is_canonical(monkeypatch):

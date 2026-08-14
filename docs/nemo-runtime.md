@@ -169,7 +169,7 @@ or telemetry configuration always creates a new Guardrail Version and checksum.
 Never recompile or patch the persisted snapshot of a historical version.
 
 Rollback validates and prewarms the selected historical snapshot, then updates
-the Guardrail and every bound Deployment in one SQLite transaction. Calls
+the Guardrail and every bound Deployment in one database transaction. Calls
 already pinned at input continue on their original version; new calls use the
 rolled-back version.
 

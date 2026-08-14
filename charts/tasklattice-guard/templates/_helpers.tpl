@@ -83,8 +83,11 @@ app.kubernetes.io/part-of: tali
 {{- end }}
 
 {{- define "tasklattice-guard.validateValues" -}}
-{{- if ne (int .Values.replicaCount) 1 }}
-{{- fail "replicaCount must be 1 while TaskLattice Guard uses SQLite" }}
+{{- if and (gt (int .Values.replicaCount) 1) (not (or .Values.database.url .Values.database.existingSecret)) }}
+{{- fail "database.url or database.existingSecret is required when replicaCount is greater than 1" }}
+{{- end }}
+{{- if and .Values.database.url .Values.database.existingSecret }}
+{{- fail "set either database.url or database.existingSecret, not both" }}
 {{- end }}
 {{- if and .Values.evaluators.nvidia.apiKey .Values.evaluators.nvidia.existingSecret }}
 {{- fail "set either evaluators.nvidia.apiKey or evaluators.nvidia.existingSecret, not both" }}
