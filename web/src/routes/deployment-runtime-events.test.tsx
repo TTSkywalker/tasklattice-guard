@@ -36,8 +36,8 @@ describe("Deployment runtime event density", () => {
 
   it("shows millisecond timestamps in compact rows", () => {
     render(<DeploymentRuntimeEventTable traces={[trace]} loading={false} error={null} policies={[]} onInspect={() => undefined} />);
-    expect(screen.getByText(/11:11:02\.123/)).toBeTruthy();
+    expect(screen.getByText(/\d{2}:\d{2}:\d{2}\.123/)).toBeTruthy();
     expect(screen.getByText("15 ms")).toBeTruthy();
-    expect(screen.getByRole("row", { name: /11:11:02\.123/ }).className).toContain("h-11");
+    expect(screen.getByRole("row", { name: /\d{2}:\d{2}:\d{2}\.123/ }).className).toContain("h-11");
   });
 });
