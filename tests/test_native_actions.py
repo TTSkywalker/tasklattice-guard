@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 
 import pytest
 
 from app.control_plane.nemo_compiler import NeMoConfigCompiler
-from app.nemo.action_registry import runtime_action_registry
+from app.nemo.action_registry import (
+    BUILTIN_ACTION_CATALOG,
+    action_name_for,
+    runtime_action_registry,
+)
 from app.nemo.actions.contracts import ActionRequest, ActionResult
 from app.nemo.actions.deterministic import FastPassEngine
 from app.nemo.runtime import NeMoGuardrailsEngine
@@ -44,6 +49,17 @@ def _plan(risk: str = "secrets", stage: str = "deterministic"):
                 timeout_ms=100,
             ),
         ),
+    )
+
+
+def test_owned_action_ids_use_one_compact_structured_namespace():
+    names = {item.name for item in BUILTIN_ACTION_CATALOG.definitions()}
+
+    assert names
+    assert all(re.fullmatch(r"Guard[A-Z][A-Za-z0-9]*Action", name) for name in names)
+    assert max(map(len, names)) <= 30
+    assert action_name_for("custom compliance-risk", "deterministic") == (
+        "GuardCustomComplianceRiskAction"
     )
 
 
@@ -146,7 +162,7 @@ async def test_action_errors_are_privacy_safe_and_fail_closed():
     failed_action = next(step for step in decision.trace if step.kind == "action")
     assert failed_action.outcome == "error"
     assert failed_action.timed_out is False
-    assert failed_action.action_name == "TaskLatticeSecretsAction"
+    assert failed_action.action_name == "GuardSecretsAction"
     assert failed_action.action_version == "1.0.0"
     assert failed_action.engine == "llmrails"
     assert failed_action.config_checksum
@@ -156,7 +172,7 @@ async def test_action_errors_are_privacy_safe_and_fail_closed():
 def test_current_compiler_uses_direct_actions_without_stage_protocol():
     plan = _plan("prompt_injection", "fast_semantic")
     config = NeMoConfigCompiler().compile(plan)
-    assert "TaskLatticePromptSecurityFastAction" in config.colang_content
+    assert "GuardPromptSecurityAction" in config.colang_content
     assert all(
         item.action_name and item.action_version for item in config.action_bindings
     )

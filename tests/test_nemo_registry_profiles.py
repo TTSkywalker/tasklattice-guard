@@ -156,7 +156,7 @@ def test_registry_rejects_actions_in_iorails_profile() -> None:
         colang_version="1.0",
         tracing=True,
         bindings=(
-            _binding(name="TaskLatticeResolveAction", version="1.0.0"),
+            _binding(name="GuardResolveAction", version="1.0.0"),
         ),
     )
 
@@ -235,7 +235,7 @@ def test_registry_rejects_programmable_executor_actions_in_c1() -> None:
         bindings=(_binding(),),
         dependencies=(
             ("action", "ExampleAction", "1.0.0"),
-            ("action", "TaskLatticeResolveAction", "1.0.0"),
+            ("action", "GuardResolveAction", "1.0.0"),
         ),
     )
 
@@ -266,7 +266,7 @@ def test_registry_requires_the_pinned_executor_action_version() -> None:
         tracing=False,
         bindings=(
             _binding(
-                name="TaskLatticeResolveAction",
+                name="GuardResolveAction",
                 version="2.0.0",
                 result_var=None,
             ),

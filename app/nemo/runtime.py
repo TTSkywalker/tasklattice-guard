@@ -30,7 +30,14 @@ from ..runtime.contracts import (
     StageResult,
     flow_rule_id,
 )
-from .action_registry import RuntimeActionRegistry
+from .action_registry import (
+    ACTION_CUSTOMER_IDENTIFIER,
+    ACTION_PII,
+    ACTION_RECORD_NATIVE,
+    ACTION_RECORD_POLICY,
+    ACTION_RESOLVE,
+    RuntimeActionRegistry,
+)
 from .actions.contracts import ActionRequest, ActionResult
 from .artifacts import config_checksum
 from .registry import NeMoRailsRegistry
@@ -91,19 +98,19 @@ class NeMoActionExecutor:
         if self._config.runtime_profile == "llmrails_colang2_programmable":
             rails.register_action(
                 self.record_native,
-                name="TaskLatticeRecordNativeAction",
+                name=ACTION_RECORD_NATIVE,
             )
             rails.register_action(
                 self.resolve,
-                name="TaskLatticeResolveAction",
+                name=ACTION_RESOLVE,
             )
             rails.register_action(
                 self.customer_identifier,
-                name="TaskLatticeCustomerIdentifierAction",
+                name=ACTION_CUSTOMER_IDENTIFIER,
             )
             rails.register_action(
                 self.record_policy,
-                name="TaskLatticeRecordPolicyAction",
+                name=ACTION_RECORD_POLICY,
             )
         for provider in self._registry.providers():
             rails.register_action(
@@ -470,21 +477,19 @@ class NeMoActionExecutor:
             on_unsafe=plan_step.on_unsafe if plan_step is not None else "redact",
             timeout_ms=750,
             parameters=plan_step.parameters if plan_step is not None else (),
-            action_name="TaskLatticePiiAction",
+            action_name=ACTION_PII,
             action_version="1.0.0",
         )
         started = time.perf_counter()
-        if plan_step is None or not self._registry.contains(
-            "TaskLatticePiiAction", "1.0.0"
-        ):
+        if plan_step is None or not self._registry.contains(ACTION_PII, "1.0.0"):
             result = StageResult("error", text, reason="PII action is unavailable.")
         else:
             try:
                 async with asyncio.timeout(binding.timeout_ms / 1_000):
                     result = _stage_result(
-                        await self._registry.get(
-                            "TaskLatticePiiAction", "1.0.0"
-                        ).execute(self._action_request(text, binding))
+                        await self._registry.get(ACTION_PII, "1.0.0").execute(
+                            self._action_request(text, binding)
+                        )
                     )
             except asyncio.CancelledError:
                 raise
@@ -1723,14 +1728,14 @@ def _trace(
             RuntimeTraceStep(
                 id=f"{root_id}:resolve",
                 kind="action",
-                name="TaskLatticeResolveAction",
+                name=ACTION_RESOLVE,
                 status="passed",
                 outcome="resolved",
                 detail="Resolved programmable Colang 2 Action results.",
                 duration_ms=max(0, resolve_latency_ms),
                 parent_id=root_id,
                 rail_type=request.phase,
-                action_name="TaskLatticeResolveAction",
+                action_name=ACTION_RESOLVE,
                 action_version="1.0.0",
                 provider_latency_ms=max(0, resolve_latency_ms),
                 **common(),

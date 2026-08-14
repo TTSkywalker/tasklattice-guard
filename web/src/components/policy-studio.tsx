@@ -35,7 +35,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { queryKeys } from "@/features/query-keys";
 import { useAuth } from "@/lib/auth";
-import { compactActionName } from "@/lib/action-name";
 import { compilerLocation } from "@/lib/compiler-location";
 import {
   createProgrammablePolicy,
@@ -60,11 +59,11 @@ import { cn } from "@/lib/utils";
 const RAILS: PolicyRailType[] = ["input", "output"];
 const DEFAULT_COLANG = `flow check_request $text
   # A Policy Flow can invoke one or more registered Actions.
-  $result = await TaskLatticeCustomerIdentifierAction(text=$text)
+  $result = await GuardCustomerIdentifierAction(text=$text)
   if $result["detected"]
-    $recorded = await TaskLatticeRecordPolicyAction(flow_name="check_request", safe=False, text=$text, replacement=$result["redacted"])
+    $recorded = await GuardRecordPolicyAction(flow_name="check_request", safe=False, text=$text, replacement=$result["redacted"])
   else
-    $recorded = await TaskLatticeRecordPolicyAction(flow_name="check_request", safe=True, text=$text)
+    $recorded = await GuardRecordPolicyAction(flow_name="check_request", safe=True, text=$text)
 `;
 
 export function PolicyStudioSheet({ policy, open, onOpenChange, onSaved }: { policy: ProgrammablePolicy | null | undefined; open: boolean; onOpenChange: (open: boolean) => void; onSaved: (id: string) => Promise<void> }) {
@@ -207,7 +206,7 @@ function ColangEditor({ sources, error, onChange }: { sources: ProgrammablePolic
 
 function ActionEditor({ actions, selected, onChange, loading }: { actions: ActionDefinition[]; selected: PolicyActionReference[]; onChange: (actions: PolicyActionReference[]) => void; loading: boolean }) {
   const { t } = useTranslation();
-  return <StudioSection title={t("policyStudio.actionsTitle")} description={t("policyStudio.actionsDescription")}><Alert variant="info" className="mb-4"><LockKeyhole /><AlertTitle>{t("policyStudio.registeredOnly")}</AlertTitle><AlertDescription>{t("policyStudio.noPython")}</AlertDescription></Alert>{loading ? <Skeleton className="h-64" /> : <div className="divide-y rounded-lg border bg-card">{actions.map((action) => { const checked = selected.some((item) => item.name === action.name && item.version === action.version); return <label key={`${action.name}@${action.version}`} className="grid min-h-20 cursor-pointer grid-cols-[2rem_minmax(0,1fr)] gap-3 p-4 hover:bg-muted/20 sm:grid-cols-[2rem_minmax(0,1fr)_12rem]"><Checkbox className="mt-0.5" checked={checked} onCheckedChange={(value) => onChange(value ? [...selected, { name: action.name, version: action.version }] : selected.filter((item) => item.name !== action.name || item.version !== action.version))} /><span className="min-w-0"><code className="block truncate text-xs font-medium" title={action.name}>{compactActionName(action.name)}@{action.version}</code><span className="mt-1 flex flex-wrap gap-1.5">{action.supported_rails.map((rail) => <RailBadge key={rail} rail={rail} />)}{action.concurrent ? <Badge variant="outline">{t("policyStudio.concurrent")}</Badge> : null}{action.network_access ? <Badge variant="outline"><Network />{t("policyStudio.network")}</Badge> : null}</span></span><span className="text-xs text-muted-foreground sm:text-right"><Clock3 className="mr-1 inline size-3" />{action.timeout_ms}ms<br />{action.failure_mode}</span></label>; })}</div>}</StudioSection>;
+  return <StudioSection title={t("policyStudio.actionsTitle")} description={t("policyStudio.actionsDescription")}><Alert variant="info" className="mb-4"><LockKeyhole /><AlertTitle>{t("policyStudio.registeredOnly")}</AlertTitle><AlertDescription>{t("policyStudio.noPython")}</AlertDescription></Alert>{loading ? <Skeleton className="h-64" /> : <div className="divide-y rounded-lg border bg-card">{actions.map((action) => { const checked = selected.some((item) => item.name === action.name && item.version === action.version); return <label key={`${action.name}@${action.version}`} className="grid min-h-20 cursor-pointer grid-cols-[2rem_minmax(0,1fr)] gap-3 p-4 hover:bg-muted/20 sm:grid-cols-[2rem_minmax(0,1fr)_12rem]"><Checkbox className="mt-0.5" checked={checked} onCheckedChange={(value) => onChange(value ? [...selected, { name: action.name, version: action.version }] : selected.filter((item) => item.name !== action.name || item.version !== action.version))} /><span className="min-w-0"><code className="block truncate text-xs font-medium" title={action.name}>{action.name}@{action.version}</code><span className="mt-1 flex flex-wrap gap-1.5">{action.supported_rails.map((rail) => <RailBadge key={rail} rail={rail} />)}{action.concurrent ? <Badge variant="outline">{t("policyStudio.concurrent")}</Badge> : null}{action.network_access ? <Badge variant="outline"><Network />{t("policyStudio.network")}</Badge> : null}</span></span><span className="text-xs text-muted-foreground sm:text-right"><Clock3 className="mr-1 inline size-3" />{action.timeout_ms}ms<br />{action.failure_mode}</span></label>; })}</div>}</StudioSection>;
 }
 
 function ParameterEditor({ parameters, onChange }: { parameters: PolicyDraftParameter[]; onChange: (parameters: PolicyDraftParameter[]) => void }) {
@@ -291,7 +290,7 @@ function RailBadge({ rail }: { rail: NativeRailType }) { return <Badge variant="
 function EmptyInline({ icon: Icon, text }: { icon: typeof Braces; text: string }) { return <div className="rounded-lg border border-dashed p-8 text-center"><Icon className="mx-auto size-7 text-muted-foreground" /><p className="mt-2 text-xs text-muted-foreground">{text}</p></div>; }
 function ReviewGrid({ items }: { items: Array<{ label: string; value: string; mono?: boolean }> }) { return <dl className="divide-y rounded-lg border bg-card px-4">{items.map((item) => <div key={item.label} className="grid gap-1 py-3 text-sm sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-5"><dt className="text-muted-foreground">{item.label}</dt><dd className={cn("min-w-0 break-words font-medium", item.mono && "font-mono text-xs")}>{item.value || "—"}</dd></div>)}</dl>; }
 
-function emptyDraft(): ProgrammablePolicyDraft { return { colang_version: "2.x", sources: [{ path: "main.co", content: DEFAULT_COLANG }], parameter_schema: [], rail_bindings: [emptyRail(0)], action_references: [{ name: "TaskLatticeCustomerIdentifierAction", version: "1.0.0" }, { name: "TaskLatticeRecordPolicyAction", version: "1.0.0" }], model_dependencies: [], prompt_dependencies: [], execution_contract: [], test_cases: [] }; }
+function emptyDraft(): ProgrammablePolicyDraft { return { colang_version: "2.x", sources: [{ path: "main.co", content: DEFAULT_COLANG }], parameter_schema: [], rail_bindings: [emptyRail(0)], action_references: [{ name: "GuardCustomerIdentifierAction", version: "1.0.0" }, { name: "GuardRecordPolicyAction", version: "1.0.0" }], model_dependencies: [], prompt_dependencies: [], execution_contract: [], test_cases: [] }; }
 function emptyRail(index: number): PolicyRailBinding { return { rail_type: index ? "output" : "input", flow_name: index ? "check_response" : "check_request", execution_mode: index ? "mutate" : "detect", on_unsafe: index ? "redact" : "reject", parallel_group: index ? null : "primary-detection", priority: index ? 100 : null, timeout_ms: 500, failure_mode: "fail_closed", required: true, depends_on: [] }; }
 function cloneDraft(draft: ProgrammablePolicyDraft): ProgrammablePolicyDraft { return JSON.parse(JSON.stringify(draft)) as ProgrammablePolicyDraft; }
 function replaceAt<T>(items: T[], index: number, item: T, onChange: (items: T[]) => void) { onChange(items.map((current, currentIndex) => currentIndex === index ? item : current)); }

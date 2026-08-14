@@ -55,7 +55,7 @@ versioned Policy / Rule
         ↓
 BuiltinContentFilter Python implementation
         ↓
-TaskLatticeBuiltinContentFilterAction
+GuardContentFilterAction
 ```
 
 Regex, keyword, and category rules are not expanded into generated `.co` files.

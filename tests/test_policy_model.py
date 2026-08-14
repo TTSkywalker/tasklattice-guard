@@ -147,13 +147,13 @@ def test_builtins_are_published_policy_versions_and_compile_when_bound(tmp_path)
         "native_risk": "secrets"
     }
     assert plan.policy_versions[0].action_references[0].name == (
-        "TaskLatticeSecretsAction"
+        "GuardSecretsAction"
     )
     config = NeMoConfigCompiler().compile(plan)
     binding = next(item for item in config.action_bindings if item.risk == "secrets")
     assert binding.policy_id == secrets.id
     assert binding.policy_version == "1"
-    assert binding.action_name == "TaskLatticeSecretsAction"
+    assert binding.action_name == "GuardSecretsAction"
 
 
 def test_startup_never_rewrites_a_released_builtin_policy_version(tmp_path):

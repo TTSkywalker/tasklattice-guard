@@ -14,6 +14,20 @@ from .actions.contracts import (
 )
 
 
+ACTION_SECRETS = "GuardSecretsAction"
+ACTION_PII = "GuardPiiAction"
+ACTION_CONTENT_FILTER = "GuardContentFilterAction"
+ACTION_TOPIC_RULES = "GuardTopicRulesAction"
+ACTION_PROMPT_SECURITY = "GuardPromptSecurityAction"
+ACTION_TOPIC_JUDGE = "GuardTopicJudgeAction"
+ACTION_GROUNDING = "GuardGroundingAction"
+ACTION_AUTOMATED_REASONING = "GuardReasoningAction"
+ACTION_CUSTOMER_IDENTIFIER = "GuardCustomerIdentifierAction"
+ACTION_RECORD_POLICY = "GuardRecordPolicyAction"
+ACTION_RECORD_NATIVE = "GuardRecordNativeAction"
+ACTION_RESOLVE = "GuardResolveAction"
+
+
 @dataclass(frozen=True, slots=True)
 class ActionDefinition:
     """Versioned metadata for an Action that may be referenced by Colang."""
@@ -104,14 +118,14 @@ class RuntimeActionRegistry:
 
 
 _BUILTIN_RUNTIME_ACTIONS = (
-    ("TaskLatticeSecretsAction", ("secrets",), ("input", "output")),
-    ("TaskLatticePiiAction", ("pii",), ("input", "output")),
-    ("TaskLatticeBuiltinContentFilterAction", ("builtin_content_filter",), ("input", "output")),
-    ("TaskLatticeTopicDeterministicAction", ("topic_control",), ("input", "output")),
-    ("TaskLatticePromptSecurityFastAction", ("prompt_injection", "jailbreak"), ("input",)),
-    ("TaskLatticeTopicJudgeAction", ("topic_control", "company_policy"), ("input", "output")),
-    ("TaskLatticeGroundingAction", ("contextual_grounding",), ("output",)),
-    ("TaskLatticeAutomatedReasoningAction", ("automated_reasoning",), ("output",)),
+    (ACTION_SECRETS, ("secrets",), ("input", "output")),
+    (ACTION_PII, ("pii",), ("input", "output")),
+    (ACTION_CONTENT_FILTER, ("builtin_content_filter",), ("input", "output")),
+    (ACTION_TOPIC_RULES, ("topic_control",), ("input", "output")),
+    (ACTION_PROMPT_SECURITY, ("prompt_injection", "jailbreak"), ("input",)),
+    (ACTION_TOPIC_JUDGE, ("topic_control", "company_policy"), ("input", "output")),
+    (ACTION_GROUNDING, ("contextual_grounding",), ("output",)),
+    (ACTION_AUTOMATED_REASONING, ("automated_reasoning",), ("output",)),
 )
 
 
@@ -130,11 +144,11 @@ def runtime_action_registry(*evaluators: object) -> RuntimeActionRegistry:
             grouped.setdefault(action_name_for(risk, stage), set()).add(risk)
         if not risks:
             for name in {
-                "fast_semantic": ("TaskLatticePromptSecurityFastAction",),
+                "fast_semantic": (ACTION_PROMPT_SECURITY,),
                 "deep_judge": (
-                    "TaskLatticeTopicJudgeAction",
-                    "TaskLatticeGroundingAction",
-                    "TaskLatticeAutomatedReasoningAction",
+                    ACTION_TOPIC_JUDGE,
+                    ACTION_GROUNDING,
+                    ACTION_AUTOMATED_REASONING,
                 ),
             }.get(stage, ()):
                 grouped[name] = set()
@@ -153,31 +167,31 @@ def runtime_action_registry(*evaluators: object) -> RuntimeActionRegistry:
 
 
 def _dynamic_action_name(risk: str) -> str:
-    return "TaskLattice" + "".join(
-        item.capitalize() for item in re.split(r"[^A-Za-z0-9]+", risk) if item
-    ) + "Action"
+    parts = tuple(item for item in re.split(r"[^A-Za-z0-9]+", risk) if item)
+    capability = "".join(item.capitalize() for item in parts) or "Custom"
+    return f"Guard{capability}Action"
 
 
 def action_name_for(risk: str, stage: str) -> str:
     """Return the stable NeMo Action name for one native Policy stage."""
     if stage == "deterministic":
         return {
-            "secrets": "TaskLatticeSecretsAction",
-            "pii": "TaskLatticePiiAction",
-            "builtin_content_filter": "TaskLatticeBuiltinContentFilterAction",
-            "topic_control": "TaskLatticeTopicDeterministicAction",
+            "secrets": ACTION_SECRETS,
+            "pii": ACTION_PII,
+            "builtin_content_filter": ACTION_CONTENT_FILTER,
+            "topic_control": ACTION_TOPIC_RULES,
         }.get(risk, _dynamic_action_name(risk))
     if stage == "fast_semantic":
         return (
-            "TaskLatticePromptSecurityFastAction"
+            ACTION_PROMPT_SECURITY
             if risk in {"prompt_injection", "jailbreak"}
             else _dynamic_action_name(risk)
         )
     return {
-        "topic_control": "TaskLatticeTopicJudgeAction",
-        "company_policy": "TaskLatticeTopicJudgeAction",
-        "contextual_grounding": "TaskLatticeGroundingAction",
-        "automated_reasoning": "TaskLatticeAutomatedReasoningAction",
+        "topic_control": ACTION_TOPIC_JUDGE,
+        "company_policy": ACTION_TOPIC_JUDGE,
+        "contextual_grounding": ACTION_GROUNDING,
+        "automated_reasoning": ACTION_AUTOMATED_REASONING,
     }.get(risk, _dynamic_action_name(risk))
 
 
@@ -190,20 +204,20 @@ BUILTIN_ACTION_CATALOG = ActionCatalog(
                 input_schema=(("request", "ActionRequest"),),
                 output_schema=(("result", "ActionResult"),),
                 supported_rails=tuple(rails),
-                timeout_ms=30_000 if name == "TaskLatticeAutomatedReasoningAction" else 5_000,
+                timeout_ms=30_000 if name == ACTION_AUTOMATED_REASONING else 5_000,
                 failure_mode="fail_closed",
                 side_effects=False,
                 concurrent=True,
                 network_access=name in {
-                    "TaskLatticeTopicJudgeAction",
-                    "TaskLatticeGroundingAction",
-                    "TaskLatticeAutomatedReasoningAction",
+                    ACTION_TOPIC_JUDGE,
+                    ACTION_GROUNDING,
+                    ACTION_AUTOMATED_REASONING,
                 },
             )
             for name, _, rails in _BUILTIN_RUNTIME_ACTIONS
         ),
         ActionDefinition(
-            name="TaskLatticeCustomerIdentifierAction",
+            name=ACTION_CUSTOMER_IDENTIFIER,
             version="1.0.0",
             input_schema=(("text", "string"),),
             output_schema=(("detected", "boolean"), ("redacted", "string")),
@@ -214,7 +228,7 @@ BUILTIN_ACTION_CATALOG = ActionCatalog(
             concurrent=True,
         ),
         ActionDefinition(
-            name="TaskLatticeRecordPolicyAction",
+            name=ACTION_RECORD_POLICY,
             version="1.0.0",
             input_schema=(
                 ("binding_id", "string"),

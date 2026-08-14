@@ -110,7 +110,7 @@ from .filtering import (
     traffic_scope_signature,
     traffic_scope_specificity,
 )
-from .nemo_compiler import NeMoConfigCompiler
+from .nemo_compiler import NEMO_COMPILER_VERSION, NeMoConfigCompiler
 from .policy_tests import tests_for_builtin_policy
 
 
@@ -2274,6 +2274,29 @@ class ControlPlaneService:
                 guardrail_id=DEFAULT_GUARDRAIL_ID,
                 detail="Installed the local-only Default Guardrail.",
             )
+        else:
+            version_row = session.get(
+                GuardrailVersionModel,
+                (DEFAULT_GUARDRAIL_ID, DEFAULT_GUARDRAIL_VERSION),
+            )
+            if (
+                version_row is not None
+                and version_row.compiler_version != NEMO_COMPILER_VERSION
+            ):
+                guardrail = _guardrail_from_model(guardrail_row)
+                plan = self._compile_guardrail(
+                    guardrail,
+                    DEFAULT_GUARDRAIL_VERSION,
+                )
+                nemo_config = self._nemo_compiler.compile(plan)
+                nemo_checksum = self._nemo_compiler.checksum(nemo_config)
+                version_row.guardrail_json = asdict(guardrail)
+                version_row.plan_json = asdict(plan)
+                version_row.nemo_config_json = asdict(nemo_config)
+                version_row.compiler_version = nemo_config.compiler_version
+                version_row.plan_checksum = nemo_checksum
+                version_row.runtime_engine = nemo_config.runtime_engine
+                version_row.config_checksum = nemo_checksum
 
         session.flush()
         deployment_row = session.get(DeploymentModel, DEFAULT_DEPLOYMENT_ID)

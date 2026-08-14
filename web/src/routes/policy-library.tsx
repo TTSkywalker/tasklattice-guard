@@ -24,7 +24,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryKeys } from "@/features/query-keys";
-import { compactActionName } from "@/lib/action-name";
 import { getPolicies, getPolicy, type ProgrammablePolicy, type Policy, type PolicyRule, type PolicyTag } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -349,7 +348,7 @@ function Implementation({ policy }: { policy: Policy }) {
             <div className="min-w-0"><strong className="block truncate font-medium">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.implementation.binding_id}</span></div>
             <span className="font-mono text-muted-foreground">{rule.implementation.flow_name ?? rule.implementation.detector ?? rule.form}</span>
             {rule.implementation.action_name ? (
-              <code className="truncate text-muted-foreground" title={rule.implementation.action_name}>{compactActionName(rule.implementation.action_name)}</code>
+              <code className="truncate text-muted-foreground" title={rule.implementation.action_name}>{rule.implementation.action_name}</code>
             ) : (
               <span className="truncate text-muted-foreground">{t("policyLibrary.runtimeManaged")}</span>
             )}

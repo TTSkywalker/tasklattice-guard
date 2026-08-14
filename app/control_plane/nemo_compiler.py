@@ -10,7 +10,18 @@ import yaml
 from nemoguardrails import RailsConfig
 
 from ..policy_library import policy as library_policy
-from ..nemo.action_registry import action_name_for
+from ..nemo.action_registry import (
+    ACTION_CONTENT_FILTER,
+    ACTION_PII,
+    ACTION_PROMPT_SECURITY,
+    ACTION_RECORD_NATIVE,
+    ACTION_RECORD_POLICY,
+    ACTION_RESOLVE,
+    ACTION_SECRETS,
+    ACTION_TOPIC_JUDGE,
+    ACTION_TOPIC_RULES,
+    action_name_for,
+)
 from ..nemo.artifacts import config_checksum
 from ..runtime.contracts import (
     GuardrailPhase,
@@ -24,7 +35,7 @@ from ..runtime.contracts import (
 from .domain import PolicyDraft, PlanCompilationError, RailBinding
 
 
-NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v6"
+NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v7"
 
 ExecutionSurface = Literal["standalone_check", "owned_generation"]
 
@@ -36,12 +47,12 @@ _NATIVE_IORAILS_FLOWS = {
 }
 
 _COLANG1_STANDARD_ACTIONS = {
-    "TaskLatticeSecretsAction",
-    "TaskLatticePiiAction",
-    "TaskLatticeBuiltinContentFilterAction",
-    "TaskLatticeTopicDeterministicAction",
-    "TaskLatticePromptSecurityFastAction",
-    "TaskLatticeTopicJudgeAction",
+    ACTION_SECRETS,
+    ACTION_PII,
+    ACTION_CONTENT_FILTER,
+    ACTION_TOPIC_RULES,
+    ACTION_PROMPT_SECURITY,
+    ACTION_TOPIC_JUDGE,
 }
 _COLANG1_COMPLEX_RISKS = {"contextual_grounding", "automated_reasoning"}
 _ALLOWED_RUNTIME_MODEL_TYPES = frozenset({"content_safety", "topic_control"})
@@ -586,9 +597,9 @@ def _binding_can_modify(binding: NeMoActionBinding) -> bool:
     if binding.on_unsafe not in {"reject", "pass"}:
         return True
     if binding.action_name in {
-        "TaskLatticeTopicDeterministicAction",
-        "TaskLatticePromptSecurityFastAction",
-        "TaskLatticeTopicJudgeAction",
+        ACTION_TOPIC_RULES,
+        ACTION_PROMPT_SECURITY,
+        ACTION_TOPIC_JUDGE,
     }:
         # These Actions can return ``uncertain``.  The standard lane maps that
         # outcome to a clarification, which is a content modification even when
@@ -828,7 +839,7 @@ def _colang_v2(
             lines.append(
                 f"  await {_compiled_flow_name(binding)}(text=$text)"
             )
-        lines.extend(("  $decision = await TaskLatticeResolveAction(text=$text)", ""))
+        lines.extend((f"  $decision = await {ACTION_RESOLVE}(text=$text)", ""))
 
         risk_to_native = {
             _native_risk(flow): flow for flow in native_flows[phase]
@@ -902,24 +913,24 @@ def _native_flow_lines(flow: str, phase: GuardrailPhase) -> list[str]:
         )
         return [
             f'  $response = await {action}(model_name="content_safety")',
-            "  $recorded = await TaskLatticeRecordNativeAction("
+            f"  $recorded = await {ACTION_RECORD_NATIVE}("
             'risk="content_safety", safe=$response["allowed"], text=$text, '
             'details=$response["policy_violations"])',
         ]
     if flow.startswith("topic safety check"):
         return [
             '  $response = await TopicSafetyCheckInputAction(model_name="topic_control")',
-            "  $recorded = await TaskLatticeRecordNativeAction("
+            f"  $recorded = await {ACTION_RECORD_NATIVE}("
             'risk="topic_control", safe=$response["on_topic"], text=$text)',
         ]
     if flow == "jailbreak detection model":
         return [
             "  $detected = await JailbreakDetectionModelAction",
             "  if $detected",
-            "    $recorded = await TaskLatticeRecordNativeAction("
+            f"    $recorded = await {ACTION_RECORD_NATIVE}("
             'risk="jailbreak", safe=False, text=$text)',
             "  else",
-            "    $recorded = await TaskLatticeRecordNativeAction("
+            f"    $recorded = await {ACTION_RECORD_NATIVE}("
             'risk="jailbreak", safe=True, text=$text)',
         ]
     if "sensitive data" in flow:
@@ -1116,7 +1127,7 @@ def _custom_action_bindings(
             (
                 item
                 for item in version.action_references
-                if item.name != "TaskLatticeRecordPolicyAction"
+                if item.name != ACTION_RECORD_POLICY
             ),
             None,
         )
@@ -1331,11 +1342,11 @@ def _dependency_manifest(
         if binding.action_name and binding.action_version:
             entries.add(("action", binding.action_name, binding.action_version))
     if runtime_profile == "llmrails_colang2_programmable":
-        entries.add(("action", "TaskLatticeResolveAction", "1.0.0"))
+        entries.add(("action", ACTION_RESOLVE, "1.0.0"))
         if has_native_flows:
-            entries.add(("action", "TaskLatticeRecordNativeAction", "1.0.0"))
+            entries.add(("action", ACTION_RECORD_NATIVE, "1.0.0"))
         if any(item.policy_id is not None for item in bindings):
-            entries.add(("action", "TaskLatticeRecordPolicyAction", "1.0.0"))
+            entries.add(("action", ACTION_RECORD_POLICY, "1.0.0"))
     entries.update(("model", item, "profile") for item in required_models)
     for prompt in prompts:
         task = str(prompt.get("task", ""))

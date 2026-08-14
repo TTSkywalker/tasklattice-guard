@@ -366,7 +366,7 @@ def test_prompt_injection_uses_dedicated_jailbreak_detection_when_configured():
     assert snapshot.required_features == ("jailbreak_detection",)
     assert ("input", "jailbreak detection model") in snapshot.rail_flows
     assert not any(
-        binding.action_name == "TaskLatticePromptSecurityFastAction"
+        binding.action_name == "GuardPromptSecurityAction"
         for binding in snapshot.action_bindings
     )
 
@@ -396,10 +396,10 @@ def test_complex_plans_remain_colang2_programmable(plan):
     assert config.runtime_engine == "llmrails"
     assert config.colang_version == "2.x"
     assert all(item.result_var is None for item in config.action_bindings)
-    assert "TaskLatticeResolveAction" in config.colang_content
+    assert "GuardResolveAction" in config.colang_content
     assert (
         "action",
-        "TaskLatticeResolveAction",
+        "GuardResolveAction",
         "1.0.0",
     ) in config.dependency_manifest
 
@@ -416,7 +416,7 @@ def test_one_modifier_and_independent_blocker_use_colang1_standard():
     assert config.runtime_engine == "llmrails"
     assert config.colang_version == "1.0"
     assert all(item.result_var for item in config.action_bindings)
-    assert "TaskLatticeResolveAction" not in config.colang_content
+    assert "GuardResolveAction" not in config.colang_content
 
 
 def test_module_dependencies_force_colang2_programmable():

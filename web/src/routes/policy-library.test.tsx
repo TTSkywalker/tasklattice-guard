@@ -75,7 +75,7 @@ const policy: Policy = {
       implementation_rule_id: "comparison-intent",
       detector: "category",
       flow_name: null,
-      action_name: "PolicyRuleAction",
+      action_name: "GuardPolicyRuleAction",
     },
     expression: null,
     context_expression: null,
@@ -145,8 +145,8 @@ describe("Policy detail", () => {
     clickTab(screen.getByRole("tab", { name: "NeMo implementation" }));
     expect(screen.getByRole("heading", { name: "NeMo Guardrails implementation" })).toBeTruthy();
     expect(screen.queryByText("Runtime engine")).toBeNull();
-    const actionName = screen.getByText("PolicyRule");
+    const actionName = screen.getByText("GuardPolicyRuleAction");
     expect(actionName.tagName).toBe("CODE");
-    expect(actionName.getAttribute("title")).toBe("PolicyRuleAction");
+    expect(actionName.getAttribute("title")).toBe("GuardPolicyRuleAction");
   });
 });

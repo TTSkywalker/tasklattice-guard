@@ -12,18 +12,18 @@ from app.main import create_app
 
 CUSTOMER_DATA_COLANG = """\
 flow check_customer_identifier_input $text
-  $result = await TaskLatticeCustomerIdentifierAction(text=$text)
+  $result = await GuardCustomerIdentifierAction(text=$text)
   if $result["detected"]
-    $recorded = await TaskLatticeRecordPolicyAction(flow_name="check_customer_identifier_input", safe=False, text=$text, replacement=$result["redacted"])
+    $recorded = await GuardRecordPolicyAction(flow_name="check_customer_identifier_input", safe=False, text=$text, replacement=$result["redacted"])
   else
-    $recorded = await TaskLatticeRecordPolicyAction(flow_name="check_customer_identifier_input", safe=True, text=$text)
+    $recorded = await GuardRecordPolicyAction(flow_name="check_customer_identifier_input", safe=True, text=$text)
 
 flow check_customer_identifier_output $text
-  $result = await TaskLatticeCustomerIdentifierAction(text=$text)
+  $result = await GuardCustomerIdentifierAction(text=$text)
   if $result["detected"]
-    $recorded = await TaskLatticeRecordPolicyAction(flow_name="check_customer_identifier_output", safe=False, text=$text, replacement=$result["redacted"])
+    $recorded = await GuardRecordPolicyAction(flow_name="check_customer_identifier_output", safe=False, text=$text, replacement=$result["redacted"])
   else
-    $recorded = await TaskLatticeRecordPolicyAction(flow_name="check_customer_identifier_output", safe=True, text=$text)
+    $recorded = await GuardRecordPolicyAction(flow_name="check_customer_identifier_output", safe=True, text=$text)
 """
 
 
@@ -79,11 +79,11 @@ async def test_customer_data_policy_runs_create_to_real_http_on_one_version(tmp_
                     ],
                     "action_references": [
                         {
-                            "name": "TaskLatticeCustomerIdentifierAction",
+                            "name": "GuardCustomerIdentifierAction",
                             "version": "1.0.0",
                         },
                         {
-                            "name": "TaskLatticeRecordPolicyAction",
+                            "name": "GuardRecordPolicyAction",
                             "version": "1.0.0",
                         },
                     ],
@@ -258,7 +258,7 @@ async def test_customer_data_policy_runs_create_to_real_http_on_one_version(tmp_
         and item["policy_version"] == str(policy_version)
         and item["rail_type"] == "output"
         and item["flow_name"] == "check_customer_identifier_output"
-        and item["action_name"] == "TaskLatticeCustomerIdentifierAction"
+        and item["action_name"] == "GuardCustomerIdentifierAction"
         and item["action_version"] == "1.0.0"
         and item["engine"] == "llmrails"
         and item["config_checksum"]
@@ -349,7 +349,7 @@ def test_mutating_flows_cannot_share_an_unordered_parallel_group(tmp_path):
                     ),
                 ),
                 action_references=(
-                    ActionReference("TaskLatticeCustomerIdentifierAction", "1.0.0"),
+                    ActionReference("GuardCustomerIdentifierAction", "1.0.0"),
                 ),
             ),
         )

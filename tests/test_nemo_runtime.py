@@ -234,7 +234,7 @@ async def test_default_deterministic_golden_corpus_runs_through_nemo(tmp_path):
             for step in decision.trace
         )
         assert not any(
-            step.action_name == "TaskLatticeResolveAction"
+            step.action_name == "GuardResolveAction"
             for step in decision.trace
         )
         assert decision.usage is not None
@@ -261,7 +261,7 @@ async def test_default_deterministic_golden_corpus_runs_through_nemo(tmp_path):
             expected_action,
         )
         assert not any(
-            step.action_name == "TaskLatticeResolveAction"
+            step.action_name == "GuardResolveAction"
             for step in decision.trace
         )
 
@@ -375,10 +375,10 @@ def test_all_ten_policy_execution_paths_compile_into_native_rails_or_nemo_action
     } <= action_risks
     assert config.runtime_engine == "llmrails"
     assert payload["colang_version"] == "2.x"
-    assert "TaskLatticePromptSecurityFastAction" not in config.colang_content
+    assert "GuardPromptSecurityAction" not in config.colang_content
     assert ("input", "jailbreak detection model") in config.rail_flows
-    assert "TaskLatticeAutomatedReasoningAction" in config.colang_content
-    assert "TaskLatticeResolveAction" in config.colang_content
+    assert "GuardReasoningAction" in config.colang_content
+    assert "GuardResolveAction" in config.colang_content
     assert "start tasklattice_module_input" in config.colang_content
     assert "match $parallel_0.Finished()" in config.colang_content
 

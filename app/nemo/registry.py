@@ -13,7 +13,14 @@ from nemoguardrails import Guardrails, RailsConfig
 
 from ..control_plane.domain import PlanCompilationError
 from ..runtime.contracts import GuardrailPlanSnapshot, NeMoConfigSnapshot
-from .action_registry import RuntimeActionRegistry
+from .action_registry import (
+    ACTION_CUSTOMER_IDENTIFIER,
+    ACTION_PII,
+    ACTION_RECORD_NATIVE,
+    ACTION_RECORD_POLICY,
+    ACTION_RESOLVE,
+    RuntimeActionRegistry,
+)
 from .artifacts import config_checksum
 
 
@@ -26,10 +33,10 @@ _PROFILE_RUNTIME = {
     "llmrails_colang2_programmable": ("llmrails", "2.x"),
 }
 _EXECUTOR_ACTION_VERSIONS = {
-    "TaskLatticeCustomerIdentifierAction": "1.0.0",
-    "TaskLatticeRecordPolicyAction": "1.0.0",
-    "TaskLatticeRecordNativeAction": "1.0.0",
-    "TaskLatticeResolveAction": "1.0.0",
+    ACTION_CUSTOMER_IDENTIFIER: "1.0.0",
+    ACTION_RECORD_POLICY: "1.0.0",
+    ACTION_RECORD_NATIVE: "1.0.0",
+    ACTION_RESOLVE: "1.0.0",
 }
 
 
@@ -434,7 +441,7 @@ class NeMoRailsRegistry:
             )
         )
         if "sensitive_data_detection" in config.required_features and not (
-            self._actions.contains("TaskLatticePiiAction", "1.0.0")
+            self._actions.contains(ACTION_PII, "1.0.0")
         ):
             raise PlanCompilationError(
                 "NeMo sensitive-data rails require a configured PII Action provider."
@@ -466,7 +473,7 @@ class NeMoRailsRegistry:
             if name not in _EXECUTOR_ACTION_VERSIONS
         }
         if "sensitive_data_detection" in config.required_features:
-            references.add(("TaskLatticePiiAction", "1.0.0"))
+            references.add((ACTION_PII, "1.0.0"))
         return RuntimeActionRegistry(
             tuple(
                 self._actions.get(name, version)

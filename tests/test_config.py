@@ -123,7 +123,7 @@ def test_nvidia_guard_models_cover_runtime_without_a_generic_llm(tmp_path):
     }
     providers = create_action_registry(settings).providers()
     topic_provider = next(
-        item for item in providers if item.name == "TaskLatticeTopicJudgeAction"
+        item for item in providers if item.name == "GuardTopicJudgeAction"
     )
     assert topic_provider.risks == frozenset({"topic_control", "company_policy"})
 
@@ -163,6 +163,6 @@ def test_playground_model_is_not_registered_as_a_runtime_evaluator(tmp_path):
         item.name for item in engine._registry._actions.providers()
     }
 
-    assert "TaskLatticePromptSecurityJudgeAction" not in runtime_actions
-    assert "TaskLatticeTopicJudgeAction" not in runtime_actions
-    assert "TaskLatticeGroundingAction" not in runtime_actions
+    assert "GuardPromptSecurityJudgeAction" not in runtime_actions
+    assert "GuardTopicJudgeAction" not in runtime_actions
+    assert "GuardGroundingAction" not in runtime_actions

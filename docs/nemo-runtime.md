@@ -122,7 +122,7 @@ needed for Colang 2 event recording and final resolution.
 Built-in regex, keyword, and category Rules are not translated rule-by-rule
 into Colang. Their versioned Policy asset remains the source,
 `BuiltinContentFilter` remains the Python matching implementation, and
-`TaskLatticeBuiltinContentFilterAction` is the NeMo entry point. The same
+`GuardContentFilterAction` is the NeMo entry point. The same
 boundary applies to deterministic and external-provider checks: Python detects;
 Colang owns the rail lifecycle.
 

@@ -55,7 +55,7 @@
           "implementation_rule_id": "au_tfn",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:\\d{3}\\s?\\d{3}\\s?\\d{3}|\\d{2}\\s?\\d{3}\\s?\\d{3})\\b",
         "context_expression": "\\b(?:TFN|T\\.F\\.N\\.|tax\\s*file\\s*(?:number|no\\.?)|tax\\s*file\\s*#?|ATO\\s*number)\\b",
@@ -84,7 +84,7 @@
           "implementation_rule_id": "au_abn",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{2}\\s?\\d{3}\\s?\\d{3}\\s?\\d{3}\\b",
         "context_expression": null,
@@ -113,7 +113,7 @@
           "implementation_rule_id": "au_medicare",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:\\d{4}\\s?\\d{5}\\s?\\d{1}|\\d{11})\\b",
         "context_expression": null,
@@ -142,7 +142,7 @@
           "implementation_rule_id": "passport_australia",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z][0-9]{7}\\b",
         "context_expression": null,
@@ -171,7 +171,7 @@
           "implementation_rule_id": "us_ssn",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{3}-\\d{2}-\\d{4}\\b",
         "context_expression": null,
@@ -200,7 +200,7 @@
           "implementation_rule_id": "us_ssn_no_dash",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?!000|666|9\\d{2})\\d{3}(?!00)\\d{2}(?!0000)\\d{4}\\b",
         "context_expression": null,
@@ -229,7 +229,7 @@
           "implementation_rule_id": "passport_us",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([A-Z][0-9]{8}|[0-9]{9})\\b",
         "context_expression": null,
@@ -258,7 +258,7 @@
           "implementation_rule_id": "passport_uk",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-9]{9}\\b",
         "context_expression": null,
@@ -287,7 +287,7 @@
           "implementation_rule_id": "passport_germany",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[CFGHJKLMNPRTVWXYZ0-9]{9}\\b",
         "context_expression": null,
@@ -316,7 +316,7 @@
           "implementation_rule_id": "passport_france",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-9]{2}[A-Z]{2}[0-9]{5}\\b",
         "context_expression": null,
@@ -345,7 +345,7 @@
           "implementation_rule_id": "passport_netherlands",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}[A-Z0-9]{6}[0-9]\\b",
         "context_expression": null,
@@ -374,7 +374,7 @@
           "implementation_rule_id": "nl_bsn_contextual",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-9]{9}\\b",
         "context_expression": "(?:\\b(?:BSN|B\\.S\\.N\\.|burgerservicenummer|burger\\s*service\\s*nummer|sofi\\s*nummer|sofinummer|persoonsnummer|identificatienummer|citizen\\s*service\\s*number)\\b|8\\s*5\\s*\\|\\\\\\|)",
@@ -403,7 +403,7 @@
           "implementation_rule_id": "passport_china",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[EeGg][0-9]{8}\\b",
         "context_expression": null,
@@ -432,7 +432,7 @@
           "implementation_rule_id": "passport_india",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z][0-9]{7}\\b",
         "context_expression": null,
@@ -461,7 +461,7 @@
           "implementation_rule_id": "passport_japan",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}[0-9]{7}\\b",
         "context_expression": null,
@@ -490,7 +490,7 @@
           "implementation_rule_id": "passport_canada",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([A-Z]{2}[0-9]{6}|[A-Z][0-9]{6}[A-Z]{2})\\b",
         "context_expression": null,
@@ -519,7 +519,7 @@
           "implementation_rule_id": "br_cpf",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\d{3}\\.\\d{3}\\.\\d{3}(-|/)\\d{2}",
         "context_expression": null,
@@ -548,7 +548,7 @@
           "implementation_rule_id": "br_cpf_unformatted",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{11}\\b",
         "context_expression": null,
@@ -577,7 +577,7 @@
           "implementation_rule_id": "br_rg",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{1,2}\\.\\d{3}\\.\\d{3}-[\\dXx]\\b",
         "context_expression": null,
@@ -606,7 +606,7 @@
           "implementation_rule_id": "br_cnpj",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2}",
         "context_expression": null,
@@ -635,7 +635,7 @@
           "implementation_rule_id": "email",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
         "context_expression": null,
@@ -664,7 +664,7 @@
           "implementation_rule_id": "us_phone",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:\\+?1[\\s.-]?)?\\(?([0-9]{3})\\)?[\\s.-]?([0-9]{3})[\\s.-]?([0-9]{4})\\b",
         "context_expression": null,
@@ -693,7 +693,7 @@
           "implementation_rule_id": "br_phone_landline",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?:\\(?\\d{2}\\)?\\s?)?(?:9\\d{4}|\\d{4})-?\\d{4}",
         "context_expression": null,
@@ -722,7 +722,7 @@
           "implementation_rule_id": "br_phone_mobile",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?:\\+\\d{1,3}\\s?)?(?:\\(?\\d{2}\\)?\\s?)?9\\d{4}-?\\d{4}",
         "context_expression": null,
@@ -751,7 +751,7 @@
           "implementation_rule_id": "street_address",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{1,6}\\s+[A-Za-z0-9][A-Za-z0-9\\s.'-]*\\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir)\\b",
         "context_expression": null,
@@ -780,7 +780,7 @@
           "implementation_rule_id": "br_cep",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{5}-?\\d{3}\\b",
         "context_expression": null,
@@ -809,7 +809,7 @@
           "implementation_rule_id": "visa",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -838,7 +838,7 @@
           "implementation_rule_id": "mastercard",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -867,7 +867,7 @@
           "implementation_rule_id": "amex",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b",
         "context_expression": null,
@@ -896,7 +896,7 @@
           "implementation_rule_id": "discover",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b6(?:011|5\\d{2})[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -925,7 +925,7 @@
           "implementation_rule_id": "credit_card",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?:\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b|\\b6(?:011|5\\d{2})[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b)",
         "context_expression": null,
@@ -954,7 +954,7 @@
           "implementation_rule_id": "iban",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}\\d{2}[A-Z0-9]{11,30}\\b",
         "context_expression": null,
@@ -983,7 +983,7 @@
           "implementation_rule_id": "aws_access_key",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(AKIA[0-9A-Z]{16})\\b",
         "context_expression": null,
@@ -1012,7 +1012,7 @@
           "implementation_rule_id": "aws_secret_key",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([A-Za-z0-9/+=]{40})\\b",
         "context_expression": null,
@@ -1041,7 +1041,7 @@
           "implementation_rule_id": "github_token",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(gh[ps]_[a-zA-Z0-9]{36})\\b",
         "context_expression": null,
@@ -1070,7 +1070,7 @@
           "implementation_rule_id": "slack_token",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(xox[pboa]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,32})\\b",
         "context_expression": null,
@@ -1099,7 +1099,7 @@
           "implementation_rule_id": "generic_api_key",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([Aa][Pp][Ii][-_]?[Kk][Ee][Yy][\\s:=]+['\"]?[A-Za-z0-9_\\-]{20,}['\"]?)\\b",
         "context_expression": null,
@@ -1128,7 +1128,7 @@
           "implementation_rule_id": "ipv4",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b",
         "context_expression": null,
@@ -1157,7 +1157,7 @@
           "implementation_rule_id": "ipv6",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?<![0-9a-fA-F:])(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|:(?::[0-9a-fA-F]{1,4}){1,7}|::|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6})(?![0-9a-fA-F:])",
         "context_expression": null,
@@ -1186,7 +1186,7 @@
           "implementation_rule_id": "gender_sexual_orientation",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(non-?binary|enby|genderqueer|genderfluid|gender-?fluid|agender|bigender|pangender|two-?spirit|trans(gender|sexual|masc|fem)?|cis(gender)?|intersex|MTF|FTM|AMAB|AFAB|assigned\\s+(male|female)\\s+at\\s+birth|gay|lesbian|bisexual|pansexual|omnisexual|polysexual|asexual|aromantic|demisexual|heterosexual|homosexual|queer|LGBTQ\\+?|LGBT\\+?|LGBTQIA\\+?|same-?sex|opposite-?sex|sexual\\s+orientation|sexual\\s+preference|gender\\s+identity|sex\\s+change|gender\\s+reassignment|gender\\s+confirmation|sexual\\s+minority|he\\/him|she\\/her|they\\/them|xe\\/xem|ze\\/zir|wom[ae]ns?|females?|males?)\\b",
         "context_expression": null,
@@ -1215,7 +1215,7 @@
           "implementation_rule_id": "race_ethnicity_national_origin",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(caucasian|african[- ]?american|black|white|asian|hispanic|latino|latina|latinx|pacific\\s+islander|native\\s+american|indigenous|first\\s+nations|aboriginal|mestizo|mulatto|biracial|multiracial|mixed[- ]?race|person\\s+of\\s+colou?r|POC|BIPOC|ethnic(ity)?|racial|race|arab|middle\\s+eastern|south\\s+asian|east\\s+asian|southeast\\s+asian|european|african|caribbean|west\\s+indian|haitian|jamaican|cuban|puerto\\s+rican|mexican|dominican|salvadoran|guatemalan|honduran|colombian|venezuelan|peruvian|brazilian|chinese|japanese|korean|vietnamese|filipino|filipina|indian|pakistani|bangladeshi|sri\\s+lankan|nepali|thai|indonesian|malaysian|burmese|cambodian|laotian|hmong|somali|ethiopian|nigerian|ghanaian|kenyan|south\\s+african|egyptian|moroccan|algerian|iranian|iraqi|syrian|lebanese|palestinian|israeli|turkish|afghan|uzbek|kazakh|russian|ukrainian|polish|german|italian|irish|british|french|spanish|portuguese|greek|albanian|serbian|croatian|bosnian|romani|roma|gypsy|jewish|ashkenazi|sephardic|mizrahi|native\\s+hawaiian|samoan|tongan|fijian|guamanian|chamorro|inuit|aleut|metis|maori|aboriginal\\s+australian|torres\\s+strait)\\b",
         "context_expression": null,
@@ -1244,7 +1244,7 @@
           "implementation_rule_id": "religion",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(christians?|catholics?|protestants?|baptists?|methodists?|lutherans?|presbyterians?|episcopal|pentecostal|evangelicals?|orthodox\\s+christian|mormons?|latter[- ]?day\\s+saint|LDS|jehovah'?s?\\s+witness(es)?|seventh[- ]?day\\s+adventist|amish|mennonite|quakers?|jewish|jews?|judaism|orthodox\\s+jew|hasidic|muslims?|islam(ic)?|sunni|shia|shiite|sufi|nation\\s+of\\s+islam|hindus?(ism)?|buddhists?|buddhism|sikhs?(ism)?|jains?(ism)?|shinto|taoists?|taoism|confucian|zoroastrian|baha'?i|rastafari(an)?|pagans?|wiccans?|druids?|satanist|scientolog(y|ist)|unitarian|agnostics?|atheists?|secular|non-?religious|spiritual\\s+but\\s+not\\s+religious|religious\\s+belief|religious\\s+practice|place\\s+of\\s+worship|church|mosque|synagogue|temple|gurdwara|kosher|halal|sabbath|shabbat|ramadan|lent|yom\\s+kippur|rosh\\s+hashanah|diwali|eid|hijab|yarmulke|kippah|turban|religious\\s+head\\s*covering)\\b",
         "context_expression": null,
@@ -1273,7 +1273,7 @@
           "implementation_rule_id": "age_discrimination",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(elderly|senior\\s+citizens?|seniors?|old\\s+age|aged\\s+\\d+|retirees?|retired|pensioners?|baby\\s+boomers?|boomers?|geriatric|over\\s+the\\s+hill|too\\s+old|too\\s+young|young\\s+person|millennials?|gen[- ]?z|junior|age\\s+discrimination|ageism|years?\\s+old|\\d+\\s*years?\\s*old|over\\s+\\d+|under\\s+\\d+|older\\s+workers?|older\\s+employees?|older\\s+candidates?|in\\s+their\\s+\\d{2}s?|date\\s+of\\s+birth|DOB|birth\\s*date|born\\s+in\\s+\\d{4}|age\\s+\\d{2,3})\\b",
         "context_expression": null,
@@ -1302,7 +1302,7 @@
           "implementation_rule_id": "disability",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(disabled|disabilit(y|ies)|handicap(ped)?|impair(ed|ment|ments)?|wheelchair|blind(ness)?|deaf(ness)?|hard\\s+of\\s+hearing|hearing\\s+impaired|visually\\s+impaired|mute|paralyz(ed|is)|quadriplegic|paraplegic|amputee|prosthetic|cripple[d]?|mentally\\s+ill|mental\\s+illness|mental\\s+disorder|psychiatric|schizophren(ia|ic)|bipolar|depression|depressed|anxiety\\s+disorder|PTSD|autis(m|tic)|asperger'?s?|ADHD|ADD|dyslexia|dyslexic|learning\\s+disabilit(y|ies)|intellectual\\s+disabilit(y|ies)|down'?s?\\s+syndrome|cerebral\\s+palsy|epilep(sy|tic)|seizure\\s+disorder|multiple\\s+sclerosis|MS\\s+patient|parkinson'?s?|alzheimer'?s?|dementia|chronic\\s+illness|chronic\\s+pain|fibromyalgia|lupus|crohn'?s?|cancer\\s+patient|HIV|AIDS|diabetic|diabetes|SSI|SSDI|disability\\s+benefits|disability\\s+income|ADA|reasonable\\s+accommodation|special\\s+needs|service\\s+animal|service\\s+dog|guide\\s+dog)\\b",
         "context_expression": null,
@@ -1331,7 +1331,7 @@
           "implementation_rule_id": "marital_family_status",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(married|unmarried|single|divorced|separated|widowed|widow|widower|spouse|husband|wife|domestic\\s+partner|civil\\s+union|common[- ]?law|marital\\s+status|maiden\\s+name|alimony|child\\s+support|custody|pregnant|pregnancy|maternity|paternity|expecting|family\\s+status|number\\s+of\\s+children|dependents|childless|child[- ]?free|single\\s+parent|single\\s+mother|single\\s+father|unwed|out\\s+of\\s+wedlock|illegitimate|family\\s+planning|birth\\s+control|fertility|IVF|adoption|adopted|foster\\s+parent|guardian)\\b",
         "context_expression": null,
@@ -1360,7 +1360,7 @@
           "implementation_rule_id": "military_status",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(veterans?|military|armed\\s+forces|army|navy|air\\s+force|marines?(?:\\s+corps)?|coast\\s+guard|national\\s+guard|reserves?(?:ist)?|active\\s+duty|deployment|deployed|enlisted|commissioned|honorable\\s+discharge|dishonorable\\s+discharge|VA\\s+benefits|GI\\s+bill|military\\s+service|service\\s+members?|servicemembers?|SCRA|MLA|military\\s+lending)\\b",
         "context_expression": null,
@@ -1389,7 +1389,7 @@
           "implementation_rule_id": "public_assistance",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(welfare|public\\s+assistance|food\\s+stamps|SNAP|WIC|TANF|medicaid|section\\s+8|housing\\s+voucher|subsidized\\s+housing|public\\s+housing|government\\s+benefits|social\\s+services|unemployment\\s+(benefits|insurance)|UI\\s+benefits|EBT|benefit\\s+recipient)\\b",
         "context_expression": null,
@@ -2163,7 +2163,7 @@
           "implementation_rule_id": "airline_off_topic_restriction",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -2290,7 +2290,7 @@
           "implementation_rule_id": "airline_pnr",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{6}\\b",
         "context_expression": "\\b(?:PNR|booking\\s*(?:reference|ref|code|number|confirmation)|reservation\\s*(?:code|number|ref)|record\\s*locator|confirmation\\s*(?:code|number)|itinerary\\s*(?:number|ref))\\b",
@@ -2319,7 +2319,7 @@
           "implementation_rule_id": "skywards_number",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:EK\\s?)?\\d{9,10}\\b",
         "context_expression": "\\b(?:[Ss]kywards|frequent\\s*flyer|FF\\s*(?:number|no|#)|loyalty\\s*(?:number|id|member)|member\\s*(?:number|id|#)|miles\\s*(?:account|number)|tier\\s*(?:number|status))\\b",
@@ -2348,7 +2348,7 @@
           "implementation_rule_id": "passport_us",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([A-Z][0-9]{8}|[0-9]{9})\\b",
         "context_expression": null,
@@ -2377,7 +2377,7 @@
           "implementation_rule_id": "passport_uk",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-9]{9}\\b",
         "context_expression": null,
@@ -2406,7 +2406,7 @@
           "implementation_rule_id": "passport_germany",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[CFGHJKLMNPRTVWXYZ0-9]{9}\\b",
         "context_expression": null,
@@ -2435,7 +2435,7 @@
           "implementation_rule_id": "passport_france",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-9]{2}[A-Z]{2}[0-9]{5}\\b",
         "context_expression": null,
@@ -2464,7 +2464,7 @@
           "implementation_rule_id": "passport_india",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z][0-9]{7}\\b",
         "context_expression": null,
@@ -2493,7 +2493,7 @@
           "implementation_rule_id": "passport_china",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[EeGg][0-9]{8}\\b",
         "context_expression": null,
@@ -2522,7 +2522,7 @@
           "implementation_rule_id": "passport_australia",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z][0-9]{7}\\b",
         "context_expression": null,
@@ -2551,7 +2551,7 @@
           "implementation_rule_id": "passport_japan",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}[0-9]{7}\\b",
         "context_expression": null,
@@ -2580,7 +2580,7 @@
           "implementation_rule_id": "passport_canada",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([A-Z]{2}[0-9]{6}|[A-Z][0-9]{6}[A-Z]{2})\\b",
         "context_expression": null,
@@ -2609,7 +2609,7 @@
           "implementation_rule_id": "passport_netherlands",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}[A-Z0-9]{6}[0-9]\\b",
         "context_expression": null,
@@ -2638,7 +2638,7 @@
           "implementation_rule_id": "uae_emirates_id",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b784-?\\d{4}-?\\d{7}-?\\d\\b",
         "context_expression": null,
@@ -2667,7 +2667,7 @@
           "implementation_rule_id": "credit_card",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?:\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b|\\b6(?:011|5\\d{2})[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b)",
         "context_expression": null,
@@ -2696,7 +2696,7 @@
           "implementation_rule_id": "visa",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -2725,7 +2725,7 @@
           "implementation_rule_id": "mastercard",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -2754,7 +2754,7 @@
           "implementation_rule_id": "amex",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b",
         "context_expression": null,
@@ -2783,7 +2783,7 @@
           "implementation_rule_id": "iban",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}\\d{2}[A-Z0-9]{11,30}\\b",
         "context_expression": null,
@@ -2812,7 +2812,7 @@
           "implementation_rule_id": "email",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
         "context_expression": null,
@@ -2841,7 +2841,7 @@
           "implementation_rule_id": "uae_phone",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?<!\\d)(?:\\+971|00971|0)\\s?(?:2|3|4|6|7|9|50|52|54|55|56|58)\\s?\\d{3}\\s?\\d{4}\\b",
         "context_expression": null,
@@ -2870,7 +2870,7 @@
           "implementation_rule_id": "us_phone",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:\\+?1[\\s.-]?)?\\(?([0-9]{3})\\)?[\\s.-]?([0-9]{3})[\\s.-]?([0-9]{4})\\b",
         "context_expression": null,
@@ -3295,7 +3295,7 @@
           "implementation_rule_id": "flight_number",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:EK|QF|BA|AA|LH|AF|SQ|CX|QR|EY|FZ|WY|GF|KU|SV|MS|RJ|ME|PK|AI|UL|WS|9W|6E)\\s?\\d{1,4}\\b",
         "context_expression": "\\b(?:flight|departure|arrival|gate|boarding|schedule|operate|route|aircraft|plane|outbound|inbound|leg|sector|flying)\\b",
@@ -3324,7 +3324,7 @@
           "implementation_rule_id": "aircraft_tail_number",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\bA6-[A-Z]{3}\\b|\\b[A-Z]-[A-Z]{4}\\b|\\bN[0-9]{1,5}[A-Z]{0,2}\\b",
         "context_expression": null,
@@ -3353,7 +3353,7 @@
           "implementation_rule_id": "blocked-word-1",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3387,7 +3387,7 @@
           "implementation_rule_id": "blocked-word-2",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3421,7 +3421,7 @@
           "implementation_rule_id": "blocked-word-3",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3455,7 +3455,7 @@
           "implementation_rule_id": "blocked-word-4",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3489,7 +3489,7 @@
           "implementation_rule_id": "blocked-word-5",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3523,7 +3523,7 @@
           "implementation_rule_id": "aviation_safety_topics",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3685,7 +3685,7 @@
           "implementation_rule_id": "blocked-word-1",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3719,7 +3719,7 @@
           "implementation_rule_id": "blocked-word-2",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3753,7 +3753,7 @@
           "implementation_rule_id": "blocked-word-3",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3787,7 +3787,7 @@
           "implementation_rule_id": "blocked-word-4",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3821,7 +3821,7 @@
           "implementation_rule_id": "blocked-word-5",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3855,7 +3855,7 @@
           "implementation_rule_id": "blocked-word-6",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3889,7 +3889,7 @@
           "implementation_rule_id": "blocked-word-7",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3923,7 +3923,7 @@
           "implementation_rule_id": "blocked-word-8",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3957,7 +3957,7 @@
           "implementation_rule_id": "blocked-word-9",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -3991,7 +3991,7 @@
           "implementation_rule_id": "blocked-word-10",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4025,7 +4025,7 @@
           "implementation_rule_id": "airline_brand_protection",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4178,7 +4178,7 @@
           "implementation_rule_id": "dynamic-competitors-blocked-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4212,7 +4212,7 @@
           "implementation_rule_id": "dynamic-competitors-blocked-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4246,7 +4246,7 @@
           "implementation_rule_id": "dynamic-competitor-recommendation-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4280,7 +4280,7 @@
           "implementation_rule_id": "dynamic-competitor-recommendation-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4314,7 +4314,7 @@
           "implementation_rule_id": "dynamic-competitor-comparison-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4348,7 +4348,7 @@
           "implementation_rule_id": "competitor-comparison-intent",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -4396,7 +4396,7 @@
           "implementation_rule_id": "dynamic-competitor-comparison-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -5269,7 +5269,7 @@
           "implementation_rule_id": "au_tfn",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:\\d{3}\\s?\\d{3}\\s?\\d{3}|\\d{2}\\s?\\d{3}\\s?\\d{3})\\b",
         "context_expression": "\\b(?:TFN|T\\.F\\.N\\.|tax\\s*file\\s*(?:number|no\\.?)|tax\\s*file\\s*#?|ATO\\s*number)\\b",
@@ -5298,7 +5298,7 @@
           "implementation_rule_id": "au_abn",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{2}\\s?\\d{3}\\s?\\d{3}\\s?\\d{3}\\b",
         "context_expression": null,
@@ -5327,7 +5327,7 @@
           "implementation_rule_id": "au_medicare",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:\\d{4}\\s?\\d{5}\\s?\\d{1}|\\d{11})\\b",
         "context_expression": null,
@@ -5356,7 +5356,7 @@
           "implementation_rule_id": "aws_access_key",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(AKIA[0-9A-Z]{16})\\b",
         "context_expression": null,
@@ -5385,7 +5385,7 @@
           "implementation_rule_id": "aws_secret_key",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([A-Za-z0-9/+=]{40})\\b",
         "context_expression": null,
@@ -5414,7 +5414,7 @@
           "implementation_rule_id": "github_token",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(gh[ps]_[a-zA-Z0-9]{36})\\b",
         "context_expression": null,
@@ -5443,7 +5443,7 @@
           "implementation_rule_id": "slack_token",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(xox[pboa]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,32})\\b",
         "context_expression": null,
@@ -5472,7 +5472,7 @@
           "implementation_rule_id": "generic_api_key",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b([Aa][Pp][Ii][-_]?[Kk][Ee][Yy][\\s:=]+['\"]?[A-Za-z0-9_\\-]{20,}['\"]?)\\b",
         "context_expression": null,
@@ -5501,7 +5501,7 @@
           "implementation_rule_id": "visa",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -5530,7 +5530,7 @@
           "implementation_rule_id": "mastercard",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -5559,7 +5559,7 @@
           "implementation_rule_id": "amex",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b",
         "context_expression": null,
@@ -5588,7 +5588,7 @@
           "implementation_rule_id": "discover",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b6(?:011|5\\d{2})[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b",
         "context_expression": null,
@@ -5617,7 +5617,7 @@
           "implementation_rule_id": "credit_card",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?:\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b|\\b6(?:011|5\\d{2})[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b)",
         "context_expression": null,
@@ -5646,7 +5646,7 @@
           "implementation_rule_id": "iban",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}\\d{2}[A-Z0-9]{11,30}\\b",
         "context_expression": null,
@@ -5931,7 +5931,7 @@
           "implementation_rule_id": "claims_fraud_coaching",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -6136,7 +6136,7 @@
           "implementation_rule_id": "claims_phi_disclosure",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -6341,7 +6341,7 @@
           "implementation_rule_id": "claims_prior_auth_gaming",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -6541,7 +6541,7 @@
           "implementation_rule_id": "claims_system_override",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -6753,7 +6753,7 @@
           "implementation_rule_id": "claims_medical_advice",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7110,7 +7110,7 @@
           "implementation_rule_id": "dynamic-competitors-blocked-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7144,7 +7144,7 @@
           "implementation_rule_id": "dynamic-competitors-blocked-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7178,7 +7178,7 @@
           "implementation_rule_id": "dynamic-competitor-recommendation-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7212,7 +7212,7 @@
           "implementation_rule_id": "dynamic-competitor-recommendation-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7246,7 +7246,7 @@
           "implementation_rule_id": "dynamic-competitor-comparison-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7280,7 +7280,7 @@
           "implementation_rule_id": "competitor-comparison-intent",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7328,7 +7328,7 @@
           "implementation_rule_id": "dynamic-competitor-comparison-words",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -7902,7 +7902,7 @@
           "implementation_rule_id": "eu_ai_act_art5_manipulation",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -8017,7 +8017,7 @@
           "implementation_rule_id": "eu_ai_act_art5_vulnerability",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -8151,7 +8151,7 @@
           "implementation_rule_id": "eu_ai_act_art5_social_scoring",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -8291,7 +8291,7 @@
           "implementation_rule_id": "eu_ai_act_art5_emotion_recognition",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -8456,7 +8456,7 @@
           "implementation_rule_id": "eu_ai_act_art5_biometric_profiling",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -8624,7 +8624,7 @@
           "implementation_rule_id": "eu_ai_act_art5_manipulation_fr",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -8743,7 +8743,7 @@
           "implementation_rule_id": "eu_ai_act_art5_vulnerability_fr",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -8872,7 +8872,7 @@
           "implementation_rule_id": "eu_ai_act_art5_social_scoring_fr",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -9022,7 +9022,7 @@
           "implementation_rule_id": "eu_ai_act_art5_emotion_recognition_fr",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -9178,7 +9178,7 @@
           "implementation_rule_id": "eu_ai_act_art5_biometric_profiling_fr",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -9555,7 +9555,7 @@
           "implementation_rule_id": "fr_nir",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[12][0-9]{2}(0[1-9]|1[0-2])[0-9]{2}[0-9]{3}[0-9]{3}[0-9]{2}\\b",
         "context_expression": null,
@@ -9584,7 +9584,7 @@
           "implementation_rule_id": "eu_passport_generic",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-9]{2}[A-Z]{2}[0-9]{5}\\b",
         "context_expression": "\\b(?:passport|passeport|travel\\s*document|document\\s*number|reisepass|paspoort|paszport)\\b",
@@ -9613,7 +9613,7 @@
           "implementation_rule_id": "eu_iban_enhanced",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7}[A-Z0-9]{0,16}\\b",
         "context_expression": null,
@@ -9642,7 +9642,7 @@
           "implementation_rule_id": "iban",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}\\d{2}[A-Z0-9]{11,30}\\b",
         "context_expression": null,
@@ -9671,7 +9671,7 @@
           "implementation_rule_id": "email",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
         "context_expression": null,
@@ -9700,7 +9700,7 @@
           "implementation_rule_id": "fr_phone",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?<!\\d)(?:\\+33|0033|0)[1-9][0-9]{8}\\b",
         "context_expression": null,
@@ -9729,7 +9729,7 @@
           "implementation_rule_id": "fr_postal_code",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-9]{5}\\b",
         "context_expression": "\\b(?:code\\s*postal|postal\\s*code|CP|zip\\s*code|postcode)\\b",
@@ -9758,7 +9758,7 @@
           "implementation_rule_id": "eu_vat",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(AT|BE|BG|CY|CZ|DE|DK|EE|EL|ES|FI|FR|HR|HU|IE|IT|LT|LU|LV|MT|NL|PL|PT|RO|SE|SI|SK)[0-9A-Z]{8,12}\\b",
         "context_expression": "\\b(?:VAT|V\\.A\\.T\\.|TVA|IVA|BTW|MWST|value\\s*added\\s*tax|tax\\s*number|tax\\s*id|fiscal\\s*number|fiscal\\s*code)\\b",
@@ -9947,7 +9947,7 @@
           "implementation_rule_id": "harm_toxic_abuse",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -13701,7 +13701,7 @@
           "implementation_rule_id": "harm_toxic_abuse_es",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -14003,7 +14003,7 @@
           "implementation_rule_id": "harm_toxic_abuse_fr",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -14397,7 +14397,7 @@
           "implementation_rule_id": "harm_toxic_abuse_de",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -14687,7 +14687,7 @@
           "implementation_rule_id": "harm_toxic_abuse_au",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -15025,7 +15025,7 @@
           "implementation_rule_id": "harmful_self_harm",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -15383,7 +15383,7 @@
           "implementation_rule_id": "harmful_child_safety",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -16524,7 +16524,7 @@
           "implementation_rule_id": "bias_racial",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -18115,7 +18115,7 @@
           "implementation_rule_id": "harm_toxic_abuse",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -21869,7 +21869,7 @@
           "implementation_rule_id": "harm_toxic_abuse_au",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -22207,7 +22207,7 @@
           "implementation_rule_id": "harmful_self_harm",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -22565,7 +22565,7 @@
           "implementation_rule_id": "harmful_child_safety",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -23706,7 +23706,7 @@
           "implementation_rule_id": "bias_racial",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -25246,7 +25246,7 @@
           "implementation_rule_id": "harm_toxic_abuse",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -29000,7 +29000,7 @@
           "implementation_rule_id": "harmful_self_harm",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -29358,7 +29358,7 @@
           "implementation_rule_id": "harmful_child_safety",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -30499,7 +30499,7 @@
           "implementation_rule_id": "bias_racial",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32024,7 +32024,7 @@
           "implementation_rule_id": "blocked-word-1",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32058,7 +32058,7 @@
           "implementation_rule_id": "blocked-word-2",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32092,7 +32092,7 @@
           "implementation_rule_id": "blocked-word-3",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32126,7 +32126,7 @@
           "implementation_rule_id": "blocked-word-4",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32160,7 +32160,7 @@
           "implementation_rule_id": "blocked-word-5",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32194,7 +32194,7 @@
           "implementation_rule_id": "blocked-word-6",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32228,7 +32228,7 @@
           "implementation_rule_id": "blocked-word-7",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32262,7 +32262,7 @@
           "implementation_rule_id": "blocked-word-8",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32296,7 +32296,7 @@
           "implementation_rule_id": "blocked-word-9",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32330,7 +32330,7 @@
           "implementation_rule_id": "blocked-word-10",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32364,7 +32364,7 @@
           "implementation_rule_id": "blocked-word-11",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32398,7 +32398,7 @@
           "implementation_rule_id": "blocked-word-12",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32432,7 +32432,7 @@
           "implementation_rule_id": "blocked-word-13",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32466,7 +32466,7 @@
           "implementation_rule_id": "blocked-word-14",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32500,7 +32500,7 @@
           "implementation_rule_id": "blocked-word-1",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32534,7 +32534,7 @@
           "implementation_rule_id": "blocked-word-2",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32568,7 +32568,7 @@
           "implementation_rule_id": "blocked-word-3",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32602,7 +32602,7 @@
           "implementation_rule_id": "blocked-word-4",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32636,7 +32636,7 @@
           "implementation_rule_id": "blocked-word-5",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32670,7 +32670,7 @@
           "implementation_rule_id": "blocked-word-6",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32704,7 +32704,7 @@
           "implementation_rule_id": "blocked-word-7",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32738,7 +32738,7 @@
           "implementation_rule_id": "blocked-word-8",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32772,7 +32772,7 @@
           "implementation_rule_id": "blocked-word-1",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32806,7 +32806,7 @@
           "implementation_rule_id": "blocked-word-2",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32840,7 +32840,7 @@
           "implementation_rule_id": "blocked-word-3",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32874,7 +32874,7 @@
           "implementation_rule_id": "blocked-word-4",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32908,7 +32908,7 @@
           "implementation_rule_id": "blocked-word-5",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32942,7 +32942,7 @@
           "implementation_rule_id": "blocked-word-6",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -32976,7 +32976,7 @@
           "implementation_rule_id": "blocked-word-7",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -33497,7 +33497,7 @@
           "implementation_rule_id": "sg_mas_fairness_bias",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -33627,7 +33627,7 @@
           "implementation_rule_id": "sg_mas_transparency_explainability",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -33739,7 +33739,7 @@
           "implementation_rule_id": "sg_mas_human_oversight",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -33856,7 +33856,7 @@
           "implementation_rule_id": "sg_mas_data_governance",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -33972,7 +33972,7 @@
           "implementation_rule_id": "sg_mas_model_security",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -34224,7 +34224,7 @@
           "implementation_rule_id": "sg_nric",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[STFGM]\\d{7}[A-Z]\\b",
         "context_expression": null,
@@ -34253,7 +34253,7 @@
           "implementation_rule_id": "passport_singapore",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[EK]\\d{7}\\b",
         "context_expression": "\\b(?:passport|travel\\s*document|document\\s*number|immigration|ICA)\\b",
@@ -34282,7 +34282,7 @@
           "implementation_rule_id": "sg_phone",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?<!\\d)(?:\\+65|0065|65)\\s?[689]\\d{3}\\s?\\d{4}\\b",
         "context_expression": null,
@@ -34311,7 +34311,7 @@
           "implementation_rule_id": "sg_postal_code",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[0-8]\\d{5}\\b",
         "context_expression": "\\b(?:postal\\s*code|postcode|zip\\s*code|Singapore\\s*\\d|blk|block|address|HDB|flat|unit)\\b",
@@ -34340,7 +34340,7 @@
           "implementation_rule_id": "email",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
         "context_expression": null,
@@ -34369,7 +34369,7 @@
           "implementation_rule_id": "sg_bank_account",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b\\d{3}-\\d{5,6}-\\d{1,3}\\b",
         "context_expression": "\\b(?:bank\\s*account|account\\s*number|DBS|OCBC|UOB|POSB|savings|current\\s*account|bank\\s*statement)\\b",
@@ -34398,7 +34398,7 @@
           "implementation_rule_id": "credit_card",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?:\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b|\\b6(?:011|5\\d{2})[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b)",
         "context_expression": null,
@@ -34427,7 +34427,7 @@
           "implementation_rule_id": "sg_uen",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b(?:\\d{8}[A-Z]|\\d{9}[A-Z]|[TR]\\d{2}[A-Z]{2}\\d{4}[A-Z])\\b",
         "context_expression": "\\b(?:UEN|company\\s*registration|business\\s*registration|ACRA|entity\\s*number|ROC|ROS)\\b",
@@ -34456,7 +34456,7 @@
           "implementation_rule_id": "sg_pdpa_personal_identifiers",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -34574,7 +34574,7 @@
           "implementation_rule_id": "sg_pdpa_sensitive_data",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -34689,7 +34689,7 @@
           "implementation_rule_id": "sg_pdpa_do_not_call",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -34792,7 +34792,7 @@
           "implementation_rule_id": "sg_pdpa_data_transfer",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -34887,7 +34887,7 @@
           "implementation_rule_id": "sg_pdpa_profiling_automated_decisions",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35225,7 +35225,7 @@
           "implementation_rule_id": "blocked-word-1",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35259,7 +35259,7 @@
           "implementation_rule_id": "blocked-word-2",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35293,7 +35293,7 @@
           "implementation_rule_id": "blocked-word-3",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35327,7 +35327,7 @@
           "implementation_rule_id": "blocked-word-4",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35361,7 +35361,7 @@
           "implementation_rule_id": "blocked-word-5",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35395,7 +35395,7 @@
           "implementation_rule_id": "blocked-word-6",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35429,7 +35429,7 @@
           "implementation_rule_id": "blocked-word-7",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35463,7 +35463,7 @@
           "implementation_rule_id": "blocked-word-8",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35497,7 +35497,7 @@
           "implementation_rule_id": "blocked-word-9",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35531,7 +35531,7 @@
           "implementation_rule_id": "blocked-word-10",
           "detector": "keyword",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35565,7 +35565,7 @@
           "implementation_rule_id": "off_topic",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -35842,7 +35842,7 @@
           "implementation_rule_id": "uae_emirates_id",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b784-?\\d{4}-?\\d{7}-?\\d\\b",
         "context_expression": null,
@@ -35871,7 +35871,7 @@
           "implementation_rule_id": "uae_phone",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?<!\\d)(?:\\+971|00971|0)\\s?(?:2|3|4|6|7|9|50|52|54|55|56|58)\\s?\\d{3}\\s?\\d{4}\\b",
         "context_expression": null,
@@ -35900,7 +35900,7 @@
           "implementation_rule_id": "email",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
         "context_expression": null,
@@ -35929,7 +35929,7 @@
           "implementation_rule_id": "iban",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[A-Z]{2}\\d{2}[A-Z0-9]{11,30}\\b",
         "context_expression": null,
@@ -35958,7 +35958,7 @@
           "implementation_rule_id": "credit_card",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "(?:\\b4\\d{3}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b5[1-5]\\d{2}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b|\\b3[47]\\d{2}[\\s\\-]?\\d{6}[\\s\\-]?\\d{5}\\b|\\b6(?:011|5\\d{2})[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b)",
         "context_expression": null,
@@ -35987,7 +35987,7 @@
           "implementation_rule_id": "uae_po_box",
           "detector": "regex",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": "\\b[Pp]\\.?[Oo]\\.?\\s*[Bb]ox\\s*\\d{1,6}\\b",
         "context_expression": null,
@@ -36016,7 +36016,7 @@
           "implementation_rule_id": "uae_cultural_sensitivity",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
@@ -36124,7 +36124,7 @@
           "implementation_rule_id": "uae_anti_discrimination",
           "detector": "category",
           "flow_name": null,
-          "action_name": "TaskLatticeBuiltinContentFilterAction"
+          "action_name": "GuardContentFilterAction"
         },
         "expression": null,
         "context_expression": null,
