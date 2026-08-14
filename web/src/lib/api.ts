@@ -1055,9 +1055,9 @@ export const createPlaygroundInteraction = (
 ) => mutate<PlaygroundInteraction>("/api/v1/playground/interactions", "POST", { guardrail_id: guardrailId, ...input });
 export const getTestCases = (guardrailId: string) => read<Collection<TestCase>>(`/api/v1/test-cases${query({ guardrail_id: guardrailId })}`);
 export const createTestCase = (guardrailId: string, input: Pick<TestCase, "name" | "policy_id" | "phase" | "content" | "expected_decision" | "trusted_instruction" | "target_source" | "query" | "grounding_sources" | "expected_reasoning_result">) => mutate<TestCase>("/api/v1/test-cases", "POST", { guardrail_id: guardrailId, ...input });
-export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases/${encodeURIComponent(caseId)}`, "DELETE");
-export const excludeGuardrailTestCase = (guardrailId: string, caseId: string) => mutate<TestCase>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-cases/${encodeURIComponent(caseId)}/exclusion`, "PUT");
-export const restoreGuardrailTestCase = (guardrailId: string, caseId: string) => mutate<TestCase>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-cases/${encodeURIComponent(caseId)}/exclusion`, "DELETE");
+export const deleteTestCase = (caseId: string) => mutate<void>(`/api/v1/test-cases${query({ case_id: caseId })}`, "DELETE");
+export const excludeGuardrailTestCase = (guardrailId: string, caseId: string) => mutate<TestCase>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-scope`, "PATCH", { case_id: caseId, excluded: true });
+export const restoreGuardrailTestCase = (guardrailId: string, caseId: string) => mutate<TestCase>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-scope`, "PATCH", { case_id: caseId, excluded: false });
 
 export const getDeployments = () => read<Collection<Deployment>>("/api/v1/deployments");
 export const getDeployment = (id: string) => read<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);

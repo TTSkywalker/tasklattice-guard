@@ -244,6 +244,13 @@ class CreateTestCaseRequest(BaseModel):
     ] | None = None
 
 
+class UpdateValidationScopeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1, max_length=512)
+    excluded: bool
+
+
 class UpdateGuardrailRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -870,7 +877,7 @@ class ControlPlaneAPI:
                 _raise(error)
             return _test_case_payload(item)
 
-        @router.delete("/test-cases/{case_id}", status_code=204)
+        @router.delete("/test-cases", status_code=204)
         def delete_test_case(case_id: str):
             try:
                 guardrail_id = _guardrail_id_for_case(self._service, case_id)
@@ -879,22 +886,19 @@ class ControlPlaneAPI:
                 _raise(error)
             return None
 
-        @router.put(
-            "/guardrails/{guardrail_id}/test-cases/{case_id}/exclusion"
-        )
-        def exclude_guardrail_test_case(guardrail_id: str, case_id: str):
+        @router.patch("/guardrails/{guardrail_id}/validation-scope")
+        def update_guardrail_validation_scope(
+            guardrail_id: str, request: UpdateValidationScopeRequest
+        ):
             try:
-                item = self._service.exclude_test_case(guardrail_id, case_id)
-            except ControlPlaneError as error:
-                _raise(error)
-            return _test_case_payload(item)
-
-        @router.delete(
-            "/guardrails/{guardrail_id}/test-cases/{case_id}/exclusion"
-        )
-        def restore_guardrail_test_case(guardrail_id: str, case_id: str):
-            try:
-                item = self._service.restore_test_case(guardrail_id, case_id)
+                if request.excluded:
+                    item = self._service.exclude_test_case(
+                        guardrail_id, request.case_id
+                    )
+                else:
+                    item = self._service.restore_test_case(
+                        guardrail_id, request.case_id
+                    )
             except ControlPlaneError as error:
                 _raise(error)
             return _test_case_payload(item)

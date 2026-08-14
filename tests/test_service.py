@@ -1302,7 +1302,7 @@ async def test_guardrail_test_cases_are_visible_and_editable(tmp_path):
         )
         stale = await client.get(f"/api/v1/guardrails/{guardrail_id}")
         removed = await client.delete(
-            f"/api/v1/test-cases/{custom.json()['id']}"
+            "/api/v1/test-cases", params={"case_id": custom.json()["id"]}
         )
         final = await client.get("/api/v1/test-cases", params={"guardrail_id": guardrail_id})
 
@@ -1326,7 +1326,13 @@ async def test_inherited_test_case_can_be_excluded_only_for_one_guardrail(tmp_pa
             json={
                 "name": "Scoped regression suite",
                 "purpose": "Validate a reviewed subset without changing the Policy Library.",
-                "policy_bindings": [policy_binding_payload("secrets", "reject")],
+                "policy_bindings": [
+                    {
+                        "policy_id": "mas-ai-risk-management",
+                        "policy_version": "1.95.0",
+                        "action": "reject",
+                    }
+                ],
             },
         )
         guardrail_id = created.json()["id"]
@@ -1334,12 +1340,13 @@ async def test_inherited_test_case_can_be_excluded_only_for_one_guardrail(tmp_pa
             "/api/v1/test-cases", params={"guardrail_id": guardrail_id}
         )
         excluded_case = initial.json()["items"][0]
-        excluded = await client.put(
-            f"/api/v1/guardrails/{guardrail_id}/test-cases/"
-            f"{excluded_case['id']}/exclusion"
+        assert "/" in excluded_case["id"]
+        excluded = await client.patch(
+            f"/api/v1/guardrails/{guardrail_id}/validation-scope",
+            json={"case_id": excluded_case["id"], "excluded": True},
         )
         delete_inherited = await client.delete(
-            f"/api/v1/test-cases/{excluded_case['id']}"
+            "/api/v1/test-cases", params={"case_id": excluded_case["id"]}
         )
         scoped = await client.get(f"/api/v1/guardrails/{guardrail_id}")
         cases_after_exclusion = await client.get(
@@ -1348,9 +1355,9 @@ async def test_inherited_test_case_can_be_excluded_only_for_one_guardrail(tmp_pa
         run = await client.post(
             "/api/v1/validation-runs", json={"guardrail_id": guardrail_id}
         )
-        restored = await client.delete(
-            f"/api/v1/guardrails/{guardrail_id}/test-cases/"
-            f"{excluded_case['id']}/exclusion"
+        restored = await client.patch(
+            f"/api/v1/guardrails/{guardrail_id}/validation-scope",
+            json={"case_id": excluded_case["id"], "excluded": False},
         )
         restored_guardrail = await client.get(f"/api/v1/guardrails/{guardrail_id}")
 

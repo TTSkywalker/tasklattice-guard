@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { updateGuardrail } from "./api";
+import { excludeGuardrailTestCase, updateGuardrail } from "./api";
 
 describe("API error responses", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -21,6 +21,33 @@ describe("API error responses", () => {
     await expect(updateGuardrail("guardrail-1", { name: "Banker" })).rejects.toThrow(
       "policy_bindings.0.parameter_values: Input should be a valid dictionary; "
       + "policy_bindings.0.rule_actions: Input should be a valid dictionary",
+    );
+  });
+
+  it("sends slash-containing Test Case IDs in the validation-scope body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      url: "http://test/api/v1/guardrails/guardrail-1/validation-scope",
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await excludeGuardrailTestCase(
+      "guardrail-1",
+      "library-policy/rule-acceptance",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/guardrails/guardrail-1/validation-scope",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          case_id: "library-policy/rule-acceptance",
+          excluded: true,
+        }),
+      },
     );
   });
 });
