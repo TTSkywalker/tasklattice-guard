@@ -11,6 +11,7 @@ from .domain import (
     PolicyTag,
     PolicyTestCaseSpec,
 )
+from .frameworks import framework_tags_for_policy
 
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets"
@@ -40,13 +41,21 @@ def load_builtin_policies() -> tuple[PolicySpec, ...]:
 
 
 def _policy(payload: dict[str, object]) -> PolicySpec:
+    declared_tags = tuple(PolicyTag(**item) for item in payload.get("tags", ()))
+    framework_tags = framework_tags_for_policy(str(payload["id"]))
+    tags = tuple(
+        {
+            tag.id: tag
+            for tag in (*framework_tags, *declared_tags)
+        }.values()
+    )
     return PolicySpec(
         id=str(payload["id"]),
         name=str(payload["name"]),
         description=str(payload["description"]),
         source=str(payload["source"]),
         version=str(payload["version"]),
-        tags=tuple(PolicyTag(**item) for item in payload.get("tags", ())),
+        tags=tags,
         parameters=tuple(
             PolicyParameterSpec(**item) for item in payload.get("parameters", ())
         ),

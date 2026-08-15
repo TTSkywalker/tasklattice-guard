@@ -44,6 +44,25 @@ RUNTIME_CAPABILITIES: tuple[RuntimeCapability, ...] = (
         module="interaction_safety",
     ),
     RuntimeCapability(
+        id="indirect_prompt_injection",
+        policy_id="builtin-indirect-prompt-injection",
+        display_name="Indirect prompt injection",
+        description=(
+            "Detect embedded instruction overrides in retrieved documents, grounding "
+            "sources, and tool results before they reach the model."
+        ),
+        domain="Prompt security",
+        default_phases=("input",),
+        default_action="reject",
+        allowed_actions=("reject",),
+        available_stages=("deterministic",),
+        limitations=(
+            "Callers must submit retrieved and tool content as separate structured Content Blocks.",
+            "Detection is scoped to retrieved_content, grounding_source, and tool_output sources.",
+        ),
+        module="interaction_safety",
+    ),
+    RuntimeCapability(
         id="jailbreak",
         policy_id="builtin-jailbreak",
         display_name="Jailbreak",
@@ -55,6 +74,25 @@ RUNTIME_CAPABILITIES: tuple[RuntimeCapability, ...] = (
         available_stages=("fast_semantic", "deep_judge"),
         limitations=("Novel attacks may require contextual Policy Judge review.",),
         module="interaction_safety",
+    ),
+    RuntimeCapability(
+        id="system_prompt_leakage",
+        policy_id="builtin-system-prompt-leakage",
+        display_name="System prompt leakage",
+        description=(
+            "Block model responses that reproduce protected system or developer "
+            "instructions, including explicit canary values."
+        ),
+        domain="Data protection",
+        default_phases=("output",),
+        default_action="reject",
+        allowed_actions=("reject", "regenerate"),
+        available_stages=("deterministic",),
+        limitations=(
+            "Requires the trusted system or developer instruction to be present in the pinned call context.",
+            "Requires full-buffered output delivery to prevent partial disclosure.",
+        ),
+        module="data_protection",
     ),
     RuntimeCapability(
         id="content_safety",

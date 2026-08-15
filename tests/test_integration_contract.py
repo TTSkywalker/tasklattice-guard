@@ -100,8 +100,10 @@ class RecordingEngine:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, int]] = []
+        self.requests = []
 
     async def evaluate(self, request):
+        self.requests.append(request)
         self.calls.append(
             (
                 request.phase,
@@ -117,6 +119,62 @@ class RecordingEngine:
             guardrail_version=request.plan.guardrail_version,
             output_delivery=request.plan.output_delivery,
         )
+
+
+@pytest.mark.asyncio
+async def test_http_adapter_propagates_source_provenance_and_trusted_sink_context(tmp_path):
+    engine = RecordingEngine()
+    app = create_app(settings=integration_settings(tmp_path), engine=engine)
+    registration = app.state.control_plane.create_integration(
+        name="Structured context ingress",
+        description="Phase-two trusted context contract",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            http_path(registration.integration.id),
+            headers={"x-api-key": registration.credential.value},
+            json={
+                "protocol": "http",
+                "content": [
+                    {
+                        "id": "retrieval-42",
+                        "role": "retrieved_content",
+                        "text": "Approved quarterly report.",
+                        "source_id": "document-42",
+                        "source_type": "document",
+                        "retrieval_index": 3,
+                        "provenance_id": "ingestion-7",
+                        "mime_type": "application/pdf",
+                        "origin_hash": "sha256:0123456789abcdef",
+                    }
+                ],
+                "jwt_claims": {"department": "finance"},
+                "output_sink": "json",
+                "content_type": "application/json",
+                "schema_id": "finance-summary-v2",
+                "target_environment": "production",
+            },
+        )
+
+    assert response.status_code == 200
+    request = engine.requests[0]
+    assert request.request_context is not None
+    assert request.request_context.value("jwt_claim", "department") == "finance"
+    assert request.request_context.value("field", "auth.claim_source") == (
+        "integration_asserted"
+    )
+    assert request.request_context.value("field", "output.sink") == "json"
+    assert request.request_context.value("field", "output.schema_id") == (
+        "finance-summary-v2"
+    )
+    active = request.content_view.active_block
+    assert active.metadata_value("source_id") == "document-42"
+    assert active.metadata_value("retrieval_index") == "3"
+    assert active.metadata_value("provenance_id") == "ingestion-7"
 
 
 class ToggleEngine(RecordingEngine):
@@ -453,6 +511,25 @@ async def test_same_litellm_call_id_is_isolated_and_integration_scope_selects_de
         f"{gateway_b.integration.id}:same-upstream-call-id"
     )
     assert normalized_a.call_id != normalized_b.call_id
+    normalized_sink = LiteLLMAdapter._to_engine_request(
+        LiteLLMGuardrailRequest(
+            input_type="response",
+            texts=["result"],
+            request_data={
+                "output_sink": "json",
+                "content_type": "application/json",
+                "schema_id": "finance-summary-v2",
+                "tool_name": "publish_summary",
+                "target_environment": "production",
+            },
+        ),
+        gateway_a.integration,
+    )
+    assert normalized_sink.context.value("field", "output.sink") == "json"
+    assert normalized_sink.context.value("field", "output.schema_id") == (
+        "finance-summary-v2"
+    )
+    assert normalized_sink.context.value("field", "tool.name") == "publish_summary"
     runtime_events = control_plane.runtime_metrics(
         since="1970-01-01T00:00:00+00:00"
     )

@@ -49,6 +49,18 @@ class HTTPContentBlock(BaseModel):
         default_factory=list,
         max_length=3,
     )
+    source_id: str | None = Field(default=None, min_length=1, max_length=256)
+    source_type: str | None = Field(default=None, min_length=1, max_length=64)
+    tool_name: str | None = Field(default=None, min_length=1, max_length=256)
+    retrieval_index: int | None = Field(default=None, ge=0, le=1_000_000)
+    provenance_id: str | None = Field(default=None, min_length=1, max_length=256)
+    mime_type: str | None = Field(default=None, min_length=1, max_length=128)
+    origin_hash: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9:_-]+$",
+    )
 
 
 class HTTPGuardrailRequest(BaseModel):
@@ -65,7 +77,24 @@ class HTTPGuardrailRequest(BaseModel):
     path: str | None = None
     host: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)
+    # These claims are assertions made by the API-key-authenticated Integration.
+    # Public callers must not be allowed to call this endpoint with the
+    # Integration credential directly.
     jwt_claims: dict[str, str] = Field(default_factory=dict)
+    output_sink: Literal[
+        "display",
+        "markdown",
+        "html",
+        "sql",
+        "shell",
+        "url",
+        "json",
+        "tool_argument",
+    ] | None = None
+    content_type: str | None = Field(default=None, min_length=1, max_length=128)
+    schema_id: str | None = Field(default=None, min_length=1, max_length=256)
+    tool_name: str | None = Field(default=None, min_length=1, max_length=256)
+    target_environment: str | None = Field(default=None, min_length=1, max_length=128)
     a2a_operation: str | None = None
     a2a_context_id: str | None = None
     a2a_task_id: str | None = None
@@ -289,6 +318,22 @@ class HTTPAdapter:
             "http.host": host,
             "model": payload.model or "",
         }
+        trusted_output_facts = {
+            "output.sink": payload.output_sink,
+            "output.content_type": payload.content_type,
+            "output.schema_id": payload.schema_id,
+            "tool.name": payload.tool_name,
+            "target.environment": payload.target_environment,
+        }
+        fields.update(
+            {
+                key: value
+                for key, value in trusted_output_facts.items()
+                if value is not None
+            }
+        )
+        if payload.jwt_claims:
+            fields["auth.claim_source"] = "integration_asserted"
         if payload.protocol == "a2a":
             fields.update(
                 {
@@ -352,6 +397,19 @@ def _content_blocks(payload: HTTPGuardrailRequest) -> tuple[GuardContentBlock, .
                     qualifier
                     for qualifier in ("guard_content", "query", "grounding_source")
                     if qualifier in qualifiers
+                ),
+                metadata=tuple(
+                    (key, str(value))
+                    for key, value in (
+                        ("source_id", item.source_id),
+                        ("source_type", item.source_type),
+                        ("tool_name", item.tool_name),
+                        ("retrieval_index", item.retrieval_index),
+                        ("provenance_id", item.provenance_id),
+                        ("mime_type", item.mime_type),
+                        ("origin_hash", item.origin_hash),
+                    )
+                    if value is not None
                 ),
             )
         )

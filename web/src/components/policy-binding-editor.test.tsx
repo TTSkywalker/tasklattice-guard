@@ -93,9 +93,9 @@ const policy = {
   output_delivery: "window_buffered",
 } satisfies Policy;
 
-function Harness() {
+function Harness({ policies = [policy] }: { policies?: Policy[] }) {
   const [bindings, setBindings] = useState<GuardrailPolicyBinding[]>([]);
-  return <PolicyBindingEditor policies={[policy]} value={bindings} onChange={setBindings} />;
+  return <PolicyBindingEditor policies={policies} value={bindings} onChange={setBindings} />;
 }
 
 describe("PolicyBindingEditor", () => {
@@ -123,5 +123,29 @@ describe("PolicyBindingEditor", () => {
 
     fireEvent.keyDown(details!.querySelector("summary")!, { key: "Enter" });
     expect(details!.open).toBe(false);
+  });
+
+  it("finds framework-tagged Policies by OWASP and shows the framework label", () => {
+    const owaspPolicy: Policy = {
+      ...policy,
+      id: "prompt-injection-policy",
+      name: "Prompt injection Policy",
+      tags: [{
+        id: "framework:owasp-llm-2025",
+        namespace: "framework",
+        value: "owasp-llm-2025",
+        label: "OWASP LLM 2025",
+        source: "declared",
+      }],
+    };
+    render(<Harness policies={[policy, owaspPolicy]} />);
+
+    const search = screen.getByRole("combobox", { name: "Select Policies" });
+    fireEvent.focus(search);
+    fireEvent.change(search, { target: { value: "OWASP" } });
+
+    expect(screen.getByRole("option", { name: /Prompt injection Policy/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Customer data Policy/ })).toBeNull();
+    expect(screen.getByText(/OWASP LLM 2025/)).toBeTruthy();
   });
 });

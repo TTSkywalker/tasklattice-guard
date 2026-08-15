@@ -127,6 +127,7 @@ def _digest(blocks: tuple[GuardContentBlock, ...]) -> str:
             "trust": block.trust,
             "source": block.source,
             "qualifiers": block.qualifiers,
+            "metadata": block.metadata,
         }
         for block in blocks
     ]

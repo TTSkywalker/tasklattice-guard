@@ -363,6 +363,12 @@ class GuardrailCompiler:
                     f"automated-reasoning:{binding.policy_id}:{binding.policy_version}",
                 ),
             )
+        if risk == "system_prompt_leakage":
+            if guardrail.output_delivery != "full_buffered":
+                raise PlanCompilationError(
+                    "System prompt leakage requires full-buffered output delivery."
+                )
+            return ()
         if risk not in {"topic_control", "company_policy"}:
             return ()
         return (

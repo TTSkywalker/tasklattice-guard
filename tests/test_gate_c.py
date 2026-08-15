@@ -46,16 +46,17 @@ def test_gate_c_every_builtin_policy_is_versioned_and_nemo_auditable(tmp_path):
         item.id: item for item in service.policies() if item.source == "built-in"
     }
 
-    assert len(policies) == len(BUILTIN_POLICY_CAPABILITIES) == 9
+    assert len(policies) == len(BUILTIN_POLICY_CAPABILITIES) == 11
     for definition in BUILTIN_POLICY_CAPABILITIES:
         assert definition.policy_id is not None
         policy_id = definition.policy_id
         version = service.policy_version(policy_id, 1)
         assert version.colang_version == "2.x"
         assert version.rail_bindings
-        assert dict(version.execution_contract) == {
-            "native_risk": definition.id
-        }
+        expected_contract = {"native_risk": definition.id}
+        if definition.id == "system_prompt_leakage":
+            expected_contract["output_delivery"] = "full_buffered"
+        assert dict(version.execution_contract) == expected_contract
         assert version.checksum
         assert version.action_references or definition.id == "content_safety"
 

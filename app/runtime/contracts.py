@@ -154,6 +154,7 @@ class GuardContentBlock:
     trust: ContentTrust
     source: str
     qualifiers: tuple[ContentQualifier, ...] = ("guard_content",)
+    metadata: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -162,6 +163,11 @@ class GuardContentBlock:
             raise ValueError("Content block sources cannot be empty.")
         if len(set(self.qualifiers)) != len(self.qualifiers):
             raise ValueError("Content block qualifiers must be unique.")
+        metadata_keys = tuple(key for key, _value in self.metadata)
+        if any(not key.strip() for key in metadata_keys):
+            raise ValueError("Content block metadata keys cannot be empty.")
+        if len(set(metadata_keys)) != len(metadata_keys):
+            raise ValueError("Content block metadata keys must be unique.")
         if self.trust == "trusted" and self.role != "trusted_instruction":
             raise ValueError("Only trusted-instruction blocks may cross as trusted content.")
         if self.role == "trusted_instruction" and (
@@ -174,6 +180,9 @@ class GuardContentBlock:
     @property
     def guard_content(self) -> bool:
         return "guard_content" in self.qualifiers
+
+    def metadata_value(self, key: str) -> str | None:
+        return next((value for candidate, value in self.metadata if candidate == key), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -609,6 +618,7 @@ class EngineRequest:
     evidence_scope: EvidenceScope = "interventions"
     content_view: ContentViewSnapshot | None = None
     active_block_id: str | None = None
+    request_context: RequestContext | None = None
 
 
 class NeMoPolicyRuntime(Protocol):

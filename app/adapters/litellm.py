@@ -175,6 +175,11 @@ class LiteLLMAdapter:
             "user_api_key_team_id": "litellm.team_id",
             "user_api_key_team_alias": "litellm.team_alias",
             "user_api_key_end_user_id": "litellm.end_user_id",
+            "output_sink": "output.sink",
+            "content_type": "output.content_type",
+            "schema_id": "output.schema_id",
+            "tool_name": "tool.name",
+            "target_environment": "target.environment",
         }
         fields = {
             target: str(request.request_data[source])

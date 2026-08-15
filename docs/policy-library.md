@@ -74,6 +74,12 @@ The Policy Library detail view has three product views:
 This makes a Rule's acceptance contract inspectable before the Policy is added
 to a Guardrail.
 
+Framework tags such as `framework:owasp-llm-2025` are discovery metadata. They
+allow the Policy Library and Guardrail Policy picker to find reviewed Policies
+associated with a framework, but do not claim that one Policy covers the whole
+framework or automatically enable any Policy. Users still review and bind each
+versioned Policy explicitly.
+
 ## Policy Studio authoring and environment transfer
 
 Policy Studio presents custom authoring in three product stages:

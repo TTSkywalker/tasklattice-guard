@@ -538,6 +538,7 @@ class NeMoActionBridge:
             evidence_scope=request.evidence_scope,
             content_view=view,
             active_block_id=request.active_block_id,
+            request_context=request.request_context,
         )
 
     def _action_request(
@@ -570,6 +571,7 @@ class NeMoActionBridge:
             evidence_scope=prepared.evidence_scope,
             content_view=view,
             active_block_id=prepared.active_block_id,
+            request_context=prepared.request_context,
         )
 
     def _module(

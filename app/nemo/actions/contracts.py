@@ -16,6 +16,7 @@ from ...runtime.contracts import (
     GuardrailPlanSnapshot,
     NeMoActionBinding,
     RiskFinding,
+    RequestContext,
     RuntimeTraceStep,
 )
 
@@ -42,6 +43,7 @@ class ActionRequest:
     evidence_scope: EvidenceScope = "interventions"
     content_view: ContentViewSnapshot | None = None
     active_block_id: str | None = None
+    request_context: RequestContext | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -43,6 +43,16 @@ LiteLLM adapter remains responsible only for authentication, trusted-fact
 normalization, protocol conversion, and mapping the final result to `NONE`,
 `BLOCKED`, or `GUARDRAIL_INTERVENED`.
 
+Structured HTTP requests keep retrieved documents, grounding sources, and tool
+results in separate untrusted Content Blocks. Each block may carry bounded
+source metadata (`source_id`, `source_type`, `tool_name`, `retrieval_index`,
+`provenance_id`, `mime_type`, and `origin_hash`). The adapter also normalizes
+the declared output sink, content type, schema ID, tool name, and target
+environment into `RequestContext`. Python Actions receive both contracts; raw
+content is never promoted to trusted content because of caller-supplied
+metadata. JWT claims on this endpoint are assertions by the authenticated
+Integration, so public clients must never receive an Integration credential.
+
 ## Three independent runtime dimensions
 
 Do not treat the word "three" as one shared execution model. TaskLattice has
@@ -159,6 +169,8 @@ not independently re-resolve the policy.
 | Topic Safety | Native topic-safety flow for an IORails-compatible NeMo-owned generation; deterministic or dedicated Topic Control Action otherwise. |
 | Jailbreak | Dedicated Jailbreak Detection model when configured; local fast detection otherwise. |
 | Prompt Injection | Dedicated Jailbreak Detection model when configured; local fast detection otherwise. |
+| Indirect Prompt Injection | Deterministic source-aware input Action over separate `retrieved_content`, `grounding_source`, and `tool_output` blocks, including Unicode normalization and bounded encoded-payload inspection. |
+| System Prompt Leakage | Deterministic full-output Action that compares the model response with the pinned trusted instruction using canary, exact-segment, and bounded fingerprint checks. |
 | Secrets | Deterministic Python Action, normally standard. |
 | Built-in content policies | Versioned Python Actions over TaskLattice Policy Rules, normally standard. |
 | Organization Policy | Dedicated NVIDIA Topic Control Action evaluated against compiled business boundaries; no generic LLM fallback exists. |

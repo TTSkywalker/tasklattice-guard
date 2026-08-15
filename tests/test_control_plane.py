@@ -721,6 +721,32 @@ def test_nested_traffic_scope_matches_either_trusted_finance_identity(tmp_path):
     assert claim_resolution.deployment_id == deployment.id
 
 
+def test_output_sink_is_available_as_a_trusted_traffic_scope_field(tmp_path):
+    service = ControlPlaneService(tmp_path / "output-sink-filter.db")
+    guardrail = service.create_guardrail(
+        name="Structured output",
+        purpose="Protect model output before it reaches a structured sink.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+    pass_current_guardrail(service, guardrail.id)
+    deployment = service.create_deployment(
+        name="JSON output",
+        guardrail_id=guardrail.id,
+        traffic_scope=filter_expression(
+            filter_rule("output.sink", "equals", "json"),
+        ),
+    )
+
+    resolution = service.resolve(
+        RequestContext(
+            "http",
+            fields=(("protocol", "http"), ("output.sink", "json")),
+        )
+    )
+
+    assert resolution.deployment_id == deployment.id
+
+
 def test_impossible_and_filter_is_rejected_with_or_recovery(tmp_path):
     service = ControlPlaneService(tmp_path / "conflicting-filter.db")
     guardrail = service.create_guardrail(

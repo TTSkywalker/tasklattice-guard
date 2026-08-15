@@ -14,8 +14,10 @@ from app.nemo.action_registry import (
 )
 from app.nemo.actions import (
     ContentFilterActionProvider,
+    IndirectPromptInjectionActionProvider,
     PiiActionProvider,
     PromptSecurityActionProvider,
+    PromptLeakageActionProvider,
     SecretsActionProvider,
     TopicRulesActionProvider,
     local_action_providers,
@@ -23,8 +25,10 @@ from app.nemo.actions import (
 from app.nemo.actions.contracts import ActionRequest, ActionResult
 from app.nemo.actions.names import (
     ACTION_CONTENT_FILTER,
+    ACTION_INDIRECT_PROMPT_INJECTION,
     ACTION_PII,
     ACTION_PROMPT_SECURITY,
+    ACTION_PROMPT_LEAKAGE,
     ACTION_SECRETS,
     ACTION_TOPIC_RULES,
 )
@@ -93,6 +97,14 @@ def test_local_deterministic_actions_use_explicit_providers_without_an_engine_ad
     assert isinstance(
         registry[(ACTION_PROMPT_SECURITY, "1.0.0")],
         PromptSecurityActionProvider,
+    )
+    assert isinstance(
+        registry[(ACTION_INDIRECT_PROMPT_INJECTION, "1.0.0")],
+        IndirectPromptInjectionActionProvider,
+    )
+    assert isinstance(
+        registry[(ACTION_PROMPT_LEAKAGE, "1.0.0")],
+        PromptLeakageActionProvider,
     )
 
 

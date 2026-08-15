@@ -29,6 +29,7 @@ from ..policy_library.materialization import (
 )
 from ..policy_library import policy as library_policy
 from ..policy_library.catalog import policy_catalog, policy_payload_by_id
+from ..policy_library.frameworks import framework_tags_for_policy
 from .catalog import runtime_capability
 from .defaults import is_default_guardrail, is_default_deployment
 from .domain import (
@@ -1664,7 +1665,12 @@ def _native_policy_payload(item, versions) -> dict[str, object]:
     ]
     stages = sorted({binding.rail_type for binding in item.draft.rail_bindings})
     effects = sorted({binding.on_unsafe for binding in item.draft.rail_bindings})
+    execution_contract = dict(item.draft.execution_contract)
     tags = [
+        *[
+            {**asdict(tag), "id": tag.id}
+            for tag in framework_tags_for_policy(item.id)
+        ],
         {
             "id": f"implementation:colang-{item.draft.colang_version}",
             "namespace": "implementation",
@@ -1702,7 +1708,9 @@ def _native_policy_payload(item, versions) -> dict[str, object]:
         "test_cases": test_cases,
         "test_count": len(test_cases),
         "safety_level": "balanced",
-        "output_delivery": "window_buffered",
+        "output_delivery": execution_contract.get(
+            "output_delivery", "window_buffered"
+        ),
         "implementation_detail": _programmable_policy_detail_payload(item, versions),
     }
 

@@ -13,8 +13,10 @@ from .actions.names import (
     ACTION_CONTENT_FILTER,
     ACTION_CUSTOMER_IDENTIFIER,
     ACTION_GROUNDING,
+    ACTION_INDIRECT_PROMPT_INJECTION,
     ACTION_PII,
     ACTION_PROMPT_SECURITY,
+    ACTION_PROMPT_LEAKAGE,
     ACTION_RECORD_NATIVE,
     ACTION_RECORD_POLICY,
     ACTION_RESOLVE,
@@ -71,6 +73,8 @@ _BUILTIN_RUNTIME_ACTIONS = (
     (ACTION_CONTENT_FILTER, ("builtin_content_filter",), ("input", "output")),
     (ACTION_TOPIC_RULES, ("topic_control",), ("input", "output")),
     (ACTION_PROMPT_SECURITY, ("prompt_injection", "jailbreak"), ("input",)),
+    (ACTION_INDIRECT_PROMPT_INJECTION, ("indirect_prompt_injection",), ("input",)),
+    (ACTION_PROMPT_LEAKAGE, ("system_prompt_leakage",), ("output",)),
     (ACTION_TOPIC_JUDGE, ("topic_control", "company_policy"), ("input", "output")),
     (ACTION_GROUNDING, ("contextual_grounding",), ("output",)),
     (ACTION_AUTOMATED_REASONING, ("automated_reasoning",), ("output",)),
@@ -101,6 +105,8 @@ def action_name_for(risk: str, stage: str) -> str:
             "pii": ACTION_PII,
             "builtin_content_filter": ACTION_CONTENT_FILTER,
             "topic_control": ACTION_TOPIC_RULES,
+            "indirect_prompt_injection": ACTION_INDIRECT_PROMPT_INJECTION,
+            "system_prompt_leakage": ACTION_PROMPT_LEAKAGE,
         }.get(risk, _dynamic_action_name(risk))
     if stage == "fast_semantic":
         return (

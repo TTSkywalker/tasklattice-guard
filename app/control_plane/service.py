@@ -2492,7 +2492,14 @@ class ControlPlaneService:
                     )
                     if self._action_catalog.contains(name, "1.0.0")
                 ),
-                execution_contract=(("native_risk", definition.id),),
+                execution_contract=(
+                    ("native_risk", definition.id),
+                    *(
+                        (("output_delivery", "full_buffered"),)
+                        if definition.id == "system_prompt_leakage"
+                        else ()
+                    ),
+                ),
                 test_cases=tests_for_builtin_policy(policy_id),
             )
             package_payload = asdict(draft)

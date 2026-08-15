@@ -112,6 +112,7 @@ class GuardrailRuntimeService:
                     evidence_scope=request.evidence_scope,
                     content_view=view,
                     active_block_id=block.id,
+                    request_context=request.context,
                 )
             )
             findings.extend(decision.findings)

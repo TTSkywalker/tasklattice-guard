@@ -30,6 +30,11 @@ class TrafficScopeFieldDefinition:
 
 TRAFFIC_SCOPE_FIELDS = (
     TrafficScopeFieldDefinition("protocol", "request", "field", "protocol", ("equals",), ("http", "litellm", "a2a")),
+    TrafficScopeFieldDefinition("output.sink", "request", "field", "output.sink", ("equals",), ("display", "markdown", "html", "sql", "shell", "url", "json", "tool_argument")),
+    TrafficScopeFieldDefinition("output.content_type", "request", "field", "output.content_type", ("equals", "glob")),
+    TrafficScopeFieldDefinition("output.schema_id", "request", "field", "output.schema_id", ("equals", "glob")),
+    TrafficScopeFieldDefinition("tool.name", "request", "field", "tool.name", ("equals", "glob")),
+    TrafficScopeFieldDefinition("target.environment", "request", "field", "target.environment", ("equals", "glob")),
     TrafficScopeFieldDefinition("auth.principal", "authentication", "field", "auth.principal", ("equals", "glob")),
     TrafficScopeFieldDefinition("integration.id", "authentication", "field", "integration.id", ("equals",)),
     TrafficScopeFieldDefinition("http.method", "http", "field", "http.method", ("equals",), ("GET", "POST", "PUT", "PATCH", "DELETE")),

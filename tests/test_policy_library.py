@@ -4,6 +4,10 @@ import httpx
 import pytest
 
 from app.policy_library import policies, policy, policy_catalog
+from app.policy_library.frameworks import (
+    OWASP_LLM_2025_FRAMEWORK_ID,
+    OWASP_LLM_2025_POLICY_IDS,
+)
 
 
 def test_policy_library_loads_canonical_product_policies():
@@ -39,6 +43,21 @@ def test_policy_metadata_is_non_exclusive_and_omits_invariant_runtime_engine():
         "stage:input",
     } <= {tag.id for tag in item.tags}
     assert all(tag.namespace != "engine" for tag in item.tags)
+
+
+def test_declarative_owasp_policies_expose_the_reviewed_framework_tag():
+    items = policies()
+    declarative_ids = {item.id for item in items}
+    tagged_ids = {
+        item.id
+        for item in items
+        if any(
+            tag.id == f"framework:{OWASP_LLM_2025_FRAMEWORK_ID}"
+            for tag in item.tags
+        )
+    }
+
+    assert tagged_ids == OWASP_LLM_2025_POLICY_IDS & declarative_ids
 
 
 def test_every_policy_rule_runs_on_nemo_guardrails():
@@ -90,9 +109,12 @@ async def test_policy_api_is_the_single_product_catalog(tmp_path, monkeypatch):
         response = await client.get("/api/v1/policies")
         detail = await client.get("/api/v1/policies/mas-ai-risk-management")
         programmable = await client.get("/api/v1/policies/builtin-secrets")
+        leakage = await client.get(
+            "/api/v1/policies/builtin-system-prompt-leakage"
+        )
 
     assert response.status_code == 200
-    assert response.json()["count"] == 47
+    assert response.json()["count"] == 49
     assert all(item["rules"] for item in response.json()["items"])
     assert all(item["test_cases"] for item in response.json()["items"])
     assert all(item["test_count"] > 0 for item in response.json()["items"])
@@ -106,12 +128,31 @@ async def test_policy_api_is_the_single_product_catalog(tmp_path, monkeypatch):
         for item in response.json()["items"]
         for rule in item["rules"]
     } == {"nemo-guardrails"}
+    tagged_ids = {
+        item["id"]
+        for item in response.json()["items"]
+        if any(
+            tag["id"] == f"framework:{OWASP_LLM_2025_FRAMEWORK_ID}"
+            for tag in item["tags"]
+        )
+    }
+    assert tagged_ids == OWASP_LLM_2025_POLICY_IDS
     assert detail.status_code == 200
     assert detail.json()["name"].startswith("Singapore MAS")
     assert detail.json()["rules"]
     assert detail.json()["test_cases"]
     assert programmable.status_code == 200
+    assert any(
+        tag["id"] == f"framework:{OWASP_LLM_2025_FRAMEWORK_ID}"
+        for tag in programmable.json()["tags"]
+    )
     assert programmable.json()["test_count"] == 4
+    assert leakage.status_code == 200
+    assert leakage.json()["output_delivery"] == "full_buffered"
+    assert any(
+        tag["id"] == f"framework:{OWASP_LLM_2025_FRAMEWORK_ID}"
+        for tag in leakage.json()["tags"]
+    )
     assert {
         case["stage"] for case in programmable.json()["test_cases"]
     } == {"input", "output"}

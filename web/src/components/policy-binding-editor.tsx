@@ -35,6 +35,9 @@ export function PolicyBindingEditor({
   const selectedIds = value.map((binding) => binding.policy_id);
   const options = useMemo<MultiSelectOption[]>(() => policies.map((policy) => {
     const bindable = policy.source === "built_in" || policy.version !== "0";
+    const frameworkLabels = policy.tags
+      .filter((tag) => tag.namespace === "framework")
+      .map((tag) => tag.label);
     return {
       value: policy.id,
       label: policy.name,
@@ -46,6 +49,7 @@ export function PolicyBindingEditor({
         ...policy.rules.map((rule) => rule.name),
       ],
       meta: [
+        ...frameworkLabels,
         `v${policy.version}`,
         t("policyLibrary.ruleCount", { count: policy.rules.length }),
         t("policyLibrary.testCount", { count: policy.test_count }),

@@ -407,7 +407,7 @@ async def test_control_plane_exposes_enterprise_product_resources(tmp_path):
     )
     assert contact_policy["rules"]
     assert contact_policy["test_cases"]
-    assert policy_library["count"] == 47
+    assert policy_library["count"] == 49
     assert all(item["rules"] for item in policy_library["items"])
     assert {
         "sg-pdpa-contact-information/sg_phone",

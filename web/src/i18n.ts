@@ -1164,7 +1164,7 @@ const resources = {
         trafficScopeGroups: { request: "Request", authentication: "Authentication", http: "HTTP", model: "Model", litellm: "LiteLLM", a2a: "A2A" },
         trafficScopeOperators: { equals: "equals", contains: "contains", starts_with: "starts with", glob: "matches glob" },
         trafficScopeFields: {
-          protocol: "Protocol", auth_principal: "Authenticated principal", integration_id: "Integration", http_method: "HTTP method", http_host: "HTTP host", http_path: "HTTP path", http_header: "HTTP header", auth_jwt_claim: "Verified JWT claim", model: "Model", litellm_api_key_alias: "LiteLLM API-key alias", litellm_team_id: "LiteLLM team ID", litellm_user_id: "LiteLLM user ID", a2a_version: "A2A version", a2a_extensions: "A2A extensions", a2a_operation: "A2A operation", a2a_context_id: "A2A context ID", a2a_task_id: "A2A task ID", adapter_field: "Adapter / SDK field",
+          protocol: "Protocol", output_sink: "Output sink", output_content_type: "Output content type", output_schema_id: "Output schema ID", tool_name: "Tool name", target_environment: "Target environment", auth_principal: "Authenticated principal", integration_id: "Integration", http_method: "HTTP method", http_host: "HTTP host", http_path: "HTTP path", http_header: "HTTP header", auth_jwt_claim: "Integration-asserted JWT claim", model: "Model", litellm_api_key_alias: "LiteLLM API-key alias", litellm_team_id: "LiteLLM team ID", litellm_user_id: "LiteLLM user ID", a2a_version: "A2A version", a2a_extensions: "A2A extensions", a2a_operation: "A2A operation", a2a_context_id: "A2A Context ID", a2a_task_id: "A2A Task ID", adapter_field: "Adapter / SDK field",
         },
         operationFailed: "The operation failed.",
       },
@@ -3006,7 +3006,7 @@ const resources = {
         trafficScopeGroups: { request: "请求", authentication: "认证", http: "HTTP", model: "模型", litellm: "LiteLLM", a2a: "A2A" },
         trafficScopeOperators: { equals: "等于", contains: "包含", starts_with: "开头是", glob: "匹配通配符" },
         trafficScopeFields: {
-          protocol: "协议", auth_principal: "认证主体", integration_id: "Integration", http_method: "HTTP 方法", http_host: "HTTP Host", http_path: "HTTP 路径", http_header: "HTTP Header", auth_jwt_claim: "已验证 JWT Claim", model: "模型", litellm_api_key_alias: "LiteLLM API Key 别名", litellm_team_id: "LiteLLM Team ID", litellm_user_id: "LiteLLM User ID", a2a_version: "A2A 版本", a2a_extensions: "A2A 扩展", a2a_operation: "A2A 操作", a2a_context_id: "A2A Context ID", a2a_task_id: "A2A Task ID", adapter_field: "Adapter / SDK 字段",
+          protocol: "协议", output_sink: "输出去向", output_content_type: "输出内容类型", output_schema_id: "输出 Schema ID", tool_name: "工具名称", target_environment: "目标环境", auth_principal: "认证主体", integration_id: "Integration", http_method: "HTTP 方法", http_host: "HTTP Host", http_path: "HTTP 路径", http_header: "HTTP Header", auth_jwt_claim: "Integration 声明的 JWT Claim", model: "模型", litellm_api_key_alias: "LiteLLM API Key 别名", litellm_team_id: "LiteLLM Team ID", litellm_user_id: "LiteLLM User ID", a2a_version: "A2A 版本", a2a_extensions: "A2A 扩展", a2a_operation: "A2A 操作", a2a_context_id: "A2A Context ID", a2a_task_id: "A2A Task ID", adapter_field: "Adapter / SDK 字段",
         },
         operationFailed: "操作失败。",
       },
