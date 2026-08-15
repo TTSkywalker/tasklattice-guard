@@ -44,6 +44,17 @@ class GuardrailModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class GuardrailLoggingSettingsModel(Base):
+    __tablename__ = "guardrail_logging_settings"
+
+    guardrail_id: Mapped[str] = mapped_column(
+        ForeignKey("guardrails.id", ondelete="CASCADE"), primary_key=True
+    )
+    level: Mapped[str] = mapped_column(String, nullable=False, default="info")
+    updated_by: Mapped[str | None] = mapped_column(String)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class GuardrailVersionModel(Base):
     __tablename__ = "guardrail_versions"
 
@@ -220,6 +231,8 @@ class EvidenceRecordModel(Base):
     risk: Mapped[str | None] = mapped_column(String)
     detail: Mapped[str] = mapped_column(Text, nullable=False)
     integration_id: Mapped[str | None] = mapped_column(String)
+    actor_id: Mapped[str | None] = mapped_column(String)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class RuntimeMetricEventModel(Base):
@@ -333,6 +346,64 @@ class RuntimeFindingEventModel(Base):
     policy_id: Mapped[str | None] = mapped_column(String)
     rule_id: Mapped[str | None] = mapped_column(String)
     detail: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class RuntimeLogInteractionModel(Base):
+    """One correlated input/output interaction selected by a Guardrail log level."""
+
+    __tablename__ = "runtime_log_interactions"
+    __table_args__ = (
+        Index(
+            "runtime_log_interactions_guardrail_created_at_idx",
+            "guardrail_id",
+            "created_at",
+        ),
+        Index(
+            "runtime_log_interactions_correlation_idx",
+            "correlation_hash",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    correlation_hash: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    guardrail_id: Mapped[str] = mapped_column(
+        ForeignKey("guardrails.id", ondelete="CASCADE"), nullable=False
+    )
+    guardrail_version: Mapped[int | None] = mapped_column(Integer)
+    deployment_id: Mapped[str | None] = mapped_column(String)
+    integration_id: Mapped[str | None] = mapped_column(String)
+    protocol: Mapped[str] = mapped_column(String, nullable=False)
+    outcome: Mapped[str] = mapped_column(String, nullable=False)
+    capture_level: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class RuntimeLogEntryModel(Base):
+    """One encrypted inbound or outbound checkpoint in a runtime interaction."""
+
+    __tablename__ = "runtime_log_entries"
+    __table_args__ = (
+        Index("runtime_log_entries_interaction_idx", "interaction_id", "created_at"),
+        Index("runtime_log_entries_trace_id_idx", "trace_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    interaction_id: Mapped[str] = mapped_column(
+        ForeignKey("runtime_log_interactions.id", ondelete="CASCADE"), nullable=False
+    )
+    trace_id: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    phase: Mapped[str] = mapped_column(String, nullable=False)
+    outcome: Mapped[str] = mapped_column(String, nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    risk: Mapped[str | None] = mapped_column(String)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    timed_out: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    content_before_ciphertext: Mapped[str | None] = mapped_column(Text)
+    content_after_ciphertext: Mapped[str | None] = mapped_column(Text)
 
 
 class UserModel(Base):

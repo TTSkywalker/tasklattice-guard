@@ -29,6 +29,7 @@ TestTargetSource = Literal[
 PolicySourceKind = Literal["built-in", "custom"]
 PolicyVersionStatus = Literal["draft", "published"]
 IntegrationSetupStatus = Literal["awaiting_callback", "verified", "disabled"]
+LoggingLevel = Literal["info", "debug", "trace"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,6 +406,8 @@ class EvidenceRecord:
     risk: str | None
     detail: str
     integration_id: str | None = None
+    actor_id: str | None = None
+    metadata: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -520,6 +523,59 @@ class DeploymentRuntimeTrace:
     detail: str
     findings: tuple[RuntimeFindingEvent, ...] = ()
     steps: tuple[RuntimeStepMetricEvent, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailLoggingSettings:
+    guardrail_id: str
+    level: LoggingLevel
+    updated_at: str
+    updated_by: str | None
+    retention_days: int
+    content_capture_enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeLogContentBlock:
+    id: str
+    role: str
+    source: str
+    text: str
+    truncated: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeLogEntry:
+    id: str
+    trace_id: str
+    created_at: str
+    phase: Literal["input", "output"]
+    outcome: str
+    action: str
+    risk: str | None
+    latency_ms: int
+    timed_out: bool
+    detail: str
+    content_before: tuple[RuntimeLogContentBlock, ...] | None
+    content_after: tuple[RuntimeLogContentBlock, ...] | None
+    content_available: bool
+    findings: tuple[RuntimeFindingEvent, ...] = ()
+    steps: tuple[RuntimeStepMetricEvent, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeLogInteraction:
+    id: str
+    created_at: str
+    completed_at: str | None
+    guardrail_id: str
+    guardrail_version: int | None
+    deployment_id: str | None
+    integration_id: str | None
+    protocol: str
+    outcome: str
+    capture_level: LoggingLevel
+    entries: tuple[RuntimeLogEntry, ...]
 
 
 class ControlPlaneError(RuntimeError):

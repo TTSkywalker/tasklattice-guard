@@ -9,6 +9,7 @@ description = "Enterprise Guardrail control plane with a NeMo Guardrails runtime
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+  "cryptography>=45,<47",
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
   "nemoguardrails[tracing]==0.23.0",

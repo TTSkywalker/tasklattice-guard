@@ -44,6 +44,10 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 | `database.existingSecret` | empty | Existing Secret containing the production database URL |
 | `database.secretKey` | `database-url` | Key within `database.existingSecret` |
 | `runtime.publicBaseUrl` | `http://localhost:38081` | Stable public origin used to generate per-Integration callback URLs |
+| `runtimeLogging.retentionDays` | `7` | Database retention for encrypted Prompt History and traffic audit checkpoints |
+| `runtimeLogging.existingSecret` | empty | Optional externally managed Secret containing a Fernet key; when empty, Helm creates and reuses one automatically |
+| `runtimeLogging.secretKey` | `encryption-key` | Key within the generated or existing runtime-log Secret |
+| `runtimeLogging.retainSecret` | `true` | Keep the generated encryption Secret after uninstall, matching the retained database/PVC lifecycle |
 | `playgroundChat.model` | empty | General-purpose model used only to generate Playground conversations |
 | `playgroundChat.existingSecret` | empty | Existing Secret containing the Playground model API key |
 | `evaluators.nvidia.baseUrl` | empty | Base URL for optional NVIDIA Guard Models |
@@ -86,6 +90,24 @@ single-replica fallback. Operators can provide another SQLAlchemy URL through
 Integration credentials are
 generated only when an Integration is registered in the UI. NVIDIA evaluator
 settings remain optional.
+
+### Runtime log encryption key
+
+No manual key setup is required for a normal Helm install. The chart generates
+a cryptographically random 32-byte Fernet key in the chart fullname's
+`<fullname>-runtime-log` Secret (for the default install,
+`tasklattice-guard-runtime-log`) and injects it as
+`MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY`. Helm looks up and reuses the
+existing Secret during upgrades, so previously encrypted Prompt History remains
+readable. The generated Secret is retained after uninstall by default, matching
+the retained database/PVC lifecycle.
+
+Do not delete or rotate this Secret while its database still contains encrypted
+history; old content cannot be recovered without the original key. Backup the
+Secret with the database. For externally managed secrets or GitOps renderers
+that do not support Helm cluster lookups, create a Fernet key in your secret
+manager and set `runtimeLogging.existingSecret`; the referenced Secret must
+contain the key named by `runtimeLogging.secretKey`.
 
 ```sh
 kubectl --namespace tali create secret generic tasklattice-guard-database \

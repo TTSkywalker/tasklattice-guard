@@ -25,6 +25,7 @@ spec:
         checksum/automated-reasoning-secret: {{ include (print $.Template.BasePath "/automated-reasoning-secret.yaml") . | sha256sum }}
         checksum/jailbreak-detection-secret: {{ include (print $.Template.BasePath "/jailbreak-detection-secret.yaml") . | sha256sum }}
         checksum/control-plane-agent-secret: {{ include (print $.Template.BasePath "/control-plane-agent-secret.yaml") . | sha256sum }}
+        checksum/runtime-log-secret: {{ include (print $.Template.BasePath "/runtime-log-secret.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -75,6 +76,13 @@ spec:
               value: {{ .Values.observability.runtimeP99BudgetMs | quote }}
             - name: MODEL_GUARDRAILS_RUNTIME_MAX_CONCURRENCY_PER_GUARDRAIL
               value: {{ .Values.observability.maxConcurrencyPerGuardrail | quote }}
+            - name: MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tasklattice-guard.runtimeLogSecretName" . }}
+                  key: {{ .Values.runtimeLogging.secretKey | quote }}
+            - name: MODEL_GUARDRAILS_RUNTIME_LOG_RETENTION_DAYS
+              value: {{ .Values.runtimeLogging.retentionDays | quote }}
             - name: MODEL_GUARDRAILS_OTEL_ENABLED
               value: {{ .Values.observability.openTelemetry.enabled | quote }}
             {{- with .Values.observability.openTelemetry.endpoint }}

@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..adapters.observability import record_runtime_decision
@@ -266,6 +266,13 @@ class UpdateGuardrailRequest(BaseModel):
     ] | None = None
 
 
+class UpdateGuardrailLoggingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    level: Literal["info", "debug", "trace"]
+    acknowledge_cost: bool = False
+
+
 class AnalyzeIntentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -380,11 +387,14 @@ class ControlPlaneAPI:
         service: ControlPlaneService,
         engine: NeMoPolicyRuntime,
         require_user: Callable | None = None,
+        require_admin: Callable | None = None,
         intent_analyzer: IntentAnalyzer | None = None,
         playground_chat_models: tuple[PlaygroundChatModel, ...] = (),
     ) -> None:
         self._service = service
         self._engine = engine
+        self._require_user = require_user
+        self._require_admin = require_admin
         self._intent_analyzer = intent_analyzer
         self._playground_chat_models = {
             item.id: item for item in playground_chat_models
@@ -746,6 +756,37 @@ class ControlPlaneAPI:
         @router.get("/guardrails/{guardrail_id}")
         def guardrail(guardrail_id: str):
             return self._guardrail_payload(guardrail_id)
+
+        @router.get("/guardrails/{guardrail_id}/logging")
+        def guardrail_logging(guardrail_id: str):
+            try:
+                return asdict(
+                    self._service.guardrail_logging_settings(guardrail_id)
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+
+        @router.patch("/guardrails/{guardrail_id}/logging")
+        def update_guardrail_logging(
+            guardrail_id: str,
+            payload: UpdateGuardrailLoggingRequest,
+            http_request: Request,
+        ):
+            actor = (
+                self._require_admin(http_request)
+                if self._require_admin is not None
+                else None
+            )
+            try:
+                item = self._service.update_guardrail_logging_settings(
+                    guardrail_id,
+                    level=payload.level,
+                    actor_id=str(getattr(actor, "id", "system")),
+                    acknowledge_cost=payload.acknowledge_cost,
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return asdict(item)
 
         @router.get("/guardrails/{guardrail_id}/compile-preview")
         def compile_preview(guardrail_id: str):
@@ -1165,6 +1206,15 @@ class ControlPlaneAPI:
                     phase="input",
                     started=started,
                     detail="Playground request check completed.",
+                    call_id=interaction_id,
+                    content_before=(
+                        {
+                            "id": f"{interaction_id}:input",
+                            "role": "user_input",
+                            "source": "playground",
+                            "text": request.message,
+                        },
+                    ),
                 )
                 input_latency = max(
                     0, round((time.perf_counter() - started) * 1000)
@@ -1232,6 +1282,15 @@ class ControlPlaneAPI:
                 phase="output",
                 started=output_started,
                 detail="Playground response check completed.",
+                call_id=interaction_id,
+                content_before=(
+                    {
+                        "id": f"{interaction_id}:output",
+                        "role": "model_output",
+                        "source": "playground",
+                        "text": model_response,
+                    },
+                ),
             )
             output_latency = max(
                 0, round((time.perf_counter() - output_started) * 1000)
@@ -1471,6 +1530,39 @@ class ControlPlaneAPI:
                 )
             ][: max(1, min(limit, 500))]
             return _collection([_evidence_record_payload(item) for item in items])
+
+        @router.get("/runtime-logs")
+        def runtime_logs(
+            http_request: Request,
+            limit: int = 50,
+            guardrail_id: str | None = None,
+            phase: Literal["input", "output"] | None = None,
+            outcome: Literal["allow", "transform", "block", "error"] | None = None,
+            window: MetricWindow = "24h",
+            cursor: str | None = None,
+        ):
+            user = (
+                self._require_user(http_request)
+                if self._require_user is not None
+                else None
+            )
+            try:
+                items, next_cursor = self._service.runtime_log_interactions(
+                    guardrail_id=guardrail_id,
+                    phase=phase,
+                    outcome=outcome,
+                    since=(datetime.now(UTC) - _metric_window_duration(window)).isoformat(),
+                    cursor=cursor,
+                    limit=limit,
+                    include_content=(user is None or getattr(user, "role", None) == "admin"),
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return {
+                "items": [asdict(item) for item in items],
+                "count": len(items),
+                "next_cursor": next_cursor,
+            }
 
         @router.get("/metrics")
         def metrics(
@@ -1849,7 +1941,7 @@ def _integration_payload(
 
 
 def _evidence_record_payload(item) -> dict[str, object]:
-    return asdict(item)
+    return {**asdict(item), "metadata": dict(item.metadata)}
 
 
 async def _read_upload(upload: UploadFile, maximum_bytes: int) -> bytes:

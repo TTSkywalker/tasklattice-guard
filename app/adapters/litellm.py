@@ -96,10 +96,9 @@ class LiteLLMAdapter:
             started = time.perf_counter()
             integration = self._authorize(integration_id, x_api_key)
             phase = "input" if request.input_type == "request" else "output"
+            protection_request = self._to_engine_request(request, integration)
             try:
-                decision = await self._service.evaluate(
-                    self._to_engine_request(request, integration)
-                )
+                decision = await self._service.evaluate(protection_request)
             except ControlPlaneError as error:
                 self._control_plane.record_integration_activity(
                     integration.id, phase=phase, success=True
@@ -142,6 +141,7 @@ class LiteLLMAdapter:
                 phase=phase,
                 started=started,
                 detail=decision.reason or "Model interaction evaluated.",
+                request=protection_request,
             )
             return self._to_litellm_response(decision)
 

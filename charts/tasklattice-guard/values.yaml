@@ -66,6 +66,15 @@ database:
 runtime:
   publicBaseUrl: http://localhost:38081
 
+# Runtime Prompt History is always encrypted before database persistence. By
+# default the chart creates a random Fernet key once and reuses it on upgrades.
+runtimeLogging:
+  retentionDays: 7
+  existingSecret: ""
+  secretKey: encryption-key
+  # Retain the generated key alongside a retained database/PVC after uninstall.
+  retainSecret: true
+
 playgroundChat:
   baseUrl: ""
   model: ""

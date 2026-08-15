@@ -24,6 +24,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@/components/dashboard/runtime-health-alert", () => ({ RuntimeHealthAlert: () => null }));
 vi.mock("@/components/dashboard/runtime-metric-chart", () => ({ RuntimeMetricChart: () => <div>runtime-chart</div> }));
+vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { role: "admin" } }) }));
 vi.mock("@/routes/create-guardrail-wizard", () => ({ CreateGuardrailWizard: () => null }));
 vi.mock("@/routes/deployments", () => ({
   CreateDeploymentSheet: () => null,
@@ -75,7 +76,8 @@ describe("Guardrail detail information hierarchy", () => {
       }],
     } as Metrics;
 
-    render(<GuardrailRuntimeView metrics={metrics} loading={false} error={null} deployments={[deployment]} versions={[{
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><GuardrailRuntimeView guardrailId="guardrail-observed" metrics={metrics} loading={false} error={null} deployments={[deployment]} versions={[{
       guardrail_id: "guardrail-observed",
       version: 2,
       source_draft_version: 3,
@@ -86,7 +88,7 @@ describe("Guardrail detail information hierarchy", () => {
       active: true,
       runtime_engine: "llmrails",
       execution_mode: "nemo_only",
-    }]} window="24h" onWindowChange={() => undefined} />);
+    }]} window="24h" onWindowChange={() => undefined} /></QueryClientProvider>);
 
     expect(screen.getByText("Observed LiteLLM")).toBeTruthy();
     expect(screen.getByText("Observed traffic")).toBeTruthy();

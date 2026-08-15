@@ -2161,6 +2161,7 @@ async def test_final_product_routes_fall_back_to_spa_entrypoint(tmp_path):
             "/deployments",
             "/integrations",
             "/evidence",
+            "/logs",
             "/access",
             "/account",
         )

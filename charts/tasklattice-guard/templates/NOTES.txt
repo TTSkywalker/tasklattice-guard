@@ -21,6 +21,10 @@ Run the Helm smoke test:
 
   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
 
+Runtime Prompt History encryption is enabled automatically with Secret
+{{ include "tasklattice-guard.runtimeLogSecretName" . }}. Keep this Secret with
+the database; losing it makes previously encrypted content unrecoverable.
+
 {{- if .Values.persistence.retain }}
 The PersistentVolumeClaim is retained when the release is uninstalled.
 {{- end }}

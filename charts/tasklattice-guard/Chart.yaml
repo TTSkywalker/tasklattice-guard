@@ -2,7 +2,7 @@ apiVersion: v2
 name: tasklattice-guard
 description: AI guardrail control plane with a NeMo Guardrails production runtime.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
 home: https://github.com/tasklattice/tasklattice-guard
 sources:

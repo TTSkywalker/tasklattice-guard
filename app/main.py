@@ -118,6 +118,7 @@ def create_app(
         control_plane,
         runtime_engine,
         require_user=identity_api.require_user,
+        require_admin=identity_api.require_admin,
         intent_analyzer=configured_intent_analyzer,
         playground_chat_models=configured_playground_models,
     )
@@ -237,6 +238,11 @@ def _create_policy_plane(
         nemo_compiler=_nemo_compiler(settings),
         runtime_p95_budget_ms=settings.runtime_p95_budget_ms,
         runtime_p99_budget_ms=settings.runtime_p99_budget_ms,
+        runtime_log_encryption_key=os.environ.get(
+            settings.runtime_log_encryption_key_env_var,
+            "",
+        ),
+        runtime_log_retention_days=settings.runtime_log_retention_days,
     )
 
 

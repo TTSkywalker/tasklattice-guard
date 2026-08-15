@@ -14,7 +14,7 @@ Rather than embedding disconnected safety rules in every application, TaskLattic
 - **Validate before release** — Run reviewed Test Cases before creating a deployable version, reducing the risk of unreviewed policies reaching production.
 - **Context-aware deployment** — Apply the right guardrail to the right application, user group, model, or business scenario.
 - **Protection by default** — A managed baseline covers traffic that does not match a specific deployment.
-- **Clear, privacy-conscious evidence** — Understand why decisions were made and how policies changed without retaining protected runtime request or response bodies.
+- **Clear, privacy-conscious evidence** — Keep immutable Evidence free of protected request and response bodies, with a separate encrypted, access-controlled Prompt History when operational logging requires it.
 
 ## Product Architecture
 
@@ -89,8 +89,10 @@ The architecture is built around six principles:
   ordering.
 - **Fail and observe safely** — Prewarmed, version-isolated runtimes combine
   admission limits and deadlines with fail-closed behavior for required checks.
-  Privacy-conscious telemetry and bounded runtime evidence exclude protected
-  request and response bodies.
+  Metrics and Evidence exclude protected request and response bodies. Optional
+  Prompt History is encrypted in the database, limited by each Guardrail's
+  Info/Debug/Trace setting, administrator-only, and retained for seven days by
+  default.
 
 ### Runtime and model boundaries
 
@@ -131,6 +133,7 @@ The architecture is built around six principles:
 | **Integration** | An authenticated traffic source representing one AI application, agent, or gateway instance. Its matching Deployments form an ordered, first-match-wins route table; an empty Traffic Scope provides an any-traffic fallback. |
 | **NeMo Runtime** | The version-pinned execution environment for a Guardrail's rails, flows, Actions, and model references. |
 | **Evidence** | An immutable, bounded record of validation, configuration changes, deployments, and sanitized runtime decisions for review and audit. |
+| **Logs** | Operational Prompt History plus a content-free audit trail of inbound and outbound Guardrail checkpoints. Control-plane events remain in Evidence. Info records blocked or failed traffic, Debug also records transformations, and Trace records all inbound and outbound checks. |
 
 ## How It Works
 
@@ -159,6 +162,10 @@ already in flight continue on the Version with which they started.
 
 Requirements: Python 3.11–3.13, [uv](https://docs.astral.sh/uv/), Node.js, and
 npm. Provider credentials are optional for the deterministic local baseline.
+
+Helm installs generate and persist the runtime Prompt History encryption Secret
+automatically. `MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY` is only required
+for non-Helm local or custom deployments.
 
 ```bash
 cp .env.example .env

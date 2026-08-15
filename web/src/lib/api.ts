@@ -707,6 +707,63 @@ export type EvidenceRecord = {
   integration_id: string | null;
   risk: string | null;
   detail: string;
+  actor_id: string | null;
+  metadata: Record<string, string>;
+};
+
+export type LoggingLevel = "info" | "debug" | "trace";
+
+export type GuardrailLoggingSettings = {
+  guardrail_id: string;
+  level: LoggingLevel;
+  updated_at: string;
+  updated_by: string | null;
+  retention_days: number;
+  content_capture_enabled: boolean;
+};
+
+export type RuntimeLogContentBlock = {
+  id: string;
+  role: string;
+  source: string;
+  text: string;
+  truncated: boolean;
+};
+
+export type RuntimeLogEntry = {
+  id: string;
+  trace_id: string;
+  created_at: string;
+  phase: "input" | "output";
+  outcome: "allow" | "transform" | "block" | "error" | string;
+  action: string;
+  risk: string | null;
+  latency_ms: number;
+  timed_out: boolean;
+  detail: string;
+  content_before: RuntimeLogContentBlock[] | null;
+  content_after: RuntimeLogContentBlock[] | null;
+  content_available: boolean;
+  findings: DeploymentTraceFinding[];
+  steps: DeploymentTraceStep[];
+};
+
+export type RuntimeLogInteraction = {
+  id: string;
+  created_at: string;
+  completed_at: string | null;
+  guardrail_id: string;
+  guardrail_version: number | null;
+  deployment_id: string | null;
+  integration_id: string | null;
+  protocol: string;
+  outcome: "allow" | "transform" | "block" | "error" | string;
+  capture_level: LoggingLevel;
+  entries: RuntimeLogEntry[];
+};
+
+export type RuntimeLogPage = Collection<RuntimeLogInteraction> & {
+  next_cursor: string | null;
 };
 
 export type MetricWindow = "1h" | "24h" | "7d" | "15d" | "30d";
@@ -1014,6 +1071,8 @@ export const getGuardrails = () => read<Collection<Guardrail>>("/api/v1/guardrai
 export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
 export const createGuardrail = (input: { name: string; purpose?: string; allowed_topics?: string[]; restricted_topics?: string[]; policy_bindings: GuardrailPolicyBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
 export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "policy_bindings" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
+export const getGuardrailLoggingSettings = (id: string) => read<GuardrailLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`);
+export const updateGuardrailLoggingSettings = (id: string, level: LoggingLevel, acknowledgeCost = false) => mutate<GuardrailLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`, "PATCH", { level, acknowledge_cost: acknowledgeCost });
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
 export const getGuardrailVersion = (guardrailId: string, version: number) => read<GuardrailVersionDetail>(`/api/v1/guardrail-versions/${encodeURIComponent(guardrailId)}/${version}`);
 export const rollbackGuardrail = (guardrailId: string, version: number) => mutate<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/rollback/${version}`, "POST");
@@ -1076,5 +1135,6 @@ export const setIntegrationEnabled = (id: string, enabled: boolean) => mutate<In
 export const rotateIntegrationCredential = (id: string) => mutate<IntegrationRegistration>(`/api/v1/integrations/${encodeURIComponent(id)}/credentials`, "POST");
 export const revokeIntegrationCredential = (integrationId: string, credentialId: string) => mutate<void>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/credentials/${encodeURIComponent(credentialId)}`, "DELETE");
 export const getEvidence = (filters: { limit?: number; guardrailId?: string; deploymentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<EvidenceRecord>>(`/api/v1/evidence${query({ limit: filters.limit, guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);
+export const getRuntimeLogs = (filters: { limit?: number; guardrailId?: string; phase?: "input" | "output"; outcome?: "allow" | "transform" | "block" | "error"; window?: MetricWindow; cursor?: string } = {}) => read<RuntimeLogPage>(`/api/v1/runtime-logs${query({ limit: filters.limit, guardrail_id: filters.guardrailId, phase: filters.phase, outcome: filters.outcome, window: filters.window, cursor: filters.cursor })}`);
 export const getMetrics = (filters: { guardrailId?: string; deploymentId?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

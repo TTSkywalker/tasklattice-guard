@@ -33,6 +33,10 @@ class Settings:
     runtime_p95_budget_ms: int = 2_500
     runtime_p99_budget_ms: int = 5_000
     runtime_max_concurrency_per_guardrail: int = 64
+    runtime_log_encryption_key_env_var: str = (
+        "MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY"
+    )
+    runtime_log_retention_days: int = 7
     jailbreak_detection_nim_base_url: str | None = None
     jailbreak_detection_nim_server_endpoint: str = "classify"
     jailbreak_detection_api_key_env_var: str = (
@@ -175,6 +179,13 @@ class Settings:
         runtime_max_concurrency_per_guardrail = _positive_int(
             "MODEL_GUARDRAILS_RUNTIME_MAX_CONCURRENCY_PER_GUARDRAIL", 64
         )
+        runtime_log_encryption_key_env_var = os.environ.get(
+            "MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY_ENV_VAR",
+            "MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY",
+        ).strip() or "MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY"
+        runtime_log_retention_days = _positive_int(
+            "MODEL_GUARDRAILS_RUNTIME_LOG_RETENTION_DAYS", 7
+        )
         if runtime_p99_budget_ms < runtime_p95_budget_ms:
             raise ValueError(
                 "MODEL_GUARDRAILS_RUNTIME_P99_BUDGET_MS must be at least the P95 budget."
@@ -215,6 +226,10 @@ class Settings:
             runtime_max_concurrency_per_guardrail=(
                 runtime_max_concurrency_per_guardrail
             ),
+            runtime_log_encryption_key_env_var=(
+                runtime_log_encryption_key_env_var
+            ),
+            runtime_log_retention_days=runtime_log_retention_days,
             jailbreak_detection_nim_base_url=(
                 jailbreak_detection_nim_base_url.rstrip("/") or None
             ),

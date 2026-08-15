@@ -33,6 +33,7 @@ const names: Record<string, { group: string; page: string }> = {
   "/deployments": { group: "nav.runtime", page: "nav.deployments" },
   "/integrations": { group: "nav.runtime", page: "nav.integrations" },
   "/evidence": { group: "nav.assurance", page: "nav.evidence" },
+  "/logs": { group: "nav.assurance", page: "nav.logs" },
   "/access": { group: "nav.system", page: "nav.access" },
   "/account": { group: "nav.system", page: "account.title" },
   "/help": { group: "nav.helpResources", page: "nav.helpCenter" },

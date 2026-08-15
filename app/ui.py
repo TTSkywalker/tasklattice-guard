@@ -26,6 +26,7 @@ class ControlPlaneStaticFiles(StaticFiles):
                     "deployments",
                     "integrations",
                     "evidence",
+                    "logs",
                     "access",
                     "account",
                 }

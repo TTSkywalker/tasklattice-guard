@@ -78,6 +78,10 @@ app.kubernetes.io/part-of: tali
 {{- default (printf "%s-jailbreak-detection" (include "tasklattice-guard.fullname" .)) .Values.evaluators.jailbreakDetection.existingSecret }}
 {{- end }}
 
+{{- define "tasklattice-guard.runtimeLogSecretName" -}}
+{{- default (printf "%s-runtime-log" (include "tasklattice-guard.fullname" .)) .Values.runtimeLogging.existingSecret }}
+{{- end }}
+
 {{- define "tasklattice-guard.persistenceClaimName" -}}
 {{- default (include "tasklattice-guard.workloadName" .) .Values.persistence.existingClaim }}
 {{- end }}

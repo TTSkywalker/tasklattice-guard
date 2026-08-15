@@ -112,6 +112,15 @@ class Database:
                     "ALTER TABLE runtime_step_metric_events "
                     "ADD COLUMN trace_id VARCHAR NOT NULL DEFAULT ''"
                 )
+        if "evidence_records" in tables:
+            columns = {item["name"] for item in inspector.get_columns("evidence_records")}
+            if "actor_id" not in columns:
+                statements.append("ALTER TABLE evidence_records ADD COLUMN actor_id VARCHAR")
+            if "metadata_json" not in columns:
+                statements.append(
+                    "ALTER TABLE evidence_records "
+                    "ADD COLUMN metadata_json JSON NOT NULL DEFAULT '{}'"
+                )
         if not statements:
             return
         with self.engine.begin() as connection:

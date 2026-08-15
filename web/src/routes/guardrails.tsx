@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Activity, ArrowLeft, ArrowUpRight, Ban, Check, ChevronDown, Circle, FlaskConical, GitCompareArrows, History, LoaderCircle, LockKeyhole, Pencil, Plus, Rocket, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import { Activity, ArrowLeft, ArrowUpRight, Ban, Check, ChevronDown, Circle, CircleAlert, FlaskConical, GitCompareArrows, History, LoaderCircle, LockKeyhole, Pencil, Plus, Rocket, RotateCcw, Save, ScrollText, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -15,9 +15,11 @@ import { PolicyBindingEditor } from "@/components/policy-binding-editor";
 import { EmptyState, ErrorNotice, InfoNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import { RuntimePostureFields } from "@/components/runtime-posture-fields";
 import { Badge } from "@/components/ui/badge";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -26,6 +28,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { queryKeys } from "@/features/query-keys";
+import { useAuth } from "@/lib/auth";
 import {
   createTestCase,
   excludeGuardrailTestCase,
@@ -34,6 +37,7 @@ import {
   getGuardrailVersion,
   getGuardrails,
   getGuardrailVersions,
+  getGuardrailLoggingSettings,
   getMetrics,
   getPolicies,
   getTestCases,
@@ -42,12 +46,14 @@ import {
   restoreGuardrailTestCase,
   rollbackGuardrail,
   updateGuardrail,
+  updateGuardrailLoggingSettings,
   type Guardrail,
   type GuardrailPolicyBinding,
   type GuardrailVersion,
   type GuardrailVersionDetail,
   type MetricWindow,
   type Metrics,
+  type LoggingLevel,
   type Policy,
   type TestCase,
 } from "@/lib/api";
@@ -179,7 +185,7 @@ export function GuardrailDetailPage() {
           </TabsList>
         </div>
         <TabsContent value="runtime" className="pt-5">
-          <GuardrailRuntimeView metrics={metricsQuery.data} loading={metricsQuery.isLoading} error={metricsQuery.error} deployments={deployments} versions={guardrailVersions} window={window} onWindowChange={setWindow} />
+          <GuardrailRuntimeView guardrailId={guardrail.id} metrics={metricsQuery.data} loading={metricsQuery.isLoading} error={metricsQuery.error} deployments={deployments} versions={guardrailVersions} window={window} onWindowChange={setWindow} />
         </TabsContent>
         <TabsContent value="immutable" className="pt-5">
           <ImmutableVersionView
@@ -213,7 +219,7 @@ export function GuardrailDetailPage() {
   );
 }
 
-export function GuardrailRuntimeView({ metrics, loading, error, deployments, versions = [], window, onWindowChange }: { metrics?: Metrics; loading: boolean; error: unknown; deployments: Awaited<ReturnType<typeof getDeployments>>["items"]; versions?: GuardrailVersion[]; window: MetricWindow; onWindowChange: (window: MetricWindow) => void }) {
+export function GuardrailRuntimeView({ guardrailId, metrics, loading, error, deployments, versions = [], window, onWindowChange }: { guardrailId: string; metrics?: Metrics; loading: boolean; error: unknown; deployments: Awaited<ReturnType<typeof getDeployments>>["items"]; versions?: GuardrailVersion[]; window: MetricWindow; onWindowChange: (window: MetricWindow) => void }) {
   const { t, i18n } = useTranslation();
   if (loading) return <Skeleton className="h-[38rem] rounded-xl" />;
   if (error || !metrics) return <ErrorNotice error={error ?? new Error(t("guardrails.runtimeUnavailable"))} />;
@@ -223,6 +229,7 @@ export function GuardrailRuntimeView({ metrics, loading, error, deployments, ver
         <div><h2 className="text-base font-semibold">{t("guardrails.runtimeTitle")}</h2><p className="mt-0.5 text-xs text-muted-foreground">{t("guardrails.runtimeDescription")}</p></div>
         <Select value={window} onValueChange={(value) => onWindowChange(value as MetricWindow)}><SelectTrigger className="h-9 w-full bg-card sm:w-40" aria-label={t("dashboard.timeRangeFilter")}><SelectValue /></SelectTrigger><SelectContent>{(["1h", "24h", "7d", "15d", "30d"] as MetricWindow[]).map((value) => <SelectItem key={value} value={value}>{t(`dashboard.windows.${value}`)}</SelectItem>)}</SelectContent></Select>
       </div>
+      <GuardrailLoggingCard guardrailId={guardrailId} />
       <RuntimeHealthAlert metrics={metrics} />
       <dl className="grid overflow-hidden rounded-lg border border-border/65 bg-card sm:grid-cols-2 xl:grid-cols-4">
         <RuntimeStat label={t("dashboard.protectedTraffic")} value={metrics.total_decisions.toLocaleString(i18n.language)} detail={t("guardrails.callsInWindow")} />
@@ -234,6 +241,55 @@ export function GuardrailRuntimeView({ metrics, loading, error, deployments, ver
       <CallerDistribution metrics={metrics} deployments={deployments} versions={versions} />
     </div>
   );
+}
+
+function GuardrailLoggingCard({ guardrailId }: { guardrailId: string }) {
+  const { t, i18n } = useTranslation();
+  const auth = useAuth();
+  const queryClient = useQueryClient();
+  const [pendingLevel, setPendingLevel] = useState<LoggingLevel | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const query = useQuery({ queryKey: queryKeys.guardrailLogging(guardrailId), queryFn: () => getGuardrailLoggingSettings(guardrailId) });
+  const mutation = useMutation({
+    mutationFn: ({ level, acknowledge }: { level: LoggingLevel; acknowledge: boolean }) => updateGuardrailLoggingSettings(guardrailId, level, acknowledge),
+    onSuccess: async () => {
+      setPendingLevel(null);
+      setAcknowledged(false);
+      toast.success(t("guardrails.loggingUpdated"));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.guardrailLogging(guardrailId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.evidence }),
+      ]);
+    },
+    onError: (mutationError) => toast.error(mutationError instanceof Error ? mutationError.message : t("guardrails.loggingUpdateFailed")),
+  });
+  if (query.isLoading) return <Skeleton className="h-32 rounded-lg" />;
+  if (query.error || !query.data) return <ErrorNotice error={query.error ?? new Error(t("guardrails.loggingUnavailable"))} />;
+  const settings = query.data;
+  const elevated = settings.level !== "info";
+  const onLevelChange = (level: LoggingLevel) => {
+    if (level === settings.level) return;
+    if (level === "info") mutation.mutate({ level, acknowledge: false });
+    else { setAcknowledged(false); setPendingLevel(level); }
+  };
+  return <>
+    <Card size="sm" className={`gap-0 overflow-hidden py-0 shadow-none ${elevated ? "border-amber-200" : ""}`}>
+      <div className={`flex flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between ${elevated ? "bg-amber-50/60" : ""}`}>
+        <div className="flex min-w-0 items-start gap-3"><span className={`grid size-9 shrink-0 place-items-center rounded-lg ${elevated ? "bg-amber-100 text-amber-800" : "bg-primary/10 text-primary"}`}><ScrollText className="size-4" /></span><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">{t("guardrails.loggingTitle")}</h3><Badge variant="outline" className={elevated ? "border-amber-300 bg-amber-100 text-amber-900" : ""}>{settings.level.toUpperCase()}</Badge></div><p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">{t(`guardrails.loggingLevels.${settings.level}.description`)}</p><p className="mt-1 text-[11px] text-muted-foreground">{t("guardrails.loggingRetention", { days: settings.retention_days, time: new Date(settings.updated_at).toLocaleString(i18n.language) })}</p></div></div>
+        <div className="w-full shrink-0 lg:w-48"><Label htmlFor={`logging-level-${guardrailId}`} className="sr-only">{t("guardrails.loggingLevel")}</Label><Select value={settings.level} disabled={auth.user?.role !== "admin" || mutation.isPending} onValueChange={(value) => onLevelChange(value as LoggingLevel)}><SelectTrigger id={`logging-level-${guardrailId}`} className="min-h-11 bg-card"><SelectValue /></SelectTrigger><SelectContent>{(["info", "debug", "trace"] as LoggingLevel[]).map((level) => <SelectItem key={level} value={level}><span className="flex items-center gap-2"><span className={`size-1.5 rounded-full ${level === "info" ? "bg-emerald-500" : "bg-amber-500"}`} />{level.toUpperCase()}</span></SelectItem>)}</SelectContent></Select>{auth.user?.role !== "admin" ? <p className="mt-1.5 text-[11px] text-muted-foreground">{t("guardrails.loggingAdminOnly")}</p> : null}</div>
+      </div>
+      {!settings.content_capture_enabled ? <div className="flex gap-2 border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{t("guardrails.loggingEncryptionMissing")}</span></div> : elevated ? <div className="flex gap-2 border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{t("guardrails.loggingElevatedActive")}</span></div> : null}
+    </Card>
+
+    <AlertDialog open={Boolean(pendingLevel)} onOpenChange={(open) => { if (!open && !mutation.isPending) { setPendingLevel(null); setAcknowledged(false); } }}>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>{t("guardrails.loggingConfirmTitle", { level: pendingLevel?.toUpperCase() })}</AlertDialogTitle><AlertDialogDescription>{t("guardrails.loggingConfirmDescription", { level: pendingLevel?.toUpperCase() })}</AlertDialogDescription></AlertDialogHeader>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950"><ul className="list-disc space-y-1 pl-4"><li>{t("guardrails.loggingCostWrite")}</li><li>{t("guardrails.loggingCostSensitive")}</li>{pendingLevel === "trace" ? <li>{t("guardrails.loggingCostApproved")}</li> : null}</ul></div>
+        <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border p-3"><Checkbox checked={acknowledged} onCheckedChange={(value) => setAcknowledged(Boolean(value))} /><span className="text-xs leading-5">{t("guardrails.loggingAcknowledge")}</span></label>
+        <AlertDialogFooter><AlertDialogCancel asChild><Button variant="outline" disabled={mutation.isPending}>{t("common.cancel")}</Button></AlertDialogCancel><Button disabled={!acknowledged || !pendingLevel || mutation.isPending} onClick={() => { if (pendingLevel) mutation.mutate({ level: pendingLevel, acknowledge: true }); }}>{mutation.isPending ? <LoaderCircle className="animate-spin" /> : <ScrollText />}{t("guardrails.enableLoggingLevel", { level: pendingLevel?.toUpperCase() })}</Button></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </>;
 }
 
 function RuntimeStat({ label, value, detail }: { label: string; value: string; detail: string }) {

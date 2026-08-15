@@ -48,6 +48,9 @@ def test_orm_metadata_creates_the_complete_schema_for_a_new_database(tmp_path):
         "evidence_records",
         "runtime_metric_events",
         "runtime_step_metric_events",
+        "guardrail_logging_settings",
+        "runtime_log_interactions",
+        "runtime_log_entries",
         "users",
         "user_sessions",
     } <= tables

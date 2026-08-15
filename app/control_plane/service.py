@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import time
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
+from threading import Lock
 
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,6 +24,7 @@ from ..persistence import Database, DatabaseLocator
 from ..persistence.models import (
     DeploymentModel,
     EvidenceRecordModel,
+    GuardrailLoggingSettingsModel,
     GuardrailModel,
     GuardrailVersionModel,
     IntegrationCredentialModel,
@@ -30,6 +33,8 @@ from ..persistence.models import (
     PolicyValidationRunModel,
     PolicyVersionModel,
     RuntimeFindingEventModel,
+    RuntimeLogEntryModel,
+    RuntimeLogInteractionModel,
     RuntimeMetricEventModel,
     RuntimeStepMetricEventModel,
     TestCaseModel,
@@ -78,6 +83,7 @@ from .domain import (
     Deployment,
     EvidenceRecord,
     Guardrail,
+    GuardrailLoggingSettings,
     GuardrailPolicyBinding,
     GuardrailTestCase,
     GuardrailTestCaseSpec,
@@ -98,6 +104,9 @@ from .domain import (
     ResolvedPolicyCapability,
     RuntimeMetricEvent,
     RuntimeFindingEvent,
+    RuntimeLogContentBlock,
+    RuntimeLogEntry,
+    RuntimeLogInteraction,
     RuntimeStepMetricEvent,
     TestCaseResult,
     TestedGuardrailVersion,
@@ -116,6 +125,28 @@ from .filtering import (
 )
 from .nemo_compiler import NEMO_COMPILER_VERSION, NeMoConfigCompiler
 from .policy_tests import tests_for_builtin_policy
+from .runtime_logs import RuntimeLogCipher, normalize_content_blocks
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingRuntimeLog:
+    trace_id: str
+    created_at: datetime
+    guardrail_id: str
+    guardrail_version: int | None
+    deployment_id: str | None
+    integration_id: str | None
+    protocol: str
+    phase: str
+    outcome: str
+    action: str
+    risk: str | None
+    latency_ms: int
+    timed_out: bool
+    detail: str
+    content_before: tuple[dict[str, object], ...]
+    content_after: tuple[dict[str, object], ...]
+    expires_at: float
 
 
 class ControlPlaneService:
@@ -133,6 +164,8 @@ class ControlPlaneService:
         action_catalog: ActionCatalog | None = None,
         runtime_p95_budget_ms: int = 2_500,
         runtime_p99_budget_ms: int = 5_000,
+        runtime_log_encryption_key: str | None = None,
+        runtime_log_retention_days: int = 7,
     ) -> None:
         self._database = database if isinstance(database, Database) else Database(database)
         self._public_runtime_base_url = public_runtime_base_url.rstrip("/")
@@ -146,6 +179,12 @@ class ControlPlaneService:
         self._action_catalog = action_catalog or BUILTIN_ACTION_CATALOG
         self._runtime_p95_budget_ms = runtime_p95_budget_ms
         self._runtime_p99_budget_ms = runtime_p99_budget_ms
+        self._runtime_log_cipher = RuntimeLogCipher(runtime_log_encryption_key)
+        self._runtime_log_retention_days = max(1, runtime_log_retention_days)
+        self._logging_levels: dict[str, str] = {}
+        self._pending_runtime_logs: dict[str, _PendingRuntimeLog] = {}
+        self._runtime_log_lock = Lock()
+        self._last_runtime_log_cleanup = 0.0
         self._nemo_runtime_validator: (
             Callable[[GuardrailPlanSnapshot, NeMoConfigSnapshot], None] | None
         ) = None
@@ -621,6 +660,15 @@ class ControlPlaneService:
                     excluded_test_case_ids_json=[],
                     draft_version=1,
                     active_version=None,
+                    updated_at=_datetime(now),
+                )
+            )
+            session.flush()
+            session.add(
+                GuardrailLoggingSettingsModel(
+                    guardrail_id=guardrail_id,
+                    level="info",
+                    updated_by=None,
                     updated_at=_datetime(now),
                 )
             )
@@ -1995,7 +2043,238 @@ class ControlPlaneService:
                 row.last_error_at = now
             row.updated_at = now
 
-    # Evidence and system summary
+    # Runtime logging, Evidence, and system summary
+
+    def guardrail_logging_settings(
+        self, guardrail_id: str
+    ) -> GuardrailLoggingSettings:
+        self.guardrail(guardrail_id)
+        with self._database.session() as session:
+            row = session.get(GuardrailLoggingSettingsModel, guardrail_id)
+            if row is None:
+                return GuardrailLoggingSettings(
+                    guardrail_id=guardrail_id,
+                    level="info",
+                    updated_at=_now(),
+                    updated_by=None,
+                    retention_days=self._runtime_log_retention_days,
+                    content_capture_enabled=self._runtime_log_cipher.configured,
+                )
+            return GuardrailLoggingSettings(
+                guardrail_id=row.guardrail_id,
+                level=row.level,  # type: ignore[arg-type]
+                updated_at=_iso(row.updated_at),
+                updated_by=row.updated_by,
+                retention_days=self._runtime_log_retention_days,
+                content_capture_enabled=self._runtime_log_cipher.configured,
+            )
+
+    def update_guardrail_logging_settings(
+        self,
+        guardrail_id: str,
+        *,
+        level: str,
+        actor_id: str,
+        acknowledge_cost: bool = False,
+    ) -> GuardrailLoggingSettings:
+        self.guardrail(guardrail_id)
+        if level not in {"info", "debug", "trace"}:
+            raise ValidationError("Logging level must be Info, Debug, or Trace.")
+        if level != "info" and not acknowledge_cost:
+            raise ValidationError(
+                "Debug and Trace require acknowledgement of their storage cost."
+            )
+        if level != "info" and not self._runtime_log_cipher.configured:
+            raise ValidationError(
+                "Configure MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY before "
+                "enabling Debug or Trace."
+            )
+        with self._database.transaction() as session:
+            row = session.scalar(
+                select(GuardrailLoggingSettingsModel)
+                .where(GuardrailLoggingSettingsModel.guardrail_id == guardrail_id)
+                .with_for_update()
+            )
+            previous = row.level if row is not None else "info"
+            now = _utcnow()
+            if row is None:
+                row = GuardrailLoggingSettingsModel(
+                    guardrail_id=guardrail_id,
+                    level=level,
+                    updated_by=actor_id,
+                    updated_at=now,
+                )
+                session.add(row)
+            else:
+                row.level = level
+                row.updated_by = actor_id
+                row.updated_at = now
+            if previous != level:
+                self._insert_evidence_record(
+                    session,
+                    kind="guardrail.logging_level.updated",
+                    outcome="success",
+                    guardrail_id=guardrail_id,
+                    actor_id=actor_id,
+                    metadata={"previous_level": previous, "level": level},
+                    detail=(
+                        f"Changed Guardrail logging level from {previous.title()} "
+                        f"to {level.title()}."
+                    ),
+                )
+        self._logging_levels[guardrail_id] = level
+        return self.guardrail_logging_settings(guardrail_id)
+
+    def runtime_log_interactions(
+        self,
+        *,
+        guardrail_id: str | None = None,
+        phase: str | None = None,
+        outcome: str | None = None,
+        since: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+        include_content: bool = False,
+    ) -> tuple[tuple[RuntimeLogInteraction, ...], str | None]:
+        self._maybe_cleanup_runtime_logs()
+        page_size = max(1, min(limit, 100))
+        with self._database.session() as session:
+            statement = select(RuntimeLogInteractionModel)
+            if guardrail_id:
+                statement = statement.where(
+                    RuntimeLogInteractionModel.guardrail_id == guardrail_id
+                )
+            if since:
+                statement = statement.where(
+                    RuntimeLogInteractionModel.created_at >= _datetime(since)
+                )
+            if outcome:
+                statement = statement.where(
+                    RuntimeLogInteractionModel.outcome == outcome
+                )
+            if phase:
+                matching_interactions = select(RuntimeLogEntryModel.interaction_id).where(
+                    RuntimeLogEntryModel.phase == phase
+                )
+                statement = statement.where(
+                    RuntimeLogInteractionModel.id.in_(matching_interactions)
+                )
+            cursor_value = _runtime_log_cursor(cursor)
+            if cursor_value is not None:
+                cursor_time, cursor_id = cursor_value
+                statement = statement.where(
+                    or_(
+                        RuntimeLogInteractionModel.created_at < cursor_time,
+                        (
+                            RuntimeLogInteractionModel.created_at == cursor_time
+                        )
+                        & (RuntimeLogInteractionModel.id < cursor_id),
+                    )
+                )
+            rows = session.scalars(
+                statement.order_by(
+                    RuntimeLogInteractionModel.created_at.desc(),
+                    RuntimeLogInteractionModel.id.desc(),
+                ).limit(page_size + 1)
+            ).all()
+            has_more = len(rows) > page_size
+            rows = rows[:page_size]
+            if not rows:
+                return (), None
+            interaction_ids = tuple(row.id for row in rows)
+            entry_rows = session.scalars(
+                select(RuntimeLogEntryModel)
+                .where(RuntimeLogEntryModel.interaction_id.in_(interaction_ids))
+                .order_by(
+                    RuntimeLogEntryModel.created_at.asc(),
+                    RuntimeLogEntryModel.id.asc(),
+                )
+            ).all()
+            trace_ids = tuple(entry.trace_id for entry in entry_rows)
+            finding_rows = (
+                session.scalars(
+                    select(RuntimeFindingEventModel)
+                    .where(RuntimeFindingEventModel.trace_id.in_(trace_ids))
+                    .order_by(RuntimeFindingEventModel.created_at.asc())
+                ).all()
+                if trace_ids
+                else ()
+            )
+            step_rows = (
+                session.scalars(
+                    select(RuntimeStepMetricEventModel)
+                    .where(RuntimeStepMetricEventModel.trace_id.in_(trace_ids))
+                    .order_by(RuntimeStepMetricEventModel.created_at.asc())
+                ).all()
+                if trace_ids
+                else ()
+            )
+
+        findings_by_trace: dict[str, list[RuntimeFindingEvent]] = {}
+        for row in finding_rows:
+            findings_by_trace.setdefault(row.trace_id, []).append(
+                _runtime_finding_from_model(row)
+            )
+        steps_by_trace: dict[str, list[RuntimeStepMetricEvent]] = {}
+        for row in step_rows:
+            steps_by_trace.setdefault(row.trace_id, []).append(
+                _runtime_step_from_model(row)
+            )
+        entries_by_interaction: dict[str, list[RuntimeLogEntry]] = {}
+        for row in entry_rows:
+            before_payload = (
+                self._runtime_log_cipher.decrypt(row.content_before_ciphertext)
+                if include_content
+                else None
+            )
+            after_payload = (
+                self._runtime_log_cipher.decrypt(row.content_after_ciphertext)
+                if include_content
+                else None
+            )
+            entries_by_interaction.setdefault(row.interaction_id, []).append(
+                RuntimeLogEntry(
+                    id=row.id,
+                    trace_id=row.trace_id,
+                    created_at=_iso(row.created_at),
+                    phase=row.phase,  # type: ignore[arg-type]
+                    outcome=row.outcome,
+                    action=row.action,
+                    risk=row.risk,
+                    latency_ms=row.latency_ms,
+                    timed_out=row.timed_out,
+                    detail=row.detail,
+                    content_before=_runtime_log_content(before_payload),
+                    content_after=_runtime_log_content(after_payload),
+                    content_available=bool(
+                        row.content_before_ciphertext or row.content_after_ciphertext
+                    ),
+                    findings=tuple(findings_by_trace.get(row.trace_id, ())),
+                    steps=tuple(steps_by_trace.get(row.trace_id, ())),
+                )
+            )
+        items = tuple(
+            RuntimeLogInteraction(
+                id=row.id,
+                created_at=_iso(row.created_at),
+                completed_at=_iso(row.completed_at) if row.completed_at else None,
+                guardrail_id=row.guardrail_id,
+                guardrail_version=row.guardrail_version,
+                deployment_id=row.deployment_id,
+                integration_id=row.integration_id,
+                protocol=row.protocol,
+                outcome=row.outcome,
+                capture_level=row.capture_level,  # type: ignore[arg-type]
+                entries=tuple(entries_by_interaction.get(row.id, ())),
+            )
+            for row in rows
+        )
+        next_cursor = (
+            _runtime_log_cursor_value(rows[-1].created_at, rows[-1].id)
+            if has_more
+            else None
+        )
+        return items, next_cursor
 
     def evidence_records(self, limit: int = 100) -> tuple[EvidenceRecord, ...]:
         with self._database.session() as session:
@@ -2007,20 +2286,7 @@ class ControlPlaneService:
                 )
                 .limit(max(1, min(limit, 500)))
             ).all()
-            return tuple(
-                EvidenceRecord(
-                    id=row.id,
-                    created_at=_iso(row.created_at),
-                    kind=row.kind,
-                    outcome=row.outcome,
-                    guardrail_id=row.guardrail_id,
-                    deployment_id=row.deployment_id,
-                    risk=row.risk,
-                    detail=row.detail,
-                    integration_id=row.integration_id,
-                )
-                for row in rows
-            )
+            return tuple(_evidence_from_model(row) for row in rows)
 
     def runtime_metrics(
         self,
@@ -2267,6 +2533,200 @@ class ControlPlaneService:
         with self._database.transaction() as session:
             session.add_all(rows)
 
+    def record_runtime_log(
+        self,
+        *,
+        trace_id: str,
+        call_id: str | None,
+        guardrail_id: str | None,
+        guardrail_version: int | None,
+        deployment_id: str | None,
+        integration_id: str | None,
+        protocol: str,
+        phase: str,
+        outcome: str,
+        action: str,
+        risk: str | None,
+        latency_ms: int,
+        timed_out: bool,
+        fail_closed: bool,
+        detail: str,
+        content_before: tuple[dict[str, object], ...] = (),
+        content_after: tuple[dict[str, object], ...] = (),
+    ) -> None:
+        """Persist a bounded, encrypted interaction when its log profile qualifies."""
+
+        if guardrail_id is None or phase not in {"input", "output"}:
+            return
+        self._maybe_cleanup_runtime_logs()
+        level = self._logging_levels.get(guardrail_id, "info")
+        qualifies = _runtime_log_qualifies(
+            level,
+            outcome=outcome,
+            timed_out=timed_out,
+            fail_closed=fail_closed,
+        )
+        now = _utcnow()
+        correlation_hash = _runtime_log_correlation_hash(
+            guardrail_id,
+            call_id,
+        )
+        pending_key = correlation_hash or ""
+        pending: _PendingRuntimeLog | None = None
+        with self._runtime_log_lock:
+            self._prune_pending_runtime_logs_locked()
+            if phase == "input" and not qualifies and correlation_hash:
+                if len(self._pending_runtime_logs) >= 10_000:
+                    oldest = min(
+                        self._pending_runtime_logs,
+                        key=lambda key: self._pending_runtime_logs[key].expires_at,
+                    )
+                    self._pending_runtime_logs.pop(oldest, None)
+                self._pending_runtime_logs[pending_key] = _PendingRuntimeLog(
+                    trace_id=trace_id,
+                    created_at=now,
+                    guardrail_id=guardrail_id,
+                    guardrail_version=guardrail_version,
+                    deployment_id=deployment_id,
+                    integration_id=integration_id,
+                    protocol=protocol,
+                    phase=phase,
+                    outcome=outcome,
+                    action=action,
+                    risk=risk,
+                    latency_ms=max(0, latency_ms),
+                    timed_out=timed_out,
+                    detail=detail,
+                    content_before=normalize_content_blocks(content_before),
+                    content_after=normalize_content_blocks(content_after),
+                    expires_at=time.monotonic() + 600,
+                )
+                return
+            if phase == "output" and correlation_hash:
+                pending = self._pending_runtime_logs.pop(pending_key, None)
+
+        with self._database.transaction() as session:
+            interaction = self._recent_runtime_log_interaction(
+                session,
+                guardrail_id=guardrail_id,
+                correlation_hash=correlation_hash,
+                now=now,
+            )
+            if interaction is None and not qualifies:
+                return
+            if interaction is None:
+                interaction = RuntimeLogInteractionModel(
+                    id=f"runtime-log-{uuid.uuid4().hex[:16]}",
+                    correlation_hash=correlation_hash,
+                    created_at=pending.created_at if pending else now,
+                    completed_at=None,
+                    guardrail_id=guardrail_id,
+                    guardrail_version=guardrail_version,
+                    deployment_id=deployment_id,
+                    integration_id=integration_id,
+                    protocol=protocol,
+                    outcome=pending.outcome if pending else outcome,
+                    capture_level=level,
+                )
+                session.add(interaction)
+                session.flush()
+                if pending is not None:
+                    session.add(self._runtime_log_entry_model(interaction.id, pending))
+            interaction.outcome = _combined_runtime_outcome(
+                interaction.outcome,
+                outcome,
+            )
+            if phase == "output" or outcome in {"block", "error"}:
+                interaction.completed_at = now
+            current = _PendingRuntimeLog(
+                trace_id=trace_id,
+                created_at=now,
+                guardrail_id=guardrail_id,
+                guardrail_version=guardrail_version,
+                deployment_id=deployment_id,
+                integration_id=integration_id,
+                protocol=protocol,
+                phase=phase,
+                outcome=outcome,
+                action=action,
+                risk=risk,
+                latency_ms=max(0, latency_ms),
+                timed_out=timed_out,
+                detail=detail,
+                content_before=normalize_content_blocks(content_before),
+                content_after=normalize_content_blocks(content_after),
+                expires_at=0,
+            )
+            session.add(self._runtime_log_entry_model(interaction.id, current))
+
+    def cleanup_runtime_logs(self) -> int:
+        cutoff = _utcnow() - timedelta(days=self._runtime_log_retention_days)
+        with self._database.transaction() as session:
+            result = session.execute(
+                delete(RuntimeLogInteractionModel).where(
+                    RuntimeLogInteractionModel.created_at < cutoff
+                )
+            )
+        self._last_runtime_log_cleanup = time.monotonic()
+        return max(0, int(result.rowcount or 0))
+
+    def _maybe_cleanup_runtime_logs(self) -> None:
+        if time.monotonic() - self._last_runtime_log_cleanup >= 3_600:
+            self.cleanup_runtime_logs()
+
+    def _prune_pending_runtime_logs_locked(self) -> None:
+        now = time.monotonic()
+        for key, item in tuple(self._pending_runtime_logs.items()):
+            if item.expires_at <= now:
+                self._pending_runtime_logs.pop(key, None)
+
+    @staticmethod
+    def _recent_runtime_log_interaction(
+        session: Session,
+        *,
+        guardrail_id: str,
+        correlation_hash: str | None,
+        now: datetime,
+    ) -> RuntimeLogInteractionModel | None:
+        if correlation_hash is None:
+            return None
+        return session.scalar(
+            select(RuntimeLogInteractionModel)
+            .where(
+                RuntimeLogInteractionModel.guardrail_id == guardrail_id,
+                RuntimeLogInteractionModel.correlation_hash == correlation_hash,
+                RuntimeLogInteractionModel.created_at >= now - timedelta(minutes=10),
+            )
+            .order_by(RuntimeLogInteractionModel.created_at.desc())
+            .limit(1)
+            .with_for_update()
+        )
+
+    def _runtime_log_entry_model(
+        self,
+        interaction_id: str,
+        item: _PendingRuntimeLog,
+    ) -> RuntimeLogEntryModel:
+        return RuntimeLogEntryModel(
+            id=f"runtime-log-entry-{uuid.uuid4().hex[:16]}",
+            interaction_id=interaction_id,
+            trace_id=item.trace_id,
+            created_at=item.created_at,
+            phase=item.phase,
+            outcome=item.outcome,
+            action=item.action,
+            risk=item.risk,
+            latency_ms=item.latency_ms,
+            timed_out=item.timed_out,
+            detail=item.detail,
+            content_before_ciphertext=self._runtime_log_cipher.encrypt(
+                item.content_before
+            ),
+            content_after_ciphertext=self._runtime_log_cipher.encrypt(
+                item.content_after
+            ),
+        )
+
     def record_decision(
         self,
         *,
@@ -2419,6 +2879,7 @@ class ControlPlaneService:
         try:
             with self._database.transaction() as session:
                 self._ensure_product_defaults(session)
+                self._ensure_logging_settings(session)
                 self._refresh_stale_nemo_artifacts(session)
         except IntegrityError as error:
             # The schema bootstrap or another replica installed the defaults.
@@ -2436,6 +2897,7 @@ class ControlPlaneService:
                 raise ControlPlaneError(
                     "The Default Guardrail seed could not be initialized."
                 ) from error
+        self.cleanup_runtime_logs()
         self._reload_runtime()
 
     def _seed(self, session: Session) -> None:
@@ -2652,6 +3114,24 @@ class ControlPlaneService:
                 detail="Enabled the Default Deployment for unmatched traffic.",
             )
 
+    def _ensure_logging_settings(self, session: Session) -> None:
+        """Backfill the default Info profile for every existing Guardrail."""
+
+        now = _utcnow()
+        configured = set(
+            session.scalars(select(GuardrailLoggingSettingsModel.guardrail_id)).all()
+        )
+        session.add_all(
+            GuardrailLoggingSettingsModel(
+                guardrail_id=guardrail_id,
+                level="info",
+                updated_by=None,
+                updated_at=now,
+            )
+            for guardrail_id in session.scalars(select(GuardrailModel.id)).all()
+            if guardrail_id not in configured
+        )
+
     def _refresh_stale_nemo_artifacts(self, session: Session) -> None:
         """Recompile stored runtime artifacts after the NeMo contract changes.
 
@@ -2712,6 +3192,8 @@ class ControlPlaneService:
         deployment_id: str | None = None,
         integration_id: str | None = None,
         risk: str | None = None,
+        actor_id: str | None = None,
+        metadata: dict[str, str] | None = None,
     ) -> None:
         session.add(
             EvidenceRecordModel(
@@ -2724,6 +3206,8 @@ class ControlPlaneService:
                 risk=risk,
                 detail=detail,
                 integration_id=integration_id,
+                actor_id=actor_id,
+                metadata_json=metadata or {},
             )
         )
 
@@ -2731,6 +3215,7 @@ class ControlPlaneService:
         plans: dict[tuple[str, int], GuardrailPlanSnapshot] = {}
         nemo_configs: dict[tuple[str, int], NeMoConfigSnapshot] = {}
         credentials: dict[str, str] = {}
+        logging_levels: dict[str, str] = {}
         with self._database.session() as session:
             for row in session.scalars(select(GuardrailVersionModel)).all():
                 key = (row.guardrail_id, row.version)
@@ -2746,10 +3231,13 @@ class ControlPlaneService:
             ).all()
             for row in credential_rows:
                 credentials[row.secret_hash] = row.integration_id
+            for row in session.scalars(select(GuardrailLoggingSettingsModel)).all():
+                logging_levels[row.guardrail_id] = row.level
         self._plans = plans
         self._nemo_configs = nemo_configs
         self._deployments = self.deployments()
         self._credential_index = credentials
+        self._logging_levels = logging_levels
 
     def _prewarm_nemo_runtime(self, guardrail_id: str, version: int) -> None:
         """Construct a deployable runtime before making its route active."""
@@ -3711,6 +4199,86 @@ def _test_case_from_model(
         covered_rule_ids=tuple(row.covered_rule_ids_json),
         excluded=excluded,
     )
+
+
+def _evidence_from_model(row: EvidenceRecordModel) -> EvidenceRecord:
+    return EvidenceRecord(
+        id=row.id,
+        created_at=_iso(row.created_at),
+        kind=row.kind,
+        outcome=row.outcome,
+        guardrail_id=row.guardrail_id,
+        deployment_id=row.deployment_id,
+        risk=row.risk,
+        detail=row.detail,
+        integration_id=row.integration_id,
+        actor_id=row.actor_id,
+        metadata=tuple(
+            sorted(
+                (str(key), str(value))
+                for key, value in (row.metadata_json or {}).items()
+            )
+        ),
+    )
+
+
+def _runtime_log_content(
+    payload: tuple[dict[str, object], ...] | None,
+) -> tuple[RuntimeLogContentBlock, ...] | None:
+    if payload is None:
+        return None
+    return tuple(
+        RuntimeLogContentBlock(
+            id=str(item.get("id", "content")),
+            role=str(item.get("role", "content")),
+            source=str(item.get("source", "unknown")),
+            text=str(item.get("text", "")),
+            truncated=bool(item.get("truncated", False)),
+        )
+        for item in payload
+    )
+
+
+def _runtime_log_qualifies(
+    level: str,
+    *,
+    outcome: str,
+    timed_out: bool,
+    fail_closed: bool,
+) -> bool:
+    if level == "trace":
+        return True
+    if outcome in {"block", "error"} or timed_out or fail_closed:
+        return True
+    return level == "debug" and outcome == "transform"
+
+
+def _runtime_log_correlation_hash(
+    guardrail_id: str,
+    call_id: str | None,
+) -> str | None:
+    if not call_id:
+        return None
+    return hashlib.sha256(f"{guardrail_id}\0{call_id}".encode()).hexdigest()
+
+
+def _combined_runtime_outcome(current: str, next_outcome: str) -> str:
+    rank = {"allow": 0, "transform": 1, "block": 2, "error": 3}
+    return max((current, next_outcome), key=lambda item: rank.get(item, 2))
+
+
+def _runtime_log_cursor_value(created_at: datetime, interaction_id: str) -> str:
+    return f"{_iso(created_at)}|{interaction_id}"
+
+
+def _runtime_log_cursor(value: str | None) -> tuple[datetime, str] | None:
+    if not value:
+        return None
+    try:
+        created_at, interaction_id = value.rsplit("|", 1)
+        return _datetime(created_at), interaction_id
+    except (ValueError, TypeError) as error:
+        raise ValidationError("Runtime log cursor is invalid.") from error
 
 
 def _resolution_step(kind: str, name: str, detail: str):

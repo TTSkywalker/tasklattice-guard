@@ -192,15 +192,14 @@ class HTTPAdapter:
                     else None
                 )
             )
+            protection_request = self._to_engine_request(
+                payload,
+                request,
+                integration,
+                external_call_id,
+            )
             try:
-                decision = await self._service.evaluate(
-                    self._to_engine_request(
-                        payload,
-                        request,
-                        integration,
-                        external_call_id,
-                    )
-                )
+                decision = await self._service.evaluate(protection_request)
             except ControlPlaneError as error:
                 self._control_plane.record_integration_activity(
                     integration.id, phase=phase, success=True
@@ -246,6 +245,7 @@ class HTTPAdapter:
                 phase=phase,
                 started=started,
                 detail=decision.reason or "HTTP interaction evaluated.",
+                request=protection_request,
             )
             return HTTPGuardrailResponse(
                 decision=decision.decision,

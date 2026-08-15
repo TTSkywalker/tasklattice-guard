@@ -29,8 +29,10 @@ describe("RuntimeEventStream", () => {
       guardrail_id: "guardrail-banker",
       deployment_id: "deployment-dev",
       integration_id: "integration-dev",
+      actor_id: null,
       risk: "critical",
       detail: "SQL injection attempt blocked.",
+      metadata: {},
     };
 
     render(<RuntimeEventStream items={[item]} loading={false} guardrails={[{ id: "guardrail-banker", name: "banker" }]} />);
