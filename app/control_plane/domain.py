@@ -498,6 +498,20 @@ class RuntimeFindingEvent:
     policy_id: str | None
     rule_id: str | None
     detail: str
+    protocol: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeFindingSummary:
+    """Aggregate finding counts for a Guardrail and time window."""
+
+    total: int
+    critical: int
+    high: int
+    medium: int
+    low: int
+    affected_traces: int
+    latest_at: str | None
 
 
 @dataclass(frozen=True, slots=True)

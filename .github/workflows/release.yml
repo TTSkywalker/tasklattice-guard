@@ -20,20 +20,22 @@ jobs:
       contents: read
 
   version:
-    name: Verify release version
+    name: Resolve release version
     runs-on: ubuntu-24.04
     outputs:
       value: ${{ steps.version.outputs.value }}
     steps:
-      - name: Check out tagged source
-        uses: actions/checkout@v7.0.1
-
-      - name: Verify version metadata
+      - name: Resolve version from tag
         id: version
+        shell: bash
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          python3 tools/check_release_version.py "$RELEASE_TAG"
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tag '$RELEASE_TAG' must use the form vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
           echo "value=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
 
   publish-platforms:

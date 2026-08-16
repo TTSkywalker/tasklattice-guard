@@ -673,6 +673,7 @@ def test_deployment_trace_correlates_critical_rule_and_nemo_steps_without_conten
     )
 
     trace = service.deployment_runtime_traces(deployment.id)[0]
+    findings, finding_summary = service.guardrail_runtime_findings(guardrail.id)
 
     assert trace.id == trace_id
     assert trace.severity == "critical"
@@ -680,6 +681,11 @@ def test_deployment_trace_correlates_critical_rule_and_nemo_steps_without_conten
     assert trace.findings[0].rule_id == "sql-injection-blocker/blocked-word-1"
     assert "UNION SELECT" not in trace.findings[0].detail
     assert trace.steps[0].action_name == "GuardContentFilterAction"
+    assert findings[0].trace_id == trace_id
+    assert findings[0].protocol == "http"
+    assert finding_summary.total == 1
+    assert finding_summary.critical == 1
+    assert finding_summary.affected_traces == 1
 
 def test_nested_traffic_scope_matches_either_trusted_finance_identity(tmp_path):
     service = ControlPlaneService(tmp_path / "nested.db")

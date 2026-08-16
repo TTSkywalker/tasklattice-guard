@@ -13,6 +13,7 @@ from app.control_plane.domain import ValidationError
 from app.control_plane.service import ControlPlaneService
 from app.main import create_app
 from app.persistence.models import RuntimeLogEntryModel, RuntimeLogInteractionModel
+from app.runtime.contracts import RiskFinding
 
 
 def _service(tmp_path) -> ControlPlaneService:
@@ -248,3 +249,64 @@ async def test_runtime_log_api_restricts_configuration_and_decryption_to_admins(
     assert entry["content_available"] is True
     assert entry["content_before"] is None
     assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_guardrail_findings_api_aggregates_playground_events_without_a_deployment(tmp_path):
+    app = create_app(
+        settings=Settings(
+            database_path=tmp_path / "guardrail-findings-api.db",
+            ui_dist_path=tmp_path / "missing-ui",
+        )
+    )
+    finding = RiskFinding(
+        risk="builtin_content_filter",
+        verdict="unsafe",
+        confidence=0.99,
+        evidence="request content must never be persisted here",
+        recommended_action="reject",
+        policy_id="policy-content-safety",
+        rule_id="harmful-request",
+    )
+    app.state.control_plane.record_decision(
+        trace_id="trace-playground-critical",
+        outcome="block",
+        guardrail_id=DEFAULT_GUARDRAIL_ID,
+        guardrail_version=DEFAULT_GUARDRAIL_VERSION,
+        deployment_id=None,
+        integration_id=None,
+        protocol="playground",
+        phase="input",
+        action="reject",
+        risk=finding.risk,
+        detail="The active Guardrail blocked the request.",
+        findings=(finding,),
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        login = await client.post(
+            "/api/v1/session", json={"email": "admin", "password": "admin"}
+        )
+        assert login.status_code == 200
+        response = await client.get(
+            f"/api/v1/guardrails/{DEFAULT_GUARDRAIL_ID}/findings",
+            params={"window": "24h"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["summary"] == {
+        "total": 1,
+        "critical": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "affected_traces": 1,
+        "latest_at": payload["items"][0]["created_at"],
+    }
+    assert payload["items"][0]["deployment_id"] is None
+    assert payload["items"][0]["protocol"] == "playground"
+    assert "request content" not in payload["items"][0]["detail"]

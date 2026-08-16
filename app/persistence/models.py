@@ -239,6 +239,7 @@ class RuntimeMetricEventModel(Base):
     __tablename__ = "runtime_metric_events"
     __table_args__ = (
         Index("runtime_metric_events_created_at_idx", "created_at"),
+        Index("runtime_metric_events_trace_id_idx", "trace_id"),
         Index(
             "runtime_metric_events_guardrail_created_at_idx",
             "guardrail_id",
@@ -323,6 +324,11 @@ class RuntimeFindingEventModel(Base):
     __tablename__ = "runtime_finding_events"
     __table_args__ = (
         Index("runtime_finding_events_trace_id_idx", "trace_id"),
+        Index(
+            "runtime_finding_events_guardrail_created_at_idx",
+            "guardrail_id",
+            "created_at",
+        ),
         Index(
             "runtime_finding_events_deployment_created_at_idx",
             "deployment_id",

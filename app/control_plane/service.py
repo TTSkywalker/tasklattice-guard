@@ -104,6 +104,7 @@ from .domain import (
     ResolvedPolicyCapability,
     RuntimeMetricEvent,
     RuntimeFindingEvent,
+    RuntimeFindingSummary,
     RuntimeLogContentBlock,
     RuntimeLogEntry,
     RuntimeLogInteraction,
@@ -2276,6 +2277,96 @@ class ControlPlaneService:
         )
         return items, next_cursor
 
+    def guardrail_runtime_findings(
+        self,
+        guardrail_id: str,
+        *,
+        since: str | None = None,
+        limit: int = 200,
+    ) -> tuple[tuple[RuntimeFindingEvent, ...], RuntimeFindingSummary]:
+        """Return recent privacy-safe findings and untruncated Guardrail totals."""
+
+        self.guardrail(guardrail_id)
+        conditions = [RuntimeFindingEventModel.guardrail_id == guardrail_id]
+        if since:
+            conditions.append(RuntimeFindingEventModel.created_at >= _datetime(since))
+        with self._database.session() as session:
+            rows = session.scalars(
+                select(RuntimeFindingEventModel)
+                .where(*conditions)
+                .order_by(
+                    RuntimeFindingEventModel.created_at.desc(),
+                    RuntimeFindingEventModel.id.desc(),
+                )
+                .limit(max(1, min(limit, 500)))
+            ).all()
+            trace_ids = tuple({row.trace_id for row in rows})
+            protocol_rows = (
+                session.execute(
+                    select(
+                        RuntimeMetricEventModel.trace_id,
+                        RuntimeMetricEventModel.protocol,
+                    )
+                    .where(RuntimeMetricEventModel.trace_id.in_(trace_ids))
+                    .order_by(RuntimeMetricEventModel.created_at.desc())
+                ).all()
+                if trace_ids
+                else ()
+            )
+            aggregate = session.execute(
+                select(
+                    func.count(RuntimeFindingEventModel.id),
+                    func.sum(
+                        case(
+                            (RuntimeFindingEventModel.severity == "critical", 1),
+                            else_=0,
+                        )
+                    ),
+                    func.sum(
+                        case(
+                            (RuntimeFindingEventModel.severity == "high", 1),
+                            else_=0,
+                        )
+                    ),
+                    func.sum(
+                        case(
+                            (RuntimeFindingEventModel.severity == "medium", 1),
+                            else_=0,
+                        )
+                    ),
+                    func.sum(
+                        case(
+                            (RuntimeFindingEventModel.severity == "low", 1),
+                            else_=0,
+                        )
+                    ),
+                    func.count(func.distinct(RuntimeFindingEventModel.trace_id)),
+                    func.max(RuntimeFindingEventModel.created_at),
+                ).where(*conditions)
+            ).one()
+        total, critical, high, medium, low, affected_traces, latest_at = aggregate
+        protocols_by_trace: dict[str, str] = {}
+        for trace_id, runtime_protocol in protocol_rows:
+            protocols_by_trace.setdefault(trace_id, runtime_protocol)
+        return (
+            tuple(
+                _runtime_finding_from_model(
+                    row,
+                    protocol=protocols_by_trace.get(row.trace_id),
+                )
+                for row in rows
+            ),
+            RuntimeFindingSummary(
+                total=int(total or 0),
+                critical=int(critical or 0),
+                high=int(high or 0),
+                medium=int(medium or 0),
+                low=int(low or 0),
+                affected_traces=int(affected_traces or 0),
+                latest_at=_iso(latest_at) if latest_at is not None else None,
+            ),
+        )
+
     def evidence_records(self, limit: int = 100) -> tuple[EvidenceRecord, ...]:
         with self._database.session() as session:
             rows = session.scalars(
@@ -4098,7 +4189,11 @@ def _runtime_step_from_model(row: RuntimeStepMetricEventModel) -> RuntimeStepMet
     )
 
 
-def _runtime_finding_from_model(row: RuntimeFindingEventModel) -> RuntimeFindingEvent:
+def _runtime_finding_from_model(
+    row: RuntimeFindingEventModel,
+    *,
+    protocol: str | None = None,
+) -> RuntimeFindingEvent:
     return RuntimeFindingEvent(
         id=row.id,
         trace_id=row.trace_id,
@@ -4116,6 +4211,7 @@ def _runtime_finding_from_model(row: RuntimeFindingEventModel) -> RuntimeFinding
         policy_id=row.policy_id,
         rule_id=row.rule_id,
         detail=row.detail,
+        protocol=protocol,
     )
 
 

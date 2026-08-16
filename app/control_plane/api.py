@@ -766,6 +766,28 @@ class ControlPlaneAPI:
             except ControlPlaneError as error:
                 _raise(error)
 
+        @router.get("/guardrails/{guardrail_id}/findings")
+        def guardrail_findings(
+            guardrail_id: str,
+            window: MetricWindow = "24h",
+            limit: int = 200,
+        ):
+            try:
+                items, summary = self._service.guardrail_runtime_findings(
+                    guardrail_id,
+                    since=(
+                        datetime.now(UTC) - _metric_window_duration(window)
+                    ).isoformat(),
+                    limit=limit,
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return {
+                "items": [asdict(item) for item in items],
+                "count": len(items),
+                "summary": asdict(summary),
+            }
+
         @router.patch("/guardrails/{guardrail_id}/logging")
         def update_guardrail_logging(
             guardrail_id: str,

@@ -102,6 +102,15 @@ class Database:
                     "ALTER TABLE runtime_metric_events "
                     "ADD COLUMN detail TEXT NOT NULL DEFAULT ''"
                 )
+            indexes = {
+                item["name"]
+                for item in inspector.get_indexes("runtime_metric_events")
+            }
+            if "runtime_metric_events_trace_id_idx" not in indexes:
+                statements.append(
+                    "CREATE INDEX runtime_metric_events_trace_id_idx "
+                    "ON runtime_metric_events (trace_id)"
+                )
         if "runtime_step_metric_events" in tables:
             columns = {
                 item["name"]
@@ -111,6 +120,16 @@ class Database:
                 statements.append(
                     "ALTER TABLE runtime_step_metric_events "
                     "ADD COLUMN trace_id VARCHAR NOT NULL DEFAULT ''"
+                )
+        if "runtime_finding_events" in tables:
+            indexes = {
+                item["name"]
+                for item in inspector.get_indexes("runtime_finding_events")
+            }
+            if "runtime_finding_events_guardrail_created_at_idx" not in indexes:
+                statements.append(
+                    "CREATE INDEX runtime_finding_events_guardrail_created_at_idx "
+                    "ON runtime_finding_events (guardrail_id, created_at)"
                 )
         if "evidence_records" in tables:
             columns = {item["name"] for item in inspector.get_columns("evidence_records")}

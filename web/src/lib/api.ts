@@ -267,6 +267,23 @@ export type DeploymentTraceFinding = {
   policy_id: string | null;
   rule_id: string | null;
   detail: string;
+  protocol?: string | null;
+};
+
+export type RuntimeFindingSummary = {
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  affected_traces: number;
+  latest_at: string | null;
+};
+
+export type GuardrailFindingPage = {
+  items: DeploymentTraceFinding[];
+  count: number;
+  summary: RuntimeFindingSummary;
 };
 
 export type DeploymentTraceStep = {
@@ -1135,6 +1152,7 @@ export const setIntegrationEnabled = (id: string, enabled: boolean) => mutate<In
 export const rotateIntegrationCredential = (id: string) => mutate<IntegrationRegistration>(`/api/v1/integrations/${encodeURIComponent(id)}/credentials`, "POST");
 export const revokeIntegrationCredential = (integrationId: string, credentialId: string) => mutate<void>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/credentials/${encodeURIComponent(credentialId)}`, "DELETE");
 export const getEvidence = (filters: { limit?: number; guardrailId?: string; deploymentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<EvidenceRecord>>(`/api/v1/evidence${query({ limit: filters.limit, guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);
+export const getGuardrailFindings = (guardrailId: string, window: MetricWindow, limit = 200) => read<GuardrailFindingPage>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/findings${query({ window, limit })}`);
 export const getRuntimeLogs = (filters: { limit?: number; guardrailId?: string; phase?: "input" | "output"; outcome?: "allow" | "transform" | "block" | "error"; window?: MetricWindow; cursor?: string } = {}) => read<RuntimeLogPage>(`/api/v1/runtime-logs${query({ limit: filters.limit, guardrail_id: filters.guardrailId, phase: filters.phase, outcome: filters.outcome, window: filters.window, cursor: filters.cursor })}`);
 export const getMetrics = (filters: { guardrailId?: string; deploymentId?: string; window?: MetricWindow } = {}) => read<Metrics>(`/api/v1/metrics${query({ guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, window: filters.window })}`);
 export const getSystemStatus = () => read<SystemStatus>("/api/v1/system-status");

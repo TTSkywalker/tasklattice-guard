@@ -3,10 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Deployment, Guardrail, GuardrailPolicyBinding, GuardrailVersion, GuardrailVersionDetail, Metrics, Policy, TestCase } from "@/lib/api";
+import type { Deployment, Guardrail, GuardrailFindingPage, GuardrailPolicyBinding, GuardrailVersion, GuardrailVersionDetail, Metrics, Policy, TestCase } from "@/lib/api";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { DraftReleaseView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
+import { DraftReleaseView, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
@@ -95,6 +95,41 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("Observed traffic scope")).toBeTruthy();
     expect(screen.getByText("20260813-080000Z")).toBeTruthy();
     expect(screen.getByText("runtime-chart")).toBeTruthy();
+  });
+
+  it("aggregates privacy-safe findings from Playground on the Guardrail", () => {
+    const data: GuardrailFindingPage = {
+      count: 1,
+      summary: { total: 1, critical: 1, high: 0, medium: 0, low: 0, affected_traces: 1, latest_at: "2026-08-16T09:46:46Z" },
+      items: [{
+        id: "finding-critical",
+        trace_id: "trace-playground",
+        created_at: "2026-08-16T09:46:46Z",
+        guardrail_id: "guardrail-observed",
+        guardrail_version: 4,
+        deployment_id: null,
+        integration_id: null,
+        protocol: "playground",
+        phase: "input",
+        severity: "critical",
+        risk: "builtin_content_filter",
+        verdict: "unsafe",
+        confidence: 0.99,
+        recommended_action: "reject",
+        policy_id: "content-safety",
+        rule_id: "harmful-request",
+        detail: "Policy content-safety matched Rule harmful-request.",
+      }],
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><GuardrailFindingsView data={data} loading={false} error={null} policies={[]} deployments={[]} integrations={[]} window="24h" onWindowChange={() => undefined} /></QueryClientProvider>);
+
+    expect(screen.getByText("guardrails.securityFindingsTitle")).toBeTruthy();
+    expect(screen.getByText("harmful-request")).toBeTruthy();
+    expect(screen.getByText("guardrails.playgroundSource")).toBeTruthy();
+    expect(screen.getByText("Policy content-safety matched Rule harmful-request.")).toBeTruthy();
+    expect(screen.getByText("99%")).toBeTruthy();
   });
 
   it("shows immutable configuration before the unified compiled runtime", () => {
