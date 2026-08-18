@@ -23,17 +23,31 @@ jobs:
           version: v4.0.0
 
       - name: Lint standalone chart
-        run: helm lint charts/tasklattice-guard --strict
+        run: helm lint charts/tali-guard --strict
 
       - name: Render default TALI deployment
         run: >-
-          helm template tasklattice-guard charts/tasklattice-guard
+          helm template tali-guard charts/tali-guard
           --namespace tali
           --set-string auth.apiKey=ci-test-key
-          > /tmp/tasklattice-guard.yaml
+          > /tmp/tali-guard.yaml
 
-      - name: Package chart
-        run: helm package charts/tasklattice-guard --destination /tmp
+      - name: Package chart for runtime image
+        run: bash scripts/package-runtime-chart.sh 0.0.0-ci
+
+      - name: Verify packaged chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          chart="dist/runtime-chart/tali-guard.tgz"
+          metadata="$(helm show chart "$chart")"
+          grep -Fx "name: tali-guard" <<<"$metadata"
+          grep -Fx "version: 0.0.0-ci" <<<"$metadata"
+          grep -Fx "appVersion: 0.0.0-ci" <<<"$metadata"
+          helm template tali-guard "$chart" \
+            --namespace tali \
+            --set-string auth.apiKey=ci-test-key \
+            > /tmp/tali-guard-packaged.yaml
 
   ui:
     runs-on: ubuntu-latest

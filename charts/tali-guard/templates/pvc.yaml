@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "tasklattice-guard.persistenceClaimName" . }}
+  name: {{ include "tali-guard.persistenceClaimName" . }}
   labels:
-    {{- include "tasklattice-guard.workloadLabels" . | nindent 4 }}
+    {{- include "tali-guard.workloadLabels" . | nindent 4 }}
   {{- if or .Values.persistence.retain .Values.persistence.annotations }}
   annotations:
     {{- if .Values.persistence.retain }}

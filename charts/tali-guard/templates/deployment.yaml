@@ -1,10 +1,10 @@
-{{- include "tasklattice-guard.validateValues" . }}
+{{- include "tali-guard.validateValues" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "tasklattice-guard.workloadName" . }}
+  name: {{ include "tali-guard.workloadName" . }}
   labels:
-    {{- include "tasklattice-guard.workloadLabels" . | nindent 4 }}
+    {{- include "tali-guard.workloadLabels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
@@ -16,7 +16,7 @@ spec:
     {{- end }}
   selector:
     matchLabels:
-      {{- include "tasklattice-guard.workloadSelectorLabels" . | nindent 6 }}
+      {{- include "tali-guard.workloadSelectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -30,12 +30,12 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "tasklattice-guard.workloadSelectorLabels" . | nindent 8 }}
+        {{- include "tali-guard.workloadSelectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      serviceAccountName: {{ include "tasklattice-guard.serviceAccountName" . }}
+      serviceAccountName: {{ include "tali-guard.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
@@ -79,7 +79,7 @@ spec:
             - name: MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tasklattice-guard.runtimeLogSecretName" . }}
+                  name: {{ include "tali-guard.runtimeLogSecretName" . }}
                   key: {{ .Values.runtimeLogging.secretKey | quote }}
             - name: MODEL_GUARDRAILS_RUNTIME_LOG_RETENTION_DAYS
               value: {{ .Values.runtimeLogging.retentionDays | quote }}
@@ -109,7 +109,7 @@ spec:
             - name: MODEL_GUARDRAILS_NVIDIA_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tasklattice-guard.nvidiaSecretName" . }}
+                  name: {{ include "tali-guard.nvidiaSecretName" . }}
                   key: {{ .Values.evaluators.nvidia.secretKey }}
             {{- end }}
             {{- with .Values.playgroundChat.baseUrl }}
@@ -124,7 +124,7 @@ spec:
             - name: MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tasklattice-guard.playgroundChatSecretName" . }}
+                  name: {{ include "tali-guard.playgroundChatSecretName" . }}
                   key: {{ .Values.playgroundChat.secretKey }}
             {{- end }}
             {{- with .Values.evaluators.automatedReasoning.endpointUrl }}
@@ -135,7 +135,7 @@ spec:
             - name: MODEL_GUARDRAILS_AUTOMATED_REASONING_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tasklattice-guard.automatedReasoningSecretName" . }}
+                  name: {{ include "tali-guard.automatedReasoningSecretName" . }}
                   key: {{ .Values.evaluators.automatedReasoning.secretKey }}
             {{- end }}
             {{- with .Values.evaluators.jailbreakDetection.nimBaseUrl }}
@@ -148,7 +148,7 @@ spec:
             - name: MODEL_GUARDRAILS_JAILBREAK_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tasklattice-guard.jailbreakDetectionSecretName" . }}
+                  name: {{ include "tali-guard.jailbreakDetectionSecretName" . }}
                   key: {{ .Values.evaluators.jailbreakDetection.secretKey }}
             - name: MODEL_GUARDRAILS_JAILBREAK_API_KEY_ENV_VAR
               value: MODEL_GUARDRAILS_JAILBREAK_API_KEY
@@ -165,7 +165,7 @@ spec:
             - name: MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tasklattice-guard.deepseekSecretName" . }}
+                  name: {{ include "tali-guard.deepseekSecretName" . }}
                   key: {{ .Values.controlPlaneAgent.deepseek.secretKey }}
             {{- end }}
             {{- with .Values.extraEnv }}
@@ -214,7 +214,7 @@ spec:
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
-            claimName: {{ include "tasklattice-guard.persistenceClaimName" . }}
+            claimName: {{ include "tali-guard.persistenceClaimName" . }}
           {{- else }}
           emptyDir: {}
           {{- end }}

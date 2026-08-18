@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-CHART = ROOT / "charts" / "tasklattice-guard"
+CHART = ROOT / "charts" / "tali-guard"
 
 
 def test_helm_chart_configures_schema_v6_and_public_runtime_url():
@@ -66,7 +66,7 @@ def test_default_persistence_uses_the_tali_guard_claim():
         [
             "helm",
             "template",
-            "tasklattice-guard",
+            "tali-guard",
             str(CHART),
             "--namespace",
             "tali",
@@ -108,7 +108,7 @@ def test_external_database_secret_enables_rolling_multi_replica_deployment():
             "--set",
             "replicaCount=3",
             "--set",
-            "database.existingSecret=tasklattice-guard-database",
+            "database.existingSecret=tali-guard-database",
         ],
         check=True,
         capture_output=True,
@@ -127,7 +127,7 @@ def test_external_database_secret_enables_rolling_multi_replica_deployment():
     assert deployment["spec"]["strategy"]["type"] == "RollingUpdate"
     assert environment["MODEL_GUARDRAILS_DATABASE_URL"]["valueFrom"] == {
         "secretKeyRef": {
-            "name": "tasklattice-guard-database",
+            "name": "tali-guard-database",
             "key": "database-url",
         }
     }

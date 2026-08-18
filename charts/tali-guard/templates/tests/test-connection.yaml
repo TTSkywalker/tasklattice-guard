@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: "{{ include "tasklattice-guard.workloadName" . }}-test-standalone"
+  name: "{{ include "tali-guard.workloadName" . }}-test-standalone"
   labels:
-    helm.sh/chart: {{ include "tasklattice-guard.chart" . }}
-    app.kubernetes.io/name: {{ printf "%s-test" (include "tasklattice-guard.name" .) | trunc 63 | trimSuffix "-" }}
+    helm.sh/chart: {{ include "tali-guard.chart" . }}
+    app.kubernetes.io/name: {{ printf "%s-test" (include "tali-guard.name" .) | trunc 63 | trimSuffix "-" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   annotations:
@@ -34,7 +34,7 @@ spec:
         - -ec
       args:
         - |
-          service_url="http://{{ include "tasklattice-guard.workloadName" . }}:{{ .Values.service.port }}"
+          service_url="http://{{ include "tali-guard.workloadName" . }}:{{ .Values.service.port }}"
           attempt=0
           until wget --quiet --output-document=/dev/null --timeout=5 \
             "${service_url}/health/ready"; do

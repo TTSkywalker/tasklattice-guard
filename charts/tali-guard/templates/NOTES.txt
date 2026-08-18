@@ -3,16 +3,16 @@ TaskLattice Guard is installed in namespace {{ .Release.Namespace }}.
 The standalone control plane and deterministic evaluator are ready without an
 Integration or external model. Wait for the deployment:
 
-  kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "tasklattice-guard.workloadName" . }}
+  kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "tali-guard.workloadName" . }}
 
 {{- if eq .Values.service.type "LoadBalancer" }}
 Open the UI using the external address assigned by your cluster:
 
-  kubectl --namespace {{ .Release.Namespace }} get service/{{ include "tasklattice-guard.workloadName" . }}
+  kubectl --namespace {{ .Release.Namespace }} get service/{{ include "tali-guard.workloadName" . }}
 {{- else }}
 Open the UI through a local port-forward:
 
-  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "tasklattice-guard.workloadName" . }} 8092:{{ .Values.service.port }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "tali-guard.workloadName" . }} 8092:{{ .Values.service.port }}
 
   http://127.0.0.1:8092/guardrails
 {{- end }}
@@ -22,7 +22,7 @@ Run the Helm smoke test:
   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
 
 Runtime Prompt History encryption is enabled automatically with Secret
-{{ include "tasklattice-guard.runtimeLogSecretName" . }}. Keep this Secret with
+{{ include "tali-guard.runtimeLogSecretName" . }}. Keep this Secret with
 the database; losing it makes previously encrypted content unrecoverable.
 
 {{- if .Values.persistence.retain }}

@@ -2,9 +2,9 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "tasklattice-guard.workloadName" . }}
+  name: {{ include "tali-guard.workloadName" . }}
   labels:
-    {{- include "tasklattice-guard.workloadLabels" . | nindent 4 }}
+    {{- include "tali-guard.workloadLabels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -27,7 +27,7 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ include "tasklattice-guard.workloadName" $ }}
+                name: {{ include "tali-guard.workloadName" $ }}
                 port:
                   name: http
           {{- end }}

@@ -4,12 +4,17 @@ This chart installs the TaskLattice Guard control plane and its NeMo Guardrails
 production runtime. The default policy runs locally without an active LiteLLM
 Integration or an external model.
 
+Release builds also package this chart inside the runtime image at
+`/opt/tasklattice/helm/tali-guard.tgz`. The image exposes that location
+through `MODEL_GUARDRAILS_HELM_CHART`. The embedded chart uses the Git release
+version for both its chart version and `appVersion`.
+
 ## Install
 
 Kubernetes requires lowercase namespace names; the TALI namespace is `tali`.
 
 ```sh
-helm upgrade --install tasklattice-guard . \
+helm upgrade --install tali-guard . \
   --namespace tali \
   --create-namespace \
   --wait
@@ -31,7 +36,7 @@ stored in the persistent database and is not reset by pod restarts or upgrades.
 
 | Value | Default | Purpose |
 | --- | --- | --- |
-| `image.repository` | `ghcr.io/tasklattice/tasklattice-guard` | Container repository |
+| `image.repository` | `ghcr.io/tasklattice/tali-guard` | Container repository |
 | `image.tag` | `dev` | Container tag |
 | `workloadNameOverride` | `tali-guard` | Kubernetes Service and Deployment name; Pod names inherit this prefix |
 | `service.type` | `LoadBalancer` | Kubernetes Service exposure |
@@ -71,11 +76,11 @@ For the NVIDIA-hosted Runtime path, configure the dedicated model roles with
 one NVIDIA Secret. The Jailbreak Detection endpoint reuses that credential:
 
 ```sh
-helm upgrade tasklattice-guard . --namespace tali \
+helm upgrade tali-guard . --namespace tali \
   --set evaluators.nvidia.baseUrl=https://integrate.api.nvidia.com/v1 \
   --set evaluators.nvidia.contentSafetyModel=nvidia/llama-3.1-nemotron-safety-guard-8b-v3 \
   --set evaluators.nvidia.topicControlModel=nvidia/llama-3.1-nemoguard-8b-topic-control \
-  --set evaluators.nvidia.existingSecret=tasklattice-guard-nvidia \
+  --set evaluators.nvidia.existingSecret=tali-guard-nvidia \
   --set evaluators.jailbreakDetection.nimBaseUrl=https://ai.api.nvidia.com \
   --set evaluators.jailbreakDetection.serverEndpoint=/v1/security/nvidia/nemoguard-jailbreak-detect
 ```
@@ -96,7 +101,7 @@ settings remain optional.
 No manual key setup is required for a normal Helm install. The chart generates
 a cryptographically random 32-byte Fernet key in the chart fullname's
 `<fullname>-runtime-log` Secret (for the default install,
-`tasklattice-guard-runtime-log`) and injects it as
+`tali-guard-runtime-log`) and injects it as
 `MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY`. Helm looks up and reuses the
 existing Secret during upgrades, so previously encrypted Prompt History remains
 readable. The generated Secret is retained after uninstall by default, matching
@@ -110,10 +115,10 @@ manager and set `runtimeLogging.existingSecret`; the referenced Secret must
 contain the key named by `runtimeLogging.secretKey`.
 
 ```sh
-kubectl --namespace tali create secret generic tasklattice-guard-database \
+kubectl --namespace tali create secret generic tali-guard-database \
   --from-literal=database-url='postgresql+psycopg://guard:replace-me@postgres:5432/guard'
-helm upgrade tasklattice-guard . --namespace tali \
-  --set database.existingSecret=tasklattice-guard-database \
+helm upgrade tali-guard . --namespace tali \
+  --set database.existingSecret=tali-guard-database \
   --set replicaCount=3
 ```
 
@@ -125,13 +130,13 @@ either model as an evaluator. Configure both without placing the key in Helm
 history by creating a Secret and referencing it:
 
 ```sh
-kubectl --namespace tali create secret generic tasklattice-guard-deepseek \
+kubectl --namespace tali create secret generic tali-guard-deepseek \
   --from-literal=api-key='replace-me'
-helm upgrade tasklattice-guard . --namespace tali \
+helm upgrade tali-guard . --namespace tali \
   --set playgroundChat.baseUrl=https://api.deepseek.com \
   --set playgroundChat.model=deepseek-v4-flash \
-  --set playgroundChat.existingSecret=tasklattice-guard-deepseek \
-  --set controlPlaneAgent.deepseek.existingSecret=tasklattice-guard-deepseek
+  --set playgroundChat.existingSecret=tali-guard-deepseek \
+  --set controlPlaneAgent.deepseek.existingSecret=tali-guard-deepseek
 ```
 
 When OpenTelemetry is enabled, TaskLattice forces NeMo message-content capture

@@ -1,8 +1,8 @@
-{{- define "tasklattice-guard.name" -}}
+{{- define "tali-guard.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "tasklattice-guard.fullname" -}}
+{{- define "tali-guard.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -15,78 +15,78 @@
 {{- end }}
 {{- end }}
 
-{{- define "tasklattice-guard.workloadName" -}}
+{{- define "tali-guard.workloadName" -}}
 {{- default "tali-guard" .Values.workloadNameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "tasklattice-guard.chart" -}}
+{{- define "tali-guard.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "tasklattice-guard.labels" -}}
-helm.sh/chart: {{ include "tasklattice-guard.chart" . }}
-{{ include "tasklattice-guard.selectorLabels" . }}
+{{- define "tali-guard.labels" -}}
+helm.sh/chart: {{ include "tali-guard.chart" . }}
+{{ include "tali-guard.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: tali
 {{- end }}
 
-{{- define "tasklattice-guard.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "tasklattice-guard.name" . }}
+{{- define "tali-guard.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "tali-guard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "tasklattice-guard.workloadSelectorLabels" -}}
+{{- define "tali-guard.workloadSelectorLabels" -}}
 app.kubernetes.io/name: tali
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: guard
 {{- end }}
 
-{{- define "tasklattice-guard.workloadLabels" -}}
-helm.sh/chart: {{ include "tasklattice-guard.chart" . }}
-{{ include "tasklattice-guard.workloadSelectorLabels" . }}
+{{- define "tali-guard.workloadLabels" -}}
+helm.sh/chart: {{ include "tali-guard.chart" . }}
+{{ include "tali-guard.workloadSelectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: tali
 {{- end }}
 
-{{- define "tasklattice-guard.serviceAccountName" -}}
+{{- define "tali-guard.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "tasklattice-guard.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "tali-guard.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
-{{- define "tasklattice-guard.nvidiaSecretName" -}}
-{{- default (printf "%s-nvidia" (include "tasklattice-guard.fullname" .)) .Values.evaluators.nvidia.existingSecret }}
+{{- define "tali-guard.nvidiaSecretName" -}}
+{{- default (printf "%s-nvidia" (include "tali-guard.fullname" .)) .Values.evaluators.nvidia.existingSecret }}
 {{- end }}
 
-{{- define "tasklattice-guard.deepseekSecretName" -}}
-{{- default (printf "%s-deepseek" (include "tasklattice-guard.fullname" .)) .Values.controlPlaneAgent.deepseek.existingSecret }}
+{{- define "tali-guard.deepseekSecretName" -}}
+{{- default (printf "%s-deepseek" (include "tali-guard.fullname" .)) .Values.controlPlaneAgent.deepseek.existingSecret }}
 {{- end }}
 
-{{- define "tasklattice-guard.playgroundChatSecretName" -}}
-{{- default (printf "%s-playground-chat" (include "tasklattice-guard.fullname" .)) .Values.playgroundChat.existingSecret }}
+{{- define "tali-guard.playgroundChatSecretName" -}}
+{{- default (printf "%s-playground-chat" (include "tali-guard.fullname" .)) .Values.playgroundChat.existingSecret }}
 {{- end }}
 
-{{- define "tasklattice-guard.automatedReasoningSecretName" -}}
-{{- default (printf "%s-automated-reasoning" (include "tasklattice-guard.fullname" .)) .Values.evaluators.automatedReasoning.existingSecret }}
+{{- define "tali-guard.automatedReasoningSecretName" -}}
+{{- default (printf "%s-automated-reasoning" (include "tali-guard.fullname" .)) .Values.evaluators.automatedReasoning.existingSecret }}
 {{- end }}
 
-{{- define "tasklattice-guard.jailbreakDetectionSecretName" -}}
-{{- default (printf "%s-jailbreak-detection" (include "tasklattice-guard.fullname" .)) .Values.evaluators.jailbreakDetection.existingSecret }}
+{{- define "tali-guard.jailbreakDetectionSecretName" -}}
+{{- default (printf "%s-jailbreak-detection" (include "tali-guard.fullname" .)) .Values.evaluators.jailbreakDetection.existingSecret }}
 {{- end }}
 
-{{- define "tasklattice-guard.runtimeLogSecretName" -}}
-{{- default (printf "%s-runtime-log" (include "tasklattice-guard.fullname" .)) .Values.runtimeLogging.existingSecret }}
+{{- define "tali-guard.runtimeLogSecretName" -}}
+{{- default (printf "%s-runtime-log" (include "tali-guard.fullname" .)) .Values.runtimeLogging.existingSecret }}
 {{- end }}
 
-{{- define "tasklattice-guard.persistenceClaimName" -}}
-{{- default (include "tasklattice-guard.workloadName" .) .Values.persistence.existingClaim }}
+{{- define "tali-guard.persistenceClaimName" -}}
+{{- default (include "tali-guard.workloadName" .) .Values.persistence.existingClaim }}
 {{- end }}
 
-{{- define "tasklattice-guard.validateValues" -}}
+{{- define "tali-guard.validateValues" -}}
 {{- if and (gt (int .Values.replicaCount) 1) (not (or .Values.database.url .Values.database.existingSecret)) }}
 {{- fail "database.url or database.existingSecret is required when replicaCount is greater than 1" }}
 {{- end }}

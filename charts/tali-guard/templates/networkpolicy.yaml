@@ -2,13 +2,13 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "tasklattice-guard.workloadName" . }}
+  name: {{ include "tali-guard.workloadName" . }}
   labels:
-    {{- include "tasklattice-guard.workloadLabels" . | nindent 4 }}
+    {{- include "tali-guard.workloadLabels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "tasklattice-guard.workloadSelectorLabels" . | nindent 6 }}
+      {{- include "tali-guard.workloadSelectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
   ingress:
