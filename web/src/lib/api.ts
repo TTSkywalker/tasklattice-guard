@@ -388,6 +388,15 @@ export type Guardrail = {
   coverage: PolicyCoverage[];
 };
 
+export type GuardrailDeletionImpact = {
+  guardrail_id: string;
+  guardrail_name: string;
+  window_minutes: number;
+  incoming_request_count: number;
+  active_deployment_count: number;
+  requires_confirmation: boolean;
+};
+
 export type GuardrailVersion = {
   guardrail_id: string;
   version: number;
@@ -707,6 +716,16 @@ export type Integration = {
   setup: IntegrationSetup;
   created_at: string;
   updated_at: string;
+};
+
+export type IntegrationDeletionImpact = {
+  integration_id: string;
+  integration_name: string;
+  window_minutes: number;
+  incoming_request_count: number;
+  active_deployment_count: number;
+  active_credential_count: number;
+  requires_confirmation: boolean;
 };
 
 export type IntegrationRegistration = {
@@ -1088,6 +1107,8 @@ export const getGuardrails = () => read<Collection<Guardrail>>("/api/v1/guardrai
 export const getGuardrail = (id: string) => read<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
 export const createGuardrail = (input: { name: string; purpose?: string; allowed_topics?: string[]; restricted_topics?: string[]; policy_bindings: GuardrailPolicyBinding[]; safety_level?: SafetyLevel; output_delivery?: OutputDelivery }) => mutate<Guardrail>("/api/v1/guardrails", "POST", input);
 export const updateGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "purpose" | "allowed_topics" | "restricted_topics" | "policy_bindings" | "safety_level" | "output_delivery">>) => mutate<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, "PATCH", input);
+export const getGuardrailDeletionImpact = (id: string) => read<GuardrailDeletionImpact>(`/api/v1/guardrails/${encodeURIComponent(id)}/deletion-impact`);
+export const deleteGuardrail = (id: string, confirmRecentTraffic = false) => mutate<void>(`/api/v1/guardrails/${encodeURIComponent(id)}?confirm_recent_traffic=${String(confirmRecentTraffic)}`, "DELETE");
 export const getGuardrailLoggingSettings = (id: string) => read<GuardrailLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`);
 export const updateGuardrailLoggingSettings = (id: string, level: LoggingLevel, acknowledgeCost = false) => mutate<GuardrailLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`, "PATCH", { level, acknowledge_cost: acknowledgeCost });
 export const getGuardrailVersions = (guardrailId: string) => read<Collection<GuardrailVersion>>(`/api/v1/guardrail-versions${query({ guardrail_id: guardrailId })}`);
@@ -1147,8 +1168,10 @@ export const setDeploymentEnabled = (id: string, enabled: boolean) => mutate<Dep
 export const updateDeploymentTrafficScope = (id: string, trafficScope: TrafficScopeExpression) => mutate<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/traffic-scope`, "PUT", { traffic_scope: trafficScope });
 export const getIntegrations = () => read<Collection<Integration>>("/api/v1/integrations");
 export const getIntegration = (id: string) => read<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`);
+export const getIntegrationDeletionImpact = (id: string) => read<IntegrationDeletionImpact>(`/api/v1/integrations/${encodeURIComponent(id)}/deletion-impact`);
 export const createIntegration = (input: { name: string; adapter_id: IntegrationAdapterId }) => mutate<IntegrationRegistration>("/api/v1/integrations", "POST", input);
 export const setIntegrationEnabled = (id: string, enabled: boolean) => mutate<Integration>(`/api/v1/integrations/${encodeURIComponent(id)}`, "PATCH", { enabled });
+export const deleteIntegration = (id: string, confirmProtectedDelete: boolean) => mutate<void>(`/api/v1/integrations/${encodeURIComponent(id)}${query({ confirm_protected_delete: confirmProtectedDelete ? 1 : undefined })}`, "DELETE");
 export const rotateIntegrationCredential = (id: string) => mutate<IntegrationRegistration>(`/api/v1/integrations/${encodeURIComponent(id)}/credentials`, "POST");
 export const revokeIntegrationCredential = (integrationId: string, credentialId: string) => mutate<void>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/credentials/${encodeURIComponent(credentialId)}`, "DELETE");
 export const getEvidence = (filters: { limit?: number; guardrailId?: string; deploymentId?: string; kind?: string; outcome?: string; risk?: string; window?: MetricWindow } = {}) => read<Collection<EvidenceRecord>>(`/api/v1/evidence${query({ limit: filters.limit, guardrail_id: filters.guardrailId, deployment_id: filters.deploymentId, kind: filters.kind, outcome: filters.outcome, risk: filters.risk, window: filters.window })}`);

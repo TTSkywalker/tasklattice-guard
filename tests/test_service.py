@@ -427,6 +427,179 @@ async def test_control_plane_exposes_enterprise_product_resources(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_guardrail_delete_api_requires_recent_traffic_confirmation_and_keeps_logs(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/guardrails",
+            json={
+                "name": "API retirement guardrail",
+                "purpose": "Verify the guarded deletion contract.",
+                "policy_bindings": [policy_binding_payload("secrets", "reject")],
+            },
+        )
+        guardrail_id = created.json()["id"]
+        app.state.control_plane.record_decision(
+            trace_id="api-delete-input",
+            outcome="allow",
+            guardrail_id=guardrail_id,
+            guardrail_version=None,
+            deployment_id=None,
+            integration_id=None,
+            protocol="http",
+            phase="input",
+            action="pass",
+            risk=None,
+            detail="Recent request before Guardrail deletion.",
+        )
+        app.state.control_plane.record_runtime_log(
+            trace_id="api-delete-log",
+            call_id=None,
+            guardrail_id=guardrail_id,
+            guardrail_version=None,
+            deployment_id=None,
+            integration_id=None,
+            protocol="http",
+            phase="input",
+            outcome="block",
+            action="reject",
+            risk="secrets",
+            latency_ms=4,
+            timed_out=False,
+            fail_closed=False,
+            detail="Retained runtime log metadata.",
+        )
+
+        impact = await client.get(
+            f"/api/v1/guardrails/{guardrail_id}/deletion-impact"
+        )
+        unconfirmed = await client.delete(f"/api/v1/guardrails/{guardrail_id}")
+        confirmed = await client.delete(
+            f"/api/v1/guardrails/{guardrail_id}",
+            params={"confirm_recent_traffic": True},
+        )
+        missing = await client.get(f"/api/v1/guardrails/{guardrail_id}")
+        guardrails = await client.get("/api/v1/guardrails")
+        logs = await client.get(
+            "/api/v1/runtime-logs",
+            params={"guardrail_id": guardrail_id},
+        )
+        evidence = await client.get(
+            "/api/v1/evidence",
+            params={"guardrail_id": guardrail_id, "limit": 500},
+        )
+
+    assert created.status_code == 201
+    assert impact.status_code == 200
+    assert impact.json()["incoming_request_count"] == 1
+    assert impact.json()["requires_confirmation"] is True
+    assert unconfirmed.status_code == 409
+    assert "Explicit confirmation" in unconfirmed.json()["detail"]
+    assert confirmed.status_code == 204
+    assert missing.status_code == 404
+    assert guardrail_id not in {item["id"] for item in guardrails.json()["items"]}
+    assert logs.status_code == 200
+    assert logs.json()["count"] == 1
+    assert logs.json()["items"][0]["guardrail_id"] == guardrail_id
+    assert {item["kind"] for item in evidence.json()["items"]} >= {
+        "guardrail.created",
+        "interaction.decision",
+        "guardrail.deleted",
+    }
+
+
+@pytest.mark.asyncio
+async def test_integration_delete_api_requires_protection_confirmation_and_keeps_history(tmp_path):
+    app = create_app(settings=settings(tmp_path), engine=Engine())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_default_admin(client)
+        created = await client.post(
+            "/api/v1/integrations",
+            json={
+                "name": "API retirement Gateway",
+                "description": "Verify guarded Integration deletion.",
+                "adapter_id": GENERIC_HTTP_GUARD_ADAPTER_ID,
+            },
+        )
+        integration_id = created.json()["integration"]["id"]
+        app.state.control_plane.record_decision(
+            trace_id="api-integration-delete-input",
+            outcome="allow",
+            guardrail_id=DEFAULT_GUARDRAIL_ID,
+            guardrail_version=1,
+            deployment_id=DEFAULT_DEPLOYMENT_ID,
+            integration_id=integration_id,
+            protocol="http",
+            phase="input",
+            action="pass",
+            risk=None,
+            detail="Recent request before Integration deletion.",
+        )
+        app.state.control_plane.record_runtime_log(
+            trace_id="api-integration-delete-log",
+            call_id=None,
+            guardrail_id=DEFAULT_GUARDRAIL_ID,
+            guardrail_version=1,
+            deployment_id=DEFAULT_DEPLOYMENT_ID,
+            integration_id=integration_id,
+            protocol="http",
+            phase="input",
+            outcome="block",
+            action="reject",
+            risk="secrets",
+            latency_ms=4,
+            timed_out=False,
+            fail_closed=False,
+            detail="Retained Integration runtime log metadata.",
+        )
+
+        impact = await client.get(
+            f"/api/v1/integrations/{integration_id}/deletion-impact"
+        )
+        unconfirmed = await client.delete(
+            f"/api/v1/integrations/{integration_id}"
+        )
+        confirmed = await client.delete(
+            f"/api/v1/integrations/{integration_id}",
+            params={"confirm_protected_delete": True},
+        )
+        missing = await client.get(f"/api/v1/integrations/{integration_id}")
+        integrations = await client.get("/api/v1/integrations")
+        logs = await client.get(
+            "/api/v1/runtime-logs",
+            params={"guardrail_id": DEFAULT_GUARDRAIL_ID},
+        )
+        evidence = await client.get(
+            "/api/v1/evidence",
+            params={"kind": "integration.deleted", "limit": 500},
+        )
+
+    assert created.status_code == 201
+    assert impact.status_code == 200
+    assert impact.json()["incoming_request_count"] == 1
+    assert impact.json()["active_credential_count"] == 1
+    assert impact.json()["requires_confirmation"] is True
+    assert unconfirmed.status_code == 409
+    assert "Explicit confirmation" in unconfirmed.json()["detail"]
+    assert confirmed.status_code == 204
+    assert missing.status_code == 404
+    assert integration_id not in {
+        item["id"] for item in integrations.json()["items"]
+    }
+    assert logs.status_code == 200
+    assert logs.json()["count"] >= 1
+    assert any(
+        item["integration_id"] == integration_id
+        for item in evidence.json()["items"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_control_plane_agent_returns_reviewable_rules_without_saving_guardrail(
     tmp_path,
 ):

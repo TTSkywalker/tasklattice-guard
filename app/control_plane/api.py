@@ -757,6 +757,40 @@ class ControlPlaneAPI:
         def guardrail(guardrail_id: str):
             return self._guardrail_payload(guardrail_id)
 
+        @router.get("/guardrails/{guardrail_id}/deletion-impact")
+        def guardrail_deletion_impact(
+            guardrail_id: str,
+            http_request: Request,
+        ):
+            if self._require_admin is not None:
+                self._require_admin(http_request)
+            try:
+                impact = self._service.guardrail_deletion_impact(guardrail_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return asdict(impact)
+
+        @router.delete("/guardrails/{guardrail_id}", status_code=204)
+        def delete_guardrail(
+            guardrail_id: str,
+            http_request: Request,
+            confirm_recent_traffic: bool = False,
+        ) -> Response:
+            actor = (
+                self._require_admin(http_request)
+                if self._require_admin is not None
+                else None
+            )
+            try:
+                self._service.disable_guardrail(
+                    guardrail_id,
+                    confirm_recent_traffic=confirm_recent_traffic,
+                    actor_id=str(getattr(actor, "id", "system")),
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return Response(status_code=204)
+
         @router.get("/guardrails/{guardrail_id}/logging")
         def guardrail_logging(guardrail_id: str):
             try:
@@ -1461,6 +1495,40 @@ class ControlPlaneAPI:
             return _integration_payload(
                 item, self._service.integration_setup(item.id)
             )
+
+        @router.get("/integrations/{integration_id}/deletion-impact")
+        def integration_deletion_impact(
+            integration_id: str,
+            http_request: Request,
+        ):
+            if self._require_admin is not None:
+                self._require_admin(http_request)
+            try:
+                impact = self._service.integration_deletion_impact(integration_id)
+            except ControlPlaneError as error:
+                _raise(error)
+            return asdict(impact)
+
+        @router.delete("/integrations/{integration_id}", status_code=204)
+        def delete_integration(
+            integration_id: str,
+            http_request: Request,
+            confirm_protected_delete: bool = False,
+        ) -> Response:
+            actor = (
+                self._require_admin(http_request)
+                if self._require_admin is not None
+                else None
+            )
+            try:
+                self._service.soft_delete_integration(
+                    integration_id,
+                    confirm_protected_delete=confirm_protected_delete,
+                    actor_id=str(getattr(actor, "id", "system")),
+                )
+            except ControlPlaneError as error:
+                _raise(error)
+            return Response(status_code=204)
 
         @router.post("/integrations", status_code=201)
         def create_integration(request: CreateIntegrationRequest):

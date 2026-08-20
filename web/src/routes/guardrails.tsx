@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Activity, ArrowLeft, ArrowUpRight, Ban, Check, ChevronDown, Circle, CircleAlert, FlaskConical, GitCompareArrows, History, LoaderCircle, LockKeyhole, Pencil, Plus, Rocket, RotateCcw, Save, ScrollText, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Activity, ArrowLeft, ArrowUpRight, Ban, Check, ChevronDown, Circle, CircleAlert, FlaskConical, GitCompareArrows, History, LoaderCircle, LockKeyhole, Pencil, Plus, Rocket, RotateCcw, Save, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -13,10 +13,11 @@ import { CopyableChecksum } from "@/components/copyable-checksum";
 import { EntitySheet } from "@/components/entity-sheet";
 import { formatGuardrailReleaseId, GuardrailVersionComparison, GuardrailVersionNavigator } from "@/components/guardrail-version-workspace";
 import { PolicyBindingEditor } from "@/components/policy-binding-editor";
+import { ProtectedDeleteSheet } from "@/components/protected-delete-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import { RuntimePostureFields } from "@/components/runtime-posture-fields";
-import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,9 +33,11 @@ import { queryKeys } from "@/features/query-keys";
 import { useAuth } from "@/lib/auth";
 import {
   createTestCase,
+  deleteGuardrail,
   excludeGuardrailTestCase,
   getDeployments,
   getGuardrail,
+  getGuardrailDeletionImpact,
   getGuardrailFindings,
   getGuardrailVersion,
   getGuardrails,
@@ -51,6 +54,7 @@ import {
   updateGuardrail,
   updateGuardrailLoggingSettings,
   type Guardrail,
+  type GuardrailDeletionImpact,
   type GuardrailFindingPage,
   type GuardrailPolicyBinding,
   type GuardrailVersion,
@@ -107,6 +111,8 @@ export function GuardrailsPage() {
 export function GuardrailDetailPage() {
   const { t } = useTranslation();
   const { guardrailId } = useParams({ strict: false }) as { guardrailId: string };
+  const navigate = useNavigate();
+  const auth = useAuth();
   const queryClient = useQueryClient();
   const guardrailQuery = useQuery({ queryKey: queryKeys.guardrail(guardrailId), queryFn: () => getGuardrail(guardrailId) });
   const policiesQuery = useQuery({ queryKey: queryKeys.policies, queryFn: getPolicies });
@@ -120,6 +126,7 @@ export function GuardrailDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
   const [deploymentOpen, setDeploymentOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedVersionOverride, setSelectedVersionOverride] = useState<number | null>(null);
   const [compareBaseVersionNumber, setCompareBaseVersionNumber] = useState<number | null>(null);
   const guardrailVersions = versionsQuery.data?.items ?? [];
@@ -145,6 +152,28 @@ export function GuardrailDetailPage() {
   const findingsQuery = useQuery({
     queryKey: queryKeys.guardrailFindings(guardrailId, window),
     queryFn: () => getGuardrailFindings(guardrailId, window),
+  });
+  const deletionImpactQuery = useQuery({
+    queryKey: queryKeys.guardrailDeletionImpact(guardrailId),
+    queryFn: () => getGuardrailDeletionImpact(guardrailId),
+    enabled: deleteOpen,
+    staleTime: 0,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (confirmRecentTraffic: boolean) => deleteGuardrail(guardrailId, confirmRecentTraffic),
+    onSuccess: async () => {
+      toast.success(t("guardrails.deleteSucceeded"));
+      await queryClient.cancelQueries({ queryKey: queryKeys.guardrail(guardrailId) });
+      queryClient.removeQueries({ queryKey: queryKeys.guardrail(guardrailId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.guardrails, exact: true }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.deployments }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.metrics }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.evidence }),
+      ]);
+      navigate({ to: "/guardrails" });
+    },
+    onError: async () => { await deletionImpactQuery.refetch(); },
   });
 
   async function refresh() {
@@ -182,6 +211,7 @@ export function GuardrailDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {canManageDraft ? <Button className="min-h-11" variant="outline" onClick={() => setEditOpen(true)}><Pencil />{t("common.edit")}</Button> : null}
+          {auth.user?.role === "admin" && !guardrail.is_default ? <Button className="min-h-11 text-destructive hover:bg-destructive/10 hover:text-destructive" variant="outline" onClick={() => { deleteMutation.reset(); setDeleteOpen(true); }}><Trash2 />{t("guardrails.deleteAction")}</Button> : null}
         </div>
       </div>
 
@@ -230,8 +260,68 @@ export function GuardrailDetailPage() {
       <EditGuardrailSheet guardrail={guardrail} policies={policies} open={editOpen} onOpenChange={setEditOpen} onSaved={async () => { setEditOpen(false); await refresh(); }} />
       <AddTestCaseSheet guardrail={guardrail} open={testOpen} onOpenChange={setTestOpen} onCreated={async () => { setTestOpen(false); await refresh(); }} />
       <CreateDeploymentSheet open={deploymentOpen} onOpenChange={setDeploymentOpen} guardrails={[guardrail]} onCreated={async () => { setDeploymentOpen(false); await refresh(); }} />
+      <DeleteGuardrailSheet
+        guardrail={guardrail}
+        open={deleteOpen}
+        impact={deletionImpactQuery.data}
+        loading={deletionImpactQuery.isFetching}
+        deleting={deleteMutation.isPending}
+        error={deleteMutation.error instanceof Error ? deleteMutation.error : deletionImpactQuery.error instanceof Error ? deletionImpactQuery.error : null}
+        onOpenChange={(open) => { if (!deleteMutation.isPending) { setDeleteOpen(open); if (!open) deleteMutation.reset(); } }}
+        onRetry={() => { deleteMutation.reset(); void deletionImpactQuery.refetch(); }}
+        onConfirm={(confirmRecentTraffic) => deleteMutation.mutate(confirmRecentTraffic)}
+      />
     </section>
   );
+}
+
+export function DeleteGuardrailSheet({ guardrail, open, impact, loading, deleting, error, onOpenChange, onRetry, onConfirm }: {
+  guardrail: Guardrail;
+  open: boolean;
+  impact?: GuardrailDeletionImpact;
+  loading: boolean;
+  deleting: boolean;
+  error: Error | null;
+  onOpenChange: (open: boolean) => void;
+  onRetry: () => void;
+  onConfirm: (confirmRecentTraffic: boolean) => void;
+}) {
+  const { t, i18n } = useTranslation();
+  return <ProtectedDeleteSheet
+    open={open}
+    onOpenChange={onOpenChange}
+    entityName={guardrail.name}
+    loading={loading}
+    ready={Boolean(impact)}
+    deleting={deleting}
+    error={error}
+    requiresConfirmation={Boolean(impact?.requires_confirmation)}
+    impactItems={impact ? [
+      { label: t("guardrails.recentIncomingRequests", { minutes: impact.window_minutes }), value: impact.incoming_request_count.toLocaleString(i18n.language) },
+      { label: t("guardrails.activeDeploymentsAffected"), value: impact.active_deployment_count.toLocaleString(i18n.language) },
+    ] : []}
+    copy={{
+      eyebrow: t("guardrails.deleteEyebrow"),
+      title: t("guardrails.deleteDialogTitle"),
+      description: t("guardrails.deleteDialogDescription", { name: guardrail.name }),
+      protectedMessage: t("guardrails.recentTrafficWarning"),
+      clearMessage: t("guardrails.noRecentTraffic"),
+      retentionNote: t("guardrails.deleteRetentionNote"),
+      continueLabel: t("guardrails.continueDelete"),
+      deleteLabel: t("guardrails.deleteConfirm"),
+      deletingLabel: t("guardrails.deleting"),
+      confirmTitle: t("guardrails.deleteRecentTrafficTitle"),
+      confirmDescription: t("guardrails.deleteRecentTrafficDescription", { count: impact?.incoming_request_count ?? 0, minutes: impact?.window_minutes ?? 30 }),
+      confirmWarning: t("guardrails.deleteStopsTraffic", { count: impact?.active_deployment_count ?? 0 }),
+      typeNameLabel: t("guardrails.typeNameToConfirm", { name: guardrail.name }),
+      protectedDeleteLabel: t("guardrails.deleteDespiteTraffic"),
+      cancelLabel: t("common.cancel"),
+      backLabel: t("common.back"),
+      retryLabel: t("common.retry"),
+    }}
+    onRetry={onRetry}
+    onConfirm={onConfirm}
+  />;
 }
 
 export function GuardrailRuntimeView({ guardrailId, metrics, loading, error, deployments, versions = [], window, onWindowChange }: { guardrailId: string; metrics?: Metrics; loading: boolean; error: unknown; deployments: Awaited<ReturnType<typeof getDeployments>>["items"]; versions?: GuardrailVersion[]; window: MetricWindow; onWindowChange: (window: MetricWindow) => void }) {

@@ -83,6 +83,7 @@ from .domain import (
     Deployment,
     EvidenceRecord,
     Guardrail,
+    GuardrailDeletionImpact,
     GuardrailLoggingSettings,
     GuardrailPolicyBinding,
     GuardrailTestCase,
@@ -92,6 +93,7 @@ from .domain import (
     IntegrationAuthenticationError,
     IntegrationCredential,
     IntegrationCredentialSecret,
+    IntegrationDeletionImpact,
     IntegrationRegistration,
     NotFoundError,
     PolicyDraft,
@@ -324,9 +326,9 @@ class ControlPlaneService:
 
             references = []
             for guardrail in session.scalars(
-                select(GuardrailModel).order_by(
-                    func.lower(GuardrailModel.name), GuardrailModel.id
-                )
+                select(GuardrailModel)
+                .where(GuardrailModel.enabled.is_(True))
+                .order_by(func.lower(GuardrailModel.name), GuardrailModel.id)
             ).all():
                 bindings = guardrail.policy_bindings_json or []
                 if any(
@@ -611,18 +613,129 @@ class ControlPlaneService:
     def guardrails(self) -> tuple[Guardrail, ...]:
         with self._database.session() as session:
             rows = session.scalars(
-                select(GuardrailModel).order_by(
-                    func.lower(GuardrailModel.name), GuardrailModel.id
-                )
+                select(GuardrailModel)
+                .where(GuardrailModel.enabled.is_(True))
+                .order_by(func.lower(GuardrailModel.name), GuardrailModel.id)
             ).all()
             return tuple(_guardrail_from_model(row) for row in rows)
 
     def guardrail(self, guardrail_id: str) -> Guardrail:
         with self._database.session() as session:
             row = session.get(GuardrailModel, guardrail_id)
-            if row is None:
+            if row is None or not row.enabled:
                 raise NotFoundError(f"Guardrail {guardrail_id!r} was not found.")
             return _guardrail_from_model(row)
+
+    def guardrail_deletion_impact(
+        self,
+        guardrail_id: str,
+        *,
+        window_minutes: int = 30,
+    ) -> GuardrailDeletionImpact:
+        """Describe live traffic that makes deleting a Guardrail higher risk."""
+
+        guardrail = self.guardrail(guardrail_id)
+        if is_default_guardrail(guardrail_id):
+            raise ValidationError("The Default Guardrail cannot be deleted.")
+        since = _utcnow() - timedelta(minutes=window_minutes)
+        with self._database.session() as session:
+            incoming_request_count = int(
+                session.scalar(
+                    select(func.count(RuntimeMetricEventModel.id)).where(
+                        RuntimeMetricEventModel.guardrail_id == guardrail_id,
+                        RuntimeMetricEventModel.phase == "input",
+                        RuntimeMetricEventModel.created_at >= since,
+                    )
+                )
+                or 0
+            )
+            active_deployment_count = int(
+                session.scalar(
+                    select(func.count(DeploymentModel.id)).where(
+                        DeploymentModel.guardrail_id == guardrail_id,
+                        DeploymentModel.enabled.is_(True),
+                    )
+                )
+                or 0
+            )
+        return GuardrailDeletionImpact(
+            guardrail_id=guardrail.id,
+            guardrail_name=guardrail.name,
+            window_minutes=window_minutes,
+            incoming_request_count=incoming_request_count,
+            active_deployment_count=active_deployment_count,
+            requires_confirmation=incoming_request_count > 0,
+        )
+
+    def disable_guardrail(
+        self,
+        guardrail_id: str,
+        *,
+        confirm_recent_traffic: bool = False,
+        actor_id: str | None = None,
+    ) -> None:
+        """Soft-delete a Guardrail while preserving every audit and runtime record."""
+
+        if is_default_guardrail(guardrail_id):
+            raise ValidationError("The Default Guardrail cannot be deleted.")
+        now = _utcnow()
+        since = now - timedelta(minutes=30)
+        with self._database.transaction() as session:
+            row = session.scalar(
+                select(GuardrailModel)
+                .where(
+                    GuardrailModel.id == guardrail_id,
+                    GuardrailModel.enabled.is_(True),
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise NotFoundError(f"Guardrail {guardrail_id!r} was not found.")
+            recent_requests = int(
+                session.scalar(
+                    select(func.count(RuntimeMetricEventModel.id)).where(
+                        RuntimeMetricEventModel.guardrail_id == guardrail_id,
+                        RuntimeMetricEventModel.phase == "input",
+                        RuntimeMetricEventModel.created_at >= since,
+                    )
+                )
+                or 0
+            )
+            if recent_requests and not confirm_recent_traffic:
+                raise ConflictError(
+                    f"Guardrail {row.name!r} received {recent_requests} incoming "
+                    "request(s) in the last 30 minutes. Explicit confirmation is required."
+                )
+
+            active_deployments = int(
+                session.scalar(
+                    select(func.count(DeploymentModel.id)).where(
+                        DeploymentModel.guardrail_id == guardrail_id,
+                        DeploymentModel.enabled.is_(True),
+                    )
+                )
+                or 0
+            )
+            guardrail_name = row.name
+            row.enabled = False
+            row.updated_at = now
+            self._insert_evidence_record(
+                session,
+                kind="guardrail.deleted",
+                outcome="success",
+                guardrail_id=guardrail_id,
+                actor_id=actor_id,
+                detail=(
+                    f"Soft-deleted Guardrail {guardrail_name}; audit and runtime "
+                    "history were retained."
+                ),
+                metadata={
+                    "active_deployments": str(active_deployments),
+                    "recent_incoming_requests": str(recent_requests),
+                    "window_minutes": "30",
+                },
+            )
+        self._reload_runtime_and_registry()
 
     def create_guardrail(
         self,
@@ -1452,9 +1565,23 @@ class ControlPlaneService:
     def deployments(self) -> tuple[Deployment, ...]:
         with self._database.session() as session:
             rows = session.scalars(
-                select(DeploymentModel).order_by(
-                    func.lower(DeploymentModel.name), DeploymentModel.id
+                select(DeploymentModel)
+                .join(
+                    GuardrailModel,
+                    GuardrailModel.id == DeploymentModel.guardrail_id,
                 )
+                .outerjoin(
+                    IntegrationModel,
+                    IntegrationModel.id == DeploymentModel.integration_id,
+                )
+                .where(
+                    GuardrailModel.enabled.is_(True),
+                    or_(
+                        DeploymentModel.integration_id.is_(None),
+                        IntegrationModel.deleted_at.is_(None),
+                    ),
+                )
+                .order_by(func.lower(DeploymentModel.name), DeploymentModel.id)
             ).all()
             return tuple(_deployment_from_model(row) for row in rows)
 
@@ -1856,16 +1983,16 @@ class ControlPlaneService:
     def integrations(self) -> tuple[Integration, ...]:
         with self._database.session() as session:
             rows = session.scalars(
-                select(IntegrationModel).order_by(
-                    func.lower(IntegrationModel.name), IntegrationModel.id
-                )
+                select(IntegrationModel)
+                .where(IntegrationModel.deleted_at.is_(None))
+                .order_by(func.lower(IntegrationModel.name), IntegrationModel.id)
             ).all()
             return tuple(self._integration_from_model(session, row) for row in rows)
 
     def integration(self, integration_id: str) -> Integration:
         with self._database.session() as session:
             row = session.get(IntegrationModel, integration_id)
-            if row is None:
+            if row is None or row.deleted_at is not None:
                 raise NotFoundError("Integration was not found.")
             return self._integration_from_model(session, row)
 
@@ -1875,6 +2002,57 @@ class ControlPlaneService:
         if adapter is None:
             raise ControlPlaneError("Stored Integration adapter is not registered.")
         return adapter.setup(self._public_runtime_base_url, integration.id)
+
+    def integration_deletion_impact(
+        self,
+        integration_id: str,
+        *,
+        window_minutes: int = 30,
+    ) -> IntegrationDeletionImpact:
+        """Describe live traffic and retained bindings before soft deletion."""
+
+        integration = self.integration(integration_id)
+        since = _utcnow() - timedelta(minutes=window_minutes)
+        with self._database.session() as session:
+            incoming_request_count = int(
+                session.scalar(
+                    select(func.count(RuntimeMetricEventModel.id)).where(
+                        RuntimeMetricEventModel.integration_id == integration_id,
+                        RuntimeMetricEventModel.phase == "input",
+                        RuntimeMetricEventModel.created_at >= since,
+                    )
+                )
+                or 0
+            )
+            active_deployment_count = int(
+                session.scalar(
+                    select(func.count(DeploymentModel.id)).where(
+                        DeploymentModel.integration_id == integration_id,
+                        DeploymentModel.enabled.is_(True),
+                    )
+                )
+                or 0
+            )
+            active_credential_count = int(
+                session.scalar(
+                    select(func.count(IntegrationCredentialModel.id)).where(
+                        IntegrationCredentialModel.integration_id == integration_id,
+                        IntegrationCredentialModel.revoked_at.is_(None),
+                    )
+                )
+                or 0
+            )
+        return IntegrationDeletionImpact(
+            integration_id=integration.id,
+            integration_name=integration.name,
+            window_minutes=window_minutes,
+            incoming_request_count=incoming_request_count,
+            active_deployment_count=active_deployment_count,
+            active_credential_count=active_credential_count,
+            requires_confirmation=(
+                incoming_request_count > 0 or active_deployment_count > 0
+            ),
+        )
 
     def create_integration(
         self,
@@ -1898,6 +2076,7 @@ class ControlPlaneService:
                     name=name.strip(),
                     description=description.strip(),
                     enabled=True,
+                    deleted_at=None,
                     first_seen_at=None,
                     last_seen_at=None,
                     input_seen_at=None,
@@ -1920,6 +2099,89 @@ class ControlPlaneService:
             )
         self._reload_runtime()
         return IntegrationRegistration(self.integration(integration_id), credential)
+
+    def soft_delete_integration(
+        self,
+        integration_id: str,
+        *,
+        confirm_protected_delete: bool = False,
+        actor_id: str | None = None,
+    ) -> None:
+        """Retire an Integration without deleting its configuration or history."""
+
+        now = _utcnow()
+        since = now - timedelta(minutes=30)
+        with self._database.transaction() as session:
+            row = session.scalar(
+                select(IntegrationModel)
+                .where(
+                    IntegrationModel.id == integration_id,
+                    IntegrationModel.deleted_at.is_(None),
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise NotFoundError("Integration was not found.")
+            recent_requests = int(
+                session.scalar(
+                    select(func.count(RuntimeMetricEventModel.id)).where(
+                        RuntimeMetricEventModel.integration_id == integration_id,
+                        RuntimeMetricEventModel.phase == "input",
+                        RuntimeMetricEventModel.created_at >= since,
+                    )
+                )
+                or 0
+            )
+            active_deployments = int(
+                session.scalar(
+                    select(func.count(DeploymentModel.id)).where(
+                        DeploymentModel.integration_id == integration_id,
+                        DeploymentModel.enabled.is_(True),
+                    )
+                )
+                or 0
+            )
+            active_credentials = int(
+                session.scalar(
+                    select(func.count(IntegrationCredentialModel.id)).where(
+                        IntegrationCredentialModel.integration_id == integration_id,
+                        IntegrationCredentialModel.revoked_at.is_(None),
+                    )
+                )
+                or 0
+            )
+            if (
+                recent_requests > 0 or active_deployments > 0
+            ) and not confirm_protected_delete:
+                raise ConflictError(
+                    f"Integration {row.name!r} has protected activity: "
+                    f"{recent_requests} incoming request(s) in the last 30 minutes "
+                    f"and {active_deployments} active Deployment(s). "
+                    "Explicit confirmation is required."
+                )
+
+            integration_name = row.name
+            row.enabled = False
+            row.deleted_at = now
+            row.updated_at = now
+            self._insert_evidence_record(
+                session,
+                kind="integration.deleted",
+                outcome="success",
+                integration_id=integration_id,
+                actor_id=actor_id,
+                detail=(
+                    f"Soft-deleted Integration {integration_name}; configuration, "
+                    "credentials, audit records, and runtime history were retained."
+                ),
+                metadata={
+                    "active_credentials": str(active_credentials),
+                    "active_deployments": str(active_deployments),
+                    "recent_incoming_requests": str(recent_requests),
+                    "window_minutes": "30",
+                },
+            )
+        self._reload_runtime_and_registry()
 
     def set_integration_enabled(
         self, integration_id: str, enabled: bool
@@ -2027,7 +2289,10 @@ class ControlPlaneService:
         with self._database.transaction() as session:
             row = session.scalar(
                 select(IntegrationModel)
-                .where(IntegrationModel.id == integration_id)
+                .where(
+                    IntegrationModel.id == integration_id,
+                    IntegrationModel.deleted_at.is_(None),
+                )
                 .with_for_update()
             )
             if row is None:
@@ -3308,7 +3573,14 @@ class ControlPlaneService:
         credentials: dict[str, str] = {}
         logging_levels: dict[str, str] = {}
         with self._database.session() as session:
-            for row in session.scalars(select(GuardrailVersionModel)).all():
+            for row in session.scalars(
+                select(GuardrailVersionModel)
+                .join(
+                    GuardrailModel,
+                    GuardrailModel.id == GuardrailVersionModel.guardrail_id,
+                )
+                .where(GuardrailModel.enabled.is_(True))
+            ).all():
                 key = (row.guardrail_id, row.version)
                 plans[key] = _plan_from_payload(row.plan_json)
                 if row.nemo_config_json is not None:
@@ -3316,13 +3588,27 @@ class ControlPlaneService:
                         row.nemo_config_json
                     )
             credential_rows = session.scalars(
-                select(IntegrationCredentialModel).where(
-                    IntegrationCredentialModel.revoked_at.is_(None)
+                select(IntegrationCredentialModel)
+                .join(
+                    IntegrationModel,
+                    IntegrationModel.id == IntegrationCredentialModel.integration_id,
+                )
+                .where(
+                    IntegrationCredentialModel.revoked_at.is_(None),
+                    IntegrationModel.deleted_at.is_(None),
                 )
             ).all()
             for row in credential_rows:
                 credentials[row.secret_hash] = row.integration_id
-            for row in session.scalars(select(GuardrailLoggingSettingsModel)).all():
+            for row in session.scalars(
+                select(GuardrailLoggingSettingsModel)
+                .join(
+                    GuardrailModel,
+                    GuardrailModel.id
+                    == GuardrailLoggingSettingsModel.guardrail_id,
+                )
+                .where(GuardrailModel.enabled.is_(True))
+            ).all():
                 logging_levels[row.guardrail_id] = row.level
         self._plans = plans
         self._nemo_configs = nemo_configs

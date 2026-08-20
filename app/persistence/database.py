@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TypeAlias
 
-from sqlalchemy import Engine, create_engine, event, inspect, make_url, text
+from sqlalchemy import DateTime, Engine, create_engine, event, inspect, make_url, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -69,6 +69,21 @@ class Database:
                 statements.append(
                     "ALTER TABLE guardrails ADD COLUMN "
                     "excluded_test_case_ids_json JSON NOT NULL DEFAULT '[]'"
+                )
+            if "enabled" not in columns:
+                statements.append(
+                    "ALTER TABLE guardrails ADD COLUMN "
+                    "enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+        if "integrations" in tables:
+            columns = {item["name"] for item in inspector.get_columns("integrations")}
+            if "deleted_at" not in columns:
+                date_time_type = DateTime(timezone=True).compile(
+                    dialect=self.engine.dialect
+                )
+                statements.append(
+                    "ALTER TABLE integrations ADD COLUMN "
+                    f"deleted_at {date_time_type}"
                 )
         if "validation_runs" in tables:
             columns = {

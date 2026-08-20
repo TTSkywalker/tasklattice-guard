@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from app.control_plane.catalog import builtin_policy_id
 from app.control_plane.defaults import DEFAULT_DEPLOYMENT_ID, DEFAULT_GUARDRAIL_ID
 from app.control_plane.domain import (
+    ConflictError,
     ControlPlaneError,
     GuardrailPolicyBinding,
+    IntegrationAuthenticationError,
+    NotFoundError,
     TestCaseResult,
     TrafficCondition,
     TrafficScopeExpression,
@@ -23,6 +28,15 @@ from app.integrations import (
 from app.nemo.actions import local_action_providers
 from app.nemo.action_registry import action_name_for
 from app.nemo.actions.contracts import ActionResult
+from app.persistence.models import (
+    DeploymentModel,
+    GuardrailModel,
+    GuardrailVersionModel,
+    IntegrationCredentialModel,
+    IntegrationModel,
+    RuntimeLogInteractionModel,
+    RuntimeMetricEventModel,
+)
 from app.runtime.contracts import EngineRequest, RequestContext, RiskFinding, RuntimeTraceStep
 from tests.nemo_helpers import nemo_engine
 
@@ -116,6 +130,344 @@ def test_default_guardrail_policy_set_can_be_updated_and_published(tmp_path):
     reloaded = ControlPlaneService(database).guardrail(DEFAULT_GUARDRAIL_ID)
     assert reloaded.active_version == 2
     assert [item.policy_id for item in reloaded.policy_bindings] == ["builtin-secrets"]
+
+
+def test_guardrail_soft_delete_stops_routing_and_preserves_all_history(tmp_path):
+    service = ControlPlaneService(tmp_path / "soft-delete.db")
+    guardrail = service.create_guardrail(
+        name="Retired Finance Guardrail",
+        purpose="Protect Finance traffic until this Guardrail is retired.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+    released = pass_current_guardrail(service, guardrail.id)
+    deployment = service.create_deployment(
+        name="Finance traffic",
+        guardrail_id=guardrail.id,
+        traffic_scope=filter_expression(
+            filter_rule(
+                "http.header",
+                "equals",
+                "finance-agent",
+                key="x-app-id",
+            )
+        ),
+    )
+    service.record_decision(
+        trace_id="soft-delete-input",
+        outcome="allow",
+        guardrail_id=guardrail.id,
+        guardrail_version=released.version.version,
+        deployment_id=deployment.id,
+        integration_id=None,
+        protocol="http",
+        phase="input",
+        action="pass",
+        risk=None,
+        detail="Allowed by the Finance Guardrail.",
+    )
+    service.record_decision(
+        trace_id="soft-delete-output",
+        outcome="block",
+        guardrail_id=guardrail.id,
+        guardrail_version=released.version.version,
+        deployment_id=deployment.id,
+        integration_id=None,
+        protocol="http",
+        phase="output",
+        action="reject",
+        risk="secrets",
+        detail="Blocked by the Finance Guardrail.",
+    )
+    service.record_runtime_log(
+        trace_id="soft-delete-log",
+        call_id=None,
+        guardrail_id=guardrail.id,
+        guardrail_version=released.version.version,
+        deployment_id=deployment.id,
+        integration_id=None,
+        protocol="http",
+        phase="input",
+        outcome="block",
+        action="reject",
+        risk="secrets",
+        latency_ms=8,
+        timed_out=False,
+        fail_closed=False,
+        detail="Blocked request metadata.",
+    )
+    evidence_ids_before = {
+        item.id for item in service.evidence_records(limit=500)
+    }
+
+    impact = service.guardrail_deletion_impact(guardrail.id)
+
+    assert impact.incoming_request_count == 1
+    assert impact.active_deployment_count == 1
+    assert impact.requires_confirmation is True
+    with pytest.raises(ConflictError, match="Explicit confirmation"):
+        service.disable_guardrail(guardrail.id)
+
+    service.disable_guardrail(
+        guardrail.id,
+        confirm_recent_traffic=True,
+        actor_id="admin-delete",
+    )
+
+    with pytest.raises(NotFoundError):
+        service.guardrail(guardrail.id)
+    assert guardrail.id not in {item.id for item in service.guardrails()}
+    assert deployment.id not in {item.id for item in service.deployments()}
+    fallback = service.resolve(
+        RequestContext(
+            protocol="local",
+            headers=(("x-app-id", "finance-agent"),),
+        )
+    )
+    assert fallback.deployment_id == DEFAULT_DEPLOYMENT_ID
+    assert fallback.plan.guardrail_id == DEFAULT_GUARDRAIL_ID
+
+    metrics = service.runtime_metrics(since="2000-01-01T00:00:00+00:00")
+    assert sum(item.guardrail_id == guardrail.id for item in metrics) == 2
+    logs, _ = service.runtime_log_interactions(
+        guardrail_id=guardrail.id,
+        include_content=False,
+    )
+    assert len(logs) == 1
+    evidence = service.evidence_records(limit=500)
+    assert evidence_ids_before <= {item.id for item in evidence}
+    deleted_event = next(
+        item
+        for item in evidence
+        if item.kind == "guardrail.deleted" and item.guardrail_id == guardrail.id
+    )
+    assert deleted_event.actor_id == "admin-delete"
+    assert dict(deleted_event.metadata) == {
+        "active_deployments": "1",
+        "recent_incoming_requests": "1",
+        "window_minutes": "30",
+    }
+    with service.database.session() as session:
+        guardrail_row = session.get(GuardrailModel, guardrail.id)
+        deployment_row = session.get(DeploymentModel, deployment.id)
+        version_row = session.get(
+            GuardrailVersionModel,
+            (guardrail.id, released.version.version),
+        )
+        log_row = session.scalar(
+            select(RuntimeLogInteractionModel).where(
+                RuntimeLogInteractionModel.guardrail_id == guardrail.id
+            )
+        )
+    assert guardrail_row is not None and guardrail_row.enabled is False
+    assert deployment_row is not None and deployment_row.enabled is True
+    assert version_row is not None
+    assert log_row is not None
+
+
+def test_default_guardrail_cannot_be_soft_deleted(tmp_path):
+    service = ControlPlaneService(tmp_path / "default-delete.db")
+
+    with pytest.raises(ValidationError, match="Default Guardrail"):
+        service.guardrail_deletion_impact(DEFAULT_GUARDRAIL_ID)
+    with pytest.raises(ValidationError, match="Default Guardrail"):
+        service.disable_guardrail(
+            DEFAULT_GUARDRAIL_ID,
+            confirm_recent_traffic=True,
+        )
+
+
+def test_guardrail_deletion_impact_uses_an_exact_thirty_minute_input_window(tmp_path):
+    service = ControlPlaneService(tmp_path / "deletion-window.db")
+    guardrail = service.create_guardrail(
+        name="Idle Guardrail",
+        purpose="Verify that old traffic does not require a second confirmation.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+    service.record_decision(
+        trace_id="old-input",
+        outcome="allow",
+        guardrail_id=guardrail.id,
+        guardrail_version=None,
+        deployment_id=None,
+        integration_id=None,
+        protocol="http",
+        phase="input",
+        action="pass",
+        risk=None,
+        detail="An input outside the deletion confirmation window.",
+    )
+    with service.database.transaction() as session:
+        row = session.scalar(
+            select(RuntimeMetricEventModel).where(
+                RuntimeMetricEventModel.trace_id == "old-input"
+            )
+        )
+        assert row is not None
+        row.created_at = datetime.now(UTC) - timedelta(minutes=31)
+
+    impact = service.guardrail_deletion_impact(guardrail.id)
+
+    assert impact.window_minutes == 30
+    assert impact.incoming_request_count == 0
+    assert impact.requires_confirmation is False
+    service.disable_guardrail(guardrail.id)
+
+
+def test_integration_soft_delete_stops_runtime_and_preserves_configuration_and_history(tmp_path):
+    service = ControlPlaneService(tmp_path / "integration-soft-delete.db")
+    registration = service.create_integration(
+        name="Retired Finance Gateway",
+        description="Retire this Gateway without erasing operational evidence.",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
+    )
+    guardrail = service.create_guardrail(
+        name="Finance Gateway Guardrail",
+        purpose="Protect traffic arriving through the Finance Gateway.",
+        policy_bindings=(policy_binding("secrets", "reject"),),
+    )
+    released = pass_current_guardrail(service, guardrail.id)
+    deployment = service.create_deployment(
+        name="Finance Gateway route",
+        guardrail_id=guardrail.id,
+        integration_id=registration.integration.id,
+        traffic_scope=filter_expression(),
+    )
+    service.record_decision(
+        trace_id="integration-delete-input",
+        outcome="allow",
+        guardrail_id=guardrail.id,
+        guardrail_version=released.version.version,
+        deployment_id=deployment.id,
+        integration_id=registration.integration.id,
+        protocol="http",
+        phase="input",
+        action="pass",
+        risk=None,
+        detail="Recent Integration input.",
+    )
+    service.record_runtime_log(
+        trace_id="integration-delete-log",
+        call_id=None,
+        guardrail_id=guardrail.id,
+        guardrail_version=released.version.version,
+        deployment_id=deployment.id,
+        integration_id=registration.integration.id,
+        protocol="http",
+        phase="input",
+        outcome="block",
+        action="reject",
+        risk="secrets",
+        latency_ms=5,
+        timed_out=False,
+        fail_closed=False,
+        detail="Retained Integration runtime log.",
+    )
+    evidence_ids_before = {item.id for item in service.evidence_records(limit=500)}
+
+    impact = service.integration_deletion_impact(registration.integration.id)
+
+    assert impact.incoming_request_count == 1
+    assert impact.active_deployment_count == 1
+    assert impact.active_credential_count == 1
+    assert impact.requires_confirmation is True
+    with pytest.raises(ConflictError, match="Explicit confirmation"):
+        service.soft_delete_integration(registration.integration.id)
+
+    service.soft_delete_integration(
+        registration.integration.id,
+        confirm_protected_delete=True,
+        actor_id="admin-delete",
+    )
+
+    with pytest.raises(NotFoundError):
+        service.integration(registration.integration.id)
+    with pytest.raises(IntegrationAuthenticationError):
+        service.authenticate_integration(
+            registration.integration.id,
+            registration.credential.value,
+            GENERIC_HTTP_GUARD_ADAPTER_ID,
+        )
+    assert registration.integration.id not in {item.id for item in service.integrations()}
+    assert deployment.id not in {item.id for item in service.deployments()}
+    metrics = service.runtime_metrics(since="2000-01-01T00:00:00+00:00")
+    assert sum(item.integration_id == registration.integration.id for item in metrics) == 1
+    logs, _ = service.runtime_log_interactions(
+        guardrail_id=guardrail.id,
+        include_content=False,
+    )
+    assert len(logs) == 1
+    evidence = service.evidence_records(limit=500)
+    assert evidence_ids_before <= {item.id for item in evidence}
+    deleted_event = next(
+        item
+        for item in evidence
+        if item.kind == "integration.deleted"
+        and item.integration_id == registration.integration.id
+    )
+    assert deleted_event.actor_id == "admin-delete"
+    assert dict(deleted_event.metadata) == {
+        "active_credentials": "1",
+        "active_deployments": "1",
+        "recent_incoming_requests": "1",
+        "window_minutes": "30",
+    }
+    with service.database.session() as session:
+        integration_row = session.get(IntegrationModel, registration.integration.id)
+        credential_row = session.scalar(
+            select(IntegrationCredentialModel).where(
+                IntegrationCredentialModel.integration_id == registration.integration.id
+            )
+        )
+        deployment_row = session.get(DeploymentModel, deployment.id)
+        log_row = session.scalar(
+            select(RuntimeLogInteractionModel).where(
+                RuntimeLogInteractionModel.integration_id == registration.integration.id
+            )
+        )
+    assert integration_row is not None and integration_row.enabled is False
+    assert integration_row.deleted_at is not None
+    assert credential_row is not None and credential_row.revoked_at is None
+    assert deployment_row is not None and deployment_row.enabled is True
+    assert log_row is not None
+
+
+def test_integration_deletion_impact_uses_an_exact_thirty_minute_input_window(tmp_path):
+    service = ControlPlaneService(tmp_path / "integration-deletion-window.db")
+    registration = service.create_integration(
+        name="Idle Gateway",
+        description="Verify old traffic does not trigger a second confirmation.",
+        adapter_id=GENERIC_HTTP_GUARD_ADAPTER_ID,
+    )
+    service.record_decision(
+        trace_id="old-integration-input",
+        outcome="allow",
+        guardrail_id=DEFAULT_GUARDRAIL_ID,
+        guardrail_version=1,
+        deployment_id=DEFAULT_DEPLOYMENT_ID,
+        integration_id=registration.integration.id,
+        protocol="http",
+        phase="input",
+        action="pass",
+        risk=None,
+        detail="Integration input outside the deletion confirmation window.",
+    )
+    with service.database.transaction() as session:
+        row = session.scalar(
+            select(RuntimeMetricEventModel).where(
+                RuntimeMetricEventModel.trace_id == "old-integration-input"
+            )
+        )
+        assert row is not None
+        row.created_at = datetime.now(UTC) - timedelta(minutes=31)
+
+    impact = service.integration_deletion_impact(registration.integration.id)
+
+    assert impact.window_minutes == 30
+    assert impact.incoming_request_count == 0
+    assert impact.active_deployment_count == 0
+    assert impact.active_credential_count == 1
+    assert impact.requires_confirmation is False
+    service.soft_delete_integration(registration.integration.id)
 
 
 def test_deployment_resolves_one_immutable_guardrail_version(tmp_path):
@@ -516,6 +868,7 @@ def test_database_uses_only_current_orm_tables_and_columns(tmp_path):
         "output_seen_at",
         "request_count",
         "error_count",
+        "deleted_at",
     } <= integration_columns
     assert {"protocol", "environment"}.isdisjoint(integration_columns)
     assert "key_hint" in credential_columns

@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { EntitySheet } from "@/components/entity-sheet";
+import { ProtectedDeleteSheet } from "@/components/protected-delete-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -31,9 +32,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { queryKeys } from "@/features/query-keys";
+import { useAuth } from "@/lib/auth";
 import {
   createIntegration,
+  deleteIntegration,
   getIntegration,
+  getIntegrationDeletionImpact,
   getIntegrations,
   revokeIntegrationCredential,
   rotateIntegrationCredential,
@@ -41,6 +45,7 @@ import {
   type Integration,
   type IntegrationAdapterId,
   type IntegrationCredential,
+  type IntegrationDeletionImpact,
   type IntegrationProtocol,
   type IntegrationRegistration,
   type IntegrationSetupStatus,
@@ -54,21 +59,47 @@ const ADAPTERS: ReadonlyArray<{ id: IntegrationAdapterId; protocol: IntegrationP
   { id: "a2a-guard", protocol: "a2a" },
 ];
 
-const integrationDetailKey = (id: string) => [...queryKeys.integrations, id] as const;
-
 export function IntegrationsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const auth = useAuth();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.integrations, queryFn: getIntegrations });
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Integration | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Integration | null>(null);
   const integrations = query.data?.items ?? [];
   const verified = integrations.filter((item) => item.setup_status === "verified").length;
   const attention = integrations.filter((item) => item.runtime_status === "degraded").length;
+  const deletionImpactQuery = useQuery({
+    queryKey: queryKeys.integrationDeletionImpact(deleteTarget?.id ?? ""),
+    queryFn: () => getIntegrationDeletionImpact(deleteTarget!.id),
+    enabled: Boolean(deleteTarget),
+    staleTime: 0,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (confirmProtectedDelete: boolean) => deleteIntegration(deleteTarget!.id, confirmProtectedDelete),
+    onSuccess: async () => {
+      toast.success(t("integrations.deleteSucceeded"));
+      const deletedId = deleteTarget?.id;
+      if (deletedId) {
+        await queryClient.cancelQueries({ queryKey: queryKeys.integration(deletedId) });
+        queryClient.removeQueries({ queryKey: queryKeys.integration(deletedId) });
+      }
+      setDeleteTarget(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.integrations, exact: true }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.deployments }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.metrics }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.evidence }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.systemStatus }),
+      ]);
+    },
+    onError: async () => { await deletionImpactQuery.refetch(); },
+  });
 
   async function refreshIntegrations() {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations, exact: true }),
       queryClient.invalidateQueries({ queryKey: queryKeys.systemStatus }),
     ]);
   }
@@ -124,7 +155,20 @@ export function IntegrationsPage() {
         integration={selected}
         onOpenChange={(open) => !open && setSelected(null)}
         onUpdated={refreshIntegrations}
+        onDelete={auth.user?.role === "admin" ? (integration) => { setSelected(null); deleteMutation.reset(); setDeleteTarget(integration); } : undefined}
       />
+      {deleteTarget ? <DeleteIntegrationSheet
+        integration={deleteTarget}
+        open
+        impact={deletionImpactQuery.data}
+        loading={deletionImpactQuery.isFetching}
+        deleting={deleteMutation.isPending}
+        error={deleteMutation.error instanceof Error ? deleteMutation.error : deletionImpactQuery.error instanceof Error ? deletionImpactQuery.error : null}
+        locale={i18n.language}
+        onOpenChange={(open) => { if (!open && !deleteMutation.isPending) { setDeleteTarget(null); deleteMutation.reset(); } }}
+        onRetry={() => { deleteMutation.reset(); void deletionImpactQuery.refetch(); }}
+        onConfirm={(confirmedProtectedDelete) => deleteMutation.mutate(confirmedProtectedDelete)}
+      /> : null}
       <CreateIntegrationSheet
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -178,23 +222,27 @@ function ListDatum({ children, label }: { children: ReactNode; label: string }) 
 
 function IntegrationDetail({
   integration,
+  onDelete,
   onOpenChange,
   onUpdated,
 }: {
   integration: Integration | null;
+  onDelete?: (integration: Integration) => void;
   onOpenChange: (open: boolean) => void;
   onUpdated: () => Promise<void>;
 }) {
   if (!integration) return null;
-  return <IntegrationDetailContent key={integration.id} initialIntegration={integration} onOpenChange={onOpenChange} onUpdated={onUpdated} />;
+  return <IntegrationDetailContent key={integration.id} initialIntegration={integration} onDelete={onDelete} onOpenChange={onOpenChange} onUpdated={onUpdated} />;
 }
 
 function IntegrationDetailContent({
   initialIntegration,
+  onDelete,
   onOpenChange,
   onUpdated,
 }: {
   initialIntegration: Integration;
+  onDelete?: (integration: Integration) => void;
   onOpenChange: (open: boolean) => void;
   onUpdated: () => Promise<void>;
 }) {
@@ -202,7 +250,7 @@ function IntegrationDetailContent({
   const queryClient = useQueryClient();
   const copy = useCopyText();
   const query = useQuery({
-    queryKey: integrationDetailKey(initialIntegration.id),
+    queryKey: queryKeys.integration(initialIntegration.id),
     queryFn: () => getIntegration(initialIntegration.id),
     initialData: initialIntegration,
     refetchInterval: 5_000,
@@ -214,7 +262,7 @@ function IntegrationDetailContent({
   const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
 
   async function cacheIntegration(next: Integration) {
-    queryClient.setQueryData(integrationDetailKey(next.id), next);
+    queryClient.setQueryData(queryKeys.integration(next.id), next);
     await onUpdated();
   }
 
@@ -263,7 +311,10 @@ function IntegrationDetailContent({
       <Button variant="outline" onClick={() => setCloseWarning(false)}>{t("integrations.keepSettingUp")}</Button>
       <Button variant="destructive" onClick={() => onOpenChange(false)}>{t("integrations.leaveAndLoseKey")}</Button>
     </>
-  ) : <Button variant="outline" onClick={requestClose}>{t("common.close")}</Button>;
+  ) : <>
+    {onDelete && (!oneTimeCredential || credentialSaved) ? <Button className="text-destructive hover:bg-destructive/10 hover:text-destructive" variant="outline" onClick={() => onDelete(integration)}><Trash2 />{t("integrations.deleteAction")}</Button> : null}
+    <Button variant="outline" onClick={requestClose}>{t("common.close")}</Button>
+  </>;
 
   return (
     <EntitySheet
@@ -370,6 +421,68 @@ function IntegrationDetailContent({
   );
 }
 
+export function DeleteIntegrationSheet({
+  deleting,
+  error,
+  impact,
+  integration,
+  loading,
+  locale,
+  onConfirm,
+  onOpenChange,
+  onRetry,
+  open,
+}: {
+  deleting: boolean;
+  error: Error | null;
+  impact?: IntegrationDeletionImpact;
+  integration: Integration;
+  loading: boolean;
+  locale: string;
+  onConfirm: (confirmedProtectedDelete: boolean) => void;
+  onOpenChange: (open: boolean) => void;
+  onRetry: () => void;
+  open: boolean;
+}) {
+  const { t } = useTranslation();
+  return <ProtectedDeleteSheet
+    open={open}
+    onOpenChange={onOpenChange}
+    entityName={integration.name}
+    loading={loading}
+    ready={Boolean(impact)}
+    deleting={deleting}
+    error={error}
+    requiresConfirmation={Boolean(impact?.requires_confirmation)}
+    impactItems={impact ? [
+      { label: t("integrations.recentIncomingRequests", { minutes: impact.window_minutes }), value: impact.incoming_request_count.toLocaleString(locale) },
+      { label: t("integrations.activeDeploymentsAffected"), value: impact.active_deployment_count.toLocaleString(locale) },
+      { label: t("integrations.activeCredentialsRetained"), value: impact.active_credential_count.toLocaleString(locale) },
+    ] : []}
+    copy={{
+      eyebrow: t("integrations.deleteEyebrow"),
+      title: t("integrations.deleteDialogTitle"),
+      description: t("integrations.deleteDialogDescription", { name: integration.name }),
+      protectedMessage: t("integrations.protectedDeleteWarning"),
+      clearMessage: t("integrations.noProtectedActivity"),
+      retentionNote: t("integrations.deleteRetentionNote"),
+      continueLabel: t("integrations.continueDelete"),
+      deleteLabel: t("integrations.deleteConfirm"),
+      deletingLabel: t("integrations.deleting"),
+      confirmTitle: t("integrations.deleteProtectedTitle"),
+      confirmDescription: t("integrations.deleteProtectedDescription", { requests: impact?.incoming_request_count ?? 0, minutes: impact?.window_minutes ?? 30, deployments: impact?.active_deployment_count ?? 0 }),
+      confirmWarning: t("integrations.deleteStopsTraffic", { deployments: impact?.active_deployment_count ?? 0, credentials: impact?.active_credential_count ?? 0 }),
+      typeNameLabel: t("integrations.typeNameToConfirm", { name: integration.name }),
+      protectedDeleteLabel: t("integrations.deleteDespiteProtection"),
+      cancelLabel: t("common.cancel"),
+      backLabel: t("common.back"),
+      retryLabel: t("common.retry"),
+    }}
+    onRetry={onRetry}
+    onConfirm={onConfirm}
+  />;
+}
+
 export function CreateIntegrationSheet({
   open,
   onOpenChange,
@@ -388,7 +501,7 @@ export function CreateIntegrationSheet({
   const [closeWarning, setCloseWarning] = useState(false);
   const integrationId = registration?.integration.id ?? "";
   const integrationQuery = useQuery({
-    queryKey: integrationDetailKey(integrationId),
+    queryKey: queryKeys.integration(integrationId),
     queryFn: () => getIntegration(integrationId),
     enabled: open && Boolean(integrationId),
     initialData: registration?.integration,

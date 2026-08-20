@@ -195,6 +195,17 @@ class Guardrail:
     policy_bindings: tuple[GuardrailPolicyBinding, ...] = ()
     excluded_test_case_ids: tuple[str, ...] = ()
 
+
+@dataclass(frozen=True, slots=True)
+class GuardrailDeletionImpact:
+    guardrail_id: str
+    guardrail_name: str
+    window_minutes: int
+    incoming_request_count: int
+    active_deployment_count: int
+    requires_confirmation: bool
+
+
 @dataclass(frozen=True, slots=True)
 class GuardrailVersion:
     guardrail_id: str
@@ -273,6 +284,17 @@ class Integration:
     last_error_at: str | None
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class IntegrationDeletionImpact:
+    integration_id: str
+    integration_name: str
+    window_minutes: int
+    incoming_request_count: int
+    active_deployment_count: int
+    active_credential_count: int
+    requires_confirmation: bool
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,17 +4,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Integration, IntegrationRegistration } from "@/lib/api";
 
-import { CreateIntegrationSheet, SetupChecklist } from "./integrations";
+import { CreateIntegrationSheet, DeleteIntegrationSheet, SetupChecklist } from "./integrations";
 
 const createIntegrationMock = vi.fn();
 const getIntegrationMock = vi.fn();
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => undefined },
   useTranslation: () => ({
     t: (key: string, values?: Record<string, string | number>) => {
       const labels: Record<string, string> = {
         "common.cancel": "Cancel",
+        "common.back": "Back",
         "common.close": "Close",
+        "common.retry": "Retry",
         "integrations.register": "Add integration",
         "integrations.registering": "Registering…",
         "integrations.registerDescription": "Register one concrete AI Gateway instance.",
@@ -92,12 +95,31 @@ vi.mock("react-i18next", () => ({
         "integrations.unsavedCredentialDescription": "Leaving permanently hides the complete value.",
         "integrations.keepSettingUp": "Keep setting up",
         "integrations.leaveAndLoseKey": "Leave and lose key",
+        "integrations.deleteEyebrow": "Integration / protected deletion",
+        "integrations.deleteDialogTitle": "Delete this Integration?",
+        "integrations.deleteDialogDescription": "{{name}} will be marked deleted.",
+        "integrations.recentIncomingRequests": "Incoming requests · last {{minutes}} min",
+        "integrations.activeDeploymentsAffected": "Active Deployments affected",
+        "integrations.activeCredentialsRetained": "Active credentials retained",
+        "integrations.protectedDeleteWarning": "This Integration has protected activity.",
+        "integrations.noProtectedActivity": "No protected activity.",
+        "integrations.deleteRetentionNote": "Audit and runtime history remain stored.",
+        "integrations.continueDelete": "Continue",
+        "integrations.deleteConfirm": "Delete Integration",
+        "integrations.deleting": "Deleting…",
+        "integrations.deleteProtectedTitle": "Confirm protected Integration deletion",
+        "integrations.deleteProtectedDescription": "{{requests}} requests and {{deployments}} Deployments remain.",
+        "integrations.deleteStopsTraffic": "{{deployments}} Deployments stop and {{credentials}} credentials stop authenticating.",
+        "integrations.typeNameToConfirm": "Type {{name}} to confirm",
+        "integrations.deleteDespiteProtection": "Delete and stop traffic",
       };
       return Object.entries(values ?? {}).reduce((label, [name, value]) => label.replace(`{{${name}}}`, String(value)), labels[key] ?? key);
     },
     i18n: { language: "en", exists: () => false },
   }),
 }));
+
+vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { role: "admin" } }) }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/api")>();
@@ -264,5 +286,45 @@ describe("Integration onboarding", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Leave and lose key" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(result.integration, false));
+  });
+
+  it("uses the shared side sheet and requires the Integration name for protected deletion", () => {
+    const item = integration({ name: "Production Gateway" });
+    const onConfirm = vi.fn();
+
+    renderWithProviders(<DeleteIntegrationSheet
+      integration={item}
+      open
+      impact={{
+        integration_id: item.id,
+        integration_name: item.name,
+        window_minutes: 30,
+        incoming_request_count: 12,
+        active_deployment_count: 2,
+        active_credential_count: 1,
+        requires_confirmation: true,
+      }}
+      loading={false}
+      deleting={false}
+      error={null}
+      locale="en"
+      onOpenChange={vi.fn()}
+      onRetry={vi.fn()}
+      onConfirm={onConfirm}
+    />);
+
+    expect(screen.getByText("Audit and runtime history remain stored.")).toBeTruthy();
+    expect(screen.getByText("12")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    const finalDelete = screen.getByRole("button", { name: "Delete and stop traffic" }) as HTMLButtonElement;
+    expect(finalDelete.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Type Production Gateway to confirm"), { target: { value: item.name } });
+    expect(finalDelete.disabled).toBe(false);
+    fireEvent.click(finalDelete);
+
+    expect(onConfirm).toHaveBeenCalledWith(true);
   });
 });

@@ -4,7 +4,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from app.control_plane.defaults import DEFAULT_GUARDRAIL_ID, DEFAULT_GUARDRAIL_VERSION
 from app.control_plane.domain import (
@@ -15,7 +15,7 @@ from app.control_plane.domain import (
 from app.control_plane.nemo_compiler import NEMO_COMPILER_VERSION
 from app.control_plane.service import ControlPlaneService
 from app.control_plane.catalog import builtin_policy_id
-from app.persistence.database import database_url
+from app.persistence.database import Database, database_url
 from app.persistence.models import GuardrailVersionModel
 
 
@@ -33,7 +33,8 @@ def test_sqlalchemy_url_is_preserved_without_core_dialect_policy():
 
 def test_orm_metadata_creates_the_complete_schema_for_a_new_database(tmp_path):
     service = ControlPlaneService(tmp_path / "guard.db")
-    tables = set(inspect(service.database.engine).get_table_names())
+    inspector = inspect(service.database.engine)
+    tables = set(inspector.get_table_names())
 
     assert {
         "policy_records",
@@ -54,6 +55,58 @@ def test_orm_metadata_creates_the_complete_schema_for_a_new_database(tmp_path):
         "users",
         "user_sessions",
     } <= tables
+    assert "enabled" in {
+        item["name"] for item in inspector.get_columns("guardrails")
+    }
+    assert "deleted_at" in {
+        item["name"] for item in inspector.get_columns("integrations")
+    }
+
+
+def test_existing_guardrail_schema_adds_enabled_as_true(tmp_path):
+    database = Database(tmp_path / "existing-guardrails.db")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("CREATE TABLE guardrails (id VARCHAR PRIMARY KEY)")
+        )
+
+    database.create_schema()
+
+    inspector = inspect(database.engine)
+    assert "enabled" in {
+        item["name"] for item in inspector.get_columns("guardrails")
+    }
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO guardrails (id) VALUES ('existing')")
+        )
+        enabled = connection.execute(
+            text("SELECT enabled FROM guardrails WHERE id = 'existing'")
+        ).scalar_one()
+    assert bool(enabled) is True
+
+
+def test_existing_integration_schema_adds_nullable_soft_delete_marker(tmp_path):
+    database = Database(tmp_path / "existing-integrations.db")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("CREATE TABLE integrations (id VARCHAR PRIMARY KEY)")
+        )
+
+    database.create_schema()
+
+    inspector = inspect(database.engine)
+    assert "deleted_at" in {
+        item["name"] for item in inspector.get_columns("integrations")
+    }
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO integrations (id) VALUES ('existing')")
+        )
+        deleted_at = connection.execute(
+            text("SELECT deleted_at FROM integrations WHERE id = 'existing'")
+        ).scalar_one()
+    assert deleted_at is None
 
 
 def test_application_services_do_not_embed_sqlite_or_sql_statements():

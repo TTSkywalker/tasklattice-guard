@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Deployment, Guardrail, GuardrailFindingPage, GuardrailPolicyBinding, GuardrailVersion, GuardrailVersionDetail, Metrics, Policy, TestCase } from "@/lib/api";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { DraftReleaseView, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
+import { DeleteGuardrailSheet, DraftReleaseView, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
@@ -44,6 +44,30 @@ const deployment: Deployment = {
   system_managed: false,
   updated_at: "2026-08-13T08:00:00Z",
 };
+
+const deletableGuardrail = {
+  id: "guardrail-live",
+  name: "Live Finance Guardrail",
+  purpose: "Protect live Finance traffic.",
+  allowed_topics: [],
+  restricted_topics: [],
+  policy_bindings: [],
+  safety_level: "balanced",
+  output_delivery: "window_buffered",
+  updated_at: "2026-08-14T08:00:00Z",
+  status: "protected",
+  latest_validation_run: null,
+  deployment_count: 2,
+  test_case_count: 0,
+  excluded_test_case_count: 0,
+  excluded_test_case_ids: [],
+  tested_current: true,
+  published_current: true,
+  is_default: false,
+  system_managed: false,
+  local_only: false,
+  coverage: [],
+} satisfies Guardrail;
 
 describe("Guardrail detail information hierarchy", () => {
   afterEach(cleanup);
@@ -316,5 +340,31 @@ describe("Guardrail detail information hierarchy", () => {
     fireEvent.click(screen.getByRole("button", { name: "common.edit" }));
     expect(onEdit).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "guardrails.createDeployment" })).toBeNull();
+  });
+
+  it("deletes directly after impact review when there was no recent incoming traffic", () => {
+    const onConfirm = vi.fn();
+    render(<DeleteGuardrailSheet guardrail={deletableGuardrail} open impact={{ guardrail_id: deletableGuardrail.id, guardrail_name: deletableGuardrail.name, window_minutes: 30, incoming_request_count: 0, active_deployment_count: 2, requires_confirmation: false }} loading={false} deleting={false} error={null} onOpenChange={vi.fn()} onRetry={vi.fn()} onConfirm={onConfirm} />);
+
+    expect(screen.getByText("guardrails.deleteRetentionNote")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "guardrails.deleteConfirm" }));
+
+    expect(onConfirm).toHaveBeenCalledWith(false);
+  });
+
+  it("requires the Guardrail name in a second confirmation when traffic is recent", () => {
+    const onConfirm = vi.fn();
+    render(<DeleteGuardrailSheet guardrail={deletableGuardrail} open impact={{ guardrail_id: deletableGuardrail.id, guardrail_name: deletableGuardrail.name, window_minutes: 30, incoming_request_count: 17, active_deployment_count: 2, requires_confirmation: true }} loading={false} deleting={false} error={null} onOpenChange={vi.fn()} onRetry={vi.fn()} onConfirm={onConfirm} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "guardrails.continueDelete" }));
+    expect(screen.getByText("guardrails.deleteRecentTrafficTitle")).toBeTruthy();
+    const finalDelete = screen.getByRole("button", { name: "guardrails.deleteDespiteTraffic" }) as HTMLButtonElement;
+    expect(finalDelete.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(`guardrails.typeNameToConfirm name:${deletableGuardrail.name}`), { target: { value: deletableGuardrail.name } });
+    expect(finalDelete.disabled).toBe(false);
+    fireEvent.click(finalDelete);
+
+    expect(onConfirm).toHaveBeenCalledWith(true);
   });
 });
