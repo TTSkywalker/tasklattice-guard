@@ -1,0 +1,193 @@
+import { z } from "zod";
+
+const environmentSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  CONTROLLER_HTTP_HOST: z.string().default("0.0.0.0"),
+  CONTROLLER_HTTP_PORT: z.coerce.number().int().positive().default(8080),
+  CONTROLLER_GRPC_HOST: z.string().default("0.0.0.0"),
+  CONTROLLER_GRPC_PORT: z.coerce.number().int().positive().default(9090),
+  CONTROLLER_GRPC_TLS_CERT_PATH: z.string().optional(),
+  CONTROLLER_GRPC_TLS_KEY_PATH: z.string().optional(),
+  CONTROLLER_GRPC_TLS_CLIENT_CA_PATH: z.string().optional(),
+  CONTROLLER_DATABASE_URL: z.string().url(),
+  CONTROLLER_PUBLIC_URL: z.string().url().default("http://localhost:8080"),
+  CONTROLLER_RUNTIME_SERVICE_URL: z.string().url().default("http://localhost:8091"),
+  CONTROLLER_UI_DIST: z.string().default("dist"),
+  CONTROLLER_POLICY_CATALOG_DIR: z
+    .string()
+    .min(1)
+    .default("../runner/toolkit/policy_library/assets"),
+  CONTROLLER_PROTO_PATH: z
+    .string()
+    .default("../proto/tasklattice/guard/control/v1/runner_control.proto"),
+  CONTROLLER_MIGRATIONS_PATH: z.string().default("server/db/migrations"),
+  CONTROLLER_RUNNER_TOKEN: z.string().min(32),
+  CONTROLLER_ARTIFACT_SIGNING_KEY_PATH: z.string().min(1),
+  BETTER_AUTH_SECRET: z.string().min(32),
+  BETTER_AUTH_TRUSTED_ORIGINS: z.string().default("http://localhost:8080,http://localhost:8092"),
+  BETTER_AUTH_MIN_PASSWORD_LENGTH: z.coerce.number().int().min(5).max(128).default(12),
+  CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+  CONTROLLER_BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
+  CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD: z.string().min(1).optional(),
+  CONTROLLER_BOOTSTRAP_ADMIN_NAME: z.string().min(1).default("Administrator"),
+  MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL: z.string().url().optional(),
+  MODEL_GUARDRAILS_CONTROL_PLANE_AI_MODEL: z.string().min(1).optional(),
+  MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY: z.string().min(1).optional(),
+  MODEL_GUARDRAILS_CONTROL_PLANE_AI_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(45_000),
+  MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL: z.string().url().optional(),
+  MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL: z.string().min(1).optional(),
+  MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY: z.string().min(1).optional(),
+  MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY: z.string().trim().min(1).optional(),
+  RUNNER_HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().int().min(2).max(60).default(10),
+  RUNNER_OFFLINE_AFTER_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
+  DELETE_TRAFFIC_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
+  TELEMETRY_STALE_AFTER_SECONDS: z.coerce.number().int().min(10).max(3600).default(60),
+  MODEL_GUARDRAILS_CONTROL_PLANE_AI_PROVIDER: z.string().trim().min(1).default("DeepSeek"),
+  MODEL_GUARDRAILS_NVIDIA_PROVIDER: z.string().trim().min(1).default("NVIDIA"),
+  MODEL_GUARDRAILS_CONTENT_SAFETY_MODEL: z.string().trim().min(1).default("nvidia/llama-3.1-nemotron-safety-guard-8b-v3"),
+  MODEL_GUARDRAILS_TOPIC_CONTROL_MODEL: z.string().trim().min(1).default("nvidia/llama-3.1-nemoguard-8b-topic-control"),
+  MODEL_GUARDRAILS_JAILBREAK_MODEL: z.string().trim().min(1).default("nvidia/nvidia-nemotron-nano-9b-v2"),
+  MODEL_GUARDRAILS_GROUNDING_MODEL: z.string().trim().optional(),
+  MODEL_GUARDRAILS_AUTOMATED_REASONING_ENDPOINT_URL: z.string().url().optional(),
+}).superRefine((value, context) => {
+  const publicHostname = new URL(value.CONTROLLER_PUBLIC_URL).hostname;
+  const isLoopback = ["localhost", "127.0.0.1", "::1"].includes(publicHostname);
+  const isLocalDefault = value.CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS
+    && isLoopback
+    && value.CONTROLLER_BOOTSTRAP_ADMIN_EMAIL === "admin@tasklattice.local"
+    && value.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD === "admin";
+
+  if (value.CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS && !isLoopback) {
+    context.addIssue({
+      code: "custom",
+      path: ["CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS"],
+      message: "Local default credentials may only be enabled for a loopback Controller URL.",
+    });
+  }
+  if (Boolean(value.CONTROLLER_BOOTSTRAP_ADMIN_EMAIL) !== Boolean(value.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD)) {
+    context.addIssue({
+      code: "custom",
+      message: "CONTROLLER_BOOTSTRAP_ADMIN_EMAIL and CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD must be configured together.",
+    });
+  }
+  if (value.MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL && !value.MODEL_GUARDRAILS_CONTROL_PLANE_AI_MODEL) {
+    context.addIssue({
+      code: "custom",
+      message: "MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL and MODEL_GUARDRAILS_CONTROL_PLANE_AI_MODEL must be configured together.",
+    });
+  }
+  if (value.MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY && !value.MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL) {
+    context.addIssue({
+      code: "custom",
+      path: ["MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY"],
+      message: "The control-plane AI base URL and model are required when its API key is configured.",
+    });
+  }
+  if (Boolean(value.MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL) !== Boolean(value.MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL)) {
+    context.addIssue({ code: "custom", message: "MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL and MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL must be configured together." });
+  }
+  if (value.MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY && !value.MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL) {
+    context.addIssue({ code: "custom", message: "Playground base URL and model are required when its API key is configured." });
+  }
+  if (
+    value.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD
+    && value.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD.length < value.BETTER_AUTH_MIN_PASSWORD_LENGTH
+    && !isLocalDefault
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD"],
+      message: `CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD must contain at least ${value.BETTER_AUTH_MIN_PASSWORD_LENGTH} characters.`,
+    });
+  }
+});
+
+export type ControllerConfig = ReturnType<typeof loadConfig>;
+
+export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
+  const parsed = environmentSchema.parse(environment);
+  const controlPlaneAi = parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL
+    && parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_MODEL
+    && parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY
+    ? {
+        provider: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_PROVIDER,
+        baseUrl: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_BASE_URL.replace(/\/$/, ""),
+        model: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_MODEL,
+        apiKey: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_API_KEY,
+        timeoutMs: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_TIMEOUT_MS,
+      }
+    : null;
+  const playgroundChat = parsed.MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL
+    && parsed.MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL
+    && parsed.MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY
+    ? {
+        provider: "OpenAI-compatible",
+        baseUrl: parsed.MODEL_GUARDRAILS_PLAYGROUND_CHAT_BASE_URL.replace(/\/$/, ""),
+        model: parsed.MODEL_GUARDRAILS_PLAYGROUND_CHAT_MODEL,
+        apiKey: parsed.MODEL_GUARDRAILS_PLAYGROUND_CHAT_API_KEY,
+        timeoutMs: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_TIMEOUT_MS,
+      }
+    : controlPlaneAi;
+  return {
+    nodeEnv: parsed.NODE_ENV,
+    http: { host: parsed.CONTROLLER_HTTP_HOST, port: parsed.CONTROLLER_HTTP_PORT },
+    grpc: { host: parsed.CONTROLLER_GRPC_HOST, port: parsed.CONTROLLER_GRPC_PORT },
+    grpcTls: parsed.CONTROLLER_GRPC_TLS_CERT_PATH && parsed.CONTROLLER_GRPC_TLS_KEY_PATH && parsed.CONTROLLER_GRPC_TLS_CLIENT_CA_PATH
+      ? {
+          certPath: parsed.CONTROLLER_GRPC_TLS_CERT_PATH,
+          keyPath: parsed.CONTROLLER_GRPC_TLS_KEY_PATH,
+          clientCaPath: parsed.CONTROLLER_GRPC_TLS_CLIENT_CA_PATH,
+        }
+      : null,
+    databaseUrl: parsed.CONTROLLER_DATABASE_URL,
+    publicUrl: parsed.CONTROLLER_PUBLIC_URL.replace(/\/$/, ""),
+    runtimeServiceUrl: parsed.CONTROLLER_RUNTIME_SERVICE_URL.replace(/\/$/, ""),
+    uiDist: parsed.CONTROLLER_UI_DIST,
+    policyCatalogDir: parsed.CONTROLLER_POLICY_CATALOG_DIR,
+    protoPath: parsed.CONTROLLER_PROTO_PATH,
+    migrationsPath: parsed.CONTROLLER_MIGRATIONS_PATH,
+    runnerToken: parsed.CONTROLLER_RUNNER_TOKEN,
+    artifactSigningKeyPath: parsed.CONTROLLER_ARTIFACT_SIGNING_KEY_PATH,
+    betterAuthSecret: parsed.BETTER_AUTH_SECRET,
+    trustedOrigins: parsed.BETTER_AUTH_TRUSTED_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean),
+    minPasswordLength: parsed.BETTER_AUTH_MIN_PASSWORD_LENGTH,
+    allowLocalDefaultCredentials: parsed.CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS,
+    bootstrapAdmin: parsed.CONTROLLER_BOOTSTRAP_ADMIN_EMAIL && parsed.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD
+      ? {
+          email: parsed.CONTROLLER_BOOTSTRAP_ADMIN_EMAIL,
+          password: parsed.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD,
+          name: parsed.CONTROLLER_BOOTSTRAP_ADMIN_NAME,
+        }
+      : null,
+    controlPlaneAi,
+    playgroundChat,
+    runtimeLogEncryptionKey: parsed.MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY ?? null,
+    heartbeatIntervalSeconds: parsed.RUNNER_HEARTBEAT_INTERVAL_SECONDS,
+    offlineAfterSeconds: parsed.RUNNER_OFFLINE_AFTER_SECONDS,
+    deletionTrafficWindowMinutes: parsed.DELETE_TRAFFIC_WINDOW_MINUTES,
+    telemetryStaleAfterSeconds: parsed.TELEMETRY_STALE_AFTER_SECONDS,
+    modelConnections: {
+      controlPlane: {
+        provider: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_PROVIDER,
+        model: parsed.MODEL_GUARDRAILS_CONTROL_PLANE_AI_MODEL ?? "deepseek-v4-flash",
+      },
+      dataPlane: {
+        provider: parsed.MODEL_GUARDRAILS_NVIDIA_PROVIDER,
+        models: [
+          { capability: "contentSafety", model: parsed.MODEL_GUARDRAILS_CONTENT_SAFETY_MODEL },
+          { capability: "topicControl", model: parsed.MODEL_GUARDRAILS_TOPIC_CONTROL_MODEL },
+          { capability: "jailbreak", model: parsed.MODEL_GUARDRAILS_JAILBREAK_MODEL },
+          ...(parsed.MODEL_GUARDRAILS_GROUNDING_MODEL
+            ? [{ capability: "grounding" as const, model: parsed.MODEL_GUARDRAILS_GROUNDING_MODEL }]
+            : []),
+          ...(parsed.MODEL_GUARDRAILS_AUTOMATED_REASONING_ENDPOINT_URL
+            ? [{ capability: "automatedReasoning" as const, model: parsed.MODEL_GUARDRAILS_AUTOMATED_REASONING_ENDPOINT_URL }]
+            : []),
+        ],
+      },
+    },
+  } as const;
+}

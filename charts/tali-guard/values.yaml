@@ -1,92 +1,83 @@
-# SQLite is the zero-configuration local fallback. Configure an external
-# database URL before scaling beyond one replica.
-replicaCount: 1
+# Production defaults for Guard Controller and Guard Runner.
+#
+# Required production dependencies:
+#   1. PostgreSQL 14+ through database.url or database.existingSecret.
+#   2. A bootstrap administrator Secret, or inline bootstrap values supplied by
+#      a secret values file.
+#   3. An Ed25519 artifact-signing key pair.
+#   4. A CA and mTLS certificates for the Controller/Runner control channel.
+#   5. Redis because GuardRails 0 runs two replicas by default.
+#
+# For a self-contained local/OrbStack installation use values-dev.yaml.
 
-image:
-  repository: ghcr.io/tasklattice/tali-guard
-  # Defaults to Chart.appVersion when left empty.
-  tag: ""
-  pullPolicy: IfNotPresent
-
-imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
-# Service, Deployment, and Pod prefix. Keep the Helm release and retained
-# storage names independent so a display-name change cannot switch databases.
-workloadNameOverride: tali-guard
+imagePullSecrets: []
 
-serviceAccount:
-  create: true
-  automount: false
-  annotations: {}
-  name: ""
+# Changes to this value update the Controller and every Runner Pod template.
+# It is used by the local Make target to roll moving :dev image tags.
+rolloutRevision: ""
 
-podAnnotations: {}
-podLabels: {}
+controller:
+  # Controller owns UI, API, Better Auth, desired state and reconciliation.
+  # The read-only Policy Catalog used by the restored product UI is bundled in
+  # the Controller image; it does not add another runtime service or volume.
+  # It is intentionally a singleton in this chart version.
+  replicaCount: 1
+  image:
+    repository: ghcr.io/tasklattice/tali-guard-controller
+    tag: "0.2.0"
+    pullPolicy: IfNotPresent
+  publicUrl: https://guard.example.com
+  trustedOrigins:
+    - https://guard.example.com
+  auth:
+    # Production password policy. The local profile overrides this only for
+    # the legacy admin/admin development account.
+    minPasswordLength: 12
+    # Allows exactly admin@tasklattice.local/admin only on a loopback public
+    # URL. Keep false outside the self-contained local profile.
+    allowLocalDefaultCredentials: false
+  service:
+    # Internal UI/API and Runner control-channel Service. Ingress targets this
+    # Service; it stays private even when local public HTTP is enabled below.
+    type: ClusterIP
+    httpPort: 8080
+    grpcPort: 9090
+    public:
+      # Optional HTTP-only Service for local clusters without Ingress.
+      enabled: false
+      type: LoadBalancer
+      port: 38081
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
 
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 65532
-  runAsGroup: 65532
-  fsGroup: 65532
-  fsGroupChangePolicy: OnRootMismatch
-  seccompProfile:
-    type: RuntimeDefault
+# Optional model used by Controller authoring tools and Playground. It handles
+# intent/document analysis and supplies the model response between explicit
+# input/output checks on GuardRails 0; it is never used for integration traffic.
+controlPlaneAgent:
+  deepseek:
+    provider: DeepSeek
+    baseUrl: https://api.deepseek.com
+    model: deepseek-v4-flash
+    apiKey: ""
+    existingSecret: ""
+    secretKey: api-key
 
-securityContext:
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-  readOnlyRootFilesystem: true
-
-service:
-  type: LoadBalancer
-  port: 38081
-  annotations: {}
-
-persistence:
-  enabled: true
-  existingClaim: ""
-  storageClass: ""
-  accessModes:
-    - ReadWriteOnce
-  size: 1Gi
-  annotations: {}
-  # Preserve control-plane state when the Helm release is removed.
-  retain: true
-  mountPath: /var/lib/tasklattice/model-guardrails
-
-database:
-  url: ""
-  existingSecret: ""
-  secretKey: database-url
-  path: /var/lib/tasklattice/model-guardrails/tasklattice-guard-policy-schema-v3.db
-
-runtime:
-  publicBaseUrl: http://localhost:38081
-
-# Runtime Prompt History is always encrypted before database persistence. By
-# default the chart creates a random Fernet key once and reuses it on upgrades.
-runtimeLogging:
-  retentionDays: 7
-  existingSecret: ""
-  secretKey: encryption-key
-  # Retain the generated key alongside a retained database/PVC after uninstall.
-  retainSecret: true
-
-playgroundChat:
-  baseUrl: ""
-  model: ""
-  apiKey: ""
-  existingSecret: ""
-  secretKey: api-key
-
+# Optional specialized NVIDIA evaluators used only by Runner. Model names are
+# visible as routing metadata, but no remote evaluator is enabled until an
+# endpoint and credential are configured.
 evaluators:
   nvidia:
+    provider: NVIDIA
     baseUrl: ""
-    contentSafetyModel: ""
-    topicControlModel: ""
+    contentSafetyModel: nvidia/llama-3.1-nemotron-safety-guard-8b-v3
+    topicControlModel: nvidia/llama-3.1-nemoguard-8b-topic-control
+    jailbreakModel: nvidia/nvidia-nemotron-nano-9b-v2
     groundingModel: ""
     apiKey: ""
     existingSecret: ""
@@ -96,83 +87,174 @@ evaluators:
     apiKey: ""
     existingSecret: ""
     secretKey: api-key
-  jailbreakDetection:
-    nimBaseUrl: ""
-    serverEndpoint: classify
-    apiKey: ""
-    existingSecret: ""
-    secretKey: api-key
 
-observability:
-  runtimeP95BudgetMs: 2500
-  runtimeP99BudgetMs: 5000
-  maxConcurrencyPerGuardrail: 64
-  openTelemetry:
-    enabled: false
-    endpoint: ""
+runner:
+  # All data-plane pools use this image. GuardRails 0 is the mandatory baseline
+  # pool and is also the authoritative NeMo configuration compiler.
+  # Integration setup instructions use a stable Runtime Service. They never
+  # expose a Runner Pod name or identity to an upstream caller.
+  image:
+    repository: ghcr.io/tasklattice/tali-guard-runner
+    tag: "0.2.0"
+    pullPolicy: IfNotPresent
+  default:
+    # Two stable ordinal Pods plus a minAvailable=1 PDB keep runtime traffic
+    # available while StatefulSet replaces one Runner at a time.
+    replicaCount: 2
+    maxConcurrency: 64
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 4Gi
+  # Additional pools are more Runner StatefulSets, not another application
+  # component. StatefulSet ordinals keep Runner IDs and Pod names stable across
+  # restarts. Each item requires name, replicaCount, maxConcurrency and resources.
+  pools: []
+  service:
+    # Stable in-cluster data-plane endpoint. Kubernetes balances requests over
+    # ready replicas; correctness never depends on client-IP/session affinity.
+    type: ClusterIP
+    port: 8091
+    public:
+      # Optional host-facing endpoint for local clusters. Production callers
+      # should use the ClusterIP Service or a separately managed gateway.
+      enabled: false
+      type: LoadBalancer
+      port: 38082
+  # Production should set an externally managed Redis URL whenever any Runner
+  # pool has more than one replica. The local profile instead enables the
+  # development Redis dependency below.
+  callContextRedisUrl: ""
+  state:
+    # Last-known-good compiled artifacts are kept in an ephemeral Pod volume.
+    # The StatefulSet stabilizes Pod identity; this size-limited cache is still
+    # rebuilt from Controller desired state after a Pod is rescheduled.
+    sizeLimit: 2Gi
 
-controlPlaneAgent:
-  deepseek:
-    baseUrl: https://api.deepseek.com
-    model: deepseek-v4-flash
-    apiKey: ""
+database:
+  # Production should normally use existingSecret. The Secret key must contain
+  # a PostgreSQL URL such as postgresql://guard:password@postgres:5432/guard.
+  url: ""
+  existingSecret: ""
+  secretKey: database-url
+
+# Development-only PostgreSQL dependency. Keep disabled in production and use
+# an external HA PostgreSQL service through database.existingSecret instead.
+postgresql:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    database: guard
+    username: guard
+    password: ""
+    passwordKey: postgres-password
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Development-only shared call-context dependency. Production keeps this
+# disabled and supplies runner.callContextRedisUrl for a managed Redis service.
+redis:
+  enabled: false
+  image:
+    repository: redis
+    tag: "7.4-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+security:
+  bootstrapAdmin:
+    # Prefer an existing Secret with email/password/name keys in production.
+    # Inline values are supported for values-dev.yaml and private values files.
     existingSecret: ""
-    secretKey: api-key
+    email: ""
+    password: ""
+    name: Administrator
+    emailKey: email
+    passwordKey: password
+    nameKey: name
+  controlSecret:
+    # When omitted, Helm creates and retains a random Runner token and Better
+    # Auth secret. Set existingSecret when secrets are managed externally.
+    existingSecret: ""
+    runnerTokenKey: runner-token
+    betterAuthSecretKey: better-auth-secret
+  runtimeLogs:
+    # Content captured by qualifying Runtime Logs is encrypted in Runner before
+    # transport. Helm creates and retains a random key unless one is supplied.
+    existingSecret: ""
+    encryptionKeyKey: encryption-key
+  artifactSigning:
+    # The key pair must be Ed25519 PEM. Production should use existingSecret;
+    # inline keys exist only to make the local profile self-contained.
+    existingSecret: ""
+    privateKey: ""
+    publicKey: ""
+    privateKeyKey: private-key.pem
+    publicKeyKey: public-key.pem
+  controlTls:
+    # Production must provide an existing Secret. Development may set
+    # autoGenerate=true; Helm then generates and retains a private CA plus
+    # Controller server and Runner client certificates.
+    existingSecret: ""
+    autoGenerate: false
+    caKey: ca.crt
+    controllerCertificateKey: tls.crt
+    controllerPrivateKeyKey: tls.key
+    runnerCertificateKey: runner.crt
+    runnerPrivateKeyKey: runner.key
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true
 
 ingress:
+  # Ingress exposes only Controller UI/API. Runtime traffic enters through the
+  # Runner pool Services and never traverses Controller.
   enabled: false
   className: ""
   annotations: {}
-  hosts:
-    - host: guard.tali.local
-      paths:
-        - path: /
-          pathType: Prefix
+  host: guard.example.com
   tls: []
 
 networkPolicy:
-  enabled: false
-  ingressFrom: []
-
-resources:
-  requests:
-    cpu: 100m
-    memory: 256Mi
-  limits:
-    memory: 1Gi
-
-startupProbe:
   enabled: true
-  failureThreshold: 30
-  periodSeconds: 2
-
-livenessProbe:
-  enabled: true
-  initialDelaySeconds: 0
-  periodSeconds: 10
-  timeoutSeconds: 2
-  failureThreshold: 3
-
-readinessProbe:
-  enabled: true
-  initialDelaySeconds: 0
-  periodSeconds: 5
-  timeoutSeconds: 2
-  failureThreshold: 3
-
-revisionHistoryLimit: 3
-terminationGracePeriodSeconds: 30
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
-topologySpreadConstraints: []
-
-extraEnv: []
-extraEnvFrom: []
-
-test:
-  image:
-    repository: busybox
-    tag: "1.36.1"
-    pullPolicy: IfNotPresent

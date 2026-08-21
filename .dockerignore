@@ -5,8 +5,9 @@
 tests
 .env
 data
-web/node_modules
-web/dist
+controller/node_modules
+controller/dist
+controller/dist-server
 **/dist
 !dist/runtime-chart
 !dist/runtime-chart/**

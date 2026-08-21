@@ -2,34 +2,27 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "tali-guard.workloadName" . }}
+  name: {{ include "tali-guard.controllerName" . }}
   labels:
-    {{- include "tali-guard.workloadLabels" . | nindent 4 }}
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
+  annotations: {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   {{- with .Values.ingress.className }}
   ingressClassName: {{ . }}
   {{- end }}
   {{- with .Values.ingress.tls }}
-  tls:
-    {{- toYaml . | nindent 4 }}
+  tls: {{- toYaml . | nindent 4 }}
   {{- end }}
   rules:
-    {{- range .Values.ingress.hosts }}
-    - host: {{ .host | quote }}
+    - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          {{- range .paths }}
-          - path: {{ .path }}
-            pathType: {{ .pathType }}
+          - path: /
+            pathType: Prefix
             backend:
               service:
-                name: {{ include "tali-guard.workloadName" $ }}
-                port:
-                  name: http
-          {{- end }}
-    {{- end }}
+                name: {{ include "tali-guard.controllerName" . }}
+                port: { name: http }
 {{- end }}

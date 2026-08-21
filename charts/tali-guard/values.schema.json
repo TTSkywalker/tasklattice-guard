@@ -1,98 +1,83 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["replicaCount", "image", "service", "persistence", "database", "runtime", "runtimeLogging"],
+  "required": ["controller", "controlPlaneAgent", "evaluators", "runner", "database", "postgresql", "redis", "security"],
   "properties": {
-    "workloadNameOverride": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 63,
-      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
-      "description": "Kubernetes name used by the Guard Service, Deployment, Pod prefix, and default PVC."
-    },
-    "replicaCount": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Replica count; values above one require an external database URL."
-    },
-    "image": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "imagePullSecrets": {"type": "array"},
+    "rolloutRevision": {"type": "string"},
+    "controller": {
       "type": "object",
-      "required": ["repository", "tag", "pullPolicy"],
+      "required": ["replicaCount", "image", "publicUrl", "trustedOrigins", "auth", "service"],
       "properties": {
-        "repository": {"type": "string", "minLength": 1},
-        "tag": {"type": "string"},
-        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+        "replicaCount": {"type": "integer", "minimum": 1, "maximum": 1},
+        "publicUrl": {"type": "string", "pattern": "^https?://"},
+        "trustedOrigins": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^https?://"}
+        },
+        "auth": {
+          "type": "object",
+          "required": ["minPasswordLength", "allowLocalDefaultCredentials"],
+          "properties": {
+            "minPasswordLength": {"type": "integer", "minimum": 5, "maximum": 128},
+            "allowLocalDefaultCredentials": {"type": "boolean"}
+          }
+        },
+        "image": {"$ref": "#/definitions/image"},
+        "service": {
+          "type": "object",
+          "required": ["type", "httpPort", "grpcPort", "public"],
+          "properties": {
+            "type": {"type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+            "httpPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "grpcPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "public": {
+              "type": "object",
+              "required": ["enabled", "type", "port"],
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "type": {"type": "string", "enum": ["NodePort", "LoadBalancer"]},
+                "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+              }
+            }
+          }
+        }
       }
     },
-    "service": {
+    "controlPlaneAgent": {
       "type": "object",
-      "required": ["type", "port"],
+      "required": ["deepseek"],
       "properties": {
-        "type": {"type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
-        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
-        "annotations": {"type": "object"}
-      }
-    },
-    "persistence": {
-      "type": "object",
-      "required": ["enabled", "mountPath"],
-      "properties": {
-        "enabled": {"type": "boolean"},
-        "existingClaim": {"type": "string"},
-        "storageClass": {"type": "string"},
-        "accessModes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-        "size": {"type": "string", "minLength": 1},
-        "annotations": {"type": "object"},
-        "retain": {"type": "boolean"},
-        "mountPath": {"type": "string", "pattern": "^/"}
-      }
-    },
-    "database": {
-      "type": "object",
-      "required": ["path", "url", "existingSecret", "secretKey"],
-      "properties": {
-        "path": {"type": "string", "pattern": "^/"},
-        "url": {"type": "string"},
-        "existingSecret": {"type": "string"},
-        "secretKey": {"type": "string", "minLength": 1}
-      }
-    },
-    "runtime": {
-      "type": "object",
-      "required": ["publicBaseUrl"],
-      "properties": {
-        "publicBaseUrl": {"type": "string", "pattern": "^https?://"}
-      }
-    },
-    "runtimeLogging": {
-      "type": "object",
-      "required": ["retentionDays", "existingSecret", "secretKey", "retainSecret"],
-      "properties": {
-        "retentionDays": {"type": "integer", "minimum": 1},
-        "existingSecret": {"type": "string"},
-        "secretKey": {"type": "string", "minLength": 1},
-        "retainSecret": {"type": "boolean"}
-      }
-    },
-    "playgroundChat": {
-      "type": "object",
-      "properties": {
-        "baseUrl": {"type": "string"},
-        "model": {"type": "string"},
-        "apiKey": {"type": "string"},
-        "existingSecret": {"type": "string"},
-        "secretKey": {"type": "string", "minLength": 1}
+        "deepseek": {
+          "type": "object",
+          "required": ["provider", "baseUrl", "model", "apiKey", "existingSecret", "secretKey"],
+          "properties": {
+            "provider": {"type": "string", "minLength": 1},
+            "baseUrl": {"type": "string"},
+            "model": {"type": "string"},
+            "apiKey": {"type": "string"},
+            "existingSecret": {"type": "string"},
+            "secretKey": {"type": "string", "minLength": 1}
+          }
+        }
       }
     },
     "evaluators": {
       "type": "object",
+      "required": ["nvidia", "automatedReasoning"],
       "properties": {
         "nvidia": {
           "type": "object",
+          "required": ["provider", "baseUrl", "contentSafetyModel", "topicControlModel", "jailbreakModel", "groundingModel", "apiKey", "existingSecret", "secretKey"],
           "properties": {
+            "provider": {"type": "string", "minLength": 1},
             "baseUrl": {"type": "string"},
             "contentSafetyModel": {"type": "string"},
             "topicControlModel": {"type": "string"},
+            "jailbreakModel": {"type": "string"},
             "groundingModel": {"type": "string"},
             "apiKey": {"type": "string"},
             "existingSecret": {"type": "string"},
@@ -101,19 +86,9 @@
         },
         "automatedReasoning": {
           "type": "object",
+          "required": ["endpointUrl", "apiKey", "existingSecret", "secretKey"],
           "properties": {
             "endpointUrl": {"type": "string"},
-            "apiKey": {"type": "string"},
-            "existingSecret": {"type": "string"},
-            "secretKey": {"type": "string", "minLength": 1}
-          }
-        },
-        "jailbreakDetection": {
-          "type": "object",
-          "required": ["nimBaseUrl", "serverEndpoint", "apiKey", "existingSecret", "secretKey"],
-          "properties": {
-            "nimBaseUrl": {"type": "string"},
-            "serverEndpoint": {"type": "string", "minLength": 1},
             "apiKey": {"type": "string"},
             "existingSecret": {"type": "string"},
             "secretKey": {"type": "string", "minLength": 1}
@@ -121,21 +96,162 @@
         }
       }
     },
-    "observability": {
+    "runner": {
       "type": "object",
-      "required": ["runtimeP95BudgetMs", "runtimeP99BudgetMs", "maxConcurrencyPerGuardrail", "openTelemetry"],
+      "required": ["image", "default", "pools", "service", "callContextRedisUrl"],
       "properties": {
-        "runtimeP95BudgetMs": {"type": "integer", "minimum": 1},
-        "runtimeP99BudgetMs": {"type": "integer", "minimum": 1},
-        "maxConcurrencyPerGuardrail": {"type": "integer", "minimum": 1},
-        "openTelemetry": {
+        "image": {"$ref": "#/definitions/image"},
+        "default": {
           "type": "object",
-          "required": ["enabled", "endpoint"],
+          "required": ["replicaCount", "maxConcurrency"],
+          "properties": {
+            "replicaCount": {"type": "integer", "minimum": 2},
+            "maxConcurrency": {"type": "integer", "minimum": 1}
+          }
+        },
+        "pools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "replicaCount", "maxConcurrency", "resources"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+              "replicaCount": {"type": "integer", "minimum": 1},
+              "maxConcurrency": {"type": "integer", "minimum": 1},
+              "compilerCapable": {"type": "boolean"}
+            }
+          }
+        },
+        "service": {
+          "type": "object",
+          "required": ["type", "port", "public"],
+          "properties": {
+            "type": {"type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "public": {
+              "type": "object",
+              "required": ["enabled", "type", "port"],
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "type": {"type": "string", "enum": ["NodePort", "LoadBalancer"]},
+                "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+              }
+            }
+          }
+        },
+        "callContextRedisUrl": {"type": "string"}
+      }
+    },
+    "database": {
+      "type": "object",
+      "required": ["url", "existingSecret", "secretKey"],
+      "properties": {
+        "url": {"type": "string"},
+        "existingSecret": {"type": "string"},
+        "secretKey": {"type": "string", "minLength": 1}
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "required": ["enabled", "image", "auth", "service", "persistence"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/definitions/image"},
+        "auth": {
+          "type": "object",
+          "required": ["database", "username", "password", "passwordKey"],
+          "properties": {
+            "database": {"type": "string", "minLength": 1},
+            "username": {"type": "string", "minLength": 1},
+            "password": {"type": "string"},
+            "passwordKey": {"type": "string", "minLength": 1}
+          }
+        },
+        "service": {
+          "type": "object",
+          "required": ["port"],
+          "properties": {"port": {"type": "integer", "minimum": 1, "maximum": 65535}}
+        },
+        "persistence": {
+          "type": "object",
+          "required": ["enabled", "size", "storageClass"],
           "properties": {
             "enabled": {"type": "boolean"},
-            "endpoint": {"type": "string"}
+            "size": {"type": "string", "minLength": 1},
+            "storageClass": {"type": "string"}
           }
         }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "required": ["enabled", "image", "service", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/definitions/image"},
+        "service": {
+          "type": "object",
+          "required": ["port"],
+          "properties": {"port": {"type": "integer", "minimum": 1, "maximum": 65535}}
+        },
+        "resources": {"type": "object"}
+      }
+    },
+    "security": {
+      "type": "object",
+      "required": ["bootstrapAdmin", "controlSecret", "runtimeLogs", "artifactSigning", "controlTls"],
+      "properties": {
+        "bootstrapAdmin": {
+          "type": "object",
+          "required": ["existingSecret", "email", "password", "name", "emailKey", "passwordKey", "nameKey"],
+          "properties": {
+            "existingSecret": {"type": "string"},
+            "email": {"type": "string"},
+            "password": {"type": "string"},
+            "name": {"type": "string", "minLength": 1}
+          }
+        },
+        "controlSecret": {
+          "type": "object",
+          "required": ["existingSecret", "runnerTokenKey", "betterAuthSecretKey"],
+          "properties": {"existingSecret": {"type": "string"}}
+        },
+        "runtimeLogs": {
+          "type": "object",
+          "required": ["existingSecret", "encryptionKeyKey"],
+          "properties": {
+            "existingSecret": {"type": "string"},
+            "encryptionKeyKey": {"type": "string", "minLength": 1}
+          }
+        },
+        "artifactSigning": {
+          "type": "object",
+          "required": ["existingSecret", "privateKey", "publicKey", "privateKeyKey", "publicKeyKey"],
+          "properties": {
+            "existingSecret": {"type": "string"},
+            "privateKey": {"type": "string"},
+            "publicKey": {"type": "string"}
+          }
+        },
+        "controlTls": {
+          "type": "object",
+          "required": ["existingSecret", "autoGenerate", "caKey", "controllerCertificateKey", "controllerPrivateKeyKey", "runnerCertificateKey", "runnerPrivateKeyKey"],
+          "properties": {
+            "existingSecret": {"type": "string"},
+            "autoGenerate": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "minLength": 1},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
       }
     }
   }

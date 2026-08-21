@@ -23,14 +23,10 @@ jobs:
           version: v4.0.0
 
       - name: Lint standalone chart
-        run: helm lint charts/tali-guard --strict
+        run: make helm-lint
 
-      - name: Render default TALI deployment
-        run: >-
-          helm template tali-guard charts/tali-guard
-          --namespace tali
-          --set-string auth.apiKey=ci-test-key
-          > /tmp/tali-guard.yaml
+      - name: Render development deployment
+        run: make helm-template > /tmp/tali-guard.yaml
 
       - name: Package chart for runtime image
         run: bash scripts/package-runtime-chart.sh 0.0.0-ci
@@ -46,10 +42,14 @@ jobs:
           grep -Fx "appVersion: 0.0.0-ci" <<<"$metadata"
           helm template tali-guard "$chart" \
             --namespace tali \
-            --set-string auth.apiKey=ci-test-key \
+            --set database.url=postgresql://guard:guard@postgres:5432/guard \
+            --set security.artifactSigning.existingSecret=guard-artifact-signing \
+            --set security.controlTls.existingSecret=guard-control-tls \
+            --set security.bootstrapAdmin.existingSecret=guard-bootstrap-admin \
+            --set runner.callContextRedisUrl=redis://redis:6379/0 \
             > /tmp/tali-guard-packaged.yaml
 
-  ui:
+  controller:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -60,14 +60,14 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: controller/package-lock.json
 
-      - name: Install UI dependencies
-        working-directory: web
+      - name: Install Controller dependencies
+        working-directory: controller
         run: npm ci --no-audit --no-fund
 
-      - name: Test, typecheck, and build UI
-        working-directory: web
+      - name: Test, typecheck, and build Controller
+        working-directory: controller
         run: npm test && npm run typecheck && npm run build
 
   test:

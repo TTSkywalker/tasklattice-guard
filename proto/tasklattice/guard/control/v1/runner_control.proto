@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package tasklattice.guard.control.v1;
+
+// RunnerControl is the only state-distribution channel between the control
+// plane and data plane. Runners initiate the stream so they can live behind a
+// private network or NAT. Messages are desired-state notifications; the
+// database remains authoritative and reconnecting runners always reconcile.
+service RunnerControl {
+  rpc Connect(stream RunnerMessage) returns (stream ControllerMessage);
+}
+
+message RunnerMessage {
+  string message_id = 1;
+  int64 sent_at_unix_ms = 2;
+  oneof body {
+    RunnerRegistration registration = 10;
+    RunnerHeartbeat heartbeat = 11;
+    ArtifactResult artifact_result = 12;
+    CompileResult compile_result = 13;
+    ValidationResult validation_result = 14;
+  }
+}
+
+message ControllerMessage {
+  string message_id = 1;
+  int64 sent_at_unix_ms = 2;
+  oneof body {
+    RegistrationAccepted registration_accepted = 10;
+    DesiredState desired_state = 11;
+    CompileRequest compile_request = 12;
+    DrainRequest drain_request = 13;
+    ValidationRequest validation_request = 14;
+  }
+}
+
+message RunnerRegistration {
+  string runner_id = 1;
+  string boot_id = 2;
+  string pool_id = 3;
+  string runner_version = 4;
+  string nemo_version = 5;
+  int32 max_concurrency = 6;
+  bool compiler_capable = 7;
+  map<string, string> labels = 8;
+  int64 applied_generation = 9;
+}
+
+message RegistrationAccepted {
+  int64 desired_generation = 1;
+  int32 heartbeat_interval_seconds = 2;
+}
+
+message RunnerHeartbeat {
+  string runner_id = 1;
+  string boot_id = 2;
+  int64 sequence = 3;
+  int64 applied_generation = 4;
+  RunnerLoad load = 5;
+}
+
+message RunnerLoad {
+  int32 inflight = 1;
+  int32 max_concurrency = 2;
+  int32 queue_depth = 3;
+  int64 requests_delta = 4;
+  int64 errors_delta = 5;
+  int64 timeouts_delta = 6;
+  double latency_p95_ms = 7;
+  double cpu_utilization = 8;
+  double memory_utilization = 9;
+  int32 active_guardrails = 10;
+  int32 compile_queue_depth = 11;
+}
+
+message DesiredState {
+  int64 generation = 1;
+  repeated Artifact artifacts = 2;
+  repeated string disabled_guardrail_ids = 3;
+  repeated string disabled_integration_ids = 4;
+  repeated DeploymentRoute deployments = 5;
+  repeated IntegrationRuntime integrations = 6;
+  map<string, string> guardrail_logging_levels = 7;
+}
+
+message DeploymentRoute {
+  string deployment_id = 1;
+  string guardrail_id = 2;
+  string artifact_id = 3;
+  string integration_id = 4;
+  int32 route_order = 5;
+  string traffic_scope_json = 6;
+}
+
+message IntegrationRuntime {
+  string integration_id = 1;
+  string adapter = 2;
+  string verification_json = 3;
+}
+
+message Artifact {
+  string artifact_id = 1;
+  string guardrail_id = 2;
+  int32 guardrail_version = 3;
+  int64 generation = 4;
+  string compiler_version = 5;
+  string nemo_version = 6;
+  string runtime_profile = 7;
+  string plan_json = 8;
+  string config_yaml = 9;
+  string colang_content = 10;
+  string prompts_json = 11;
+  string action_bindings_json = 12;
+  string dependency_manifest_json = 13;
+  string checksum = 14;
+  string signature = 15;
+}
+
+message ArtifactResult {
+  string runner_id = 1;
+  string artifact_id = 2;
+  int64 generation = 3;
+  bool accepted = 4;
+  string reason = 5;
+}
+
+message CompileRequest {
+  string compile_id = 1;
+  string guardrail_id = 2;
+  int32 guardrail_version = 3;
+  int64 generation = 4;
+  string plan_json = 5;
+  string runtime_profile = 6;
+}
+
+message CompileResult {
+  string runner_id = 1;
+  string compile_id = 2;
+  bool accepted = 3;
+  string reason = 4;
+  Artifact artifact = 5;
+}
+
+message ValidationRequest {
+  string run_id = 1;
+  string guardrail_id = 2;
+  int32 candidate_version = 3;
+  int32 source_draft_revision = 4;
+  string plan_json = 5;
+  string runtime_profile = 6;
+  string test_cases_json = 7;
+}
+
+message ValidationResult {
+  string runner_id = 1;
+  string run_id = 2;
+  bool accepted = 3;
+  string reason = 4;
+  string status = 5;
+  string metrics_json = 6;
+  string results_json = 7;
+}
+
+message DrainRequest {
+  string reason = 1;
+  int64 deadline_unix_ms = 2;
+}

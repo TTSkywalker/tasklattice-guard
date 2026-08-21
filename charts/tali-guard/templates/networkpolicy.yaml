@@ -2,21 +2,46 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "tali-guard.workloadName" . }}
+  name: {{ include "tali-guard.fullname" . }}-control-channel
   labels:
-    {{- include "tali-guard.workloadLabels" . | nindent 4 }}
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "tali-guard.workloadSelectorLabels" . | nindent 6 }}
-  policyTypes:
-    - Ingress
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: controller
+  policyTypes: [Ingress]
   ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: runner
+      ports:
+        - { protocol: TCP, port: 9090 }
     - ports:
-        - protocol: TCP
-          port: 8091
-      {{- with .Values.networkPolicy.ingressFrom }}
-      from:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        - { protocol: TCP, port: 8080 }
+{{- if .Values.redis.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tali-guard.fullname" . }}-redis
+  labels:
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: runner
+      ports:
+        - { protocol: TCP, port: {{ .Values.redis.service.port }} }
+{{- end }}
 {{- end }}

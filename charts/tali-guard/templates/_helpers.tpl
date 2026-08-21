@@ -6,48 +6,40 @@
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{- printf "%s-%s" .Release.Name (include "tali-guard.name" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 
-{{- define "tali-guard.workloadName" -}}
-{{- default "tali-guard" .Values.workloadNameOverride | trunc 63 | trimSuffix "-" }}
+{{- define "tali-guard.controllerName" -}}
+{{- printf "%s-controller" (include "tali-guard.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "tali-guard.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- define "tali-guard.defaultRunnerName" -}}
+{{- printf "%s-runner" (include "tali-guard.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "tali-guard.labels" -}}
-helm.sh/chart: {{ include "tali-guard.chart" . }}
-{{ include "tali-guard.selectorLabels" . }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: tali
+{{- define "tali-guard.runtimeName" -}}
+{{- printf "%s-runtime" (include "tali-guard.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "tali-guard.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "tali-guard.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- define "tali-guard.defaultRuntimeServiceUrl" -}}
+{{- printf "http://%s.%s.svc.cluster.local:%v" (include "tali-guard.runtimeName" .) .Release.Namespace .Values.runner.service.port }}
 {{- end }}
 
-{{- define "tali-guard.workloadSelectorLabels" -}}
-app.kubernetes.io/name: tali
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: guard
+{{- define "tali-guard.postgresqlName" -}}
+{{- printf "%s-postgresql" (include "tali-guard.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "tali-guard.workloadLabels" -}}
-helm.sh/chart: {{ include "tali-guard.chart" . }}
-{{ include "tali-guard.workloadSelectorLabels" . }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: tali
+{{- define "tali-guard.redisName" -}}
+{{- printf "%s-redis" (include "tali-guard.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "tali-guard.callContextRedisUrl" -}}
+{{- if .Values.runner.callContextRedisUrl -}}
+{{- .Values.runner.callContextRedisUrl -}}
+{{- else if .Values.redis.enabled -}}
+{{- printf "redis://%s:%v/0" (include "tali-guard.redisName" .) .Values.redis.service.port -}}
+{{- end -}}
 {{- end }}
 
 {{- define "tali-guard.serviceAccountName" -}}
@@ -58,99 +50,137 @@ app.kubernetes.io/part-of: tali
 {{- end }}
 {{- end }}
 
-{{- define "tali-guard.nvidiaSecretName" -}}
-{{- default (printf "%s-nvidia" (include "tali-guard.fullname" .)) .Values.evaluators.nvidia.existingSecret }}
+{{- define "tali-guard.commonLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+app.kubernetes.io/name: {{ include "tali-guard.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: tasklattice-guard
+{{- end }}
+
+{{- define "tali-guard.controlSecretName" -}}
+{{- default (printf "%s-control" (include "tali-guard.fullname" .)) .Values.security.controlSecret.existingSecret }}
+{{- end }}
+
+{{- define "tali-guard.runtimeLogSecretName" -}}
+{{- default (printf "%s-runtime-logs" (include "tali-guard.fullname" .)) .Values.security.runtimeLogs.existingSecret }}
 {{- end }}
 
 {{- define "tali-guard.deepseekSecretName" -}}
-{{- default (printf "%s-deepseek" (include "tali-guard.fullname" .)) .Values.controlPlaneAgent.deepseek.existingSecret }}
+{{- default (printf "%s-control-plane-ai" (include "tali-guard.fullname" .)) .Values.controlPlaneAgent.deepseek.existingSecret }}
 {{- end }}
 
-{{- define "tali-guard.playgroundChatSecretName" -}}
-{{- default (printf "%s-playground-chat" (include "tali-guard.fullname" .)) .Values.playgroundChat.existingSecret }}
+{{- define "tali-guard.nvidiaSecretName" -}}
+{{- default (printf "%s-nvidia" (include "tali-guard.fullname" .)) .Values.evaluators.nvidia.existingSecret }}
 {{- end }}
 
 {{- define "tali-guard.automatedReasoningSecretName" -}}
 {{- default (printf "%s-automated-reasoning" (include "tali-guard.fullname" .)) .Values.evaluators.automatedReasoning.existingSecret }}
 {{- end }}
 
-{{- define "tali-guard.jailbreakDetectionSecretName" -}}
-{{- default (printf "%s-jailbreak-detection" (include "tali-guard.fullname" .)) .Values.evaluators.jailbreakDetection.existingSecret }}
+{{- define "tali-guard.databaseSecretName" -}}
+{{- if .Values.database.existingSecret -}}
+{{- .Values.database.existingSecret -}}
+{{- else if .Values.postgresql.enabled -}}
+{{- include "tali-guard.postgresqlName" . -}}
+{{- else -}}
+{{- printf "%s-database" (include "tali-guard.fullname" .) -}}
+{{- end -}}
 {{- end }}
 
-{{- define "tali-guard.runtimeLogSecretName" -}}
-{{- default (printf "%s-runtime-log" (include "tali-guard.fullname" .)) .Values.runtimeLogging.existingSecret }}
+{{- define "tali-guard.bootstrapAdminSecretName" -}}
+{{- default (printf "%s-bootstrap-admin" (include "tali-guard.fullname" .)) .Values.security.bootstrapAdmin.existingSecret }}
 {{- end }}
 
-{{- define "tali-guard.persistenceClaimName" -}}
-{{- default (include "tali-guard.workloadName" .) .Values.persistence.existingClaim }}
+{{- define "tali-guard.artifactSigningSecretName" -}}
+{{- default (printf "%s-artifact-signing" (include "tali-guard.fullname" .)) .Values.security.artifactSigning.existingSecret }}
+{{- end }}
+
+{{- define "tali-guard.controlTlsSecretName" -}}
+{{- default (printf "%s-control-tls" (include "tali-guard.fullname" .)) .Values.security.controlTls.existingSecret }}
 {{- end }}
 
 {{- define "tali-guard.validateValues" -}}
-{{- if and (gt (int .Values.replicaCount) 1) (not (or .Values.database.url .Values.database.existingSecret)) }}
-{{- fail "database.url or database.existingSecret is required when replicaCount is greater than 1" }}
+{{- if ne (int .Values.controller.replicaCount) 1 }}
+{{- fail "controller.replicaCount must be 1 in this release; Runner pools provide the horizontal data-plane scale" }}
+{{- end }}
+{{- if lt (int .Values.runner.default.replicaCount) 2 }}
+{{- fail "runner.default.replicaCount must be at least 2 so GuardRails 0 can keep one Runner available during rolling updates" }}
 {{- end }}
 {{- if and .Values.database.url .Values.database.existingSecret }}
 {{- fail "set either database.url or database.existingSecret, not both" }}
 {{- end }}
-{{- if and .Values.evaluators.nvidia.apiKey .Values.evaluators.nvidia.existingSecret }}
-{{- fail "set either evaluators.nvidia.apiKey or evaluators.nvidia.existingSecret, not both" }}
+{{- if and .Values.postgresql.enabled (or .Values.database.url .Values.database.existingSecret) }}
+{{- fail "postgresql.enabled cannot be combined with database.url or database.existingSecret" }}
 {{- end }}
-{{- if and .Values.playgroundChat.apiKey .Values.playgroundChat.existingSecret }}
-{{- fail "set either playgroundChat.apiKey or playgroundChat.existingSecret, not both" }}
+{{- if not (or .Values.postgresql.enabled .Values.database.url .Values.database.existingSecret) }}
+{{- fail "enable postgresql or set database.url/database.existingSecret; Controller requires PostgreSQL" }}
 {{- end }}
-{{- if ne (empty .Values.playgroundChat.baseUrl) (empty .Values.playgroundChat.model) }}
-{{- fail "playgroundChat.baseUrl and playgroundChat.model must be configured together" }}
+{{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) }}
+{{- fail "postgresql.auth.password is required when the development PostgreSQL dependency is enabled" }}
 {{- end }}
-{{- if and (or .Values.playgroundChat.baseUrl .Values.playgroundChat.model) (not (or .Values.playgroundChat.apiKey .Values.playgroundChat.existingSecret)) }}
-{{- fail "a Playground chat credential is required when playgroundChat is configured" }}
+{{- if and .Values.security.bootstrapAdmin.existingSecret (or .Values.security.bootstrapAdmin.email .Values.security.bootstrapAdmin.password) }}
+{{- fail "bootstrapAdmin existingSecret cannot be combined with inline email/password" }}
 {{- end }}
-{{- if and (or .Values.playgroundChat.apiKey .Values.playgroundChat.existingSecret) (not (and .Values.playgroundChat.baseUrl .Values.playgroundChat.model)) }}
-{{- fail "playgroundChat.baseUrl and playgroundChat.model are required when a Playground chat credential is configured" }}
+{{- if not (or .Values.security.bootstrapAdmin.existingSecret (and .Values.security.bootstrapAdmin.email .Values.security.bootstrapAdmin.password)) }}
+{{- fail "configure bootstrapAdmin existingSecret or inline email/password" }}
 {{- end }}
-{{- if and .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret }}
-{{- fail "set either evaluators.automatedReasoning.apiKey or evaluators.automatedReasoning.existingSecret, not both" }}
+{{- if and .Values.controller.auth.allowLocalDefaultCredentials (not (regexMatch "^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?/?$" .Values.controller.publicUrl)) }}
+{{- fail "allowLocalDefaultCredentials requires a loopback Controller publicUrl" }}
 {{- end }}
-{{- if and (or .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret) (not .Values.evaluators.automatedReasoning.endpointUrl) }}
-{{- fail "evaluators.automatedReasoning.endpointUrl is required when an Automated Reasoning credential is configured" }}
+{{- $usesLocalDefault := and .Values.controller.auth.allowLocalDefaultCredentials (eq .Values.security.bootstrapAdmin.email "admin@tasklattice.local") (eq .Values.security.bootstrapAdmin.password "admin") }}
+{{- if and (not .Values.security.bootstrapAdmin.existingSecret) (lt (len .Values.security.bootstrapAdmin.password) (int .Values.controller.auth.minPasswordLength)) (not $usesLocalDefault) }}
+{{- fail (printf "bootstrapAdmin inline password must contain at least %v characters" .Values.controller.auth.minPasswordLength) }}
 {{- end }}
-{{- if and .Values.evaluators.automatedReasoning.endpointUrl (not (or .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret)) }}
-{{- fail "an Automated Reasoning credential is required when evaluators.automatedReasoning.endpointUrl is configured" }}
+{{- if and .Values.security.artifactSigning.existingSecret (or .Values.security.artifactSigning.privateKey .Values.security.artifactSigning.publicKey) }}
+{{- fail "artifactSigning existingSecret cannot be combined with inline keys" }}
 {{- end }}
-{{- if and .Values.evaluators.jailbreakDetection.apiKey .Values.evaluators.jailbreakDetection.existingSecret }}
-{{- fail "set either evaluators.jailbreakDetection.apiKey or evaluators.jailbreakDetection.existingSecret, not both" }}
+{{- if not (or .Values.security.artifactSigning.existingSecret (and .Values.security.artifactSigning.privateKey .Values.security.artifactSigning.publicKey)) }}
+{{- fail "configure artifactSigning existingSecret or an inline Ed25519 private/public key pair" }}
 {{- end }}
-{{- if and (or .Values.evaluators.jailbreakDetection.apiKey .Values.evaluators.jailbreakDetection.existingSecret) (not .Values.evaluators.jailbreakDetection.nimBaseUrl) }}
-{{- fail "evaluators.jailbreakDetection.nimBaseUrl is required when a Jailbreak Detection credential is configured" }}
+{{- if and .Values.security.controlTls.existingSecret .Values.security.controlTls.autoGenerate }}
+{{- fail "controlTls existingSecret cannot be combined with autoGenerate=true" }}
 {{- end }}
-{{- if and .Values.evaluators.jailbreakDetection.nimBaseUrl (not (regexMatch "^https?://" .Values.evaluators.jailbreakDetection.nimBaseUrl)) }}
-{{- fail "evaluators.jailbreakDetection.nimBaseUrl must be an HTTP(S) URL" }}
-{{- end }}
-{{- if lt (int .Values.observability.runtimeP95BudgetMs) 1 }}
-{{- fail "observability.runtimeP95BudgetMs must be positive" }}
-{{- end }}
-{{- if lt (int .Values.observability.runtimeP99BudgetMs) (int .Values.observability.runtimeP95BudgetMs) }}
-{{- fail "observability.runtimeP99BudgetMs must be at least runtimeP95BudgetMs" }}
-{{- end }}
-{{- if lt (int .Values.observability.maxConcurrencyPerGuardrail) 1 }}
-{{- fail "observability.maxConcurrencyPerGuardrail must be positive" }}
-{{- end }}
-{{- if and .Values.observability.openTelemetry.enabled (not .Values.observability.openTelemetry.endpoint) }}
-{{- fail "observability.openTelemetry.endpoint is required when OpenTelemetry is enabled" }}
-{{- end }}
-{{- if and .Values.observability.openTelemetry.endpoint (not (regexMatch "^https?://" .Values.observability.openTelemetry.endpoint)) }}
-{{- fail "observability.openTelemetry.endpoint must be an HTTP(S) URL" }}
+{{- if not (or .Values.security.controlTls.existingSecret .Values.security.controlTls.autoGenerate) }}
+{{- fail "configure controlTls existingSecret or set autoGenerate=true for development" }}
 {{- end }}
 {{- if and .Values.controlPlaneAgent.deepseek.apiKey .Values.controlPlaneAgent.deepseek.existingSecret }}
 {{- fail "set either controlPlaneAgent.deepseek.apiKey or controlPlaneAgent.deepseek.existingSecret, not both" }}
 {{- end }}
 {{- if and (or .Values.controlPlaneAgent.deepseek.apiKey .Values.controlPlaneAgent.deepseek.existingSecret) (not .Values.controlPlaneAgent.deepseek.baseUrl) }}
-{{- fail "controlPlaneAgent.deepseek.baseUrl is required when a DeepSeek credential is configured" }}
+{{- fail "controlPlaneAgent.deepseek.baseUrl is required when a control-plane model credential is configured" }}
 {{- end }}
 {{- if and (or .Values.controlPlaneAgent.deepseek.apiKey .Values.controlPlaneAgent.deepseek.existingSecret) (not .Values.controlPlaneAgent.deepseek.model) }}
-{{- fail "controlPlaneAgent.deepseek.model is required when a DeepSeek credential is configured" }}
+{{- fail "controlPlaneAgent.deepseek.model is required when a control-plane model credential is configured" }}
 {{- end }}
-{{- if and (or .Values.evaluators.nvidia.contentSafetyModel .Values.evaluators.nvidia.topicControlModel .Values.evaluators.nvidia.groundingModel) (not .Values.evaluators.nvidia.baseUrl) }}
-{{- fail "evaluators.nvidia.baseUrl is required when an NVIDIA evaluator model is configured" }}
+{{- if and .Values.evaluators.nvidia.apiKey .Values.evaluators.nvidia.existingSecret }}
+{{- fail "set either evaluators.nvidia.apiKey or evaluators.nvidia.existingSecret, not both" }}
+{{- end }}
+{{- if and (or .Values.evaluators.nvidia.apiKey .Values.evaluators.nvidia.existingSecret) (not .Values.evaluators.nvidia.baseUrl) }}
+{{- fail "evaluators.nvidia.baseUrl is required when an NVIDIA credential is configured" }}
+{{- end }}
+{{- if and .Values.evaluators.nvidia.baseUrl (not (regexMatch "^https?://" .Values.evaluators.nvidia.baseUrl)) }}
+{{- fail "evaluators.nvidia.baseUrl must be an HTTP(S) URL" }}
+{{- end }}
+{{- if and .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret }}
+{{- fail "set either evaluators.automatedReasoning.apiKey or existingSecret, not both" }}
+{{- end }}
+{{- if and .Values.evaluators.automatedReasoning.endpointUrl (not (or .Values.evaluators.automatedReasoning.apiKey .Values.evaluators.automatedReasoning.existingSecret)) }}
+{{- fail "an Automated Reasoning credential is required when endpointUrl is configured" }}
+{{- end }}
+{{- if and .Values.evaluators.automatedReasoning.endpointUrl (not (regexMatch "^https?://" .Values.evaluators.automatedReasoning.endpointUrl)) }}
+{{- fail "evaluators.automatedReasoning.endpointUrl must be an HTTP(S) URL" }}
+{{- end }}
+{{- if and .Values.redis.enabled .Values.runner.callContextRedisUrl }}
+{{- fail "set either redis.enabled=true or runner.callContextRedisUrl, not both" }}
+{{- end }}
+{{- if and (gt (int .Values.runner.default.replicaCount) 1) (not (or .Values.redis.enabled .Values.runner.callContextRedisUrl)) }}
+{{- fail "shared Redis is required when GuardRails 0 has more than one replica; enable redis or set runner.callContextRedisUrl" }}
+{{- end }}
+{{- range .Values.runner.pools }}
+{{- if and (gt (int .replicaCount) 1) (not (or $.Values.redis.enabled $.Values.runner.callContextRedisUrl)) }}
+{{- fail (printf "shared Redis is required when Runner pool %s has more than one replica" .name) }}
+{{- end }}
 {{- end }}
 {{- end }}

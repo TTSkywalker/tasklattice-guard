@@ -1,19 +1,97 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "tali-guard.workloadName" . }}
+  name: {{ include "tali-guard.controllerName" . }}
   labels:
-    {{- include "tali-guard.workloadLabels" . | nindent 4 }}
-  {{- with .Values.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
 spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - name: http
-      port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
+  type: {{ .Values.controller.service.type }}
   selector:
-    {{- include "tali-guard.workloadSelectorLabels" . | nindent 4 }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: controller
+  ports:
+    - { name: http, port: {{ .Values.controller.service.httpPort }}, targetPort: http }
+    - { name: grpc, port: {{ .Values.controller.service.grpcPort }}, targetPort: grpc }
+{{- if .Values.controller.service.public.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tali-guard.controllerName" . }}-public
+  labels:
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+    tasklattice.io/exposure: public-http
+spec:
+  type: {{ .Values.controller.service.public.type }}
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: controller
+  ports:
+    - { name: http, port: {{ .Values.controller.service.public.port }}, targetPort: http }
+{{- end }}
+{{- $root := . -}}
+{{- $pools := concat (list (dict "name" "default")) .Values.runner.pools -}}
+{{- range $pool := $pools }}
+{{- $runnerName := ternary (include "tali-guard.defaultRunnerName" $root) (printf "%s-runner-%s" (include "tali-guard.fullname" $root) $pool.name | trunc 63 | trimSuffix "-") (eq $pool.name "default") -}}
+{{- $headlessServiceName := printf "%s-headless" $runnerName | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $headlessServiceName }}
+  labels:
+    {{- include "tali-guard.commonLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: runner
+    tasklattice.io/runner-pool: {{ $pool.name | quote }}
+    tasklattice.io/service-role: governing
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/component: runner
+    tasklattice.io/runner-pool: {{ $pool.name | quote }}
+  ports:
+    - { name: runtime, port: {{ $root.Values.runner.service.port }}, targetPort: runtime }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ if eq $pool.name "default" }}{{ include "tali-guard.runtimeName" $root }}{{ else }}{{ printf "%s-%s" (include "tali-guard.runtimeName" $root) $pool.name | trunc 63 | trimSuffix "-" }}{{ end }}
+  labels:
+    {{- include "tali-guard.commonLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: runner
+    tasklattice.io/runner-pool: {{ $pool.name | quote }}
+spec:
+  type: {{ $root.Values.runner.service.type }}
+  sessionAffinity: None
+  selector:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/component: runner
+    tasklattice.io/runner-pool: {{ $pool.name | quote }}
+  ports:
+    - { name: runtime, port: {{ $root.Values.runner.service.port }}, targetPort: runtime }
+{{- end }}
+{{- if .Values.runner.service.public.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tali-guard.runtimeName" . }}-public
+  labels:
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+    tasklattice.io/runner-pool: default
+    tasklattice.io/exposure: public-runtime
+spec:
+  type: {{ .Values.runner.service.public.type }}
+  sessionAffinity: None
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: runner
+    tasklattice.io/runner-pool: default
+  ports:
+    - { name: runtime, port: {{ .Values.runner.service.public.port }}, targetPort: runtime }
+{{- end }}

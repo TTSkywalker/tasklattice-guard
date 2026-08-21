@@ -12,9 +12,10 @@ dist/
 .DS_Store
 .env
 data/
-web/node_modules/
-web/dist/
-web/*.tsbuildinfo
-web/vite.config.js
-web/vite.config.d.ts
+controller/node_modules/
+controller/dist/
+controller/dist-server/
+controller/*.tsbuildinfo
+controller/vite.config.js
+controller/vite.config.d.ts
 /unused.db

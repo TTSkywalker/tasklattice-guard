@@ -1,30 +1,38 @@
-TaskLattice Guard is installed in namespace {{ .Release.Namespace }}.
+TaskLattice Guard installed two application component types:
 
-The standalone control plane and deterministic evaluator are ready without an
-Integration or external model. Wait for the deployment:
+  Controller: {{ include "tali-guard.controllerName" . }}
+  GuardRails 0: {{ include "tali-guard.defaultRunnerName" . }} (2 replicas by default)
 
-  kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "tali-guard.workloadName" . }}
+GuardRails 0 is the mandatory baseline and authoritative NeMo compiler.
+Its PodDisruptionBudget keeps at least one Runner available.
 
-{{- if eq .Values.service.type "LoadBalancer" }}
-Open the UI using the external address assigned by your cluster:
+Check both rollouts:
 
-  kubectl --namespace {{ .Release.Namespace }} get service/{{ include "tali-guard.workloadName" . }}
-{{- else }}
-Open the UI through a local port-forward:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "tali-guard.controllerName" . }}
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "tali-guard.defaultRunnerName" . }}
 
-  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "tali-guard.workloadName" . }} 8092:{{ .Values.service.port }}
+{{- if .Values.postgresql.enabled }}
+Development PostgreSQL dependency:
 
-  http://127.0.0.1:8092/guardrails
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "tali-guard.postgresqlName" . }}
+{{- end }}
+{{- if .Values.redis.enabled }}
+
+Development Redis call-context dependency:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "tali-guard.redisName" . }}
 {{- end }}
 
-Run the Helm smoke test:
+Controller UI/API:
 
-  helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+  {{ .Values.controller.publicUrl }}
+  curl {{ trimSuffix "/" .Values.controller.publicUrl }}/api/v1/system/status
 
-Runtime Prompt History encryption is enabled automatically with Secret
-{{ include "tali-guard.runtimeLogSecretName" . }}. Keep this Secret with
-the database; losing it makes previously encrypted content unrecoverable.
+Runner data-plane traffic enters through the stable service/{{ include "tali-guard.runtimeName" . }} on port {{ .Values.runner.service.port }}.
+Upstream callers never address an individual Runner Pod.
+{{- if .Values.runner.service.public.enabled }}
 
-{{- if .Values.persistence.retain }}
-The PersistentVolumeClaim is retained when the release is uninstalled.
+Local host-facing Runner endpoint:
+
+  http://localhost:{{ .Values.runner.service.public.port }}
 {{- end }}

@@ -39,7 +39,7 @@ jobs:
           echo "value=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
 
   publish-platforms:
-    name: Build ${{ matrix.architecture }} image
+    name: Build ${{ matrix.component }} ${{ matrix.architecture }} image
     needs:
       - quality
       - version
@@ -51,9 +51,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - architecture: amd64
+          - component: controller
+            dockerfile: Dockerfile.controller
+            image: tali-guard-controller
+            architecture: amd64
             runner: ubuntu-24.04
-          - architecture: arm64
+          - component: controller
+            dockerfile: Dockerfile.controller
+            image: tali-guard-controller
+            architecture: arm64
+            runner: ubuntu-24.04-arm
+          - component: runner
+            dockerfile: Dockerfile.runner
+            image: tali-guard-runner
+            architecture: amd64
+            runner: ubuntu-24.04
+          - component: runner
+            dockerfile: Dockerfile.runner
+            image: tali-guard-runner
+            architecture: arm64
             runner: ubuntu-24.04-arm
     steps:
       - name: Check out tagged source
@@ -69,7 +85,8 @@ jobs:
         run: |
           set -euo pipefail
           registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
-          TALI_GUARD_IMAGE_REPOSITORY="${registry}/tali-guard" \
+          TALI_GUARD_CONTROLLER_IMAGE_REPOSITORY="${registry}/tali-guard-controller" \
+            TALI_GUARD_RUNNER_IMAGE_REPOSITORY="${registry}/tali-guard-runner" \
             bash scripts/package-runtime-chart.sh "${{ needs.version.outputs.value }}"
 
       - name: Set up Docker Buildx
@@ -89,7 +106,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
-          image="${registry}/tali-guard"
+          image="${registry}/${{ matrix.image }}"
           short_sha="${GITHUB_SHA::12}"
           {
             echo "name=${image}"
@@ -103,24 +120,24 @@ jobs:
         uses: docker/build-push-action@v7.3.0
         with:
           context: .
-          file: ./Dockerfile
+          file: ./${{ matrix.dockerfile }}
           target: runtime
           platforms: linux/${{ matrix.architecture }}
           push: true
           tags: ${{ steps.image.outputs.tags }}
           labels: |
-            org.opencontainers.image.title=TALI Guard
-            org.opencontainers.image.description=Enterprise Guardrail control plane with a NeMo Guardrails runtime
+            org.opencontainers.image.title=TALI Guard ${{ matrix.component }}
+            org.opencontainers.image.description=TALI Guard ${{ matrix.component }} plane
             org.opencontainers.image.version=${{ needs.version.outputs.value }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=tali-guard-${{ matrix.architecture }}
-          cache-to: type=gha,mode=max,scope=tali-guard-${{ matrix.architecture }}
+          cache-from: type=gha,scope=tali-guard-${{ matrix.component }}-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=tali-guard-${{ matrix.component }}-${{ matrix.architecture }}
           provenance: mode=max
           sbom: true
 
   publish-manifest:
-    name: Publish multi-architecture image
+    name: Publish ${{ matrix.component }} multi-architecture image
     needs:
       - version
       - publish-platforms
@@ -128,6 +145,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: controller
+            image: tali-guard-controller
+          - component: runner
+            image: tali-guard-runner
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0
@@ -145,7 +170,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           short_sha="${GITHUB_SHA::12}"
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/tali-guard"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}"
           sources=("${image}:${version}-amd64" "${image}:${version}-arm64")
           docker buildx imagetools create --tag "${image}:${version}" "${sources[@]}"
           docker buildx imagetools create --tag "${image}:${GITHUB_REF_NAME}" "${sources[@]}"
@@ -186,7 +211,8 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
-          TALI_GUARD_IMAGE_REPOSITORY="${registry}/tali-guard" \
+          TALI_GUARD_CONTROLLER_IMAGE_REPOSITORY="${registry}/tali-guard-controller" \
+            TALI_GUARD_RUNNER_IMAGE_REPOSITORY="${registry}/tali-guard-runner" \
             bash scripts/package-runtime-chart.sh "$version"
           cp dist/runtime-chart/tali-guard.tgz \
             "dist/tali-guard-${version}.tgz"

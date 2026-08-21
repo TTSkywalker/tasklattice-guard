@@ -1,0 +1,125 @@
+{{- $root := . -}}
+{{- $default := dict "name" "default" "replicaCount" .Values.runner.default.replicaCount "maxConcurrency" .Values.runner.default.maxConcurrency "compilerCapable" true "resources" .Values.runner.default.resources -}}
+{{- $pools := concat (list $default) .Values.runner.pools -}}
+{{- range $index, $pool := $pools }}
+{{- $runnerName := ternary (include "tali-guard.defaultRunnerName" $root) (printf "%s-runner-%s" (include "tali-guard.fullname" $root) $pool.name | trunc 63 | trimSuffix "-") (eq $pool.name "default") -}}
+{{- $headlessServiceName := printf "%s-headless" $runnerName | trunc 63 | trimSuffix "-" -}}
+{{- if gt $index 0 }}---{{ end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $runnerName }}
+  labels:
+    {{- include "tali-guard.commonLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: runner
+    tasklattice.io/runner-pool: {{ $pool.name | quote }}
+spec:
+  serviceName: {{ $headlessServiceName }}
+  podManagementPolicy: Parallel
+  replicas: {{ $pool.replicaCount }}
+  minReadySeconds: 5
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: runner
+      tasklattice.io/runner-pool: {{ $pool.name | quote }}
+  template:
+    metadata:
+      annotations:
+        checksum/nvidia-secret: {{ include (print $.Template.BasePath "/nvidia-secret.yaml") $root | sha256sum }}
+        checksum/automated-reasoning-secret: {{ include (print $.Template.BasePath "/automated-reasoning-secret.yaml") $root | sha256sum }}
+      {{- with $root.Values.rolloutRevision }}
+        tasklattice.io/rollout-revision: {{ . | quote }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "tali-guard.name" $root }}
+        app.kubernetes.io/instance: {{ $root.Release.Name }}
+        app.kubernetes.io/component: runner
+        app.kubernetes.io/part-of: tasklattice-guard
+        tasklattice.io/runner-pool: {{ $pool.name | quote }}
+    spec:
+      serviceAccountName: {{ include "tali-guard.serviceAccountName" $root }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext: {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: runner
+          image: "{{ $root.Values.runner.image.repository }}:{{ default $root.Chart.AppVersion $root.Values.runner.image.tag }}"
+          imagePullPolicy: {{ $root.Values.runner.image.pullPolicy }}
+          securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
+          ports:
+            - { name: runtime, containerPort: 8091, protocol: TCP }
+          env:
+            - { name: GUARD_RUNNER_ID, valueFrom: { fieldRef: { fieldPath: metadata.name } } }
+            - { name: GUARD_RUNNER_POOL_ID, value: {{ $pool.name | quote }} }
+            - { name: GUARD_RUNNER_COMPILER_CAPABLE, value: {{ default false $pool.compilerCapable | quote }} }
+            - { name: GUARD_RUNNER_MAX_CONCURRENCY, value: {{ $pool.maxConcurrency | quote }} }
+            - { name: GUARD_CONTROLLER_TARGET, value: {{ printf "%s:%v" (include "tali-guard.controllerName" $root) $root.Values.controller.service.grpcPort | quote }} }
+            - { name: GUARD_CONTROLLER_TELEMETRY_ENDPOINT, value: {{ printf "http://%s:%v/api/internal/v1/runtime-events" (include "tali-guard.controllerName" $root) $root.Values.controller.service.httpPort | quote }} }
+            - name: GUARD_CONTROLLER_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "tali-guard.controlSecretName" $root }}, key: {{ $root.Values.security.controlSecret.runnerTokenKey }} } }
+            - name: MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "tali-guard.runtimeLogSecretName" $root }}, key: {{ $root.Values.security.runtimeLogs.encryptionKeyKey }} } }
+            - { name: GUARD_ARTIFACT_PUBLIC_KEY_PATH, value: /var/run/tasklattice/artifact/public-key.pem }
+            - { name: GUARD_CONTROLLER_CA_PATH, value: /var/run/tasklattice/control-tls/ca.crt }
+            - { name: GUARD_RUNNER_CLIENT_CERT_PATH, value: /var/run/tasklattice/control-tls/runner.crt }
+            - { name: GUARD_RUNNER_CLIENT_KEY_PATH, value: /var/run/tasklattice/control-tls/runner.key }
+            {{- with $root.Values.evaluators.nvidia.baseUrl }}
+            - { name: MODEL_GUARDRAILS_NVIDIA_BASE_URL, value: {{ . | quote }} }
+            - { name: MODEL_GUARDRAILS_CONTENT_SAFETY_MODEL, value: {{ $root.Values.evaluators.nvidia.contentSafetyModel | quote }} }
+            - { name: MODEL_GUARDRAILS_TOPIC_CONTROL_MODEL, value: {{ $root.Values.evaluators.nvidia.topicControlModel | quote }} }
+            - { name: MODEL_GUARDRAILS_JAILBREAK_MODEL, value: {{ $root.Values.evaluators.nvidia.jailbreakModel | quote }} }
+            {{- with $root.Values.evaluators.nvidia.groundingModel }}
+            - { name: MODEL_GUARDRAILS_GROUNDING_MODEL, value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
+            {{- with $root.Values.evaluators.automatedReasoning.endpointUrl }}
+            - { name: MODEL_GUARDRAILS_AUTOMATED_REASONING_ENDPOINT_URL, value: {{ . | quote }} }
+            - name: MODEL_GUARDRAILS_AUTOMATED_REASONING_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "tali-guard.automatedReasoningSecretName" $root }}, key: {{ $root.Values.evaluators.automatedReasoning.secretKey }} } }
+            {{- end }}
+            {{- if or $root.Values.evaluators.nvidia.apiKey $root.Values.evaluators.nvidia.existingSecret }}
+            - name: MODEL_GUARDRAILS_NVIDIA_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "tali-guard.nvidiaSecretName" $root }}, key: {{ $root.Values.evaluators.nvidia.secretKey }} } }
+            {{- end }}
+            {{- with include "tali-guard.callContextRedisUrl" $root }}
+            - { name: GUARD_RUNNER_CALL_CONTEXT_REDIS_URL, value: {{ . | quote }} }
+            {{- end }}
+          volumeMounts:
+            - { name: artifact-signing, mountPath: /var/run/tasklattice/artifact, readOnly: true }
+            - { name: control-tls, mountPath: /var/run/tasklattice/control-tls, readOnly: true }
+            - { name: state, mountPath: /var/lib/tasklattice/guard-runner }
+            - { name: tmp, mountPath: /tmp }
+          startupProbe: { httpGet: { path: /health/live, port: runtime }, periodSeconds: 2, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health/ready, port: runtime }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /health/live, port: runtime }, periodSeconds: 20 }
+          lifecycle:
+            preStop:
+              exec:
+                # Give Service endpoint propagation time before Uvicorn receives
+                # SIGTERM and drains requests inside the remaining grace period.
+                command: [/bin/sh, -c, "sleep 5"]
+          resources: {{- toYaml $pool.resources | nindent 12 }}
+      volumes:
+        - name: artifact-signing
+          secret:
+            secretName: {{ include "tali-guard.artifactSigningSecretName" $root }}
+            items:
+              - { key: {{ $root.Values.security.artifactSigning.publicKeyKey }}, path: public-key.pem }
+        - name: control-tls
+          secret:
+            secretName: {{ include "tali-guard.controlTlsSecretName" $root }}
+            items:
+              - { key: {{ $root.Values.security.controlTls.caKey }}, path: ca.crt }
+              - { key: {{ $root.Values.security.controlTls.runnerCertificateKey }}, path: runner.crt }
+              - { key: {{ $root.Values.security.controlTls.runnerPrivateKeyKey }}, path: runner.key }
+        - name: state
+          emptyDir: { sizeLimit: {{ $root.Values.runner.state.sizeLimit }} }
+        - name: tmp
+          emptyDir: {}
+{{ end }}

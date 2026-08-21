@@ -1,49 +1,25 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: "{{ include "tali-guard.workloadName" . }}-test-standalone"
+  name: {{ include "tali-guard.fullname" . }}-test
   labels:
-    helm.sh/chart: {{ include "tali-guard.chart" . }}
-    app.kubernetes.io/name: {{ printf "%s-test" (include "tali-guard.name" .) | trunc 63 | trimSuffix "-" }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
   annotations:
     helm.sh/hook: test
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   restartPolicy: Never
   automountServiceAccountToken: false
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 65534
-    runAsGroup: 65534
-    seccompProfile:
-      type: RuntimeDefault
+  securityContext: { runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534 }
   containers:
     - name: health
-      image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
-      imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      image: busybox:1.37
       securityContext:
         allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
+        capabilities: { drop: ["ALL"] }
         readOnlyRootFilesystem: true
-      command:
-        - /bin/sh
-        - -ec
+      command: [/bin/sh, -ec]
       args:
         - |
-          service_url="http://{{ include "tali-guard.workloadName" . }}:{{ .Values.service.port }}"
-          attempt=0
-          until wget --quiet --output-document=/dev/null --timeout=5 \
-            "${service_url}/health/ready"; do
-            attempt=$((attempt + 1))
-            [ "${attempt}" -ge 15 ] && exit 1
-            sleep 2
-          done
-          auth_status="$(wget --quiet --output-document=- --timeout=5 \
-            "${service_url}/api/v1/session")"
-          echo "${auth_status}" | grep -q '"authenticated":false'
-          wget --quiet --output-document=- --timeout=5 \
-            "${service_url}/" | grep -q '<div id="root"></div>'
+          wget -qO- http://{{ include "tali-guard.controllerName" . }}:8080/health/ready | grep -q 'guard-controller'
+          wget -qO- http://{{ include "tali-guard.runtimeName" . }}:{{ .Values.runner.service.port }}/health/live | grep -q 'guard-runner'

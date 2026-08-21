@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tasklattice-model-guardrails"
-version = "0.1.0"
-description = "Enterprise Guardrail control plane with a NeMo Guardrails runtime."
+name = "tasklattice-guard-runner"
+version = "0.2.0"
+description = "TaskLattice Guard Python data plane powered by NeMo Guardrails."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -15,12 +15,13 @@ dependencies = [
   "nemoguardrails[tracing]==0.23.0",
   "opentelemetry-sdk>=1.27,<2",
   "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
-  "python-docx>=1.2,<2",
-  "python-multipart>=0.0.20,<1",
-  "psycopg[binary]>=3.2,<4",
   "pyyaml>=6.0,<7",
-  "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.34,<1",
+  "grpcio>=1.74,<2",
+  "grpcio-tools>=1.74,<2",
+  "psutil>=7,<8",
+  "redis>=6,<7",
+  "prometheus-client>=0.21,<1",
 ]
 
 [project.urls]
@@ -34,7 +35,7 @@ test = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["app"]
+packages = ["runner"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
