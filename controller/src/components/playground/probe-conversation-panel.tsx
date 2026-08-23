@@ -1,11 +1,13 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   AssistantRuntimeProvider,
   ComposerPrimitive,
   ErrorPrimitive,
+  MessageNotSentError,
   MessagePrimitive,
   ThreadPrimitive,
+  generateId,
   getExternalStoreMessages,
   useAuiState,
   useExternalStoreRuntime,
@@ -83,14 +85,25 @@ export function ProbeConversationPanel({
   const { t } = useTranslation();
   const selectedModel = models.find((model) => model.id === modelId);
   const targetReady = target.kind === "draft" ? Boolean(draftPreview) : Boolean(selectedVersion);
-  const messages = useMemo(() => threadMessages(turns), [turns]);
+  const [optimisticUserMessage, setOptimisticUserMessage] = useState<PlaygroundThreadMessage | null>(null);
+  const messages = useMemo(() => threadMessages(turns, optimisticUserMessage), [optimisticUserMessage, turns]);
   const onNew = useCallback(async (message: AppendMessage) => {
     const text = message.content
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("\n")
       .trim();
-    if (text) await onSubmitMessage(text);
+    if (!text) return;
+
+    const optimisticId = generateId();
+    setOptimisticUserMessage({ id: optimisticId, role: "user", content: text });
+    try {
+      await onSubmitMessage(text);
+    } catch (error) {
+      throw new MessageNotSentError(error instanceof Error ? error.message : undefined);
+    } finally {
+      setOptimisticUserMessage((current) => current?.id === optimisticId ? null : current);
+    }
   }, [onSubmitMessage]);
   const runtime = useExternalStoreRuntime<PlaygroundThreadMessage>({
     messages,
@@ -299,11 +312,12 @@ function PlaygroundMessageText({ text }: TextMessagePartProps) {
   return <p className="whitespace-pre-wrap text-sm leading-6">{text}</p>;
 }
 
-function threadMessages(turns: PlaygroundTurn[]): PlaygroundThreadMessage[] {
-  return turns.flatMap((turn) => [
+function threadMessages(turns: PlaygroundTurn[], optimisticUserMessage: PlaygroundThreadMessage | null): PlaygroundThreadMessage[] {
+  const completedMessages: PlaygroundThreadMessage[] = turns.flatMap((turn) => [
     { id: `${turn.interaction_id}:user`, role: "user", content: turn.user_message },
     { id: `${turn.interaction_id}:assistant`, role: "assistant", content: turn.assistant_message ?? "", turn },
   ]);
+  return optimisticUserMessage ? [...completedMessages, optimisticUserMessage] : completedMessages;
 }
 
 function convertMessage(message: PlaygroundThreadMessage): ThreadMessageLike {
