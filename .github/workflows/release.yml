@@ -173,7 +173,6 @@ jobs:
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}"
           sources=("${image}:${version}-amd64" "${image}:${version}-arm64")
           docker buildx imagetools create --tag "${image}:${version}" "${sources[@]}"
-          docker buildx imagetools create --tag "${image}:${GITHUB_REF_NAME}" "${sources[@]}"
           docker buildx imagetools create --tag "${image}:sha-${short_sha}" "${sources[@]}"
           if [[ "$version" != *-* ]]; then
             docker buildx imagetools create --tag "${image}:latest" "${sources[@]}"

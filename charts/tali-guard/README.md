@@ -1,5 +1,8 @@
 # TaskLattice Guard Helm Chart
 
+Release builds package this Chart at `/opt/tali/helm/tali-guard.tgz` inside the
+Controller image. The image exposes that path through `TALI_HELM_CHART`.
+
 This chart deploys exactly two Guard application component types:
 
 - **Guard Controller** — TypeScript UI/API, Better Auth, desired state,
