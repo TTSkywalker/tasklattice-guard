@@ -15,8 +15,20 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, string>) => {
+    t: (key: string, values?: Record<string, string | number>) => {
       const labels: Record<string, string> = {
+        "runners.convergence.converged": "Configuration converged",
+        "runners.convergence.syncing": "Configuration syncing",
+        "runners.convergence.unavailable": "No connected Runners",
+        "runners.convergence.poolSummary": "{{converged}}/{{connected}} connected Runners · Desired generation {{generation}}",
+        "runners.convergence.noConnectedSummary": "Waiting for a Runner to apply desired generation {{generation}}.",
+        "runners.convergence.appliedDesired": "Applied {{applied}} · Desired {{desired}}",
+        "runners.convergence.lastReported": "Last reported {{applied}} · Desired {{desired}}",
+        "runners.convergence.generationsBehind": "Lag: {{count}} generation(s)",
+        "runners.convergence.generationMismatch": "Applied and desired generations differ",
+        "runners.convergence.runner.converged": "Converged",
+        "runners.convergence.runner.syncing": "Syncing",
+        "runners.convergence.runner.unavailable": "Not connected",
         "runners.removeAria": "Remove {{runnerId}}",
         "runners.removal.title": "Remove this offline Runner?",
         "runners.removal.retentionNote": "The Runner pool, Kubernetes workload, runtime events, and audit history remain.",
@@ -150,5 +162,57 @@ describe("Runner capacity removal", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("Only an offline Runner registration can be removed.");
     expect(screen.getByText("Remove this offline Runner?")).toBeTruthy();
+  });
+});
+
+describe("Runner configuration convergence", () => {
+  beforeEach(() => {
+    mocks.role = "admin";
+    mocks.listRunnerPools.mockReset().mockResolvedValue({ items: [runnerPool] });
+    mocks.removeRunnerInstance.mockReset().mockResolvedValue(undefined);
+  });
+
+  afterEach(cleanup);
+
+  it("summarizes convergence across connected Runners and separates an offline registration", async () => {
+    renderPage();
+
+    const summary = await screen.findByRole("status");
+    expect(summary.textContent).toContain("Configuration converged");
+    expect(summary.textContent).toContain("1/1 connected Runners · Desired generation 2");
+    expect(screen.getByText("Converged")).toBeTruthy();
+    expect(screen.getByText("Applied 2 · Desired 2")).toBeTruthy();
+    expect(screen.getByText("Not connected")).toBeTruthy();
+    expect(screen.getByText("Last reported 2 · Desired 2")).toBeTruthy();
+  });
+
+  it("shows the pool and Runner as syncing with the generation lag", async () => {
+    mocks.listRunnerPools.mockResolvedValue({
+      items: [{
+        ...runnerPool,
+        instances: runnerPool.instances.map((runner) => runner.runnerId === "runner-ready"
+          ? { ...runner, status: "syncing" as const, appliedGeneration: 1 }
+          : runner),
+      }],
+    });
+    renderPage();
+
+    const summary = await screen.findByRole("status");
+    expect(summary.textContent).toContain("Configuration syncing");
+    expect(summary.textContent).toContain("0/1 connected Runners · Desired generation 2");
+    expect(screen.getByText("Syncing")).toBeTruthy();
+    expect(screen.getByText("Applied 1 · Desired 2")).toBeTruthy();
+    expect(screen.getByText("Lag: 1 generation(s)")).toBeTruthy();
+  });
+
+  it("shows an unavailable convergence state when the pool has no connected Runner", async () => {
+    mocks.listRunnerPools.mockResolvedValue({
+      items: [{ ...runnerPool, instances: runnerPool.instances.filter((runner) => runner.status === "offline") }],
+    });
+    renderPage();
+
+    const summary = await screen.findByRole("status");
+    expect(summary.textContent).toContain("No connected Runners");
+    expect(summary.textContent).toContain("Waiting for a Runner to apply desired generation 2.");
   });
 });

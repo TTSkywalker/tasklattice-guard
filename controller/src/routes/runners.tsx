@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gauge, Trash2 } from "lucide-react";
+import { CheckCircle2, Gauge, RefreshCw, Trash2, WifiOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -22,6 +22,7 @@ import {
   type RunnerInstance,
   type RunnerPool,
 } from "@/lib/controller-api";
+import { cn } from "@/lib/utils";
 
 const runnerPoolKey = ["controller", "runner-pools"] as const;
 
@@ -56,11 +57,14 @@ export function RunnersPage() {
                     {t("runners.recommendation", { recommended: pool.capacity.recommendedReplicas, desired: pool.desiredReplicas })}
                   </CardDescription>
                 </div>
-                {auth.user?.role === "admin" ? (
-                  <Button variant="outline" onClick={() => setEditing(pool)}>
-                    <Gauge />{t("runners.capacitySettings")}
-                  </Button>
-                ) : null}
+                <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+                  <PoolConvergenceStatus pool={pool} />
+                  {auth.user?.role === "admin" ? (
+                    <Button variant="outline" className="min-h-11" onClick={() => setEditing(pool)}>
+                      <Gauge />{t("runners.capacitySettings")}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -72,13 +76,13 @@ export function RunnersPage() {
                 <Metric label={t("runners.errorRate")} value={`${(pool.capacity.errorRate * 100).toFixed(2)}%`} />
               </div>
               <Table className="mt-5">
-                <TableHeader><TableRow><TableHead>Runner</TableHead><TableHead>{t("runners.columns.state")}</TableHead><TableHead>{t("runners.columns.generation")}</TableHead><TableHead>{t("runners.columns.inflightQueue")}</TableHead><TableHead>CPU / Memory</TableHead><TableHead>{t("runners.columns.lastHeartbeat")}</TableHead><TableHead className="w-14"><span className="sr-only">{t("runners.columns.actions")}</span></TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Runner</TableHead><TableHead>{t("runners.columns.runtimeState")}</TableHead><TableHead>{t("runners.columns.configurationSync")}</TableHead><TableHead>{t("runners.columns.inflightQueue")}</TableHead><TableHead>CPU / Memory</TableHead><TableHead>{t("runners.columns.lastHeartbeat")}</TableHead><TableHead className="w-14"><span className="sr-only">{t("runners.columns.actions")}</span></TableHead></TableRow></TableHeader>
                 <TableBody>
                   {pool.instances.map((runner) => (
                     <TableRow key={runner.runnerId}>
                       <TableCell><code className="text-xs">{runner.runnerId}</code><p className="mt-1 text-xs text-muted-foreground">NeMo {runner.nemoVersion}{runner.compilerCapable ? " · compiler" : ""}</p></TableCell>
                       <TableCell><StateBadge state={runner.status} /></TableCell>
-                      <TableCell className="font-mono text-xs">{runner.appliedGeneration}/{runner.desiredGeneration}</TableCell>
+                      <TableCell><RunnerConvergenceStatus runner={runner} /></TableCell>
                       <TableCell>{runner.load?.inflight ?? 0} / {runner.load?.queueDepth ?? 0}</TableCell>
                       <TableCell>{Math.round((runner.load?.cpuUtilization ?? 0) * 100)}% / {Math.round((runner.load?.memoryUtilization ?? 0) * 100)}%</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatDate(runner.lastHeartbeatAt, i18n.language)}</TableCell>
@@ -119,6 +123,97 @@ export function RunnersPage() {
         }}
       />
     </section>
+  );
+}
+
+type ConvergenceState = "converged" | "syncing" | "unavailable";
+
+function runnerConvergenceState(runner: RunnerInstance): ConvergenceState {
+  if (runner.status === "offline") return "unavailable";
+  return runner.appliedGeneration === runner.desiredGeneration ? "converged" : "syncing";
+}
+
+function PoolConvergenceStatus({ pool }: { pool: RunnerPool }) {
+  const { t } = useTranslation();
+  const connected = pool.instances.filter((runner) => runner.status !== "offline");
+  const converged = connected.filter((runner) => runnerConvergenceState(runner) === "converged");
+  const desiredGeneration = Math.max(0, ...(
+    connected.length > 0 ? connected : pool.instances
+  ).map((runner) => runner.desiredGeneration));
+  const state: ConvergenceState = connected.length === 0
+    ? "unavailable"
+    : converged.length === connected.length
+      ? "converged"
+      : "syncing";
+  const Icon = state === "converged" ? CheckCircle2 : state === "syncing" ? RefreshCw : WifiOff;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "min-w-0 rounded-lg border px-3.5 py-2.5 sm:min-w-72",
+        state === "converged" && "border-emerald-200 bg-emerald-50/60 text-emerald-950",
+        state === "syncing" && "border-amber-200 bg-amber-50/70 text-amber-950",
+        state === "unavailable" && "border-red-200 bg-red-50/70 text-red-950",
+      )}
+    >
+      <p className={cn(
+        "flex items-center gap-2 text-xs font-medium",
+        state === "converged" && "text-emerald-700",
+        state === "syncing" && "text-amber-800",
+        state === "unavailable" && "text-red-700",
+      )}>
+        <Icon className={cn("size-4 shrink-0", state === "syncing" && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+        {t(`runners.convergence.${state}`)}
+      </p>
+      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+        {connected.length > 0
+          ? t("runners.convergence.poolSummary", {
+            converged: converged.length,
+            connected: connected.length,
+            generation: desiredGeneration,
+          })
+          : t("runners.convergence.noConnectedSummary", { generation: desiredGeneration })}
+      </p>
+    </div>
+  );
+}
+
+function RunnerConvergenceStatus({ runner }: { runner: RunnerInstance }) {
+  const { t } = useTranslation();
+  const state = runnerConvergenceState(runner);
+  const Icon = state === "converged" ? CheckCircle2 : state === "syncing" ? RefreshCw : WifiOff;
+  const lag = Math.max(0, runner.desiredGeneration - runner.appliedGeneration);
+
+  return (
+    <div className="min-w-44" data-convergence-state={state}>
+      <p className={cn(
+        "flex items-center gap-1.5 text-xs font-medium",
+        state === "converged" && "text-emerald-700",
+        state === "syncing" && "text-amber-800",
+        state === "unavailable" && "text-red-700",
+      )}>
+        <Icon className={cn("size-3.5 shrink-0", state === "syncing" && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+        {t(`runners.convergence.runner.${state}`)}
+      </p>
+      <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+        {state === "unavailable"
+          ? t("runners.convergence.lastReported", {
+            applied: runner.appliedGeneration,
+            desired: runner.desiredGeneration,
+          })
+          : t("runners.convergence.appliedDesired", {
+            applied: runner.appliedGeneration,
+            desired: runner.desiredGeneration,
+          })}
+      </p>
+      {state === "syncing" ? <p className="mt-0.5 text-[11px] text-amber-800">
+        {lag > 0
+          ? t("runners.convergence.generationsBehind", { count: lag })
+          : t("runners.convergence.generationMismatch")}
+      </p> : null}
+    </div>
   );
 }
 

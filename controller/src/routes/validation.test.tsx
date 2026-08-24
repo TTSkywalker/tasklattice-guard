@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { DetailFact, filterValidationRuns, TestCaseResultRow, ValidationCaseResults } from "./validation";
 
-vi.mock("@/routes/guardrails", () => ({ AddTestCaseSheet: () => null }));
+vi.mock("@/components/add-test-case-sheet", () => ({ AddTestCaseSheet: () => null }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => ({

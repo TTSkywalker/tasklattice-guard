@@ -296,11 +296,15 @@ describe("Guardrail detail information hierarchy", () => {
       coverage: [],
     } satisfies Guardrail;
     const client = new QueryClient();
-    const props = { guardrail: validatedGuardrail, policies: [], cases: [], casesLoading: false, activeVersion: undefined, deployments: [], onEdit: vi.fn(), onAddCase: vi.fn(), onCreateDeployment: vi.fn(), onChanged: async () => undefined };
+    const onOpenValidation = vi.fn();
+    const props = { guardrail: validatedGuardrail, policies: [], cases: [], casesLoading: false, activeVersion: undefined, deployments: [], onOpenValidation, onEdit: vi.fn(), onAddCase: vi.fn(), onCreateDeployment: vi.fn(), onChanged: async () => undefined };
 
     const view = render(<QueryClientProvider client={client}><DraftReleaseView {...props} /></QueryClientProvider>);
     expect(screen.getByRole("button", { name: "guardrails.publishVersion" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "guardrails.createDeployment" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "guardrails.openValidation" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "guardrails.openValidation" }));
+    expect(onOpenValidation).toHaveBeenCalledWith(validatedGuardrail.latest_validation_run);
 
     view.rerender(<QueryClientProvider client={client}><DraftReleaseView {...props} guardrail={{ ...validatedGuardrail, published_current: true }} activeVersion={{ guardrail_id: validatedGuardrail.id, version: 1, source_draft_version: 2, compiler_version: "compiler", plan_checksum: "plan", config_checksum: "config", created_at: "2026-08-14T08:00:00Z", active: true, runtime_engine: "llmrails", execution_mode: "nemo_only" }} /></QueryClientProvider>);
     expect(screen.queryByRole("button", { name: "guardrails.publishVersion" })).toBeNull();
@@ -333,10 +337,13 @@ describe("Guardrail detail information hierarchy", () => {
     } satisfies Guardrail;
     const client = new QueryClient();
     const onEdit = vi.fn();
+    const onRunValidation = vi.fn();
 
-    render(<QueryClientProvider client={client}><DraftReleaseView guardrail={defaultGuardrail} policies={[]} cases={[]} casesLoading={false} deployments={[]} onEdit={onEdit} onAddCase={vi.fn()} onCreateDeployment={vi.fn()} onChanged={async () => undefined} /></QueryClientProvider>);
+    render(<QueryClientProvider client={client}><DraftReleaseView guardrail={defaultGuardrail} policies={[]} cases={[]} casesLoading={false} deployments={[]} onRunValidation={onRunValidation} onEdit={onEdit} onAddCase={vi.fn()} onCreateDeployment={vi.fn()} onChanged={async () => undefined} /></QueryClientProvider>);
 
-    expect(screen.getByRole("link", { name: "guardrails.runReviewed" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "guardrails.runReviewed" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "guardrails.runReviewed" }));
+    expect(onRunValidation).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "common.edit" }));
     expect(onEdit).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "guardrails.createDeployment" })).toBeNull();
