@@ -5,6 +5,7 @@ RUNNER_IMAGE ?= $(RUNNER_REPOSITORY):dev
 
 HELM_CHART := charts/tali-guard
 HELM_DEV_VALUES := $(HELM_CHART)/values-dev.yaml
+HELM_DEBUG_VALUES := $(HELM_CHART)/values-debug.yaml
 HELM_RELEASE ?= tali-guard
 HELM_NAMESPACE ?= tali
 HELM_CONTEXT ?= orbstack
@@ -42,7 +43,7 @@ test:
 		--set observability.prometheusRule.enabled=true \
 		--set observability.grafanaDashboard.enabled=true >/dev/null
 	helm template $(HELM_RELEASE) $(HELM_CHART) --values $(HELM_DEV_VALUES) \
-		--values observability/tali-guard-values-local.yaml >/dev/null
+		--values $(HELM_DEBUG_VALUES) >/dev/null
 
 controller-dev:
 	cd controller && npm run dev
@@ -68,7 +69,7 @@ helm-lint:
 		--set observability.prometheusRule.enabled=true \
 		--set observability.grafanaDashboard.enabled=true
 	helm lint $(HELM_CHART) --strict --values $(HELM_DEV_VALUES) \
-		--values observability/tali-guard-values-local.yaml
+		--values $(HELM_DEBUG_VALUES)
 
 helm-template:
 	helm template $(HELM_RELEASE) $(HELM_CHART) --namespace $(HELM_NAMESPACE) --values $(HELM_DEV_VALUES)

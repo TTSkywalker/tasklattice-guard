@@ -35,9 +35,10 @@ LiteLLM stores that Integration base URL and appends its Basic Guardrail API
 suffix (`/beta/litellm_basic_guardrail_api`) for runtime callbacks. Runner
 implements that contract directly; Controller remains outside the request path.
 
-Production image repositories/tags and dependency contracts live in
-[`values.yaml`](values.yaml). The self-contained OrbStack/local profile lives in
-[`values-dev.yaml`](values-dev.yaml).
+Production image repositories/tags, dependency contracts, and low-overhead
+metrics defaults live in [`values.yaml`](values.yaml).
+[`values-debug.yaml`](values-debug.yaml) is the full Trace/Profile overlay. The
+self-contained OrbStack/local profile lives in [`values-dev.yaml`](values-dev.yaml).
 
 ## OrbStack/local installation
 
@@ -155,14 +156,15 @@ Control, and Jailbreak share its OpenAI-compatible `baseUrl` and credential;
 their independently configurable model names are `contentSafetyModel`,
 `topicControlModel`, and `jailbreakModel`.
 
-Install with a private production values file containing the actual public URL,
-image tags, resource sizing, and ingress configuration:
+Install with a private environment values file containing the actual public
+URL, image tags, resource sizing, ingress, and Secret references. Helm loads
+the chart's production `values.yaml` automatically:
 
 ```bash
 helm upgrade --install tali-guard ./charts/tali-guard \
   --namespace guard-system \
   --create-namespace \
-  --values ./values-production.yaml \
+  --values ./values-company-production.yaml \
   --set database.existingSecret=guard-database \
   --set security.bootstrapAdmin.existingSecret=guard-bootstrap-admin \
   --set security.artifactSigning.existingSecret=guard-artifact-signing \
@@ -196,22 +198,23 @@ Service; the headless Service and ordinal Pod names are not public endpoints.
 
 ## Prometheus and Grafana
 
-For an on-demand, full Runner performance-debug deployment, use the umbrella
-preset instead of enabling every component separately:
+Production defaults enable the authenticated Controller/Runner
+ServiceMonitors, SLO recording and alerting rules, and both Grafana dashboards.
+Full request tracing and continuous profiling remain disabled, so normal
+production operation does not pay full-sampling or profiler overhead. A
+Prometheus Operator and Grafana dashboard sidecar are therefore part of the
+production platform contract; set their selector labels under
+`serviceMonitor.labels` and `prometheusRule.labels` when required.
 
-```yaml
-observability:
-  performanceDebug:
-    enabled: true
-  tracing:
-    otlpEndpoint: http://tempo.monitoring.svc.cluster.local:4318
-  profiling:
-    serverAddress: http://pyroscope.monitoring.svc.cluster.local:4040
-    sampleRate: 100
-  serviceMonitor:
-    labels: { release: kube-prometheus-stack }
-  prometheusRule:
-    labels: { release: kube-prometheus-stack }
+For an on-demand, full Runner performance-debug deployment, add the debug
+profile after the private environment profile:
+
+```bash
+helm upgrade --install tali-guard ./charts/tali-guard \
+  --namespace guard-system \
+  --values ./values-company-production.yaml \
+  --values ./charts/tali-guard/values-debug.yaml \
+  --wait --timeout 15m
 ```
 
 `performanceDebug.enabled=true` forces Runner tracing, continuous profiling,
@@ -221,27 +224,11 @@ every request can be followed from a latency exemplar to Tempo and Pyroscope.
 Helm rejects the deployment if either backend address is missing.
 
 The preset intentionally does not change per-GuardRail runtime logging levels
-or enable content capture. In production it defaults to `false`. Turning it off
-returns control to the individual `tracing.enabled`, `profiling.enabled`,
-`serviceMonitor.enabled`, `prometheusRule.enabled`, and
-`grafanaDashboard.enabled` switches, so metrics/dashboards can remain enabled
-without the higher-cost full Trace/Profile path. The repository's
-`observability/tali-guard-values-local.yaml` is a complete local example.
-
-When Prometheus Operator and a Grafana dashboard sidecar are available, enable
-the bundled scrape, alert, and dashboard resources:
-
-```yaml
-observability:
-  serviceMonitor:
-    enabled: true
-    labels: { release: kube-prometheus-stack }
-  prometheusRule:
-    enabled: true
-    labels: { release: kube-prometheus-stack }
-  grafanaDashboard:
-    enabled: true
-```
+or enable content capture. In production it defaults to `false`. Removing the
+debug overlay returns to production behavior: metrics, SLO rules, alerts, and
+dashboards stay enabled, while full Trace/Profile collection stops. The debug
+profile targets Tempo and Pyroscope in the `monitoring` namespace and uses
+`release: monitoring`; override those values for a differently named stack.
 
 `observability.slo` configures per-GuardRail availability, latency, complete
 coverage, error-budget burn, and platform freshness budgets. The bundled

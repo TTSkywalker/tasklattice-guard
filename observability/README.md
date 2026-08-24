@@ -214,22 +214,20 @@ burnRateSlow: 6
 
 ## Prometheus Operator and Grafana
 
-The Helm chart has an on-demand performance-debug preset. It is disabled by
-default and is suitable for a bounded production troubleshooting window:
+The chart's default [`values.yaml`](../charts/tali-guard/values.yaml) is the
+production profile: authenticated metrics scraping, SLO rules, alerts, and both
+Grafana dashboards are enabled, while full tracing and continuous profiling are
+disabled.
 
-```yaml
-observability:
-  performanceDebug:
-    enabled: true
-  tracing:
-    otlpEndpoint: http://tempo.monitoring.svc.cluster.local:4318
-  profiling:
-    serverAddress: http://pyroscope.monitoring.svc.cluster.local:4040
-    sampleRate: 100
-  serviceMonitor:
-    labels: { release: kube-prometheus-stack }
-  prometheusRule:
-    labels: { release: kube-prometheus-stack }
+Add [`values-debug.yaml`](../charts/tali-guard/values-debug.yaml) for a bounded
+production troubleshooting window:
+
+```bash
+helm upgrade --install tali-guard ./charts/tali-guard \
+  --namespace guard-system \
+  --values ./values-company-production.yaml \
+  --values ./charts/tali-guard/values-debug.yaml \
+  --wait --timeout 15m
 ```
 
 This single switch enables 100% Runner trace sampling, continuous profiling,
@@ -238,21 +236,9 @@ Troubleshooting dashboards. Tempo and Pyroscope addresses are deliberately
 required rather than inferred. Disable the preset after the investigation to
 remove the full-sampling overhead; explicitly enabled individual observability
 components remain active. The preset never changes GuardRail runtime logging
-or content-capture settings.
-
-Enable the bundle when Prometheus Operator CRDs and a Grafana sidecar exist:
-
-```yaml
-observability:
-  serviceMonitor:
-    enabled: true
-    labels: { release: kube-prometheus-stack }
-  prometheusRule:
-    enabled: true
-    labels: { release: kube-prometheus-stack }
-  grafanaDashboard:
-    enabled: true
-```
+or content-capture settings. Its default Tempo/Pyroscope addresses and
+`release: monitoring` selectors are intended for the repository's local stack;
+override them when production uses another namespace or Helm release name.
 
 The chart creates authenticated Controller and Runner ServiceMonitors, a
 PrometheusRule, and a sidecar-discoverable dashboard ConfigMap. It retains a

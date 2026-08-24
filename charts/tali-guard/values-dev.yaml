@@ -96,5 +96,22 @@ security:
 ingress:
   enabled: false
 
+# Keep the self-contained development baseline independent from Prometheus
+# Operator and Grafana. Apply values-debug.yaml when the local monitoring stack
+# is installed and full performance diagnostics are wanted.
+observability:
+  performanceDebug:
+    enabled: false
+  tracing:
+    enabled: false
+  profiling:
+    enabled: false
+  serviceMonitor:
+    enabled: false
+  prometheusRule:
+    enabled: false
+  grafanaDashboard:
+    enabled: false
+
 networkPolicy:
   enabled: true

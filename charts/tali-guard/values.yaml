@@ -261,8 +261,10 @@ ingress:
   host: guard.example.com
   tls: []
 
-# Prometheus Operator and Grafana sidecar integration. These objects are
-# disabled until the corresponding CRDs/components exist in the cluster.
+# Production observability defaults. The production installation contract
+# includes Prometheus Operator CRDs and a Grafana dashboard sidecar. The
+# low-overhead metrics, SLO rules, alerts, and dashboards stay enabled while
+# full request tracing and continuous profiling remain opt-in.
 observability:
   # On-demand, Runner data-plane performance troubleshooting preset. Enabling
   # this one switch forces tracing, continuous profiling, authenticated
@@ -301,15 +303,15 @@ observability:
     telemetryMaxAgeSeconds: 60
     pipelineMaxAgeSeconds: 60
   serviceMonitor:
-    enabled: false
+    enabled: true
     interval: 15s
     scrapeTimeout: 10s
     labels: {}
   prometheusRule:
-    enabled: false
+    enabled: true
     labels: {}
   grafanaDashboard:
-    enabled: false
+    enabled: true
     labels:
       grafana_dashboard: "1"
     annotations: {}

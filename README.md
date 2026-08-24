@@ -147,8 +147,10 @@ the local endpoint unauthenticated for backward-compatible development only.
 
 The Prometheus contract separates technical execution results from firewall
 decisions and adds control convergence, artifact delivery, WAL/outbox age, and
-evidence freshness. Helm can create ServiceMonitors, PrometheusRules, and the
-Grafana dashboard ConfigMap. See [observability/README.md](observability/README.md)
+evidence freshness. Production defaults create ServiceMonitors,
+PrometheusRules, and the Grafana dashboard ConfigMap; the Debug profile adds
+100% tracing and continuous profiling. See
+[observability/README.md](observability/README.md)
 for installation, metric semantics, alert budgets, and the unavoidable upstream
 bypass-denominator boundary.
 
@@ -199,9 +201,11 @@ share one OpenAI-compatible Provider endpoint and Secret; the command prints
 their exact model names before upgrading the release.
 
 Production keeps PostgreSQL and secrets externally managed. Image definitions,
-dependency contracts, direct Helm commands, and the development profile are in
+dependency contracts, direct Helm commands, and the production, Debug, and
+development profiles are in
 [charts/tali-guard/README.md](charts/tali-guard/README.md),
-[values.yaml](charts/tali-guard/values.yaml), and
+[values.yaml](charts/tali-guard/values.yaml),
+[values-debug.yaml](charts/tali-guard/values-debug.yaml), and
 [values-dev.yaml](charts/tali-guard/values-dev.yaml).
 
 Runtime endpoints are exposed by each Runner pool Service. The Controller

@@ -9,6 +9,8 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "charts" / "tali-guard"
 DEV_VALUES = CHART / "values-dev.yaml"
+DEFAULT_VALUES = CHART / "values.yaml"
+DEBUG_VALUES = CHART / "values-debug.yaml"
 REQUIRED = (
     "--set", "database.url=postgresql://guard:guard@postgres:5432/guard",
     "--set", "security.artifactSigning.existingSecret=artifact-signing",
@@ -36,6 +38,35 @@ def render_dev(*values: str) -> list[dict]:
         text=True,
     ).stdout
     return [item for item in yaml.safe_load_all(output) if item]
+
+
+def load_values(path: Path) -> dict:
+    return yaml.safe_load(path.read_text())
+
+
+def test_default_values_are_the_production_observability_profile():
+    defaults = load_values(DEFAULT_VALUES)
+
+    assert defaults["observability"]["performanceDebug"]["enabled"] is False
+    assert defaults["observability"]["tracing"]["enabled"] is False
+    assert defaults["observability"]["profiling"]["enabled"] is False
+    assert defaults["observability"]["serviceMonitor"]["enabled"] is True
+    assert defaults["observability"]["prometheusRule"]["enabled"] is True
+    assert defaults["observability"]["grafanaDashboard"]["enabled"] is True
+
+
+def test_debug_values_explicitly_enable_every_performance_debug_component():
+    debug = load_values(DEBUG_VALUES)["observability"]
+
+    assert debug["performanceDebug"]["enabled"] is True
+    assert debug["tracing"]["enabled"] is True
+    assert debug["tracing"]["sampleRatio"] == 1.0
+    assert debug["tracing"]["otlpEndpoint"]
+    assert debug["profiling"]["enabled"] is True
+    assert debug["profiling"]["serverAddress"]
+    assert debug["serviceMonitor"]["enabled"] is True
+    assert debug["prometheusRule"]["enabled"] is True
+    assert debug["grafanaDashboard"]["enabled"] is True
 
 
 def test_minimum_install_has_controller_and_two_stable_guardrails_zero_runners():
@@ -114,13 +145,7 @@ def test_runner_trace_and_profile_backends_are_explicit_and_independently_enable
 
 
 def test_performance_debug_is_one_switch_for_full_runner_observability():
-    documents = render(
-        "--set", "observability.performanceDebug.enabled=true",
-        "--set", "observability.tracing.otlpEndpoint=http://tempo.monitoring:4318",
-        "--set-json", "observability.tracing.sampleRatio=0.25",
-        "--set", "observability.profiling.serverAddress=http://pyroscope.monitoring:4040",
-        "--set", "observability.profiling.sampleRate=200",
-    )
+    documents = render("--values", str(DEBUG_VALUES))
     runner = next(item for item in documents if item.get("kind") == "StatefulSet")
     environment = {
         item["name"]: item["value"]
@@ -128,10 +153,10 @@ def test_performance_debug_is_one_switch_for_full_runner_observability():
         if "value" in item
     }
 
-    assert environment["GUARD_OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://tempo.monitoring:4318"
+    assert environment["GUARD_OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://tempo.monitoring.svc.cluster.local:4318"
     assert environment["GUARD_OTEL_TRACE_SAMPLE_RATIO"] == "1"
-    assert environment["GUARD_PYROSCOPE_SERVER_ADDRESS"] == "http://pyroscope.monitoring:4040"
-    assert environment["GUARD_PYROSCOPE_SAMPLE_RATE"] == "200"
+    assert environment["GUARD_PYROSCOPE_SERVER_ADDRESS"] == "http://pyroscope.monitoring.svc.cluster.local:4040"
+    assert environment["GUARD_PYROSCOPE_SAMPLE_RATE"] == "100"
     assert len([item for item in documents if item.get("kind") == "ServiceMonitor"]) == 2
     assert any(item.get("kind") == "PrometheusRule" for item in documents)
     assert any(
