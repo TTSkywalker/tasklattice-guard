@@ -8,7 +8,6 @@ from fastapi import FastAPI, Header, HTTPException, Response
 from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST, generate_latest
 
 from runner.toolkit.nemo.action_registry import action_providers
-from runner.toolkit.nemo.actions.model_call import set_model_call_observer
 from runner.toolkit.nemo.registry import NeMoRuntimeRegistry
 from runner.toolkit.nemo.runtime import NeMoRuntime
 from runner.toolkit.runtime.context import CallContextStore
@@ -21,6 +20,7 @@ from .call_context import RedisCallContextStore
 from .config import RunnerSettings
 from .control_client import RunnerControlClient
 from .draft_preview import DraftPreviewRuntime
+from .http_metrics import instrument_http_metrics
 from .metrics import RunnerMetrics
 from .observability import configure_observability
 from .providers import runtime_action_providers
@@ -29,24 +29,23 @@ from .telemetry import RuntimeTelemetryExporter
 
 def create_app(settings: RunnerSettings | None = None) -> FastAPI:
     configured = settings or RunnerSettings.from_env()
-    configure_observability(configured)
+    observability = configure_observability(configured)
     store = ArtifactStore(configured.artifact_public_key_path, configured.artifact_state_path)
     providers = action_providers(*runtime_action_providers(configured))
+    metrics = RunnerMetrics(configured.max_concurrency)
     registry = NeMoRuntimeRegistry(
         store,
         providers,
         max_concurrency_per_guardrail=configured.max_concurrency,
     )
     store.attach_registry(registry)
-    engine = NeMoRuntime(registry)
+    engine = NeMoRuntime(registry, model_call_observer=metrics)
     contexts = (
         RedisCallContextStore(configured.call_context_redis_url)
         if configured.call_context_redis_url
         else CallContextStore()
     )
     runtime = GuardrailRuntimeService(engine, store, contexts=contexts)
-    metrics = RunnerMetrics(configured.max_concurrency)
-    set_model_call_observer(metrics)
     metrics.set_admission_load_provider(registry.admission_load)
     artifact_count, route_count, integration_count = store.observability_counts()
     metrics.set_desired_state(
@@ -95,7 +94,10 @@ def create_app(settings: RunnerSettings | None = None) -> FastAPI:
             await asyncio.gather(control_task, telemetry_task, return_exceptions=True)
             if draft_previews is not None:
                 await draft_previews.shutdown()
-            await engine.shutdown()
+            try:
+                await engine.shutdown()
+            finally:
+                await asyncio.to_thread(observability.shutdown)
 
     app = FastAPI(
         title="TaskLattice Guard Runner",
@@ -139,7 +141,11 @@ def create_app(settings: RunnerSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="Metrics authentication failed.")
         return Response(generate_latest(metrics.registry), media_type=CONTENT_TYPE_LATEST)
 
+    instrument_http_metrics(app, metrics.registry)
+    observability.instrument_app(app)
+
     app.state.artifact_store = store
     app.state.runner_control = control
+    app.state.runner_metrics = metrics
     return app
 app = create_app()

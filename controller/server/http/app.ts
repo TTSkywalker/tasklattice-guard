@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { serveStatic } from "@hono/node-server/serve-static";
+import { prometheus } from "@hono/prometheus";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
@@ -164,6 +165,11 @@ export function createHttpApp(input: {
   playgroundRunner?: RunnerPlaygroundClient | null;
 }) {
   const app = new Hono<{ Variables: Variables }>();
+  const { registerMetrics } = prometheus({
+    registry: input.metrics.registry,
+    prefix: "guard_controller_",
+    collectDefaultMetrics: false,
+  });
   const policyCatalog = PolicyCatalog.load(input.config.policyCatalogDir);
   const intentAnalyzer = input.intentAnalyzer ?? null;
   const playgroundModel = input.playgroundModel ?? null;
@@ -175,18 +181,11 @@ export function createHttpApp(input: {
   });
   app.use("*", logger());
   app.use("*", secureHeaders());
-  app.use("*", async (context, next) => {
-    const started = performance.now();
-    try {
-      await next();
-    } finally {
-      input.metrics.observeHttp?.(
-        context.req.method,
-        metricSurface(context.req.path),
-        context.res.status,
-        (performance.now() - started) / 1_000,
-      );
+  app.use("*", (context, next) => {
+    if (context.req.path === "/metrics" || context.req.path.startsWith("/health/")) {
+      return next();
     }
+    return registerMetrics(context, next);
   });
 
   app.get("/health/live", (context) => context.json({ status: "ok", component: "guard-controller" }));
@@ -641,15 +640,6 @@ export function createHttpApp(input: {
     app.get("*", serveStatic({ root: uiRoot, path: "index.html" }));
   }
   return app;
-}
-
-function metricSurface(path: string): string {
-  if (path === "/metrics") return "metrics";
-  if (path.startsWith("/health/")) return "health";
-  if (path.startsWith("/api/internal/")) return "internal_api";
-  if (path.startsWith("/api/auth/")) return "authentication";
-  if (path.startsWith("/api/")) return "management_api";
-  return "ui";
 }
 
 function authentication(auth: ControllerAuth): MiddlewareHandler<{ Variables: Variables }> {

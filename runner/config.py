@@ -21,8 +21,11 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
-def _ratio(name: str, default: float) -> float:
-    value = float(os.environ.get(name, str(default)))
+def _ratio(name: str, default: float, fallback_name: str | None = None) -> float:
+    raw = os.environ.get(name)
+    if raw is None and fallback_name is not None:
+        raw = os.environ.get(fallback_name)
+    value = float(raw if raw is not None else default)
     if not 0 <= value <= 1:
         raise ValueError(f"{name} must be between 0 and 1.")
     return value
@@ -190,10 +193,14 @@ class RunnerSettings:
             automated_reasoning_api_key_env_var=automated_reasoning_api_key_env_var,
             runtime_log_encryption_key=runtime_log_encryption_key,
             otel_exporter_otlp_endpoint=(
-                os.environ.get("GUARD_OTEL_EXPORTER_OTLP_ENDPOINT", "").strip().rstrip("/")
+                os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "").strip().rstrip("/")
+                or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip().rstrip("/")
+                or os.environ.get("GUARD_OTEL_EXPORTER_OTLP_ENDPOINT", "").strip().rstrip("/")
                 or None
             ),
-            otel_trace_sample_ratio=_ratio("GUARD_OTEL_TRACE_SAMPLE_RATIO", 0.1),
+            otel_trace_sample_ratio=_ratio(
+                "OTEL_TRACES_SAMPLER_ARG", 0.1, "GUARD_OTEL_TRACE_SAMPLE_RATIO",
+            ),
             pyroscope_server_address=(
                 os.environ.get("GUARD_PYROSCOPE_SERVER_ADDRESS", "").strip().rstrip("/")
                 or None

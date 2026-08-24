@@ -38,8 +38,6 @@ export class ControllerMetrics {
   private readonly guardrailDeploymentInfo: Gauge<string>;
   private readonly guardrailDeploymentReady: Gauge<string>;
 
-  private readonly httpRequests: Counter<string>;
-  private readonly httpDuration: Histogram<string>;
   private readonly controlMessages: Counter<string>;
   private readonly heartbeats: Counter<string>;
   private readonly reconciliations: Counter<string>;
@@ -162,14 +160,6 @@ export class ControllerMetrics {
       ["guardrail_id", "deployment_id"],
     );
 
-    this.httpRequests = this.counter(
-      "guard_controller_http_requests_total", "Controller HTTP requests by bounded surface and status class.",
-      ["method", "surface", "status_class"],
-    );
-    this.httpDuration = this.histogram(
-      "guard_controller_http_request_duration_seconds", "Controller HTTP request duration.",
-      ["method", "surface"],
-    );
     this.controlMessages = this.counter(
       "guard_controller_runner_control_messages_total", "Control messages by direction, type, and result.",
       ["direction", "message_type", "result"],
@@ -327,12 +317,6 @@ export class ControllerMetrics {
       this.collectionFailures.labels("snapshot").inc();
       throw error;
     }
-  }
-
-  observeHttp(method: string, surface: string, status: number, durationSeconds: number): void {
-    const statusClass = `${Math.floor(status / 100)}xx`;
-    this.httpRequests.labels(method, surface, statusClass).inc();
-    this.httpDuration.labels(method, surface).observe(Math.max(0, durationSeconds));
   }
 
   controlConnection(pool: string, connected: boolean): void {

@@ -616,7 +616,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (provider, model, action, operation, le) (rate(guard_runner_model_call_duration_seconds_bucket{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (provider, model, action, le) (rate(guard_runner_model_call_duration_seconds_bucket{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\"}[$__rate_interval])))",
           "legendFormat": "{{provider}} / {{model}} · {{action}}",
           "range": true,
           "refId": "A"

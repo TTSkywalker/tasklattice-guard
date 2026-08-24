@@ -118,7 +118,7 @@ def test_controller_and_runner_have_distinct_images_ports_and_responsibilities()
     assert runner_env["GUARD_RUNNER_COMPILER_CAPABLE"]["value"] == "true"
     assert runner_env["GUARD_RUNNER_ID"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
     assert runner_env["GUARD_RUNNER_CALL_CONTEXT_REDIS_URL"]["value"] == "redis://redis:6379/0"
-    assert "GUARD_OTEL_EXPORTER_OTLP_ENDPOINT" not in runner_env
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in runner_env
     assert "GUARD_PYROSCOPE_SERVER_ADDRESS" not in runner_env
 
 
@@ -138,8 +138,9 @@ def test_runner_trace_and_profile_backends_are_explicit_and_independently_enable
         if "value" in item
     }
 
-    assert environment["GUARD_OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://tempo.monitoring:4318"
-    assert environment["GUARD_OTEL_TRACE_SAMPLE_RATIO"] == "0.25"
+    assert environment["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://tempo.monitoring:4318"
+    assert environment["OTEL_TRACES_SAMPLER"] == "parentbased_traceidratio"
+    assert environment["OTEL_TRACES_SAMPLER_ARG"] == "0.25"
     assert environment["GUARD_PYROSCOPE_SERVER_ADDRESS"] == "http://pyroscope.monitoring:4040"
     assert environment["GUARD_PYROSCOPE_SAMPLE_RATE"] == "200"
 
@@ -153,8 +154,9 @@ def test_performance_debug_is_one_switch_for_full_runner_observability():
         if "value" in item
     }
 
-    assert environment["GUARD_OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://tempo.monitoring.svc.cluster.local:4318"
-    assert environment["GUARD_OTEL_TRACE_SAMPLE_RATIO"] == "1"
+    assert environment["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://tempo.monitoring.svc.cluster.local:4318"
+    assert environment["OTEL_TRACES_SAMPLER"] == "parentbased_traceidratio"
+    assert environment["OTEL_TRACES_SAMPLER_ARG"] == "1"
     assert environment["GUARD_PYROSCOPE_SERVER_ADDRESS"] == "http://pyroscope.monitoring.svc.cluster.local:4040"
     assert environment["GUARD_PYROSCOPE_SAMPLE_RATE"] == "100"
     assert len([item for item in documents if item.get("kind") == "ServiceMonitor"]) == 2

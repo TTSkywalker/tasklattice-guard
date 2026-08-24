@@ -41,6 +41,7 @@ from .action_registry import (
 )
 from .actions.contracts import ActionRequest, ActionResult, ModelCallUsage
 from .actions.model_call import (
+    ModelCallObserver,
     activate_native_model_observation,
     deactivate_native_model_observation,
 )
@@ -747,8 +748,14 @@ class NeMoRuntime:
     name = "nemo-guardrails"
     supported_phases = frozenset({"input", "output"})
 
-    def __init__(self, registry: NeMoRuntimeRegistry) -> None:
+    def __init__(
+        self,
+        registry: NeMoRuntimeRegistry,
+        *,
+        model_call_observer: ModelCallObserver | None = None,
+    ) -> None:
         self._registry = registry
+        self._model_call_observer = model_call_observer
 
     async def evaluate(self, request: EngineRequest) -> ProtectionDecision:
         instance, cache_hit, registry_queue_latency_ms = self._registry.acquire(
@@ -766,11 +773,9 @@ class NeMoRuntime:
                 if request_context is not None and request_context.integration_id
                 else "__internal__"
             ),
-            protocol=(
-                request_context.protocol if request_context is not None else "internal"
-            ),
             phase=request.phase,
             request_started_at=started,
+            observer=self._model_call_observer,
         )
         queue_started = started
         queue_latency_ms = registry_queue_latency_ms

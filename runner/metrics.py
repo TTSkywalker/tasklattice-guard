@@ -37,6 +37,9 @@ _QUEUE_BUCKETS = (
     0.04, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1, 2.5, 5, 10,
 )
 _KNOWN_STAGES = frozenset({"deployment", "module", "evaluator", "rail", "action", "runtime", "queue"})
+_MODEL_SCOPE_LABELS = (
+    "guardrail_id", "integration_id", "phase", "action", "provider", "model",
+)
 INTERNAL_METRIC_ID = "__internal__"
 UNRESOLVED_METRIC_ID = "__unresolved__"
 UNMATCHED_METRIC_ID = "__unmatched__"
@@ -132,8 +135,8 @@ class RunnerMetrics:
             "guard_runner_guardrail_requests_total",
             "Guardrail executions by stable product identity, result, disposition, and protection state.",
             [
-                "guardrail_id", "guardrail_version", "deployment_id", "integration_id", "traffic_class",
-                "protocol", "phase", "result", "disposition", "coverage",
+                "guardrail_id", "integration_id", "traffic_class", "protocol", "phase",
+                "result", "disposition", "coverage",
                 "enforcement_mode", "failure_mode",
             ],
             registry=self.registry,
@@ -142,8 +145,8 @@ class RunnerMetrics:
             "guard_runner_guardrail_request_duration_seconds",
             "End-to-end Guardrail latency including durable telemetry append.",
             [
-                "guardrail_id", "guardrail_version", "deployment_id", "integration_id", "traffic_class",
-                "protocol", "phase", "result", "disposition",
+                "guardrail_id", "integration_id", "traffic_class", "protocol", "phase",
+                "result", "disposition",
             ],
             buckets=_DURATION_BUCKETS,
             registry=self.registry,
@@ -152,8 +155,7 @@ class RunnerMetrics:
             "guard_runner_guardrail_interventions_total",
             "Applied Guardrail interventions by bounded enforcement action.",
             [
-                "guardrail_id", "guardrail_version", "deployment_id", "integration_id",
-                "protocol", "phase", "action",
+                "guardrail_id", "integration_id", "protocol", "phase", "action",
             ],
             registry=self.registry,
         )
@@ -186,70 +188,65 @@ class RunnerMetrics:
         self.stage_duration = Histogram(
             "guard_runner_guardrail_stage_duration_seconds", "Guardrail trace-stage duration.",
             [
-                "guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase",
-                "stage", "result",
+                "guardrail_id", "integration_id", "protocol", "phase", "stage", "result",
             ],
             buckets=_DURATION_BUCKETS, registry=self.registry,
         )
         self.provider_work_duration = Histogram(
             "guard_runner_guardrail_provider_work_duration_seconds",
             "Sum of external provider RPC durations; parallel calls intentionally overlap.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             buckets=_DURATION_BUCKETS, registry=self.registry,
         )
         self.model_wait_duration = Histogram(
             "guard_runner_guardrail_model_wait_wall_duration_seconds",
             "Union wall time blocked on model RPCs within one Guardrail execution.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             buckets=_DURATION_BUCKETS, registry=self.registry,
         )
-        model_labels = [
-            "guardrail_id", "integration_id", "protocol", "phase", "action",
-            "provider", "model", "operation", "result", "error_type",
-        ]
         self.model_calls = Counter(
             "guard_runner_model_calls_total",
             "External model/provider RPCs by stable product and provider outcome.",
-            model_labels,
+            [*_MODEL_SCOPE_LABELS, "operation", "result", "error_type"],
             registry=self.registry,
         )
         self.model_in_flight = Gauge(
             "guard_runner_model_in_flight",
             "Currently executing external model/provider RPCs.",
-            [label for label in model_labels if label not in {"protocol", "result", "error_type"}],
+            list(_MODEL_SCOPE_LABELS),
             registry=self.registry,
         )
         self.model_call_duration = Histogram(
             "guard_runner_model_call_duration_seconds",
             "Wall duration of one external model/provider RPC.",
-            model_labels,
+            [*_MODEL_SCOPE_LABELS, "result"],
             buckets=_DURATION_BUCKETS,
             registry=self.registry,
         )
         self.model_time_to_first_token = Histogram(
             "guard_runner_model_time_to_first_token_seconds",
             "Time to first token for streaming model RPCs when available.",
-            [label for label in model_labels if label not in {"result", "error_type"}],
+            list(_MODEL_SCOPE_LABELS),
             buckets=_DURATION_BUCKETS,
             registry=self.registry,
         )
         self.model_retries = Counter(
             "guard_runner_model_retries_total",
             "Model RPC retries reported by the provider client.",
-            [label for label in model_labels if label not in {"result", "error_type"}] + ["reason"],
+            [*_MODEL_SCOPE_LABELS, "reason"],
             registry=self.registry,
         )
         self.model_backoff_duration = Histogram(
             "guard_runner_model_backoff_duration_seconds",
             "Backoff wall time before model RPC retries.",
-            [label for label in model_labels if label not in {"result", "error_type"}] + ["reason"],
+            [*_MODEL_SCOPE_LABELS, "reason"],
             buckets=_QUEUE_BUCKETS,
             registry=self.registry,
         )
         self.model_tokens = Counter(
             "guard_runner_model_tokens_total",
             "Model tokens reported by provider responses.",
-            [label for label in model_labels if label not in {"result", "error_type"}] + ["direction"],
+            [*_MODEL_SCOPE_LABELS, "direction"],
             registry=self.registry,
         )
         self.protection_failures = Counter(
@@ -282,38 +279,38 @@ class RunnerMetrics:
         self.queue_duration = Histogram(
             "guard_runner_guardrail_queue_wait_duration_seconds",
             "Guardrail runtime admission wait reported for an execution.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             buckets=_QUEUE_BUCKETS, registry=self.registry,
         )
         self.inspected_items = Counter(
             "guard_runner_guardrail_inspected_items_total", "Content items presented to a Guardrail.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             registry=self.registry,
         )
         self.guarded_items = Counter(
             "guard_runner_guardrail_guarded_items_total", "Content items covered by a Guardrail.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             registry=self.registry,
         )
         self.inspected_characters = Counter(
             "guard_runner_guardrail_inspected_characters_total", "Text characters presented to a Guardrail.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             registry=self.registry,
         )
         self.guarded_characters = Counter(
             "guard_runner_guardrail_guarded_characters_total", "Text characters covered by a Guardrail.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             registry=self.registry,
         )
         self.required_modules = Counter(
             "guard_runner_guardrail_required_modules_total", "Required modules expected by a Guardrail.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             registry=self.registry,
         )
         self.completed_required_modules = Counter(
             "guard_runner_guardrail_completed_required_modules_total",
             "Required Guardrail modules completed.",
-            ["guardrail_id", "guardrail_version", "deployment_id", "integration_id", "protocol", "phase"],
+            ["guardrail_id", "integration_id", "protocol", "phase"],
             registry=self.registry,
         )
 
@@ -567,8 +564,6 @@ class RunnerMetrics:
         failure_mode = _failure_mode(decision)
         identity = {
             "guardrail_id": observation.guardrail_id,
-            "guardrail_version": observation.guardrail_version,
-            "deployment_id": observation.deployment_id,
             "integration_id": observation.integration_id,
         }
         common = {
@@ -766,38 +761,38 @@ class RunnerMetrics:
         ).inc()
 
     def model_call_started(self, **labels: str) -> None:
-        self.model_in_flight.labels(**labels).inc()
+        self.model_in_flight.labels(**_select_labels(labels, _MODEL_SCOPE_LABELS)).inc()
 
-    def model_call_finished(self, *, protocol: str, usage, **labels: str) -> None:
-        self.model_in_flight.labels(**labels).dec()
-        common = {**labels, "protocol": protocol}
-        outcome = {
-            **common,
-            "result": usage.result,
-            "error_type": usage.error_type,
-        }
-        self.model_calls.labels(**outcome).inc()
-        self.model_call_duration.labels(**outcome).observe(
+    def model_call_finished(self, *, usage, **labels: str) -> None:
+        scope = _select_labels(labels, _MODEL_SCOPE_LABELS)
+        self.model_in_flight.labels(**scope).dec()
+        self.model_calls.labels(
+            **scope,
+            operation=labels["operation"],
+            result=usage.result,
+            error_type=usage.error_type,
+        ).inc()
+        self.model_call_duration.labels(**scope, result=usage.result).observe(
             max(0, usage.duration_ms) / 1_000,
             exemplar=current_exemplar(),
         )
         if usage.time_to_first_token_ms is not None:
-            self.model_time_to_first_token.labels(**common).observe(
+            self.model_time_to_first_token.labels(**scope).observe(
                 max(0, usage.time_to_first_token_ms) / 1_000,
                 exemplar=current_exemplar(),
             )
         retry_reason = usage.error_type if usage.error_type != "none" else "provider_policy"
         if usage.retries > 0:
-            self.model_retries.labels(**common, reason=retry_reason).inc(usage.retries)
+            self.model_retries.labels(**scope, reason=retry_reason).inc(usage.retries)
         if usage.backoff_ms > 0:
-            self.model_backoff_duration.labels(**common, reason=retry_reason).observe(
+            self.model_backoff_duration.labels(**scope, reason=retry_reason).observe(
                 usage.backoff_ms / 1_000,
                 exemplar=current_exemplar(),
             )
         if usage.input_tokens > 0:
-            self.model_tokens.labels(**common, direction="input").inc(usage.input_tokens)
+            self.model_tokens.labels(**scope, direction="input").inc(usage.input_tokens)
         if usage.output_tokens > 0:
-            self.model_tokens.labels(**common, direction="output").inc(usage.output_tokens)
+            self.model_tokens.labels(**scope, direction="output").inc(usage.output_tokens)
 
     def reject_request(self, protocol_name: str, phase: str, result: str) -> None:
         self.request_rejections.labels(protocol=protocol_name, phase=phase, reason=result).inc()
@@ -926,6 +921,12 @@ def _identity_label(value: object | None, fallback: str) -> str:
         return fallback
     normalized = str(value).strip()
     return normalized or fallback
+
+
+def _select_labels(values: dict[str, str], names: tuple[str, ...]) -> dict[str, str]:
+    """Project rich trace context onto a bounded Prometheus label contract."""
+
+    return {name: values[name] for name in names}
 
 
 def _disposition(decision: ProtectionDecision | None) -> str:

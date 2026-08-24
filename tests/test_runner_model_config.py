@@ -164,6 +164,19 @@ def test_runner_requires_metrics_authentication_with_production_mtls(
         RunnerSettings.from_env()
 
 
+def test_runner_uses_standard_opentelemetry_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _required_runner_env(monkeypatch)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo.monitoring:4318/")
+    monkeypatch.setenv("OTEL_TRACES_SAMPLER_ARG", "0.25")
+
+    settings = RunnerSettings.from_env()
+
+    assert settings.otel_exporter_otlp_endpoint == "http://tempo.monitoring:4318"
+    assert settings.otel_trace_sample_ratio == 0.25
+
+
 def _required_runner_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "MODEL_GUARDRAILS_NVIDIA_BASE_URL",
@@ -176,6 +189,11 @@ def _required_runner_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "GUARD_CONTROLLER_CA_PATH",
         "GUARD_RUNNER_CLIENT_CERT_PATH",
         "GUARD_RUNNER_CLIENT_KEY_PATH",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "OTEL_TRACES_SAMPLER_ARG",
+        "GUARD_OTEL_EXPORTER_OTLP_ENDPOINT",
+        "GUARD_OTEL_TRACE_SAMPLE_RATIO",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GUARD_RUNNER_ID", "runner-test")

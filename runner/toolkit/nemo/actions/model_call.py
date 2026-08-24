@@ -6,7 +6,7 @@ import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Iterator
+from typing import Any, AsyncIterator, Iterator, Protocol
 
 import httpx
 from nemoguardrails.types import ChatMessage, LLMResponse, LLMResponseChunk
@@ -17,16 +17,18 @@ from .contracts import ActionRequest, ModelCallResult, ModelCallUsage
 
 
 _TRACER = trace.get_tracer("tasklattice.guard-runner.model")
-_OBSERVER: Any = None
 _NATIVE_MODEL_SCOPE: ContextVar["NativeModelObservationScope | None"] = ContextVar(
     "tasklattice_native_model_observation_scope",
     default=None,
 )
 
 
-def set_model_call_observer(observer: Any) -> None:
-    global _OBSERVER
-    _OBSERVER = observer
+class ModelCallObserver(Protocol):
+    def model_call_started(self, **labels: str) -> None: ...
+
+    def model_call_finished(
+        self, *, usage: ModelCallUsage, **labels: str,
+    ) -> None: ...
 
 
 @dataclass(slots=True)
@@ -35,9 +37,9 @@ class NativeModelObservationScope:
 
     guardrail_id: str
     integration_id: str
-    protocol: str
     phase: str
     request_started_at: float
+    observer: ModelCallObserver | None = None
     calls: list[ModelCallUsage] = field(default_factory=list)
 
 
@@ -45,16 +47,16 @@ def activate_native_model_observation(
     *,
     guardrail_id: str,
     integration_id: str,
-    protocol: str,
     phase: str,
     request_started_at: float,
+    observer: ModelCallObserver | None = None,
 ) -> tuple[NativeModelObservationScope, Any]:
     scope = NativeModelObservationScope(
         guardrail_id=guardrail_id,
         integration_id=integration_id,
-        protocol=protocol,
         phase=phase,
         request_started_at=request_started_at,
+        observer=observer,
     )
     return scope, _NATIVE_MODEL_SCOPE.set(scope)
 
@@ -188,8 +190,9 @@ def _observe_native_model_call(
         "model": model.model_name,
         "operation": f"{role}_{scope.phase if scope is not None else 'unknown'}",
     }
-    if _OBSERVER is not None:
-        _OBSERVER.model_call_started(**labels)
+    observer = scope.observer if scope is not None else None
+    if observer is not None:
+        observer.model_call_started(**labels)
     with _TRACER.start_as_current_span(
         "guardrail.model.request",
         attributes={
@@ -222,9 +225,8 @@ def _observe_native_model_call(
                 span.set_status(Status(StatusCode.ERROR, usage.result))
             if scope is not None:
                 scope.calls.append(usage)
-            if _OBSERVER is not None:
-                _OBSERVER.model_call_finished(
-                    protocol=scope.protocol if scope is not None else "internal",
+            if observer is not None:
+                observer.model_call_finished(
                     usage=usage,
                     **labels,
                 )
@@ -304,11 +306,6 @@ def observe_model_call(
         if request.request_context is not None
         else None
     )
-    protocol = (
-        request.request_context.protocol
-        if request.request_context is not None
-        else "internal"
-    )
     attributes = {
         "guardrail.id": request.guardrail_id,
         "guardrail.version": request.guardrail_version,
@@ -330,8 +327,10 @@ def observe_model_call(
         "model": model,
         "operation": operation,
     }
-    if _OBSERVER is not None:
-        _OBSERVER.model_call_started(**observer_labels)
+    scope = _NATIVE_MODEL_SCOPE.get()
+    observer = scope.observer if scope is not None else None
+    if observer is not None:
+        observer.model_call_started(**observer_labels)
     with _TRACER.start_as_current_span(
         "guardrail.model.request",
         attributes=attributes,
@@ -360,9 +359,8 @@ def observe_model_call(
                 )
             if usage.result != "success":
                 span.set_status(Status(StatusCode.ERROR, usage.result))
-            if _OBSERVER is not None:
-                _OBSERVER.model_call_finished(
-                    protocol=protocol,
+            if observer is not None:
+                observer.model_call_finished(
                     usage=usage,
                     **observer_labels,
                 )

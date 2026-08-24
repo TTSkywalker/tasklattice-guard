@@ -127,9 +127,8 @@ describe("Controller metrics contract", () => {
     expect(rendered).toContain('guard_controller_guardrail_deployment_ready{guardrail_id="guardrail-1",deployment_id="deployment-1"} 1');
   });
 
-  it("records bounded HTTP, control, job, and telemetry counters", async () => {
+  it("records control, job, and telemetry counters", async () => {
     const metrics = new ControllerMetrics();
-    metrics.observeHttp("POST", "internal_api", 202, 0.01);
     metrics.controlConnection("default", true);
     metrics.observeHeartbeat("default", "accepted");
     metrics.observeArtifactResult("default", false);
@@ -137,7 +136,6 @@ describe("Controller metrics contract", () => {
     metrics.observeTelemetryBatch("accepted", [new Date()], 1);
 
     const rendered = await metrics.registry.metrics();
-    expect(rendered).toContain('guard_controller_http_requests_total{method="POST",surface="internal_api",status_class="2xx"} 1');
     expect(rendered).toContain('guard_controller_runner_control_connected{pool="default"} 1');
     expect(rendered).toContain('guard_controller_artifact_distribution_total{pool="default",result="nack"} 1');
     expect(rendered).toContain('guard_controller_telemetry_events_total{result="accepted"} 1');

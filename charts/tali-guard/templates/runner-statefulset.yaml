@@ -62,11 +62,12 @@ spec:
             - { name: GUARD_CONTROLLER_TARGET, value: {{ printf "%s:%v" (include "tali-guard.controllerName" $root) $root.Values.controller.service.grpcPort | quote }} }
             - { name: GUARD_CONTROLLER_TELEMETRY_ENDPOINT, value: {{ printf "http://%s:%v/api/internal/v1/runtime-events" (include "tali-guard.controllerName" $root) $root.Values.controller.service.httpPort | quote }} }
             {{- if or $root.Values.observability.performanceDebug.enabled $root.Values.observability.tracing.enabled }}
-            - { name: GUARD_OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ required "observability.tracing.otlpEndpoint is required when tracing or performanceDebug is enabled" $root.Values.observability.tracing.otlpEndpoint | quote }} }
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ required "observability.tracing.otlpEndpoint is required when tracing or performanceDebug is enabled" $root.Values.observability.tracing.otlpEndpoint | quote }} }
+            - { name: OTEL_TRACES_SAMPLER, value: parentbased_traceidratio }
             {{- if $root.Values.observability.performanceDebug.enabled }}
-            - { name: GUARD_OTEL_TRACE_SAMPLE_RATIO, value: "1" }
+            - { name: OTEL_TRACES_SAMPLER_ARG, value: "1" }
             {{- else }}
-            - { name: GUARD_OTEL_TRACE_SAMPLE_RATIO, value: {{ $root.Values.observability.tracing.sampleRatio | quote }} }
+            - { name: OTEL_TRACES_SAMPLER_ARG, value: {{ $root.Values.observability.tracing.sampleRatio | quote }} }
             {{- end }}
             {{- end }}
             {{- if or $root.Values.observability.performanceDebug.enabled $root.Values.observability.profiling.enabled }}

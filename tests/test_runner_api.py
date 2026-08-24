@@ -486,7 +486,7 @@ async def test_litellm_basic_guardrail_api_fails_closed_when_no_deployment_match
     }
     assert telemetry.events[0]["decision"] == "block"
     rendered = generate_latest(metrics.registry).decode()
-    assert 'coverage="unknown",deployment_id="__unmatched__",disposition="deny",enforcement_mode="enforce",failure_mode="normal",guardrail_id="__unmatched__",guardrail_version="__unmatched__",integration_id="integration-1",phase="input",protocol="litellm",result="success",traffic_class="runtime"} 1.0' in rendered
+    assert 'coverage="unknown",disposition="deny",enforcement_mode="enforce",failure_mode="normal",guardrail_id="__unmatched__",integration_id="integration-1",phase="input",protocol="litellm",result="success",traffic_class="runtime"} 1.0' in rendered
 
 
 @pytest.mark.asyncio
@@ -509,7 +509,7 @@ async def test_runtime_failure_after_resolution_keeps_guardrail_metric_identity(
 
     assert response.status_code == 500
     rendered = generate_latest(metrics.registry).decode()
-    assert 'coverage="unknown",deployment_id="deployment-resolved",disposition="unknown",enforcement_mode="enforce",failure_mode="normal",guardrail_id="guardrail-resolved",guardrail_version="7",integration_id="integration-http",phase="output",protocol="http",result="error",traffic_class="runtime"} 1.0' in rendered
+    assert 'coverage="unknown",disposition="unknown",enforcement_mode="enforce",failure_mode="normal",guardrail_id="guardrail-resolved",integration_id="integration-http",phase="output",protocol="http",result="error",traffic_class="runtime"} 1.0' in rendered
     assert 'guard_runner_guardrail_execution_failures_total{guardrail_id="guardrail-resolved",integration_id="integration-http",phase="output",protocol="http",reason_class="runtime_exception",result="error",stage="runtime"} 1.0' in rendered
     assert "provider failed" not in rendered
 

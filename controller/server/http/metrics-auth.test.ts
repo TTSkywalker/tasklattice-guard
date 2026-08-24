@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { Registry } from "prom-client";
 
 import type { ControllerAuth } from "../auth.js";
 import { loadConfig } from "../config.js";
@@ -24,8 +25,7 @@ describe("Controller metrics authentication", () => {
     });
     const metrics = {
       render: vi.fn().mockResolvedValue("guard_controller_desired_generation 1\n"),
-      observeHttp: vi.fn(),
-      registry: { contentType: "text/plain; version=0.0.4" },
+      registry: new Registry(),
     } as unknown as ControllerMetrics;
     const app = createHttpApp({
       config,
@@ -41,5 +41,37 @@ describe("Controller metrics authentication", () => {
     });
     expect(accepted.status).toBe(200);
     expect(await accepted.text()).toContain("guard_controller_desired_generation");
+  });
+
+  it("uses the Hono registered route template for bounded HTTP RED metrics", async () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      CONTROLLER_DATABASE_URL: "postgresql://controller:controller@localhost/controller",
+      CONTROLLER_RUNNER_TOKEN: "runner-token-that-is-at-least-32-characters",
+      CONTROLLER_ARTIFACT_SIGNING_KEY_PATH: "/tmp/controller-signing-key.pem",
+      CONTROLLER_POLICY_CATALOG_DIR: resolve("../runner/toolkit/policy_library/assets"),
+      BETTER_AUTH_SECRET: "better-auth-secret-that-is-at-least-32-characters",
+    });
+    const registry = new Registry();
+    const metrics = {
+      render: vi.fn(), registry,
+    } as unknown as ControllerMetrics;
+    const service = {
+      listRunnerPoolsWithCapacity: vi.fn().mockResolvedValue([]),
+      desiredGeneration: vi.fn().mockResolvedValue(3),
+    } as unknown as ControlPlaneService;
+    const app = createHttpApp({
+      config,
+      auth: { handler: vi.fn(), api: {} } as unknown as ControllerAuth,
+      service,
+      runnerControl: {} as RunnerControlServer,
+      metrics,
+    });
+
+    expect((await app.request("/api/v1/system/status")).status).toBe(503);
+    const rendered = await registry.metrics();
+    expect(rendered).toContain(
+      'guard_controller_http_requests_total{method="GET",route="/api/v1/system/status",status="503",ok="false"} 1',
+    );
   });
 });
