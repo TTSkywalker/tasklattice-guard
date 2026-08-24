@@ -641,7 +641,7 @@ export class ControlPlaneService {
       await tx.update(deployments).set({
         guardrailVersion: input.guardrailVersion,
         updatedAt: new Date(),
-      }).where(eq(deployments.guardrailId, input.guardrailId));
+      }).where(and(eq(deployments.guardrailId, input.guardrailId), isNull(deployments.deletedAt)));
       if (input.guardrailId === DEFAULT_GUARDRAIL_ID) {
         await this.ensureDefaultDeployment(tx, input.guardrailVersion);
       }
@@ -701,7 +701,7 @@ export class ControlPlaneService {
         updatedAt: new Date(),
       }).where(eq(guardrails.id, input.guardrailId));
       await tx.update(deployments).set({ guardrailVersion: input.version, updatedAt: new Date() })
-        .where(eq(deployments.guardrailId, input.guardrailId));
+        .where(and(eq(deployments.guardrailId, input.guardrailId), isNull(deployments.deletedAt)));
       await tx.insert(outboxEvents).values({
         id: randomUUID(), kind: "runner.desired_state_changed", aggregateId: input.guardrailId,
         payload: { guardrailId: input.guardrailId, version: input.version, generation: state.desiredGeneration },
@@ -1018,16 +1018,20 @@ export class ControlPlaneService {
   async listDeployments() {
     const rows = await this.db.select({ deployment: deployments }).from(deployments)
       .leftJoin(integrations, eq(deployments.integrationId, integrations.id))
-      .where(or(
-        isNull(deployments.integrationId),
-        and(isNotNull(integrations.id), isNull(integrations.deletedAt)),
+      .where(and(
+        isNull(deployments.deletedAt),
+        or(
+          isNull(deployments.integrationId),
+          and(isNotNull(integrations.id), isNull(integrations.deletedAt)),
+        ),
       ))
       .orderBy(asc(deployments.integrationId), asc(deployments.routeOrder), asc(deployments.id));
     return rows.map((row) => row.deployment);
   }
 
   async getDeployment(id: string) {
-    const [deployment] = await this.db.select().from(deployments).where(eq(deployments.id, id));
+    const [deployment] = await this.db.select().from(deployments)
+      .where(and(eq(deployments.id, id), isNull(deployments.deletedAt)));
     if (!deployment) throw new NotFoundError("Deployment", id);
     return deployment;
   }
@@ -1123,7 +1127,7 @@ export class ControlPlaneService {
       const created: Array<typeof deployments.$inferSelect> = [];
       for (const integrationId of uniqueIntegrationIds) {
         const routes = await tx.select().from(deployments)
-          .where(eq(deployments.integrationId, integrationId))
+          .where(and(eq(deployments.integrationId, integrationId), isNull(deployments.deletedAt)))
           .orderBy(asc(deployments.routeOrder), asc(deployments.id)).for("update");
         assertCatchAllTopology(routes);
         const catchAll = routes.find((item) => isCatchAllTrafficScope(item.trafficScope));
@@ -1189,7 +1193,8 @@ export class ControlPlaneService {
     return this.mutateDeployment(input.id, input.actorId, "deployment.traffic_scope_updated", async (tx, current) => {
       if (!current.integrationId) throw new ValidationError("The global fallback Deployment is system managed.");
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${current.integrationId}))`);
-      const routes = await tx.select().from(deployments).where(eq(deployments.integrationId, current.integrationId))
+      const routes = await tx.select().from(deployments)
+        .where(and(eq(deployments.integrationId, current.integrationId), isNull(deployments.deletedAt)))
         .orderBy(asc(deployments.routeOrder), asc(deployments.id)).for("update");
       assertCatchAllTopology(routes.map((route) => route.id === input.id
         ? { ...route, trafficScope: input.trafficScope }
@@ -1204,7 +1209,8 @@ export class ControlPlaneService {
     if (new Set(input.deploymentIds).size !== input.deploymentIds.length) throw new ValidationError("Deployment route order contains duplicate IDs.");
     return this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.integrationId}))`);
-      const current = await tx.select().from(deployments).where(eq(deployments.integrationId, input.integrationId))
+      const current = await tx.select().from(deployments)
+        .where(and(eq(deployments.integrationId, input.integrationId), isNull(deployments.deletedAt)))
         .orderBy(asc(deployments.routeOrder), asc(deployments.id)).for("update");
       const expected = new Set(current.map((item) => item.id));
       if (current.length !== input.deploymentIds.length || input.deploymentIds.some((id) => !expected.has(id))) {
@@ -1221,7 +1227,8 @@ export class ControlPlaneService {
       await this.advanceDeploymentDesiredState(tx, input.integrationId, input.actorId, "deployment.routes_reordered", {
         deploymentIds: input.deploymentIds,
       });
-      return tx.select().from(deployments).where(eq(deployments.integrationId, input.integrationId))
+      return tx.select().from(deployments)
+        .where(and(eq(deployments.integrationId, input.integrationId), isNull(deployments.deletedAt)))
         .orderBy(asc(deployments.routeOrder), asc(deployments.id));
     });
   }
@@ -1338,7 +1345,7 @@ export class ControlPlaneService {
     const [resource] = await this.db.select().from(guardrails).where(and(eq(guardrails.id, id), isNull(guardrails.deletedAt)));
     if (!resource) throw new NotFoundError("Guardrail", id);
     const activeDeployments = await this.db.select({ poolId: deployments.poolId }).from(deployments)
-      .where(and(eq(deployments.guardrailId, id), eq(deployments.enabled, true)));
+      .where(and(eq(deployments.guardrailId, id), eq(deployments.enabled, true), isNull(deployments.deletedAt)));
     return this.deletionImpact("guardrail", id, activeDeployments.map((item) => item.poolId));
   }
 
@@ -1346,7 +1353,7 @@ export class ControlPlaneService {
     const [resource] = await this.db.select().from(integrations).where(and(eq(integrations.id, id), isNull(integrations.deletedAt)));
     if (!resource) throw new NotFoundError("Integration", id);
     const activeDeployments = await this.db.select({ poolId: deployments.poolId }).from(deployments)
-      .where(and(eq(deployments.integrationId, id), eq(deployments.enabled, true)));
+      .where(and(eq(deployments.integrationId, id), eq(deployments.enabled, true), isNull(deployments.deletedAt)));
     return this.deletionImpact("integration", id, activeDeployments.map((item) => item.poolId));
   }
 
@@ -1369,7 +1376,8 @@ export class ControlPlaneService {
         deleteReason: input.reason, desiredGeneration: state.desiredGeneration, updatedAt: new Date(),
       }).where(and(eq(guardrails.id, input.id), isNull(guardrails.deletedAt))).returning({ id: guardrails.id });
       if (!disabled[0]) throw new NotFoundError("Guardrail", input.id);
-      await tx.update(deployments).set({ enabled: false, updatedAt: new Date() }).where(eq(deployments.guardrailId, input.id));
+      await tx.update(deployments).set({ enabled: false, updatedAt: new Date() })
+        .where(and(eq(deployments.guardrailId, input.id), isNull(deployments.deletedAt)));
       await this.recordSoftDelete(tx, "guardrail", input, impact, state.desiredGeneration);
     });
   }
@@ -1390,8 +1398,75 @@ export class ControlPlaneService {
         deleteReason: input.reason, updatedAt: new Date(),
       }).where(and(eq(integrations.id, input.id), isNull(integrations.deletedAt))).returning({ id: integrations.id });
       if (!disabled[0]) throw new NotFoundError("Integration", input.id);
-      await tx.update(deployments).set({ enabled: false, updatedAt: new Date() }).where(eq(deployments.integrationId, input.id));
+      await tx.update(deployments).set({ enabled: false, updatedAt: new Date() })
+        .where(and(eq(deployments.integrationId, input.id), isNull(deployments.deletedAt)));
       await this.recordSoftDelete(tx, "integration", input, impact, state.desiredGeneration);
+    });
+  }
+
+  async deploymentDeletionImpact(id: string): Promise<DeletionImpact> {
+    if (id === DEFAULT_DEPLOYMENT_ID) {
+      throw new ValidationError("The Default Deployment cannot be removed because it protects unmatched traffic.");
+    }
+    const [resource] = await this.db.select({ poolId: deployments.poolId, enabled: deployments.enabled })
+      .from(deployments).where(and(eq(deployments.id, id), isNull(deployments.deletedAt)));
+    if (!resource) throw new NotFoundError("Deployment", id);
+    return this.deletionImpact("deployment", id, resource.enabled ? [resource.poolId] : []);
+  }
+
+  async softDeleteDeployment(input: { id: string; actorId: string; reason: string; confirmRecentTraffic: boolean; confirmationName?: string | undefined }) {
+    if (input.id === DEFAULT_DEPLOYMENT_ID) {
+      throw new ValidationError("The Default Deployment cannot be removed because it protects unmatched traffic.");
+    }
+    const [resource] = await this.db.select({
+      name: deployments.name,
+      integrationId: deployments.integrationId,
+      guardrailId: deployments.guardrailId,
+    }).from(deployments).where(and(eq(deployments.id, input.id), isNull(deployments.deletedAt)));
+    if (!resource) throw new NotFoundError("Deployment", input.id);
+    const impact = await this.deploymentDeletionImpact(input.id);
+    this.assertDeletionAllowed(impact, input.confirmRecentTraffic, input.confirmationName, resource.name);
+    await this.db.transaction(async (tx) => {
+      if (resource.integrationId) {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${resource.integrationId}))`);
+      }
+      const [state] = await tx.update(controllerState)
+        .set({ desiredGeneration: sql`${controllerState.desiredGeneration} + 1`, updatedAt: new Date() })
+        .where(eq(controllerState.id, "singleton")).returning();
+      if (!state) throw new Error("Controller state is not initialized.");
+      const deleted = await tx.update(deployments).set({
+        enabled: false,
+        deletedAt: new Date(),
+        deletedBy: input.actorId,
+        deleteReason: input.reason,
+        updatedAt: new Date(),
+      }).where(and(eq(deployments.id, input.id), isNull(deployments.deletedAt))).returning({ id: deployments.id });
+      if (!deleted[0]) throw new NotFoundError("Deployment", input.id);
+      await tx.insert(auditEvents).values({
+        id: randomUUID(),
+        kind: "deployment.deleted",
+        actorId: input.actorId,
+        resourceType: "deployment",
+        resourceId: input.id,
+        detail: {
+          reason: input.reason,
+          impact,
+          generation: state.desiredGeneration,
+          integrationId: resource.integrationId,
+          guardrailId: resource.guardrailId,
+        },
+      });
+      await tx.insert(outboxEvents).values({
+        id: randomUUID(),
+        kind: "runner.desired_state_changed",
+        aggregateId: input.id,
+        payload: {
+          resourceType: "deployment",
+          resourceId: input.id,
+          generation: state.desiredGeneration,
+          disabled: true,
+        },
+      });
     });
   }
 
@@ -1535,7 +1610,7 @@ export class ControlPlaneService {
           eq(guardrailVersions.status, "ready"),
         ))
         .innerJoin(artifacts, eq(artifacts.id, guardrailVersions.artifactId))
-        .where(and(eq(deployments.poolId, poolId), eq(deployments.enabled, true)));
+        .where(and(eq(deployments.poolId, poolId), eq(deployments.enabled, true), isNull(deployments.deletedAt)));
     const disabledGuardrails = await this.db.select({ id: guardrails.id }).from(guardrails).where(eq(guardrails.status, "disabled"));
     const loggingLevels = await this.db.select({ id: guardrails.id, level: guardrails.loggingLevel })
       .from(guardrails).where(isNull(guardrails.deletedAt));
@@ -1554,7 +1629,7 @@ export class ControlPlaneService {
         sql`${guardrailVersions.version} = coalesce(${deployments.guardrailVersion}, ${guardrails.activeVersion})`,
         eq(guardrailVersions.status, "ready"),
       ))
-      .where(and(eq(deployments.poolId, poolId), eq(deployments.enabled, true)))
+      .where(and(eq(deployments.poolId, poolId), eq(deployments.enabled, true), isNull(deployments.deletedAt)))
       .orderBy(asc(deployments.routeOrder), asc(deployments.id));
     const integrationRows = await this.db.select().from(integrations).where(eq(integrations.status, "active"));
     return {
@@ -1635,7 +1710,7 @@ export class ControlPlaneService {
         integrationId: deployments.integrationId,
         poolId: deployments.poolId,
         enabled: deployments.enabled,
-      }).from(deployments),
+      }).from(deployments).where(isNull(deployments.deletedAt)),
       this.db.select({
         id: integrations.id,
         name: integrations.name,
@@ -2213,7 +2288,8 @@ export class ControlPlaneService {
     ) => Promise<typeof deployments.$inferSelect>,
   ) {
     return this.db.transaction(async (tx) => {
-      const [current] = await tx.select().from(deployments).where(eq(deployments.id, id)).for("update");
+      const [current] = await tx.select().from(deployments)
+        .where(and(eq(deployments.id, id), isNull(deployments.deletedAt))).for("update");
       if (!current) throw new NotFoundError("Deployment", id);
       if (current.id === DEFAULT_DEPLOYMENT_ID) {
         throw new ValidationError("The Default Deployment is system managed and cannot be changed directly.");
@@ -2250,9 +2326,13 @@ export class ControlPlaneService {
     return state.desiredGeneration;
   }
 
-  private async deletionImpact(kind: "guardrail" | "integration", id: string, deploymentPoolIds: readonly string[]): Promise<DeletionImpact> {
+  private async deletionImpact(kind: "guardrail" | "integration" | "deployment", id: string, deploymentPoolIds: readonly string[]): Promise<DeletionImpact> {
     const cutoff = new Date(Date.now() - this.config.deletionTrafficWindowMinutes * 60_000);
-    const condition = kind === "guardrail" ? eq(runtimeEvents.guardrailId, id) : eq(runtimeEvents.integrationId, id);
+    const condition = kind === "guardrail"
+      ? eq(runtimeEvents.guardrailId, id)
+      : kind === "integration"
+        ? eq(runtimeEvents.integrationId, id)
+        : eq(runtimeEvents.deploymentId, id);
     const [traffic] = await this.db.select({ requestCount: count(), lastRequestAt: max(runtimeEvents.occurredAt) })
       .from(runtimeEvents).where(and(condition, eq(runtimeEvents.direction, "incoming"), gte(runtimeEvents.occurredAt, cutoff)));
     const activeDeploymentCount = deploymentPoolIds.length;

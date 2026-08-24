@@ -277,6 +277,19 @@ export type Deployment = {
   updated_at: string;
 };
 
+export type DeploymentDeletionImpact = {
+  deployment_id: string;
+  deployment_name: string;
+  window_minutes: number;
+  incoming_request_count: number;
+  last_request_at: string | null;
+  active_deployment_count: number;
+  telemetry_fresh: boolean;
+  telemetry_watermark: string | null;
+  requires_second_confirmation: boolean;
+  requires_confirmation: boolean;
+};
+
 export type DeploymentTraceFinding = {
   id: string;
   trace_id: string;
@@ -1116,6 +1129,7 @@ export {
   createProgrammablePolicy,
   createTestCase,
   createValidationRun,
+  deleteDeployment,
   deleteGuardrail,
   deleteIntegration,
   deleteProgrammablePolicy,
@@ -1123,6 +1137,7 @@ export {
   excludeGuardrailTestCase,
   getActionCatalog,
   getDeployment,
+  getDeploymentDeletionImpact,
   getDeployments,
   getDeploymentTraces,
   getEvidence,

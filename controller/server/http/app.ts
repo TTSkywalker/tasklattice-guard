@@ -546,6 +546,9 @@ export function createHttpApp(input: {
   });
   app.get("/api/v1/deployments", authenticated, async (context) => context.json({ items: await input.service.listDeployments() }));
   app.get("/api/v1/deployments/:id", authenticated, async (context) => context.json(await input.service.getDeployment(context.req.param("id"))));
+  app.get("/api/v1/deployments/:id/deletion-impact", authenticated, administrator, async (context) => {
+    return context.json(await input.service.deploymentDeletionImpact(context.req.param("id")));
+  });
   app.post("/api/v1/deployments", authenticated, administrator, async (context) => {
     const body = deploymentInput.parse(await context.req.json());
     assertTrafficScopeSupported(body.trafficScope);
@@ -572,6 +575,12 @@ export function createHttpApp(input: {
     const updated = await input.service.updateDeploymentTrafficScope({ id: context.req.param("id"), trafficScope: body.trafficScope, actorId: context.get("actor").id });
     await input.runnerControl.distributeDesiredState();
     return context.json(updated);
+  });
+  app.delete("/api/v1/deployments/:id", authenticated, administrator, async (context) => {
+    const body = deletionInput.parse(await context.req.json());
+    await input.service.softDeleteDeployment({ id: context.req.param("id"), actorId: context.get("actor").id, ...body });
+    await input.runnerControl.distributeDesiredState();
+    return context.body(null, 204);
   });
   app.put("/api/v1/integrations/:integrationId/deployment-order", authenticated, administrator, async (context) => {
     const body = deploymentOrderInput.parse(await context.req.json());

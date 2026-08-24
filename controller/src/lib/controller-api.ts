@@ -301,6 +301,8 @@ export const deleteControllerIntegration = (id: string, input: { reason: string;
 
 export const listControllerDeployments = () => request<Collection<Deployment>>("/api/v1/deployments");
 export const createControllerDeployment = (input: Pick<Deployment, "name" | "guardrailId" | "poolId" | "trafficScope" | "enabled"> & { integrationId: string }) => request<Deployment>("/api/v1/deployments", json("POST", input));
+export const getControllerDeploymentDeletionImpact = (id: string) => request<DeletionImpact>(`/api/v1/deployments/${encodeURIComponent(id)}/deletion-impact`);
+export const deleteControllerDeployment = (id: string, input: { reason: string; confirmRecentTraffic: boolean; confirmationName?: string | undefined }) => request<void>(`/api/v1/deployments/${encodeURIComponent(id)}`, json("DELETE", input));
 export const setControllerDeploymentEnabled = (id: string, enabled: boolean) => request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`, json("PATCH", { enabled }));
 export const updateControllerDeploymentTrafficScope = (id: string, trafficScope: Record<string, unknown>) => request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/traffic-scope`, json("PUT", { trafficScope }));
 export const reorderControllerDeployments = (integrationId: string, deploymentIds: string[]) => request<Collection<Deployment>>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/deployment-order`, json("PUT", { deploymentIds }));

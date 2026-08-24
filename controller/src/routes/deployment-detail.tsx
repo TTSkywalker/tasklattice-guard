@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   Activity,
   ArrowLeft,
@@ -16,6 +16,7 @@ import {
   Route,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -24,6 +25,7 @@ import { toast } from "sonner";
 import { EntitySheet } from "@/components/entity-sheet";
 import { CopyableChecksum } from "@/components/copyable-checksum";
 import { formatEventTimestamp } from "@/components/dashboard/event-time";
+import { ProtectedDeleteSheet } from "@/components/protected-delete-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, StateBadge } from "@/components/product-shell";
 import {
   createTrafficScopeQuery,
@@ -44,6 +46,8 @@ import { queryKeys } from "@/features/query-keys";
 import { useAuth } from "@/lib/auth";
 import {
   getDeployment,
+  deleteDeployment,
+  getDeploymentDeletionImpact,
   getDeploymentTraces,
   getGuardrailVersion,
   getGuardrails,
@@ -53,6 +57,7 @@ import {
   getTrafficScopeFields,
   updateDeploymentTrafficScope,
   type Deployment,
+  type DeploymentDeletionImpact,
   type DeploymentRuntimeTrace,
   type DeploymentTraceFinding,
   type GuardrailVersionDetail,
@@ -65,14 +70,22 @@ import { filterDefinitionsForProtocol, TrafficScopeBadges } from "@/routes/deplo
 
 const EMPTY_FIELDS: TrafficScopeField[] = [];
 
+type DeploymentDeletionConfirmation = {
+  reason: string;
+  confirm_recent_traffic: boolean;
+  confirmation_name?: string;
+};
+
 export function DeploymentDetailPage() {
   const { t } = useTranslation();
   const { deploymentId } = useParams({ strict: false }) as { deploymentId: string };
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const auth = useAuth();
   const canManage = auth.user?.role === "admin";
   const [section, setSection] = useState("runtime");
   const [editScopeOpen, setEditScopeOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedTrace, setSelectedTrace] = useState<DeploymentRuntimeTrace | null>(null);
   const deploymentQuery = useQuery({ queryKey: queryKeys.deployment(deploymentId), queryFn: () => getDeployment(deploymentId) });
   const guardrailsQuery = useQuery({ queryKey: queryKeys.guardrails, queryFn: getGuardrails });
@@ -87,6 +100,28 @@ export function DeploymentDetailPage() {
   const metricsQuery = useQuery({
     queryKey: queryKeys.metricsScope({ deploymentId, window: "24h" }),
     queryFn: () => getMetrics({ deploymentId, window: "24h" }),
+  });
+  const deletionImpactQuery = useQuery({
+    queryKey: queryKeys.deploymentDeletionImpact(deploymentId),
+    queryFn: () => getDeploymentDeletionImpact(deploymentId),
+    enabled: deleteOpen,
+    staleTime: 0,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (confirmation: DeploymentDeletionConfirmation) => deleteDeployment(deploymentId, confirmation),
+    onSuccess: async () => {
+      toast.success(t("deploymentDetail.deleteSucceeded"));
+      await queryClient.cancelQueries({ queryKey: queryKeys.deployment(deploymentId) });
+      queryClient.removeQueries({ queryKey: queryKeys.deployment(deploymentId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.deployments, exact: true }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.metrics }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.evidence }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.systemStatus }),
+      ]);
+      navigate({ to: "/deployments" });
+    },
+    onError: async () => { await deletionImpactQuery.refetch(); },
   });
   const deployment = deploymentQuery.data;
   const guardrail = guardrailsQuery.data?.items.find((item) => item.id === deployment?.guardrail_id);
@@ -124,7 +159,14 @@ export function DeploymentDetailPage() {
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{t("deploymentDetail.description", { integration: integration?.name ?? t("deploymentDetail.directRuntime"), guardrail: guardrail?.name ?? deployment.guardrail_id })}</p>
         </div>
-        {canManage && !deployment.system_managed ? <Button variant="outline" onClick={() => { setSection("traffic"); setEditScopeOpen(true); }}><Pencil />{t("deploymentDetail.editSelector")}</Button> : null}
+        {canManage && !deployment.system_managed ? <div className="flex flex-wrap gap-2">
+          <Button className="min-h-11" variant="outline" onClick={() => { setSection("traffic"); setEditScopeOpen(true); }}><Pencil />{t("deploymentDetail.editSelector")}</Button>
+          <Button className="min-h-11 text-destructive hover:bg-destructive/10 hover:text-destructive" variant="outline" onClick={() => {
+            deleteMutation.reset();
+            queryClient.removeQueries({ queryKey: queryKeys.deploymentDeletionImpact(deploymentId), exact: true });
+            setDeleteOpen(true);
+          }}><Trash2 />{t("deploymentDetail.deleteAction")}</Button>
+        </div> : null}
       </div>
 
       <Tabs value={section} onValueChange={setSection} className="mt-7">
@@ -177,8 +219,84 @@ export function DeploymentDetailPage() {
         onSaved={async () => { setEditScopeOpen(false); await refreshDeployment(); }}
       />
       <TraceDetailSheet trace={selectedTrace} deployment={deployment} integration={integration} guardrailName={guardrail?.name} policies={policies} open={Boolean(selectedTrace)} onOpenChange={(open) => { if (!open) setSelectedTrace(null); }} />
+      <DeleteDeploymentSheet
+        deployment={deployment}
+        open={deleteOpen}
+        impact={deletionImpactQuery.data}
+        loading={deletionImpactQuery.isFetching}
+        deleting={deleteMutation.isPending}
+        error={deleteMutation.error instanceof Error ? deleteMutation.error : deletionImpactQuery.error instanceof Error ? deletionImpactQuery.error : null}
+        onOpenChange={(open) => { if (!deleteMutation.isPending) { setDeleteOpen(open); if (!open) deleteMutation.reset(); } }}
+        onRetry={() => { deleteMutation.reset(); void deletionImpactQuery.refetch(); }}
+        onConfirm={(confirmation) => deleteMutation.mutate(confirmation)}
+      />
     </section>
   );
+}
+
+export function DeleteDeploymentSheet({ deployment, open, impact, loading, deleting, error, onOpenChange, onRetry, onConfirm }: {
+  deployment: Deployment;
+  open: boolean;
+  impact?: DeploymentDeletionImpact;
+  loading: boolean;
+  deleting: boolean;
+  error: Error | null;
+  onOpenChange: (open: boolean) => void;
+  onRetry: () => void;
+  onConfirm: (confirmation: DeploymentDeletionConfirmation) => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const [reason, setReason] = useState("");
+  const telemetryFresh = Boolean(impact?.telemetry_fresh);
+  const requiresSecondConfirmation = Boolean(impact?.requires_second_confirmation);
+
+  useEffect(() => {
+    if (!open) setReason("");
+  }, [open]);
+
+  return <ProtectedDeleteSheet
+    open={open}
+    onOpenChange={onOpenChange}
+    entityName={deployment.name}
+    loading={loading}
+    ready={telemetryFresh}
+    deleting={deleting}
+    error={impact && !telemetryFresh ? new Error(t("deploymentDetail.deleteTelemetryStale")) : error}
+    requiresConfirmation={requiresSecondConfirmation}
+    impactItems={impact ? [
+      { label: t("deploymentDetail.recentIncomingRequests", { minutes: impact.window_minutes }), value: impact.incoming_request_count.toLocaleString(i18n.language) },
+      { label: t("deploymentDetail.activeRouteAffected"), value: impact.active_deployment_count.toLocaleString(i18n.language) },
+    ] : []}
+    copy={{
+      eyebrow: t("deploymentDetail.deleteEyebrow"),
+      title: t("deploymentDetail.deleteDialogTitle"),
+      description: t("deploymentDetail.deleteDialogDescription", { name: deployment.name }),
+      protectedMessage: t("deploymentDetail.recentTrafficWarning"),
+      clearMessage: t("deploymentDetail.noRecentTraffic"),
+      retentionNote: t("deploymentDetail.deleteRetentionNote"),
+      continueLabel: t("deploymentDetail.continueDelete"),
+      deleteLabel: t("deploymentDetail.deleteConfirm"),
+      deletingLabel: t("deploymentDetail.deleting"),
+      confirmTitle: t("deploymentDetail.deleteRecentTrafficTitle"),
+      confirmDescription: t("deploymentDetail.deleteRecentTrafficDescription", { count: impact?.incoming_request_count ?? 0, minutes: impact?.window_minutes ?? 30 }),
+      confirmWarning: t("deploymentDetail.deleteStopsTraffic"),
+      typeNameLabel: t("deploymentDetail.typeNameToConfirm", { name: deployment.name }),
+      protectedDeleteLabel: t("deploymentDetail.deleteDespiteTraffic"),
+      cancelLabel: t("common.cancel"),
+      backLabel: t("common.back"),
+      retryLabel: t("common.retry"),
+      reasonLabel: t("deploymentDetail.deleteReason"),
+      reasonPlaceholder: t("deploymentDetail.deleteReasonPlaceholder"),
+    }}
+    reason={reason}
+    onReasonChange={setReason}
+    onRetry={onRetry}
+    onConfirm={(confirmRecentTraffic, confirmationName) => onConfirm({
+      reason: reason.trim(),
+      confirm_recent_traffic: confirmRecentTraffic,
+      ...(confirmationName ? { confirmation_name: confirmationName } : {}),
+    })}
+  />;
 }
 
 function DeploymentRuntimeView({ metrics, metricsLoading, metricsError, traces, tracesLoading, tracesError, policies, onInspect, onOpenSecurity }: { metrics?: Metrics; metricsLoading: boolean; metricsError: unknown; traces: DeploymentRuntimeTrace[]; tracesLoading: boolean; tracesError: unknown; policies: Policy[]; onInspect: (trace: DeploymentRuntimeTrace) => void; onOpenSecurity: () => void }) {

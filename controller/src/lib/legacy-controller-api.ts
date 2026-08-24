@@ -4,6 +4,7 @@ import type {
   Collection,
   ComplianceDocumentAnalysis,
   Deployment,
+  DeploymentDeletionImpact,
   DeploymentRuntimeTrace,
   DeploymentTraceFinding,
   EvidenceRecord,
@@ -769,6 +770,41 @@ export async function getDeployment(id: string): Promise<Deployment> {
   if (!found) throw new Error(`Deployment ${id} was not found.`);
   return found;
 }
+
+export async function getDeploymentDeletionImpact(id: string): Promise<DeploymentDeletionImpact> {
+  const [impact, deployment] = await Promise.all([
+    controllerApi.getControllerDeploymentDeletionImpact(id),
+    getDeployment(id),
+  ]);
+  if (
+    impact.resourceId !== id
+    || typeof impact.windowMinutes !== "number"
+    || typeof impact.incomingRequestCount !== "number"
+    || typeof impact.activeDeploymentCount !== "number"
+    || typeof impact.telemetryFresh !== "boolean"
+    || typeof impact.requiresSecondConfirmation !== "boolean"
+  ) {
+    throw new Error("Deployment deletion impact is unavailable. Ensure the Controller API is updated, then retry.");
+  }
+  return {
+    deployment_id: impact.resourceId,
+    deployment_name: deployment.name,
+    window_minutes: impact.windowMinutes,
+    incoming_request_count: impact.incomingRequestCount,
+    last_request_at: impact.lastRequestAt,
+    active_deployment_count: impact.activeDeploymentCount,
+    telemetry_fresh: impact.telemetryFresh,
+    telemetry_watermark: impact.telemetryWatermark,
+    requires_second_confirmation: impact.requiresSecondConfirmation,
+    requires_confirmation: impact.requiresSecondConfirmation,
+  };
+}
+
+export const deleteDeployment = (id: string, confirmation: DeleteConfirmation) => controllerApi.deleteControllerDeployment(id, {
+  reason: confirmation.reason,
+  confirmRecentTraffic: confirmation.confirm_recent_traffic,
+  ...(confirmation.confirmation_name ? { confirmationName: confirmation.confirmation_name } : {}),
+});
 
 export async function createDeployment(input: {
   name: string;

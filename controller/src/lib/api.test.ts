@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { analyzeGuardrailIntent, excludeGuardrailTestCase, getIntentAnalysisStatus, updateGuardrail } from "./api";
+import { analyzeGuardrailIntent, excludeGuardrailTestCase, getDeploymentDeletionImpact, getIntentAnalysisStatus, updateGuardrail } from "./api";
 
 describe("API error responses", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -89,5 +89,33 @@ describe("API error responses", () => {
       }),
       headers: { "content-type": "application/json" },
     });
+  });
+
+  it("turns an outdated Controller deletion-impact response into a recoverable error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const path = String(input);
+      if (path.endsWith("/deletion-impact")) return new Response(JSON.stringify({}), { status: 200 });
+      if (path.endsWith("/deployments")) return new Response(JSON.stringify({ items: [{
+        id: "deployment-1",
+        name: "Regional traffic",
+        guardrailId: "guardrail-1",
+        integrationId: "integration-1",
+        poolId: "default",
+        guardrailVersion: 1,
+        routeOrder: 0,
+        enabled: true,
+        trafficScope: { combinator: "and", conditions: [] },
+        createdAt: "2026-08-24T08:00:00.000Z",
+        updatedAt: "2026-08-24T08:00:00.000Z",
+      }] }), { status: 200 });
+      return new Response(JSON.stringify({ items: [{
+        id: "guardrail-1",
+        activeVersion: 1,
+      }] }), { status: 200 });
+    }));
+
+    await expect(getDeploymentDeletionImpact("deployment-1")).rejects.toThrow(
+      "Deployment deletion impact is unavailable",
+    );
   });
 });

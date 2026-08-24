@@ -213,24 +213,22 @@ describe("Controller metrics contract", () => {
         })),
       }))
       .mockImplementationOnce(() => ({
-        from: vi.fn().mockResolvedValue([
-          {
-            id: "deployment-active", name: "Production API", guardrailId: "guardrail-1",
-            guardrailVersion: null, integrationId: "integration-active", poolId: "production", enabled: true,
-          },
-          {
-            id: "deployment-disabled", name: "Disabled API", guardrailId: "guardrail-1",
-            guardrailVersion: 2, integrationId: "integration-active", poolId: "production", enabled: false,
-          },
-          {
-            id: "deployment-inactive", name: "Draft API", guardrailId: "guardrail-2",
-            guardrailVersion: null, integrationId: "integration-disabled", poolId: "production", enabled: true,
-          },
-          {
-            id: "deployment-deleted", name: "Deleted", guardrailId: "deleted-guardrail",
-            guardrailVersion: 1, integrationId: null, poolId: "production", enabled: true,
-          },
-        ]),
+        from: vi.fn(() => ({
+          where: vi.fn().mockResolvedValue([
+            {
+              id: "deployment-active", name: "Production API", guardrailId: "guardrail-1",
+              guardrailVersion: null, integrationId: "integration-active", poolId: "production", enabled: true,
+            },
+            {
+              id: "deployment-disabled", name: "Disabled API", guardrailId: "guardrail-1",
+              guardrailVersion: 2, integrationId: "integration-active", poolId: "production", enabled: false,
+            },
+            {
+              id: "deployment-inactive", name: "Draft API", guardrailId: "guardrail-2",
+              guardrailVersion: null, integrationId: "integration-disabled", poolId: "production", enabled: true,
+            },
+          ]),
+        })),
       }))
       .mockImplementationOnce(() => ({
         from: vi.fn().mockResolvedValue([

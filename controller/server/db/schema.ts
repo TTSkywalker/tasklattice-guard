@@ -264,12 +264,16 @@ export const deployments = pgTable("guardrail_deployment", {
   routeOrder: integer("route_order").notNull().default(0),
   enabled: boolean("enabled").notNull().default(true),
   trafficScope: jsonb("traffic_scope").$type<Record<string, unknown>>().notNull().default({}),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  deletedBy: text("deleted_by").references(() => user.id),
+  deleteReason: text("delete_reason"),
   createdAt,
   updatedAt,
 }, (table) => [
   index("deployment_guardrail_idx").on(table.guardrailId),
   index("deployment_integration_idx").on(table.integrationId),
-  uniqueIndex("deployment_integration_route_order_idx").on(table.integrationId, table.routeOrder),
+  uniqueIndex("deployment_integration_route_order_idx").on(table.integrationId, table.routeOrder)
+    .where(sql`${table.deletedAt} is null`),
   index("deployment_pool_idx").on(table.poolId),
 ]);
 

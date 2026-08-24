@@ -1,8 +1,8 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DeploymentRuntimeTrace } from "@/lib/api";
-import { DeploymentRuntimeEventTable } from "./deployment-detail";
+import type { Deployment, DeploymentRuntimeTrace } from "@/lib/api";
+import { DeleteDeploymentSheet, DeploymentRuntimeEventTable } from "./deployment-detail";
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
@@ -41,5 +41,63 @@ describe("Deployment runtime event density", () => {
     expect(screen.getByText(/\d{2}:\d{2}:\d{2}\.123/)).toBeTruthy();
     expect(screen.getByText("15 ms")).toBeTruthy();
     expect(screen.getByRole("row", { name: /\d{2}:\d{2}:\d{2}\.123/ }).className).toContain("h-11");
+  });
+});
+
+describe("Deployment protected delete", () => {
+  afterEach(cleanup);
+
+  it("requires a reason and exact-name confirmation for recent traffic", () => {
+    const deployment = {
+      id: "deployment-1",
+      name: "Regional traffic",
+      guardrail_id: "guardrail-1",
+      guardrail_version: 1,
+      integration_id: "integration-1",
+      route_order: 0,
+      traffic_scope: { combinator: "and", conditions: [] },
+      enabled: true,
+      is_default: false,
+      system_managed: false,
+      updated_at: "2026-08-24T08:00:00.000Z",
+    } satisfies Deployment;
+    const onConfirm = vi.fn();
+    render(<DeleteDeploymentSheet
+      deployment={deployment}
+      open
+      impact={{
+        deployment_id: deployment.id,
+        deployment_name: deployment.name,
+        window_minutes: 30,
+        incoming_request_count: 14,
+        last_request_at: "2026-08-24T08:00:00.000Z",
+        active_deployment_count: 1,
+        telemetry_fresh: true,
+        telemetry_watermark: "2026-08-24T08:00:01.000Z",
+        requires_second_confirmation: true,
+        requires_confirmation: true,
+      }}
+      loading={false}
+      deleting={false}
+      error={null}
+      onOpenChange={vi.fn()}
+      onRetry={vi.fn()}
+      onConfirm={onConfirm}
+    />);
+
+    const continueButton = screen.getByRole("button", { name: "deploymentDetail.continueDelete" }) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("deploymentDetail.deleteReason"), { target: { value: "Traffic moved to a new route" } });
+    fireEvent.click(continueButton);
+    const confirmButton = screen.getByRole("button", { name: "deploymentDetail.deleteDespiteTraffic" }) as HTMLButtonElement;
+    expect(confirmButton.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("deploymentDetail.typeNameToConfirm"), { target: { value: deployment.name } });
+    fireEvent.click(confirmButton);
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      reason: "Traffic moved to a new route",
+      confirm_recent_traffic: true,
+      confirmation_name: deployment.name,
+    });
   });
 });

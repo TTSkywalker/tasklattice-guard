@@ -76,6 +76,7 @@ function evidenceLabel(kind: string, t: TFunction) {
     "guardrail.validation.completed": "evidence.kinds.validationRunCompleted",
     "guardrail.version.created": "evidence.kinds.guardrailVersionCreated",
     "deployment.created": "evidence.kinds.deploymentCreated",
+    "deployment.deleted": "evidence.kinds.deploymentDeleted",
     "deployment.default.created": "evidence.kinds.defaultDeploymentInstalled",
     "deployment.updated": "evidence.kinds.deploymentUpdated",
     "integration.registered": "evidence.kinds.integrationRegistered",
