@@ -38,8 +38,8 @@ export function StateBadge({ state, label }: { state: string; label?: string }) 
   const { t, i18n } = useTranslation();
   const normalized = state.toLowerCase();
   const positive = ["active", "passed", "ready", "healthy", "allow", "pass", "safe", "enabled", "configured", "protected", "local", "success"].includes(normalized);
-  const negative = ["failed", "block", "blocked", "reject", "unsafe", "error", "degraded", "disabled"].includes(normalized);
-  const warning = ["transform", "redirect", "uncertain", "waiting", "unconfigured", "unavailable", "not evaluated", "stale", "needs_validation", "intervene", "paused"].includes(normalized);
+  const negative = ["failed", "block", "blocked", "reject", "unsafe", "error", "degraded", "disabled", "saturated", "offline"].includes(normalized);
+  const warning = ["transform", "redirect", "uncertain", "waiting", "unconfigured", "unavailable", "not evaluated", "stale", "needs_validation", "intervene", "paused", "registered", "syncing", "busy"].includes(normalized);
 
   return (
     <Badge

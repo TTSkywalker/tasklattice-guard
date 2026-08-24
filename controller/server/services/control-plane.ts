@@ -475,16 +475,10 @@ export class ControlPlaneService {
     actorId: string;
     compilerAvailable: boolean;
   }) {
-    if (!input.compilerAvailable) {
-      throw new ConflictError(
-        "A healthy GuardRails 0 Runner is required to compile Guardrail configurations.",
-        "default_runner_unavailable",
-      );
-    }
     return this.db.transaction(async (tx) => {
       const [guardrail] = await tx.select().from(guardrails).where(and(
         eq(guardrails.id, input.guardrailId), isNull(guardrails.deletedAt),
-      ));
+      )).for("update");
       if (!guardrail) throw new NotFoundError("Guardrail", input.guardrailId);
       const [latestValidation] = await tx.select().from(validationRuns).where(and(
         eq(validationRuns.guardrailId, input.guardrailId),
@@ -503,6 +497,61 @@ export class ControlPlaneService {
         eq(guardrailVersions.sourceDraftRevision, guardrail.draftRevision),
       )).orderBy(desc(guardrailVersions.version)).limit(1);
       if (existingVersion && existingVersion.status !== "failed") {
+        await tx.update(validationRuns).set({ guardrailVersion: existingVersion.version })
+          .where(eq(validationRuns.id, latestValidation.id));
+        const needsActivation = existingVersion.status === "ready" && (
+          guardrail.status !== "active"
+          || guardrail.activeVersion !== existingVersion.version
+          || guardrail.activeArtifactId !== existingVersion.artifactId
+        );
+        if (needsActivation) {
+          if (!existingVersion.artifactId) {
+            throw new ConflictError(
+              "The ready Guardrail Version does not have a compiled Artifact.",
+              "guardrail_version_artifact_missing",
+            );
+          }
+          const [state] = await tx.update(controllerState)
+            .set({ desiredGeneration: sql`${controllerState.desiredGeneration} + 1`, updatedAt: new Date() })
+            .where(eq(controllerState.id, "singleton"))
+            .returning();
+          if (!state) throw new Error("Controller state is not initialized.");
+          await tx.update(guardrails).set({
+            status: "active",
+            activeVersion: existingVersion.version,
+            activeArtifactId: existingVersion.artifactId,
+            desiredGeneration: state.desiredGeneration,
+            updatedAt: new Date(),
+          }).where(eq(guardrails.id, input.guardrailId));
+          await tx.update(deployments).set({
+            guardrailVersion: existingVersion.version,
+            updatedAt: new Date(),
+          }).where(and(eq(deployments.guardrailId, input.guardrailId), isNull(deployments.deletedAt)));
+          if (input.guardrailId === DEFAULT_GUARDRAIL_ID) {
+            await this.ensureDefaultDeployment(tx, existingVersion.version);
+          }
+          await tx.insert(outboxEvents).values({
+            id: randomUUID(), kind: "runner.desired_state_changed", aggregateId: input.guardrailId,
+            payload: {
+              guardrailId: input.guardrailId,
+              version: existingVersion.version,
+              generation: state.desiredGeneration,
+              artifactId: existingVersion.artifactId,
+            },
+          });
+          await tx.insert(auditEvents).values({
+            id: randomUUID(), kind: "guardrail.version_activated", actorId: input.actorId,
+            resourceType: "guardrail", resourceId: input.guardrailId,
+            detail: { version: existingVersion.version, generation: state.desiredGeneration, reusedArtifact: true },
+          });
+          return {
+            compileId: null,
+            guardrailId: input.guardrailId,
+            version: existingVersion.version,
+            generation: state.desiredGeneration,
+            status: existingVersion.status,
+          };
+        }
         return {
           compileId: null,
           guardrailId: input.guardrailId,
@@ -510,6 +559,12 @@ export class ControlPlaneService {
           generation: existingVersion.generation,
           status: existingVersion.status,
         };
+      }
+      if (!input.compilerAvailable) {
+        throw new ConflictError(
+          "A healthy GuardRails 0 Runner is required to compile Guardrail configurations.",
+          "default_runner_unavailable",
+        );
       }
       const [state] = await tx.update(controllerState)
         .set({ desiredGeneration: sql`${controllerState.desiredGeneration} + 1`, updatedAt: new Date() })

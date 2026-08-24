@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { EntitySheet } from "@/components/entity-sheet";
+import { AddTestCaseSheet } from "@/components/add-test-case-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +29,6 @@ import {
   type Guardrail,
   type ValidationRun,
 } from "@/lib/api";
-import { AddTestCaseSheet } from "@/routes/guardrails";
 
 export function ValidationPage() {
   const { t, i18n } = useTranslation();
@@ -102,7 +102,7 @@ function CreateValidationSheet({ open, onOpenChange, guardrails, initialGuardrai
   </EntitySheet>{guardrail ? <AddTestCaseSheet guardrail={guardrail} open={addOpen} onOpenChange={setAddOpen} onCreated={async () => { setAddOpen(false); await queryClient.invalidateQueries({ queryKey: queryKeys.testCases(guardrailId) }); }} /> : null}</>;
 }
 
-function ValidationDetailSheet({ run, guardrail, canManage, running, onRunAgain, onClose }: { run: ValidationRun | null; guardrail?: Guardrail; canManage: boolean; running: boolean; onRunAgain: (guardrailId: string) => void; onClose: () => void }) {
+export function ValidationDetailSheet({ run, guardrail, canManage, running, onRunAgain, onClose }: { run: ValidationRun | null; guardrail?: Guardrail; canManage: boolean; running: boolean; onRunAgain: (guardrailId: string) => void; onClose: () => void }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const validationScope = useMutation({ mutationFn: ({ guardrailId, caseId, action }: { guardrailId: string; caseId: string; action: "exclude" | "restore" }) => action === "exclude" ? excludeGuardrailTestCase(guardrailId, caseId) : restoreGuardrailTestCase(guardrailId, caseId), onSuccess: async (_, variables) => { await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.testCases(variables.guardrailId) }), queryClient.invalidateQueries({ queryKey: queryKeys.guardrail(variables.guardrailId) }), queryClient.invalidateQueries({ queryKey: queryKeys.guardrails })]); toast.success(t(variables.action === "exclude" ? "guardrails.testCaseExcludedRerun" : "guardrails.testCaseRestored")); }, onError: (error) => notifyError(error, t("guardrails.operationFailed")) });
