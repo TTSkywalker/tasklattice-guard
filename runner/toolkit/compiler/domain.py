@@ -463,6 +463,8 @@ class RuntimeMetricEvent:
     fail_closed: bool = False
     active_concurrency: int = 0
     provider_latency_ms: int = 0
+    provider_work_latency_ms: int = 0
+    model_wait_latency_ms: int = 0
     slo_breached: bool = False
     detail: str = ""
 
@@ -498,6 +500,20 @@ class RuntimeStepMetricEvent:
     parallel_group: str | None = None
     timeout_ms: int | None = None
     provider_latency_ms: int = 0
+    provider_work_ms: int = 0
+    model_wait_ms: int = 0
+    provider_name: str | None = None
+    model_name: str | None = None
+    model_operation: str | None = None
+    model_result: str | None = None
+    error_type: str | None = None
+    model_time_to_first_token_ms: int | None = None
+    model_input_tokens: int = 0
+    model_output_tokens: int = 0
+    model_retries: int = 0
+    model_backoff_ms: int = 0
+    started_offset_ms: int | None = None
+    finished_offset_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

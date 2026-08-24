@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from ...runtime.content_views import content_view
 from ...runtime.contracts import (
@@ -44,6 +44,39 @@ class ActionRequest:
     content_view: ContentViewSnapshot | None = None
     active_block_id: str | None = None
     request_context: RequestContext | None = None
+    request_started_at: float = 0.0
+
+
+ModelCallResult = Literal[
+    "success",
+    "timeout",
+    "rate_limited",
+    "client_error",
+    "server_error",
+    "transport_error",
+    "invalid_response",
+    "configuration_error",
+    "unknown_error",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCallUsage:
+    """Privacy-safe facts for one external model/provider RPC."""
+
+    provider: str
+    model: str
+    operation: str
+    result: ModelCallResult
+    duration_ms: int
+    started_offset_ms: int = 0
+    finished_offset_ms: int = 0
+    time_to_first_token_ms: int | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    retries: int = 0
+    backoff_ms: int = 0
+    error_type: str = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +84,7 @@ class ActionUsage:
     provider_latency_ms: int = 0
     model_invocations: int = 0
     input_characters: int = 0
+    model_calls: tuple[ModelCallUsage, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

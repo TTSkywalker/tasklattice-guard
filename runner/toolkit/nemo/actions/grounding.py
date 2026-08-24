@@ -12,6 +12,7 @@ from ...runtime.contracts import (
     RiskFinding,
 )
 from .contracts import ActionRequest, ActionResult, action_result, action_view
+from .model_call import action_usage, observe_model_call
 from .names import ACTION_GROUNDING
 
 
@@ -107,55 +108,65 @@ class GroundingActionProvider:
                 reason=f"{self.name} credential is not configured.",
             )
 
+        call = None
         try:
-            async with httpx.AsyncClient(
-                timeout=self._timeout_seconds,
-                transport=self._transport,
-            ) as client:
-                response = await client.post(
-                    f"{self._base_url}/chat/completions",
-                    headers={"authorization": f"Bearer {credential}"},
-                    json={
-                        "model": self._model,
-                        "temperature": 0.0,
-                        "max_tokens": 1_200,
-                        "response_format": {"type": "json_object"},
-                        "messages": [
-                            {"role": "system", "content": _JUDGE_PROMPT},
-                            {
-                                "role": "user",
-                                "content": json.dumps(
-                                    {
-                                        "queries": [
-                                            {"block_id": block.id, "text": block.text}
-                                            for block in queries
-                                        ],
-                                        "grounding_sources": [
-                                            {"block_id": block.id, "text": block.text}
-                                            for block in sources
-                                        ],
-                                        "response": {
-                                            "block_id": active.id,
-                                            "text": request.content,
+            with observe_model_call(
+                request,
+                provider="nvidia",
+                model=self._model,
+                operation="grounding_classification",
+            ) as call:
+                async with httpx.AsyncClient(
+                    timeout=self._timeout_seconds,
+                    transport=self._transport,
+                ) as client:
+                    response = await client.post(
+                        f"{self._base_url}/chat/completions",
+                        headers={"authorization": f"Bearer {credential}"},
+                        json={
+                            "model": self._model,
+                            "temperature": 0.0,
+                            "max_tokens": 1_200,
+                            "response_format": {"type": "json_object"},
+                            "messages": [
+                                {"role": "system", "content": _JUDGE_PROMPT},
+                                {
+                                    "role": "user",
+                                    "content": json.dumps(
+                                        {
+                                            "queries": [
+                                                {"block_id": block.id, "text": block.text}
+                                                for block in queries
+                                            ],
+                                            "grounding_sources": [
+                                                {"block_id": block.id, "text": block.text}
+                                                for block in sources
+                                            ],
+                                            "response": {
+                                                "block_id": active.id,
+                                                "text": request.content,
+                                            },
                                         },
-                                    },
-                                    ensure_ascii=False,
-                                ),
-                            },
-                        ],
-                        **self._request_options,
-                    },
-                )
-                response.raise_for_status()
-                payload = _response_payload(
-                    response.json(),
-                    frozenset(block.id for block in sources),
-                )
+                                        ensure_ascii=False,
+                                    ),
+                                },
+                            ],
+                            **self._request_options,
+                        },
+                    )
+                    response.raise_for_status()
+                    raw_payload = response.json()
+                    payload = _response_payload(
+                        raw_payload,
+                        frozenset(block.id for block in sources),
+                    )
+                    call.complete(payload=raw_payload)
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             return action_result(request,
                 "error",
                 request.content,
                 reason=f"{self.name} evaluator failed: {type(error).__name__}.",
+                usage=action_usage(call, len(request.content)),
             )
 
         grounding_score = payload["grounding_score"]
@@ -198,6 +209,7 @@ class GroundingActionProvider:
             request.content,
             findings=(finding,) if unsafe or request.evidence_scope == "full" else (),
             reason=reason,
+            usage=action_usage(call, len(request.content)),
         )
 
 

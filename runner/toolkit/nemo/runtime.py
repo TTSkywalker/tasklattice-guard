@@ -10,6 +10,8 @@ from typing import Any
 
 from nemoguardrails import Guardrails
 from nemoguardrails.rails.llm.options import GenerationResponse
+from opentelemetry import context as otel_context, trace
+from opentelemetry.trace import Status, StatusCode
 
 from ..runtime.content_views import request_view, with_active_text
 from ..runtime.contracts import (
@@ -37,7 +39,11 @@ from .action_registry import (
     ACTION_RESOLVE,
     ActionProviders,
 )
-from .actions.contracts import ActionRequest, ActionResult
+from .actions.contracts import ActionRequest, ActionResult, ModelCallUsage
+from .actions.model_call import (
+    activate_native_model_observation,
+    deactivate_native_model_observation,
+)
 from .artifacts import config_checksum
 from .registry import NeMoRuntimeRegistry
 
@@ -46,6 +52,7 @@ _CURRENT_SCOPE: ContextVar["_ExecutionScope | None"] = ContextVar(
     "tasklattice_nemo_execution_scope",
     default=None,
 )
+_TRACER = trace.get_tracer("tasklattice.guard-runner.actions")
 _ACTION_PRIORITY = (
     "reject",
     "clarify",
@@ -71,6 +78,7 @@ class _ExecutionScope:
     request: EngineRequest
     profile: str
     results: list[_RuntimeResult]
+    started_at: float
     c2_decision: dict[str, Any] | None = None
     closed: bool = False
 
@@ -185,53 +193,97 @@ class NeMoActionBridge:
             )
         started = time.perf_counter()
         provider_latency_ms = 0
-        try:
-            provider = self._providers[(action_name, action_version)]
-            supported_risks = getattr(provider, "risks", frozenset())
-            supported_rails = getattr(provider, "rails", frozenset())
-            if supported_risks and binding.risk not in supported_risks:
-                raise LookupError("provider does not support the pinned Policy")
-            if supported_rails and self._request().phase not in supported_rails:
-                raise LookupError("provider does not support the active Rail")
-            action_request = self._action_request(text, binding)
-            async with asyncio.timeout(binding.timeout_ms / 1_000):
-                action_result = await provider.execute(action_request)
-            result = (
-                replace(action_result, reason=action_result.evidence)
-                if action_result.reason is None and action_result.evidence
-                else action_result
-            )
-            provider_latency_ms = action_result.usage.provider_latency_ms
-        except asyncio.CancelledError:
-            raise
-        except TimeoutError:
-            result = ActionResult(
-                "error",
-                text,
-                reason=(
-                    f"NeMo Action {action_name}@{action_version} hit its "
-                    f"{binding.timeout_ms} ms timeout deadline."
-                ),
-            )
-        except Exception as error:
-            # Do not include provider messages, responses, credentials, or model
-            # content in production errors.
-            result = ActionResult(
-                "error",
-                text,
-                reason=(
-                    f"NeMo Action {action_name}@{action_version} failed with "
-                    f"{type(error).__name__}."
-                ),
-            )
-        latency = max(0, round((time.perf_counter() - started) * 1_000))
-        return self._record(
-            context,
-            binding,
-            result,
-            latency,
-            provider_latency_ms=provider_latency_ms or latency,
+        request = self._request()
+        module = self._module(binding)
+        integration_id = (
+            request.request_context.integration_id
+            if request.request_context is not None
+            else "__internal__"
         )
+        with _TRACER.start_as_current_span(
+            "guardrail.action",
+            attributes={
+                "guardrail.id": self._plan.guardrail_id,
+                "guardrail.version": self._plan.guardrail_version,
+                "guardrail.phase": request.phase,
+                "guardrail.action": action_name,
+                "guardrail.action.version": action_version,
+                "guardrail.action.binding_id": binding.id,
+                "guardrail.module.id": module.id if module is not None else "__unmapped__",
+                "guardrail.action.stage": binding.stage,
+                "guardrail.risk": binding.risk,
+                "guardrail.policy.id": binding.policy_id or "__none__",
+                "guardrail.action.timeout_ms": binding.timeout_ms,
+                "integration.id": integration_id or "__internal__",
+            },
+        ) as span:
+            try:
+                provider = self._providers[(action_name, action_version)]
+                supported_risks = getattr(provider, "risks", frozenset())
+                supported_rails = getattr(provider, "rails", frozenset())
+                if supported_risks and binding.risk not in supported_risks:
+                    raise LookupError("provider does not support the pinned Policy")
+                if supported_rails and request.phase not in supported_rails:
+                    raise LookupError("provider does not support the active Rail")
+                action_request = self._action_request(text, binding)
+                async with asyncio.timeout(binding.timeout_ms / 1_000):
+                    action_result = await provider.execute(action_request)
+                result = (
+                    replace(action_result, reason=action_result.evidence)
+                    if action_result.reason is None and action_result.evidence
+                    else action_result
+                )
+                provider_latency_ms = action_result.usage.provider_latency_ms
+            except asyncio.CancelledError:
+                raise
+            except TimeoutError:
+                result = ActionResult(
+                    "error",
+                    text,
+                    reason=(
+                        f"NeMo Action {action_name}@{action_version} hit its "
+                        f"{binding.timeout_ms} ms timeout deadline."
+                    ),
+                )
+            except Exception as error:
+                # Do not include provider messages, responses, credentials, or
+                # model content in production errors.
+                result = ActionResult(
+                    "error",
+                    text,
+                    reason=(
+                        f"NeMo Action {action_name}@{action_version} failed with "
+                        f"{type(error).__name__}."
+                    ),
+                )
+            latency = max(0, round((time.perf_counter() - started) * 1_000))
+            model_calls = result.usage.model_calls
+            action_result_name = (
+                "timeout"
+                if result.verdict == "error"
+                and "timeout" in (result.reason or "").casefold()
+                else result.verdict
+            )
+            span.set_attributes({
+                "guardrail.action.result": action_result_name,
+                "guardrail.action.duration_ms": latency,
+                "guardrail.action.provider_work_ms": sum(
+                    call.duration_ms for call in model_calls
+                ),
+                "guardrail.action.model_wait_ms": _model_calls_wall_ms(model_calls),
+                "guardrail.action.failure_mode": (
+                    "fail_closed" if self._fails_closed(binding) else "fail_open"
+                ),
+            })
+            if result.verdict == "error":
+                span.set_status(Status(StatusCode.ERROR, action_result_name))
+            return self._record(
+                context,
+                binding,
+                result,
+                latency,
+                provider_latency_ms=provider_latency_ms,
+            )
 
     async def detect_sensitive_data(
         self,
@@ -572,6 +624,7 @@ class NeMoActionBridge:
             content_view=view,
             active_block_id=prepared.active_block_id,
             request_context=prepared.request_context,
+            request_started_at=_execution_scope().started_at,
         )
 
     def _module(
@@ -627,7 +680,7 @@ class NeMoActionBridge:
             binding,
             result,
             latency_ms,
-            latency_ms if provider_latency_ms is None else provider_latency_ms,
+            0 if provider_latency_ms is None else provider_latency_ms,
         )
         scope = _execution_scope()
         if scope.profile == "llmrails_colang2_programmable":
@@ -702,24 +755,73 @@ class NeMoRuntime:
             request.plan
         )
         profile = instance.config.runtime_profile
-        scope = _ExecutionScope(request, profile, [])
-        token = _CURRENT_SCOPE.set(scope)
         started = time.perf_counter()
+        scope = _ExecutionScope(request, profile, [], started)
+        token = _CURRENT_SCOPE.set(scope)
+        request_context = request.request_context
+        native_model_scope, native_model_token = activate_native_model_observation(
+            guardrail_id=request.plan.guardrail_id,
+            integration_id=(
+                request_context.integration_id
+                if request_context is not None and request_context.integration_id
+                else "__internal__"
+            ),
+            protocol=(
+                request_context.protocol if request_context is not None else "internal"
+            ),
+            phase=request.phase,
+            request_started_at=started,
+        )
         queue_started = started
         queue_latency_ms = registry_queue_latency_ms
         admitted = False
+        waiting = False
         active_concurrency = 0
         response: GenerationResponse | None = None
         runtime_results: tuple[_RuntimeResult, ...] = ()
         custom_decision: dict[str, Any] | None = None
+        runtime_span = None
+        runtime_context_token = None
         try:
             async with asyncio.timeout(_request_timeout_ms(request) / 1_000):
-                await instance.admission.acquire()
+                instance.waiting_requests += 1
+                waiting = True
+                with _TRACER.start_as_current_span(
+                    "guardrail.queue_wait",
+                    attributes={
+                        "guardrail.id": request.plan.guardrail_id,
+                        "guardrail.version": request.plan.guardrail_version,
+                        "guardrail.phase": request.phase,
+                        "guardrail.runtime.profile": profile,
+                    },
+                ) as queue_span:
+                    await instance.admission.acquire()
+                    queue_span.set_attribute(
+                        "guardrail.queue.duration_ms",
+                        max(0, round((time.perf_counter() - queue_started) * 1_000)),
+                    )
+                instance.waiting_requests = max(0, instance.waiting_requests - 1)
+                waiting = False
                 admitted = True
                 instance.active_requests += 1
                 active_concurrency = instance.active_requests
                 queue_latency_ms += max(
                     0, round((time.perf_counter() - queue_started) * 1_000)
+                )
+                runtime_started = time.perf_counter()
+                runtime_span = _TRACER.start_span(
+                    "guardrail.runtime",
+                    attributes={
+                        "guardrail.id": request.plan.guardrail_id,
+                        "guardrail.version": request.plan.guardrail_version,
+                        "guardrail.phase": request.phase,
+                        "guardrail.runtime.engine": instance.config.runtime_engine,
+                        "guardrail.runtime.profile": profile,
+                        "guardrail.runtime.cache_hit": cache_hit,
+                    },
+                )
+                runtime_context_token = otel_context.attach(
+                    trace.set_span_in_context(runtime_span)
                 )
                 if profile == "iorails_native":
                     # NeMo 0.23 IORails has no public rails-only/check API.  It
@@ -796,7 +898,18 @@ class NeMoRuntime:
                         )
                 else:
                     raise RuntimeError(f"Unknown NeMo runtime profile {profile!r}.")
+                runtime_span.set_attributes({
+                    "guardrail.runtime.result": "success",
+                    "guardrail.runtime.duration_ms": max(
+                        0, round((time.perf_counter() - runtime_started) * 1_000)
+                    ),
+                    "guardrail.runtime.action_count": len(runtime_results),
+                })
         except Exception as error:
+            if runtime_span is not None:
+                runtime_span.record_exception(error)
+                runtime_span.set_status(Status(StatusCode.ERROR, type(error).__name__))
+                runtime_span.set_attribute("guardrail.runtime.result", "error")
             duration = max(0, round((time.perf_counter() - started) * 1_000))
             if not admitted:
                 queue_latency_ms += duration
@@ -808,13 +921,21 @@ class NeMoRuntime:
                 cache_hit=cache_hit,
                 queue_latency_ms=queue_latency_ms,
                 active_concurrency=active_concurrency,
+                native_model_calls=tuple(native_model_scope.calls),
             )
         finally:
+            if runtime_context_token is not None:
+                otel_context.detach(runtime_context_token)
+            if runtime_span is not None:
+                runtime_span.end()
+            if waiting:
+                instance.waiting_requests = max(0, instance.waiting_requests - 1)
             if admitted:
                 instance.active_requests = max(0, instance.active_requests - 1)
                 instance.admission.release()
             scope.closed = True
             _CURRENT_SCOPE.reset(token)
+            deactivate_native_model_observation(native_model_token)
         if response is None:
             return _failed_decision(
                 request,
@@ -824,6 +945,7 @@ class NeMoRuntime:
                 cache_hit=cache_hit,
                 queue_latency_ms=queue_latency_ms,
                 active_concurrency=active_concurrency,
+                native_model_calls=tuple(native_model_scope.calls),
             )
         try:
             return _decision(
@@ -835,6 +957,7 @@ class NeMoRuntime:
                 cache_hit=cache_hit,
                 queue_latency_ms=queue_latency_ms,
                 active_concurrency=active_concurrency,
+                native_model_calls=tuple(native_model_scope.calls),
             )
         except Exception as error:
             return _failed_decision(
@@ -845,6 +968,7 @@ class NeMoRuntime:
                 cache_hit=cache_hit,
                 queue_latency_ms=queue_latency_ms,
                 active_concurrency=active_concurrency,
+                native_model_calls=tuple(native_model_scope.calls),
             )
 
     async def shutdown(self) -> None:
@@ -1250,6 +1374,7 @@ def _decision(
     cache_hit: bool,
     queue_latency_ms: int,
     active_concurrency: int,
+    native_model_calls: tuple[ModelCallUsage, ...] = (),
 ) -> ProtectionDecision:
     output_data = response.output_data or {}
     custom = (
@@ -1317,6 +1442,7 @@ def _decision(
         request.active_block_id,
         queue_latency_ms=queue_latency_ms,
         resolve_latency_ms=int((custom_decision or {}).get("_resolve_latency_ms", 0)),
+        native_model_calls=native_model_calls,
     )
     assessments = _assessments(request, runtime_results, trace, findings)
     interventions = _interventions(
@@ -1368,10 +1494,8 @@ def _decision(
             # Count versioned policy Actions only. NeMo's internal bot/stop
             # actions are implementation details, not billable evaluators.
             action_invocations=len(runtime_results),
-            model_invocations=(
-                int(response.log.stats.llm_calls_count or 0)
-                if response.log is not None
-                else 0
+            model_invocations=len(native_model_calls) + sum(
+                item.result.usage.model_invocations for item in runtime_results
             ),
             cache_hits=int(cache_hit),
             cache_misses=int(not cache_hit),
@@ -1385,8 +1509,14 @@ def _decision(
                 for item in _terminal_runtime_results(runtime_results)
             ),
             active_concurrency=active_concurrency,
-            provider_latency_ms=sum(
-                item.provider_latency_ms for item in runtime_results
+            provider_latency_ms=_provider_work_ms(
+                runtime_results, native_model_calls,
+            ),
+            provider_work_latency_ms=_provider_work_ms(
+                runtime_results, native_model_calls,
+            ),
+            model_wait_latency_ms=_model_wait_wall_ms(
+                runtime_results, native_model_calls,
             ),
         ),
         mode=request.mode,
@@ -1402,6 +1532,7 @@ def _trace(
     *,
     queue_latency_ms=0,
     resolve_latency_ms=0,
+    native_model_calls: tuple[ModelCallUsage, ...] = (),
 ):
     checksum = config_checksum(config)
     root_id = f"nemo:config:{config.guardrail_id}:{config.guardrail_version}"
@@ -1440,6 +1571,9 @@ def _trace(
             **common(),
         ),
     ]
+    trace.extend(
+        _native_model_trace_steps(request, native_model_calls, root_id)
+    )
     bindings_by_id = {item.id: item for item in config.action_bindings}
     results_by_id = {item.binding.id: item for item in results}
     action_parents: dict[str, str] = {}
@@ -1671,6 +1805,11 @@ def _trace(
     for item in results:
         trace.extend(item.result.trace)
         binding = item.binding
+        module = next((
+            candidate
+            for candidate in request.plan.modules_for(request.phase)
+            if binding.id in candidate.step_ids
+        ), None)
         policy_rail = _policy_rail_binding(
             request.plan,
             binding,
@@ -1686,6 +1825,14 @@ def _trace(
             item.result.verdict == "error"
             and "timeout" in (item.result.reason or "").casefold()
         )
+        model_calls = item.result.usage.model_calls
+        providers = tuple(dict.fromkeys(call.provider for call in model_calls))
+        models = tuple(dict.fromkeys(call.model for call in model_calls))
+        operations = tuple(dict.fromkeys(call.operation for call in model_calls))
+        model_results = tuple(dict.fromkeys(call.result for call in model_calls))
+        error_types = tuple(dict.fromkeys(
+            call.error_type for call in model_calls if call.error_type != "none"
+        ))
         trace.append(
             RuntimeTraceStep(
                 id=f"nemo:action:{binding.id}",
@@ -1713,6 +1860,7 @@ def _trace(
                     "complete"
                 ),
                 risk=binding.risk,
+                module_id=module.id if module is not None else "__unmapped__",
                 policy_id=binding.policy_id,
                 policy_version=binding.policy_version,
                 rail_type=request.phase,
@@ -1723,6 +1871,28 @@ def _trace(
                 timed_out=timed_out,
                 parallel_group=parallel_group,
                 provider_latency_ms=item.provider_latency_ms,
+                provider_work_ms=sum(call.duration_ms for call in model_calls),
+                model_wait_ms=_model_calls_wall_ms(model_calls),
+                provider_name=_one_or_mixed(providers),
+                model_name=_one_or_mixed(models),
+                model_operation=_one_or_mixed(operations),
+                model_result=_one_or_mixed(model_results),
+                error_type=_one_or_mixed(error_types),
+                model_time_to_first_token_ms=next((
+                    call.time_to_first_token_ms
+                    for call in model_calls
+                    if call.time_to_first_token_ms is not None
+                ), None),
+                model_input_tokens=sum(call.input_tokens for call in model_calls),
+                model_output_tokens=sum(call.output_tokens for call in model_calls),
+                model_retries=sum(call.retries for call in model_calls),
+                model_backoff_ms=sum(call.backoff_ms for call in model_calls),
+                started_offset_ms=min(
+                    (call.started_offset_ms for call in model_calls), default=None,
+                ),
+                finished_offset_ms=max(
+                    (call.finished_offset_ms for call in model_calls), default=None,
+                ),
                 **common(),
             )
         )
@@ -1740,7 +1910,6 @@ def _trace(
                 rail_type=request.phase,
                 action_name=ACTION_RESOLVE,
                 action_version="1.0.0",
-                provider_latency_ms=max(0, resolve_latency_ms),
                 **common(),
             )
         )
@@ -1997,6 +2166,7 @@ def _failed_decision(
     cache_hit=False,
     queue_latency_ms=0,
     active_concurrency=0,
+    native_model_calls: tuple[ModelCallUsage, ...] = (),
 ):
     reason = f"NeMo Guardrails failed closed with {type(error).__name__}."
     checksum = config_checksum(config)
@@ -2018,6 +2188,9 @@ def _failed_decision(
             engine=config.runtime_engine,
             runtime_profile=config.runtime_profile,
             config_checksum=checksum,
+        ),
+        *_native_model_trace_steps(
+            request, native_model_calls, "nemo:runtime:error",
         ),
     )
     return ProtectionDecision(
@@ -2045,6 +2218,14 @@ def _failed_decision(
             config_checksum=checksum,
             fail_closed=True,
             active_concurrency=active_concurrency,
+            model_invocations=len(native_model_calls),
+            provider_latency_ms=sum(
+                call.duration_ms for call in native_model_calls
+            ),
+            provider_work_latency_ms=sum(
+                call.duration_ms for call in native_model_calls
+            ),
+            model_wait_latency_ms=_model_calls_wall_ms(native_model_calls),
         ),
         mode=request.mode,
     )
@@ -2210,6 +2391,141 @@ def _terminal_runtime_results(results):
     for item in results:
         terminal[_result_group_key(item)] = item
     return tuple(terminal.values())
+
+
+def _native_model_trace_steps(
+    request: EngineRequest,
+    calls: tuple[ModelCallUsage, ...],
+    parent_id: str,
+) -> tuple[RuntimeTraceStep, ...]:
+    steps: list[RuntimeTraceStep] = []
+    for index, call in enumerate(calls):
+        suffix = f"_{request.phase}"
+        risk = (
+            call.operation[: -len(suffix)]
+            if call.operation.endswith(suffix)
+            else call.operation
+        )
+        plan_step = next(
+            (
+                item for item in request.plan.steps
+                if item.risk == risk and request.phase in item.phases
+            ),
+            None,
+        )
+        module = next(
+            (
+                item for item in request.plan.modules_for(request.phase)
+                if plan_step is not None and plan_step.id in item.step_ids
+            ),
+            None,
+        )
+        native_policy = _native_policy_rail(
+            request.plan, risk, request.phase,
+        )
+        selected_policy = native_policy[0] if native_policy is not None else None
+        failed = call.result != "success"
+        failure_mode = (
+            module.failure_mode if module is not None else "fail_closed"
+        )
+        steps.append(RuntimeTraceStep(
+            id=f"nemo:model:{index}:{risk}",
+            kind="evaluator",
+            name=f"{call.provider}/{call.model}",
+            status=call.result if failed else "complete",
+            detail=(
+                f"NeMo-native {risk.replace('_', ' ')} model call failed."
+                if failed
+                else f"NeMo-native {risk.replace('_', ' ')} model call completed."
+            ),
+            duration_ms=call.duration_ms,
+            parent_id=parent_id,
+            stage="model",
+            verdict="error" if failed else "safe",
+            route=(failure_mode if failed else "complete"),
+            risk=risk,
+            module_id=module.id if module is not None else "__unknown__",
+            guardrail_id=request.plan.guardrail_id,
+            guardrail_version=request.plan.guardrail_version,
+            policy_id=(
+                selected_policy.policy_id if selected_policy is not None else None
+            ),
+            policy_version=(
+                selected_policy.policy_version if selected_policy is not None else None
+            ),
+            rail_type=request.phase,
+            action_name=f"nemo_{risk}",
+            outcome=call.result,
+            timeout_ms=plan_step.timeout_ms if plan_step is not None else None,
+            timed_out=call.result == "timeout",
+            provider_latency_ms=call.duration_ms,
+            provider_work_ms=call.duration_ms,
+            model_wait_ms=call.duration_ms,
+            provider_name=call.provider,
+            model_name=call.model,
+            model_operation=call.operation,
+            model_result=call.result,
+            error_type=call.error_type,
+            model_input_tokens=call.input_tokens,
+            model_output_tokens=call.output_tokens,
+            model_retries=call.retries,
+            model_backoff_ms=call.backoff_ms,
+            started_offset_ms=call.started_offset_ms,
+            finished_offset_ms=call.finished_offset_ms,
+        ))
+    return tuple(steps)
+
+
+def _provider_work_ms(
+    results: tuple[_RuntimeResult, ...],
+    extra_calls: tuple[ModelCallUsage, ...] = (),
+) -> int:
+    total = 0
+    for item in results:
+        calls = item.result.usage.model_calls
+        total += (
+            sum(call.duration_ms for call in calls)
+            if calls
+            else max(0, item.provider_latency_ms)
+        )
+    return total + sum(call.duration_ms for call in extra_calls)
+
+
+def _model_wait_wall_ms(
+    results: tuple[_RuntimeResult, ...],
+    extra_calls: tuple[ModelCallUsage, ...] = (),
+) -> int:
+    calls = tuple(
+        call
+        for item in results
+        for call in item.result.usage.model_calls
+    ) + extra_calls
+    return _model_calls_wall_ms(calls)
+
+
+def _model_calls_wall_ms(calls) -> int:
+    intervals = sorted(
+        (
+            max(0, call.started_offset_ms),
+            max(call.started_offset_ms, call.finished_offset_ms),
+        )
+        for call in calls
+    )
+    if not intervals:
+        return 0
+    total = 0
+    current_start, current_end = intervals[0]
+    for started, finished in intervals[1:]:
+        if started <= current_end:
+            current_end = max(current_end, finished)
+            continue
+        total += current_end - current_start
+        current_start, current_end = started, finished
+    return total + current_end - current_start
+
+
+def _one_or_mixed(values: tuple[str, ...]) -> str | None:
+    return values[0] if len(values) == 1 else "mixed" if values else None
 
 
 def _result_group_key(item: _RuntimeResult) -> tuple[str, ...]:

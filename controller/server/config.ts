@@ -22,6 +22,7 @@ const environmentSchema = z.object({
     .default("../proto/tasklattice/guard/control/v1/runner_control.proto"),
   CONTROLLER_MIGRATIONS_PATH: z.string().default("server/db/migrations"),
   CONTROLLER_RUNNER_TOKEN: z.string().min(32),
+  CONTROLLER_METRICS_TOKEN: z.string().min(32).optional(),
   CONTROLLER_ARTIFACT_SIGNING_KEY_PATH: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_TRUSTED_ORIGINS: z.string().default("http://localhost:8080,http://localhost:8092"),
@@ -59,6 +60,14 @@ const environmentSchema = z.object({
     && isLoopback
     && value.CONTROLLER_BOOTSTRAP_ADMIN_EMAIL === "admin@tasklattice.local"
     && value.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD === "admin";
+
+  if (value.NODE_ENV === "production" && !value.CONTROLLER_METRICS_TOKEN) {
+    context.addIssue({
+      code: "custom",
+      path: ["CONTROLLER_METRICS_TOKEN"],
+      message: "CONTROLLER_METRICS_TOKEN is required in production.",
+    });
+  }
 
   if (value.CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS && !isLoopback) {
     context.addIssue({
@@ -150,6 +159,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     protoPath: parsed.CONTROLLER_PROTO_PATH,
     migrationsPath: parsed.CONTROLLER_MIGRATIONS_PATH,
     runnerToken: parsed.CONTROLLER_RUNNER_TOKEN,
+    metricsToken: parsed.CONTROLLER_METRICS_TOKEN ?? null,
     artifactSigningKeyPath: parsed.CONTROLLER_ARTIFACT_SIGNING_KEY_PATH,
     betterAuthSecret: parsed.BETTER_AUTH_SECRET,
     trustedOrigins: parsed.BETTER_AUTH_TRUSTED_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean),

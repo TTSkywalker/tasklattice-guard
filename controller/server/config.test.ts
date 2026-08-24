@@ -15,7 +15,25 @@ describe("Controller config", () => {
     expect(loadConfig(requiredEnvironment)).toMatchObject({
       minPasswordLength: 12,
       allowLocalDefaultCredentials: false,
+      metricsToken: null,
     });
+  });
+
+  it("accepts only a non-trivial optional metrics token", () => {
+    expect(loadConfig({
+      ...requiredEnvironment,
+      CONTROLLER_METRICS_TOKEN: "metrics-token-that-is-at-least-32-characters",
+    }).metricsToken).toBe("metrics-token-that-is-at-least-32-characters");
+    expect(() => loadConfig({
+      ...requiredEnvironment,
+      CONTROLLER_METRICS_TOKEN: "short",
+    })).toThrow();
+  });
+
+  it("requires metrics authentication in production", () => {
+    expect(() => loadConfig({ ...requiredEnvironment, NODE_ENV: "production" })).toThrow(
+      /CONTROLLER_METRICS_TOKEN/,
+    );
   });
 
   it("allows only the established admin/admin exception in the local development profile", () => {

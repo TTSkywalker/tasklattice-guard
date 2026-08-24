@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 from typing import Any
 
 import httpx
 
 from ...runtime.contracts import RiskFinding
-from .contracts import ActionRequest, ActionResult, ActionUsage, action_result
+from .contracts import ActionRequest, ActionResult, action_result
+from .model_call import action_usage, observe_model_call
 from .names import ACTION_PROMPT_SECURITY
 
 
@@ -150,25 +150,33 @@ class PromptSecurityActionProvider:
                 reason="Jailbreak model credential is not configured.",
             )
 
-        started = time.perf_counter()
+        call = None
         try:
-            async with httpx.AsyncClient(
-                timeout=self._timeout_seconds,
-                transport=self._transport,
-            ) as client:
-                response = await client.post(
-                    f"{self._jailbreak_base_url}/chat/completions",
-                    headers={"authorization": f"Bearer {credential}"},
-                    json={
-                        "model": self._jailbreak_model,
-                        "temperature": 0.01,
-                        "max_tokens": 32,
-                        "messages": _jailbreak_messages(request.content),
-                        **self._request_options,
-                    },
-                )
-                response.raise_for_status()
-                verdict = _jailbreak_verdict(response.json())
+            with observe_model_call(
+                request,
+                provider="nvidia",
+                model=self._jailbreak_model,
+                operation="jailbreak_classification",
+            ) as call:
+                async with httpx.AsyncClient(
+                    timeout=self._timeout_seconds,
+                    transport=self._transport,
+                ) as client:
+                    response = await client.post(
+                        f"{self._jailbreak_base_url}/chat/completions",
+                        headers={"authorization": f"Bearer {credential}"},
+                        json={
+                            "model": self._jailbreak_model,
+                            "temperature": 0.01,
+                            "max_tokens": 32,
+                            "messages": _jailbreak_messages(request.content),
+                            **self._request_options,
+                        },
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    verdict = _jailbreak_verdict(payload)
+                    call.complete(payload=payload)
         except (
             httpx.HTTPError,
             KeyError,
@@ -181,7 +189,7 @@ class PromptSecurityActionProvider:
                 "error",
                 request.content,
                 reason=f"Jailbreak model failed: {type(error).__name__}.",
-                usage=_model_usage(started, request.content),
+                usage=action_usage(call, len(request.content)),
             )
 
         if verdict == "safe":
@@ -193,7 +201,7 @@ class PromptSecurityActionProvider:
                     "The model found no attempt to bypass trusted instructions "
                     "or safety controls."
                 ),
-                usage=_model_usage(started, request.content),
+                usage=action_usage(call, len(request.content)),
             )
         if verdict == "unsafe":
             reason = (
@@ -214,14 +222,14 @@ class PromptSecurityActionProvider:
                     ),
                 ),
                 reason=reason,
-                usage=_model_usage(started, request.content),
+                usage=action_usage(call, len(request.content)),
             )
         return action_result(
             request,
             "uncertain",
             request.content,
             reason="The Jailbreak model did not return a recognized classification.",
-            usage=_model_usage(started, request.content),
+            usage=action_usage(call, len(request.content)),
         )
 
 
@@ -267,11 +275,3 @@ def _jailbreak_verdict(payload: dict[str, Any]) -> str:
     if normalized in {"jailbreak", "unsafe"}:
         return "unsafe"
     return "uncertain"
-
-
-def _model_usage(started: float, content: str) -> ActionUsage:
-    return ActionUsage(
-        provider_latency_ms=max(0, round((time.perf_counter() - started) * 1_000)),
-        model_invocations=1,
-        input_characters=len(content),
-    )

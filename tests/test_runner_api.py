@@ -3,21 +3,24 @@ from __future__ import annotations
 from contextlib import contextmanager
 import base64
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from prometheus_client import generate_latest
 
 from runner.toolkit.runtime.contracts import ProtectionDecision, RiskFinding, RuntimeTraceStep, RuntimeUsage
 from runner.api import RunnerAPI
+from runner.metrics import INTERNAL_METRIC_ID, RunnerMetrics
 
 
 class Runtime:
     def __init__(self) -> None:
         self.request = None
 
-    async def evaluate(self, request):
+    async def evaluate(self, request, *, on_resolved=None):
         self.request = request
         return ProtectionDecision(
             decision="block",
@@ -58,14 +61,24 @@ class Runtime:
             ),
         )
 
-    async def evaluate_guardrail(self, request, guardrail_id, version):
+    async def evaluate_guardrail(self, request, guardrail_id, version, *, on_resolved=None):
         self.explicit_guardrail = (guardrail_id, version)
         return await self.evaluate(request)
 
 
 class NoDeploymentRuntime:
-    async def evaluate(self, _request):
+    async def evaluate(self, _request, *, on_resolved=None):
         raise LookupError("No active Runner deployment matches this request.")
+
+
+class ResolvedFailureRuntime:
+    async def evaluate(self, _request, *, on_resolved=None):
+        assert on_resolved is not None
+        on_resolved(SimpleNamespace(
+            plan=SimpleNamespace(guardrail_id="guardrail-resolved", guardrail_version=7),
+            deployment_id="deployment-resolved",
+        ))
+        raise RuntimeError("provider failed")
 
 
 class Store:
@@ -84,9 +97,35 @@ class Store:
 
 
 class Metrics:
+    def __init__(self) -> None:
+        self.rejections = []
+
     @contextmanager
-    def request(self):
-        yield
+    def request(self, *_args, **_kwargs):
+        yield MetricObservation()
+
+    def observe_authentication(self, *_args, **_kwargs):
+        return None
+
+    def reject_request(self, *args, **kwargs):
+        self.rejections.append((args, kwargs))
+
+    def observe_route(self, *_args, **_kwargs):
+        return None
+
+    def observe_failure(self, *_args, **_kwargs):
+        return None
+
+
+class MetricObservation:
+    def resolve(self, *_args, **_kwargs):
+        return None
+
+    def set_identity(self, *_args, **_kwargs):
+        return None
+
+    def complete(self, *_args, **_kwargs):
+        return None
 
 
 class Telemetry:
@@ -95,6 +134,11 @@ class Telemetry:
 
     async def emit(self, event):
         self.events.append(event)
+
+
+class FailingTelemetry:
+    async def emit(self, _event):
+        raise OSError("disk-specific path must not become a metric label")
 
 
 class DraftPreviews:
@@ -272,6 +316,25 @@ async def test_http_adapter_defaults_to_input_and_rejects_detect_only_bypass():
 
 
 @pytest.mark.asyncio
+async def test_runtime_distinguishes_adapter_mismatch_from_bad_credentials():
+    metrics = Metrics()
+    app = FastAPI()
+    app.include_router(RunnerAPI(
+        Runtime(), Store(), metrics, Telemetry(), "runner-1", "controller-token",
+    ).router)  # type: ignore[arg-type]
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        response = await client.post(
+            "/runtime/v1/integrations/integration-1/guardrails/evaluate",
+            headers={"x-api-key": "valid-secret"},
+            json={"texts": ["hello"]},
+        )
+
+    assert response.status_code == 409
+    assert metrics.rejections == [(('http', 'input', 'adapter_mismatch'), {})]
+
+
+@pytest.mark.asyncio
 async def test_http_adapter_preserves_structured_grounding_and_a2a_routing_facts():
     runtime = Runtime()
     telemetry = Telemetry()
@@ -406,8 +469,9 @@ async def test_litellm_basic_guardrail_api_normalizes_and_maps_the_runtime_contr
 @pytest.mark.asyncio
 async def test_litellm_basic_guardrail_api_fails_closed_when_no_deployment_matches():
     telemetry = Telemetry()
+    metrics = RunnerMetrics(8)
     app = FastAPI()
-    app.include_router(RunnerAPI(NoDeploymentRuntime(), Store(), Metrics(), telemetry, "runner-1", "controller-token").router)  # type: ignore[arg-type]
+    app.include_router(RunnerAPI(NoDeploymentRuntime(), Store(), metrics, telemetry, "runner-1", "controller-token").router)  # type: ignore[arg-type]
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
         response = await client.post(
             "/runtime/v1/integrations/integration-1/beta/litellm_basic_guardrail_api",
@@ -421,3 +485,106 @@ async def test_litellm_basic_guardrail_api_fails_closed_when_no_deployment_match
         "blocked_reason": "No Deployment matches this request.",
     }
     assert telemetry.events[0]["decision"] == "block"
+    rendered = generate_latest(metrics.registry).decode()
+    assert 'coverage="unknown",deployment_id="__unmatched__",disposition="deny",enforcement_mode="enforce",failure_mode="normal",guardrail_id="__unmatched__",guardrail_version="__unmatched__",integration_id="integration-1",phase="input",protocol="litellm",result="success",traffic_class="runtime"} 1.0' in rendered
+
+
+@pytest.mark.asyncio
+async def test_runtime_failure_after_resolution_keeps_guardrail_metric_identity():
+    metrics = RunnerMetrics(8)
+    app = FastAPI()
+    app.include_router(RunnerAPI(
+        ResolvedFailureRuntime(), Store(), metrics, Telemetry(), "runner-1", "controller-token",
+    ).router)  # type: ignore[arg-type]
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://runner",
+    ) as client:
+        response = await client.post(
+            "/runtime/v1/integrations/integration-http/guardrails/evaluate",
+            headers={"x-api-key": "valid-secret"},
+            json={"phase": "output", "texts": ["hello"]},
+        )
+
+    assert response.status_code == 500
+    rendered = generate_latest(metrics.registry).decode()
+    assert 'coverage="unknown",deployment_id="deployment-resolved",disposition="unknown",enforcement_mode="enforce",failure_mode="normal",guardrail_id="guardrail-resolved",guardrail_version="7",integration_id="integration-http",phase="output",protocol="http",result="error",traffic_class="runtime"} 1.0' in rendered
+    assert 'guard_runner_guardrail_execution_failures_total{guardrail_id="guardrail-resolved",integration_id="integration-http",phase="output",protocol="http",reason_class="runtime_exception",result="error",stage="runtime"} 1.0' in rendered
+    assert "provider failed" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_telemetry_append_failure_is_a_scoped_request_failure():
+    metrics = RunnerMetrics(8)
+    app = FastAPI()
+    app.include_router(RunnerAPI(
+        Runtime(), Store(), metrics, FailingTelemetry(), "runner-1", "controller-token",
+    ).router)  # type: ignore[arg-type]
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://runner",
+    ) as client:
+        response = await client.post(
+            "/runtime/v1/integrations/integration-http/guardrails/evaluate",
+            headers={"x-api-key": "valid-secret"},
+            json={"phase": "input", "texts": ["hello"]},
+        )
+
+    assert response.status_code == 500
+    rendered = generate_latest(metrics.registry).decode()
+    assert 'guard_runner_guardrail_execution_failures_total{guardrail_id="guardrail-1",integration_id="integration-http",phase="input",protocol="http",reason_class="telemetry_append_failed",result="error",stage="telemetry"} 1.0' in rendered
+    assert 'guard_runner_failures_total{reason_class="telemetry_append_failed",stage="telemetry"} 1.0' in rendered
+    assert "disk-specific path" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_runtime_metrics_use_authenticated_api_integration_not_decision_identity():
+    metrics = RunnerMetrics(8)
+    app = FastAPI()
+    app.include_router(RunnerAPI(
+        Runtime(), Store(), metrics, Telemetry(), "runner-1", "controller-token",
+    ).router)  # type: ignore[arg-type]
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        response = await client.post(
+            "/runtime/v1/integrations/integration-http/guardrails/evaluate",
+            headers={"x-api-key": "valid-secret"},
+            json={"phase": "input", "texts": ["hello"]},
+        )
+
+    assert response.status_code == 200
+    rendered = generate_latest(metrics.registry).decode()
+    assert 'integration_id="integration-http"' in rendered
+    # Runtime() deliberately returns integration-1, proving the decision cannot
+    # overwrite the identity authenticated at the API boundary.
+    assert 'integration_id="integration-1"' not in rendered
+
+
+@pytest.mark.asyncio
+async def test_internal_api_uses_bounded_sentinel_and_rejected_ids_never_reach_business_metrics():
+    metrics = RunnerMetrics(8)
+    app = FastAPI()
+    app.include_router(RunnerAPI(
+        Runtime(), Store(), metrics, Telemetry(), "runner-1", "controller-token",
+    ).router)  # type: ignore[arg-type]
+
+    attacker_controlled_id = "caller-supplied-unbounded-series-value"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        rejected = await client.post(
+            f"/runtime/v1/integrations/{attacker_controlled_id}/guardrails/evaluate",
+            headers={"x-api-key": "valid-secret"},
+            json={"phase": "input", "texts": ["hello"]},
+        )
+        internal = await client.post(
+            "/internal/v1/guardrails/guardrail-1/evaluate",
+            headers={"authorization": "Bearer controller-token"},
+            json={"phase": "input", "texts": ["hello"], "guardrail_version": 2},
+        )
+
+    assert rejected.status_code == 401
+    assert internal.status_code == 200
+    rendered = generate_latest(metrics.registry).decode()
+    assert attacker_controlled_id not in rendered
+    assert f'integration_id="{INTERNAL_METRIC_ID}"' in rendered

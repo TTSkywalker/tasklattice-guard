@@ -4,7 +4,9 @@ import json
 
 import httpx
 import pytest
+from prometheus_client import generate_latest
 
+from runner.metrics import RunnerMetrics
 from runner.telemetry import RuntimeTelemetryExporter
 
 
@@ -41,3 +43,25 @@ async def test_zero_traffic_watermark_proves_the_export_channel_is_fresh(tmp_pat
     assert payload["events"] == []
     assert payload["runnerId"] == "runner-0"
     assert payload["observedAt"]
+
+
+@pytest.mark.asyncio
+async def test_wal_depth_and_successful_drain_are_exported_as_metrics(tmp_path):
+    metrics = RunnerMetrics(8)
+    exporter = RuntimeTelemetryExporter(
+        "http://controller/events", "token", tmp_path, 100, "runner-0", metrics,
+    )
+    await exporter.emit({"id": "event-1", "occurredAt": "2026-08-23T00:00:00Z"})
+
+    before = generate_latest(metrics.registry).decode()
+    assert "guard_runner_telemetry_wal_events 1.0" in before
+    assert "guard_runner_telemetry_wal_bytes " in before
+
+    transport = httpx.MockTransport(lambda _request: httpx.Response(202, json={"accepted": 1}))
+    async with httpx.AsyncClient(transport=transport) as client:
+        assert await exporter._flush_once(client) is False
+
+    after = generate_latest(metrics.registry).decode()
+    assert "guard_runner_telemetry_wal_events 0.0" in after
+    assert 'guard_runner_telemetry_export_batches_total{operation="events",result="success"} 1.0' in after
+    assert 'guard_runner_telemetry_export_events_total{result="success"} 1.0' in after

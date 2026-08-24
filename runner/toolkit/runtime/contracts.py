@@ -99,6 +99,7 @@ class RuntimeTraceStep:
     risk: str | None = None
     confidence: float | None = None
     content_block_id: str | None = None
+    module_id: str | None = None
     guardrail_id: str | None = None
     guardrail_version: int | None = None
     policy_id: str | None = None
@@ -115,6 +116,20 @@ class RuntimeTraceStep:
     runtime_profile: str | None = None
     config_checksum: str | None = None
     provider_latency_ms: int = 0
+    provider_work_ms: int = 0
+    model_wait_ms: int = 0
+    provider_name: str | None = None
+    model_name: str | None = None
+    model_operation: str | None = None
+    model_result: str | None = None
+    error_type: str | None = None
+    model_time_to_first_token_ms: int | None = None
+    model_input_tokens: int = 0
+    model_output_tokens: int = 0
+    model_retries: int = 0
+    model_backoff_ms: int = 0
+    started_offset_ms: int | None = None
+    finished_offset_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -523,6 +538,8 @@ class RuntimeUsage:
     fail_closed: bool = False
     active_concurrency: int = 0
     provider_latency_ms: int = 0
+    provider_work_latency_ms: int = 0
+    model_wait_latency_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)

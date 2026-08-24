@@ -91,6 +91,8 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ include "tali-guard.databaseSecretName" . }}, key: {{ .Values.database.secretKey }} } }
             - name: CONTROLLER_RUNNER_TOKEN
               valueFrom: { secretKeyRef: { name: {{ include "tali-guard.controlSecretName" . }}, key: {{ .Values.security.controlSecret.runnerTokenKey }} } }
+            - name: CONTROLLER_METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "tali-guard.metricsSecretName" . }}, key: {{ .Values.security.metrics.tokenKey }} } }
             - name: BETTER_AUTH_SECRET
               valueFrom: { secretKeyRef: { name: {{ include "tali-guard.controlSecretName" . }}, key: {{ .Values.security.controlSecret.betterAuthSecretKey }} } }
             - name: MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY

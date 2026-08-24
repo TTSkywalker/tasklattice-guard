@@ -35,6 +35,14 @@ test:
 	cd controller && npm run typecheck
 	cd controller && npm run build
 	helm template $(HELM_RELEASE) $(HELM_CHART) --values $(HELM_DEV_VALUES) >/dev/null
+	jq empty $(HELM_CHART)/grafana/dashboards/tasklattice-guard-overview.json
+	jq empty $(HELM_CHART)/grafana/dashboards/tasklattice-guard-troubleshooting.json
+	helm template $(HELM_RELEASE) $(HELM_CHART) --values $(HELM_DEV_VALUES) \
+		--set observability.serviceMonitor.enabled=true \
+		--set observability.prometheusRule.enabled=true \
+		--set observability.grafanaDashboard.enabled=true >/dev/null
+	helm template $(HELM_RELEASE) $(HELM_CHART) --values $(HELM_DEV_VALUES) \
+		--values observability/tali-guard-values-local.yaml >/dev/null
 
 controller-dev:
 	cd controller && npm run dev
@@ -55,6 +63,12 @@ images:
 helm-lint:
 	helm lint $(HELM_CHART) --strict $(HELM_REQUIRED_VALUES)
 	helm lint $(HELM_CHART) --strict --values $(HELM_DEV_VALUES)
+	helm lint $(HELM_CHART) --strict --values $(HELM_DEV_VALUES) \
+		--set observability.serviceMonitor.enabled=true \
+		--set observability.prometheusRule.enabled=true \
+		--set observability.grafanaDashboard.enabled=true
+	helm lint $(HELM_CHART) --strict --values $(HELM_DEV_VALUES) \
+		--values observability/tali-guard-values-local.yaml
 
 helm-template:
 	helm template $(HELM_RELEASE) $(HELM_CHART) --namespace $(HELM_NAMESPACE) --values $(HELM_DEV_VALUES)

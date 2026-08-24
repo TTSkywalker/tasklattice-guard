@@ -1,0 +1,1868 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "GuardRail incident workbench. Move from E2E latency ownership to exact model call, trace, and correlated CPU profile. Provider work is cumulative RPC work; model wait is request wall-clock union.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "guardrails",
+        "overview"
+      ],
+      "targetBlank": false,
+      "title": "Back to Overview",
+      "type": "dashboards"
+    }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "panels": [],
+      "title": "Incident Triage · Selected scope",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Successful GuardRail end-to-end P95. Use Latency ownership before attributing this to a model or local code.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "N/A",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2.5
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(guard_runner_guardrail_request_duration_seconds_bucket{traffic_class=\"runtime\",result=\"success\",guardrail_id!~\"__unmatched__|__unresolved__\",integration_id!~\"__unmatched__|__unresolved__\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "P95",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Technical errors divided by completed checks. Deny and transform are successful GuardRail outcomes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "N/A",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",result=\"error\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])) or 0 * sum(rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))) / sum(rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Errors",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Request deadline expirations. Model timeouts are broken down below by provider, model, and Action.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "N/A",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",result=\"timeout\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])) or 0 * sum(rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))) / sum(rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Timeouts",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Observed request wall time spent waiting for one or more external model calls. Parallel calls are unioned, never double-counted.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "noValue": "N/A",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(guard_runner_guardrail_model_wait_wall_duration_seconds_sum{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])) or 0 * sum(rate(guard_runner_guardrail_request_duration_seconds_sum{traffic_class=\"runtime\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))) / sum(rate(guard_runner_guardrail_request_duration_seconds_sum{traffic_class=\"runtime\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Model wait",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Checks that continued through an explicit fail-open path. Any positive value is a protection incident.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "0 req/s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",failure_mode=\"fail_open\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Fail-open",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Global pre-execution rejects on the selected Runner(s). GuardRail and Integration filters do not apply because identity is not trusted until authentication and route resolution succeed.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "0 req/s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(guard_runner_request_rejections_total{runner_id=~\"$runner\"}[$__rate_interval]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Global entry rejects",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 101,
+      "panels": [],
+      "title": "Latency ownership · Is time spent in model wait, queue, or local work?",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "E2E is user-visible. Model wait is the union of model-call intervals. Provider work is cumulative RPC work and may exceed E2E under parallelism; it is a load/cost signal, not an additive stage. Queue is admission wait.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "E2E P95"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 4
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 14,
+        "x": 0,
+        "y": 6
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(guard_runner_guardrail_request_duration_seconds_bucket{traffic_class=\"runtime\",result=\"success\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])))",
+          "legendFormat": "E2E P95",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(guard_runner_guardrail_model_wait_wall_duration_seconds_bucket{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])))",
+          "legendFormat": "model wait wall P95",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(guard_runner_guardrail_provider_work_duration_seconds_bucket{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])))",
+          "legendFormat": "provider work P95",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(guard_runner_guardrail_queue_wait_duration_seconds_bucket{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])))",
+          "legendFormat": "queue P95",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(guard_runner_guardrail_stage_duration_seconds_bucket{stage=\"action\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval])))",
+          "legendFormat": "action P95",
+          "range": true,
+          "refId": "E"
+        }
+      ],
+      "title": "Latency ownership · P95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "External model RPC P95 grouped by exact Action, provider, model, and operation. Narrow the debug filters before opening traces.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 10,
+        "x": 14,
+        "y": 6
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (provider, model, action, operation, le) (rate(guard_runner_model_call_duration_seconds_bucket{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\"}[$__rate_interval])))",
+          "legendFormat": "{{provider}} / {{model}} · {{action}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Model call latency · P95",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 102,
+      "panels": [],
+      "title": "Model dependency · outcome, saturation, retry",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Model RPC throughput by bounded technical result. Timeout, rate-limited, server, transport, and invalid-response failures remain distinct.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 18,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 17
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (result, provider, model) (rate(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\"}[$__rate_interval]))",
+          "legendFormat": "{{result}} · {{provider}}/{{model}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Model calls/s by result",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Concurrent external model calls by Runner/provider/model. A rising plateau with rising E2E latency indicates provider or client saturation.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 17
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (runner_id, provider, model) (guard_runner_model_in_flight{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\"})",
+          "legendFormat": "{{runner_id}} · {{provider}}/{{model}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Model calls in flight",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Retry rate and backoff wall time separate provider latency from client-side resilience delay.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "ops"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/backoff/"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 17
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (reason, provider, model) (rate(guard_runner_model_retries_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\"}[$__rate_interval]))",
+          "legendFormat": "retries · {{reason}} · {{provider}}/{{model}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(guard_runner_model_backoff_duration_seconds_sum{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\"}[$__rate_interval]))",
+          "legendFormat": "backoff seconds/s",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Retries and backoff",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "id": 106,
+      "panels": [],
+      "title": "Technical failures · Which stage and dependency failed?",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Scoped GuardRail request failures by bounded execution stage and reason. This is the primary locator for error and timeout incidents; policy deny/transform outcomes are excluded.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {"group": "A", "mode": "normal"}
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 27},
+      "id": 19,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (stage, reason_class, result) (rate(guard_runner_guardrail_execution_failures_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "legendFormat": "{{stage}} · {{reason_class}} · {{result}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Request failures/s by stage and reason",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Failed external model calls in the selected range. Provider, model, Action, operation, result, and error class identify the failing dependency without inspecting raw request data.",
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "thresholds"}, "unit": "short"},
+        "overrides": []
+      },
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 27},
+      "id": 20,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {"show": false},
+        "showHeader": true,
+        "sortBy": [{"desc": true, "displayName": "Value"}]
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (provider, model, action, operation, result, error_type) (increase(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\",action=~\"$action\",result!=\"success\"}[$__range]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Model failures · selected range",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 36},
+      "id": 107,
+      "panels": [],
+      "title": "Policy behavior · Why did GuardRails allow, deny, or transform?",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+      "description": "Successful GuardRail throughput split by firewall disposition. Deny and transform are valid policy outcomes, not technical failures.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 16, "lineWidth": 2,
+            "showPoints": "never", "stacking": {"group": "A", "mode": "normal"}
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 9, "w": 8, "x": 0, "y": 37},
+      "id": 21,
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (disposition) (rate(guard_runner_guardrail_requests_total{traffic_class=\"runtime\",result=\"success\",guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "legendFormat": "{{disposition}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Disposition throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+      "description": "Unsafe, uncertain, or error findings that caused an intervention, grouped by configured module, risk, immutable policy, recommended Action, and verdict.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 8, "x": 8, "y": 37},
+      "id": 22,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {"show": false},
+        "showHeader": true,
+        "sortBy": [{"desc": true, "displayName": "Value"}]
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (disposition, module_id, risk, policy_id, action, verdict) (increase(guard_runner_guardrail_policy_triggers_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",action=~\"$action\"}[$__range]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Policy triggers · selected range",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+      "description": "Actions actually applied to content. Compare with policy triggers to distinguish a recommended action from the final enforced intervention.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2,
+            "showPoints": "never", "stacking": {"group": "A", "mode": "normal"}
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 9, "w": 8, "x": 16, "y": 37},
+      "id": 23,
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (action) (rate(guard_runner_guardrail_interventions_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",action=~\"$action\"}[$__rate_interval]))",
+          "legendFormat": "{{action}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Applied interventions/s",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "id": 103,
+      "panels": [],
+      "title": "Protection completeness · Which module failed and how did it degrade?",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Failed or timed-out protection steps by Action, immutable Policy, failure mode, and bounded cause. First stop for incomplete coverage and fail-open incidents.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (module_id, action, policy_id, failure_mode, reason_class) (rate(guard_runner_guardrail_protection_failures_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",action=~\"$action\"}[$__rate_interval]))",
+          "legendFormat": "{{module_id}} · {{action}} · {{policy_id}} · {{failure_mode}} · {{reason_class}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Protection failures/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Incomplete coverage in the selected range, grouped by the concrete failed module or unresolved module identity.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "id": 13,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (coverage, module_id, action, policy_id, failure_mode, reason_class) (increase(guard_runner_guardrail_incomplete_coverage_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",action=~\"$action\"}[$__range]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Incomplete coverage · selected range",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 56},
+      "id": 108,
+      "panels": [],
+      "title": "Global entry path · Before GuardRail and Integration identity is trusted",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tasklattice-prometheus"
+      },
+      "description": "Global pre-execution failures on the selected Runner(s). GuardRail and Integration filters intentionally do not apply: authentication and route resolution occur before those identities can be trusted. These failures are excluded from GuardRail availability.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (protocol, phase, reason) (rate(guard_runner_request_rejections_total{runner_id=~\"$runner\"}[$__rate_interval]))",
+          "legendFormat": "reject · {{protocol}}/{{phase}} · {{reason}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (protocol) (rate(guard_runner_authentication_total{result=\"rejected\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "legendFormat": "auth rejected · {{protocol}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (protocol, phase) (rate(guard_runner_route_resolution_total{result=\"unmatched\",runner_id=~\"$runner\"}[$__rate_interval]))",
+          "legendFormat": "route unmatched · {{protocol}}/{{phase}}",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Global entry failures · authentication, routing, rejection",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      },
+      "id": 104,
+      "panels": [],
+      "title": "Trace and profile · Exact slow request to flame graph",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tasklattice-tempo"
+      },
+      "description": "Sampled GuardRail trace search results. Open a slow trace to inspect guardrail.request and guardrail.model.request spans, provider/model duration, result, retry evidence, and the linked profile action.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 14,
+        "x": 0,
+        "y": 66
+      },
+      "id": 15,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tasklattice-tempo"
+          },
+          "limit": 100,
+          "query": "{ resource.service.name = \"tasklattice.guard-runner\" && name = \"guardrail.request\" && span.guardrail.id =~ \"$guardrail\" && span.integration.id =~ \"$integration\" && resource.runner.id =~ \"$runner\" } | select(span.guardrail.id, span.integration.id, span.guardrail.result, span.guardrail.disposition, span.guardrail.duration_ms)",
+          "queryType": "traceql",
+          "refId": "A",
+          "tableType": "traces"
+        }
+      ],
+      "title": "GuardRail traces",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "tasklattice-pyroscope"
+      },
+      "description": "Continuous CPU profile. Use when E2E is high but model-wait and queue are low, or open a correlated profile directly from a Tempo span.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 10,
+        "x": 14,
+        "y": 66
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "tasklattice-pyroscope"
+          },
+          "labelSelector": "{service_name=\"tasklattice.guard-runner\", runner_id=~\"$runner\"}",
+          "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+          "queryType": "profile",
+          "refId": "A"
+        }
+      ],
+      "title": "Runner CPU flame graph",
+      "type": "flamegraph"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 78
+      },
+      "id": 105,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tasklattice-prometheus"
+          },
+          "description": "Runner request concurrency, admission queue, and external model concurrency.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 8,
+                "lineWidth": 2,
+                "showPoints": "never",
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 79
+          },
+          "id": 17,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (runner_id) (guard_runner_inflight_requests{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · requests",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "max by (runner_id) (guard_runner_admission_queue_depth{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · queue",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "editorMode": "code",
+              "expr": "sum by (runner_id) (guard_runner_model_in_flight{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · model",
+              "range": true,
+              "refId": "C"
+            }
+          ],
+          "title": "Runner concurrency and queue",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tasklattice-prometheus"
+          },
+          "description": "Zero is healthy. Non-zero signals identify generation lag, a disconnected Runner control stream, or unsynchronized desired state.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 8,
+                "lineWidth": 2,
+                "showPoints": "never",
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 79
+          },
+          "id": 18,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "max by (runner_id) (guard_controller_runner_generation_lag{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · generation lag",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "1 - min by (runner_id) (guard_runner_control_connected{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · control disconnected",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "editorMode": "code",
+              "expr": "1 - min by (runner_id) (guard_runner_desired_state_synchronized{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · desired state unsynchronized",
+              "range": true,
+              "refId": "C"
+            }
+          ],
+          "title": "Control convergence · healthy = 0",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+          "description": "Global Runner Pool capacity from Controller topology. Compare desired and ready replicas; connected serving Runners confirms the actual fleet membership.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"},
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 88},
+          "id": 24,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "min"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "max by (pool) (guard_controller_runner_desired_replicas)",
+              "legendFormat": "{{pool}} · desired",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "max by (pool) (guard_controller_runner_ready_replicas)",
+              "legendFormat": "{{pool}} · ready",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "editorMode": "code",
+              "expr": "count by (pool) (guard_controller_runner_info{status=~\"ready|busy|saturated\"})",
+              "legendFormat": "{{pool}} · serving",
+              "range": true,
+              "refId": "C"
+            }
+          ],
+          "title": "Global Runner Pool replicas",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+          "description": "Age of the last Controller-observed heartbeat for each selected Runner. A rising line separates an offline/stalled Runner from a configuration-only problem.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"},
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 88},
+          "id": 25,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "max by (runner_id) (guard_controller_runner_heartbeat_age_seconds{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Runner heartbeat age",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+          "description": "Age across the Runtime Evidence path: local WAL, Controller watermark, Controller outbox, and end-to-end delivery P95. The first rising series identifies where evidence stopped moving.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"},
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 97},
+          "id": 26,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "max by (runner_id) (guard_runner_telemetry_wal_oldest_event_age_seconds{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · local WAL",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "max by (runner_id) (guard_controller_runner_telemetry_age_seconds{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · Controller watermark",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "editorMode": "code",
+              "expr": "max by (kind) (guard_controller_outbox_oldest_age_seconds)",
+              "legendFormat": "Controller outbox · {{kind}}",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(guard_controller_telemetry_delivery_lag_seconds_bucket[$__rate_interval])))",
+              "legendFormat": "delivery P95",
+              "range": true,
+              "refId": "D"
+            }
+          ],
+          "title": "Evidence pipeline age",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+          "description": "Events waiting locally or in the Controller outbox. A growing local WAL points to export; a growing outbox points to Controller downstream processing.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"},
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 6, "x": 12, "y": 97},
+          "id": 27,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "max by (runner_id) (guard_runner_telemetry_wal_events{runner_id=~\"$runner\"})",
+              "legendFormat": "{{runner_id}} · WAL",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "max by (kind) (guard_controller_outbox_pending)",
+              "legendFormat": "outbox · {{kind}}",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "title": "Evidence backlog",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "tasklattice-prometheus"},
+          "description": "Bounded Runtime Evidence failures across local WAL writes, Runner export, and Controller ingestion.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"},
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 6, "x": 18, "y": 97},
+          "id": 28,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (runner_id, operation) (rate(guard_runner_telemetry_wal_write_failures_total{runner_id=~\"$runner\"}[$__rate_interval]))",
+              "legendFormat": "{{runner_id}} · WAL write",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "sum by (runner_id, operation) (rate(guard_runner_telemetry_export_batches_total{runner_id=~\"$runner\",result!=\"success\"}[$__rate_interval]))",
+              "legendFormat": "{{runner_id}} · export {{operation}}",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "editorMode": "code",
+              "expr": "sum by (result) (rate(guard_controller_telemetry_batches_total{result!=\"success\",result!=\"accepted\"}[$__rate_interval]))",
+              "legendFormat": "Controller ingest · {{result}}",
+              "range": true,
+              "refId": "C"
+            }
+          ],
+          "title": "Evidence failures/s",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Runner and telemetry internals",
+      "type": "row"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": [
+    "tasklattice",
+    "guardrails",
+    "troubleshooting"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "tasklattice-prometheus"
+        },
+        "definition": "query_result(max by (guardrail_id, guardrail_name) (guard_controller_guardrail_info))",
+        "description": "Product GuardRail identity from Controller topology; valid with zero traffic.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "GuardRail",
+        "multi": true,
+        "name": "guardrail",
+        "options": [],
+        "query": {
+          "query": "query_result(max by (guardrail_id, guardrail_name) (guard_controller_guardrail_info))",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "/guardrail_id=\"(?<value>[^\"]+)\".*guardrail_name=\"(?<text>[^\"]+)\"/",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "tasklattice-prometheus"
+        },
+        "definition": "query_result(max by (integration_id, integration_name) (guard_controller_guardrail_integration_info{guardrail_id=~\"$guardrail\",status=\"active\"}))",
+        "description": "Active Integration binding for the selected GuardRail.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Integration",
+        "multi": true,
+        "name": "integration",
+        "options": [],
+        "query": {
+          "query": "query_result(max by (integration_id, integration_name) (guard_controller_guardrail_integration_info{guardrail_id=~\"$guardrail\",status=\"active\"}))",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "/integration_id=\"(?<value>[^\"]+)\".*integration_name=\"(?<text>[^\"]+)\"/",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "tasklattice-prometheus"
+        },
+        "definition": "query_result(max by (runner_id) (guard_controller_runner_info * on (namespace, app_kubernetes_io_instance, pool) group_left max by (namespace, app_kubernetes_io_instance, pool) (guard_controller_guardrail_integration_info{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",status=\"active\"})))",
+        "description": "Runner serving the selected binding Pool.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Runner",
+        "multi": true,
+        "name": "runner",
+        "options": [],
+        "query": {
+          "query": "query_result(max by (runner_id) (guard_controller_runner_info * on (namespace, app_kubernetes_io_instance, pool) group_left max by (namespace, app_kubernetes_io_instance, pool) (guard_controller_guardrail_integration_info{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",status=\"active\"})))",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "/runner_id=\"([^\"]+)\"/",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "tasklattice-prometheus"
+        },
+        "definition": "label_values(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}, provider)",
+        "description": "Debug-only provider filter.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Provider",
+        "multi": true,
+        "name": "provider",
+        "options": [],
+        "query": {
+          "query": "label_values(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\"}, provider)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "tasklattice-prometheus"
+        },
+        "definition": "label_values(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\"}, model)",
+        "description": "Debug-only model filter.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": {
+          "query": "label_values(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\"}, model)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "tasklattice-prometheus"
+        },
+        "definition": "label_values(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\"}, action)",
+        "description": "Debug-only GuardRail Action filter.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Action",
+        "multi": true,
+        "name": "action",
+        "options": [],
+        "query": {
+          "query": "label_values(guard_runner_model_calls_total{guardrail_id=~\"$guardrail\",integration_id=~\"$integration\",runner_id=~\"$runner\",provider=~\"$provider\",model=~\"$model\"}, action)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "GuardRails Troubleshooting",
+  "uid": "tasklattice-guard-troubleshooting",
+  "version": 1,
+  "weekStart": ""
+}

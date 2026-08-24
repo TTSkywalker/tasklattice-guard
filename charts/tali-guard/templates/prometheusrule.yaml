@@ -1,0 +1,314 @@
+{{- if or .Values.observability.performanceDebug.enabled .Values.observability.prometheusRule.enabled }}
+{{- $selector := printf "namespace=%q,app_kubernetes_io_instance=%q" .Release.Namespace .Release.Name -}}
+{{- $resolved := "guardrail_id!~\"__unmatched__|__unresolved__\",integration_id!~\"__unmatched__|__unresolved__\"" -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "tali-guard.fullname" . }}
+  labels:
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+    {{- with .Values.observability.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: tasklattice-guard.guardrail-recording
+      interval: 30s
+      rules:
+        # Completed checks/s. Deployment, version, phase, and protocol are
+        # deliberately removed from the Overview contract.
+        - record: guardrail:checks:rate5m
+          expr: |
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id, result, disposition, coverage, enforcement_mode, failure_mode) (
+              rate(guard_runner_guardrail_requests_total{traffic_class="runtime",{{ $selector }}}[5m])
+            )
+        # Buckets remain mergeable across Runners. Never record or average a
+        # per-Runner percentile for an aggregate latency view.
+        - record: guardrail:request_duration_seconds_bucket:rate5m
+          expr: |
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id, result, disposition, le) (
+              rate(guard_runner_guardrail_request_duration_seconds_bucket{traffic_class="runtime",{{ $selector }}}[5m])
+            )
+        - record: guardrail:availability:ratio5m
+          expr: |
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{result="success",{{ $resolved }},{{ $selector }}}
+            )
+            /
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }
+            )
+        - record: guardrail:availability:ratio30m
+          expr: |
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              rate(guard_runner_guardrail_requests_total{traffic_class="runtime",result="success",{{ $resolved }},{{ $selector }}}[30m])
+            )
+            /
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              rate(guard_runner_guardrail_requests_total{traffic_class="runtime",{{ $resolved }},{{ $selector }}}[30m])
+            )
+        - record: guardrail:availability:ratio30d
+          expr: |
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              increase(guard_runner_guardrail_requests_total{traffic_class="runtime",result="success",{{ $resolved }},{{ $selector }}}[30d])
+            )
+            /
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              increase(guard_runner_guardrail_requests_total{traffic_class="runtime",{{ $resolved }},{{ $selector }}}[30d])
+            )
+        - record: guardrail:latency_seconds:p95_5m
+          expr: |
+            histogram_quantile(0.95,
+              sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id, le) (
+                guardrail:request_duration_seconds_bucket:rate5m{result="success",{{ $resolved }},{{ $selector }}}
+              )
+            )
+        - record: guardrail:latency_seconds:p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id, le) (
+                guardrail:request_duration_seconds_bucket:rate5m{result="success",{{ $resolved }},{{ $selector }}}
+              )
+            )
+        - record: guardrail:coverage:ratio5m
+          expr: |
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{coverage="complete",{{ $resolved }},{{ $selector }}}
+            )
+            /
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }
+            )
+        - record: guardrail:fail_open:ratio5m
+          expr: |
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{failure_mode="fail_open",{{ $resolved }},{{ $selector }}}
+            )
+            /
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }
+            )
+        - record: guardrail:error_budget:remaining_ratio30d
+          expr: |
+            clamp_max(
+              clamp_min(
+                (guardrail:availability:ratio30d{ {{ $selector }} } - {{ .Values.observability.slo.availabilityTarget }})
+                / (1 - {{ .Values.observability.slo.availabilityTarget }}),
+                0
+              ),
+              1
+            )
+
+    - name: tasklattice-guard.guardrail-slo
+      rules:
+        - alert: TaskLatticeGuardAvailabilityBurnRateFast
+          expr: |
+            (
+              (1 - guardrail:availability:ratio5m{ {{ $selector }} })
+              / (1 - {{ .Values.observability.slo.availabilityTarget }})
+              > {{ .Values.observability.slo.burnRateFast }}
+            )
+            and on (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id)
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }
+            ) > 0
+          for: 5m
+          labels: { severity: critical, category: availability }
+          annotations:
+            summary: GuardRail {{ "{{" }} $labels.guardrail_id {{ "}}" }} is consuming error budget rapidly
+            description: Technical failures on this GuardRail, Integration, and Runner path exceed the configured fast-burn threshold. Deny and transform remain successful checks.
+        - alert: TaskLatticeGuardAvailabilityBurnRateSlow
+          expr: |
+            (
+              (1 - guardrail:availability:ratio30m{ {{ $selector }} })
+              / (1 - {{ .Values.observability.slo.availabilityTarget }})
+              > {{ .Values.observability.slo.burnRateSlow }}
+            )
+            and on (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id)
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (
+              guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }
+            ) > 0
+          for: 30m
+          labels: { severity: warning, category: availability }
+          annotations:
+            summary: GuardRail {{ "{{" }} $labels.guardrail_id {{ "}}" }} is steadily consuming error budget
+            description: The 30-minute availability window is burning error budget above the configured slow threshold.
+        - alert: TaskLatticeGuardP95LatencyHigh
+          expr: |
+            guardrail:latency_seconds:p95_5m{ {{ $selector }} } > {{ .Values.observability.slo.runtimeP95Seconds }}
+            and on (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id)
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }) > 0
+          for: 10m
+          labels: { severity: warning, category: latency }
+          annotations:
+            summary: GuardRail {{ "{{" }} $labels.guardrail_id {{ "}}" }} p95 latency exceeds its SLO
+            description: Successful end-to-end checks on this GuardRail, Integration, and Runner path exceed the p95 latency budget.
+        - alert: TaskLatticeGuardP99LatencyHigh
+          expr: |
+            guardrail:latency_seconds:p99_5m{ {{ $selector }} } > {{ .Values.observability.slo.runtimeP99Seconds }}
+            and on (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id)
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }) > 0
+          for: 10m
+          labels: { severity: warning, category: latency }
+          annotations:
+            summary: GuardRail {{ "{{" }} $labels.guardrail_id {{ "}}" }} p99 latency exceeds its SLO
+            description: Successful tail latency on this GuardRail, Integration, and Runner path exceeds the p99 budget.
+        - alert: TaskLatticeGuardCoverageBelowTarget
+          expr: |
+            guardrail:coverage:ratio5m{ {{ $selector }} } < {{ .Values.observability.slo.completeCoverageTarget }}
+            and on (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id)
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }) > 0
+          for: 2m
+          labels: { severity: critical, category: protection }
+          annotations:
+            summary: GuardRail {{ "{{" }} $labels.guardrail_id {{ "}}" }} protection coverage is incomplete
+            description: At least one check did not complete every required protection module.
+        - alert: TaskLatticeGuardFailOpen
+          expr: |
+            guardrail:fail_open:ratio5m{ {{ $selector }} } > 0
+            and on (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id)
+            sum by (namespace, app_kubernetes_io_instance, guardrail_id, integration_id, runner_id) (guardrail:checks:rate5m{ {{ $resolved }},{{ $selector }} }) > 0
+          for: 0m
+          labels: { severity: critical, category: protection }
+          annotations:
+            summary: GuardRail {{ "{{" }} $labels.guardrail_id {{ "}}" }} used a fail-open path
+            description: Traffic continued after a required GuardRail dependency or execution path failed.
+        - alert: TaskLatticeGuardIdentityResolutionFailure
+          expr: |
+            sum(guardrail:checks:rate5m{guardrail_id=~"__unmatched__|__unresolved__",{{ $selector }}}) > 0
+            or
+            sum(guardrail:checks:rate5m{integration_id=~"__unmatched__|__unresolved__",{{ $selector }}}) > 0
+          for: 2m
+          labels: { severity: critical, category: routing }
+          annotations:
+            summary: GuardRail or Integration identity resolution is failing
+            description: Unmatched and unresolved checks are excluded from product SLI denominators and require route or desired-state repair.
+
+    - name: tasklattice-guard.platform
+      rules:
+        - alert: TaskLatticeGuardControllerMetricsUnavailable
+          expr: min by (namespace, app_kubernetes_io_instance) (up{job=~".+",app_kubernetes_io_component="controller",{{ $selector }}}) < 1 or absent(up{job=~".+",app_kubernetes_io_component="controller",{{ $selector }}})
+          for: 2m
+          labels: { severity: critical, category: observability }
+          annotations:
+            summary: Controller metrics target is unavailable
+            description: Prometheus cannot scrape Controller, so GuardRail topology is unknown.
+        - alert: TaskLatticeGuardRunnerMetricsUnavailable
+          expr: |
+            (
+              sum by (namespace, app_kubernetes_io_instance, tasklattice_io_runner_pool) (
+                up{job=~".+",app_kubernetes_io_component="runner",{{ $selector }}} == 1
+              )
+              or
+              0 * max by (namespace, app_kubernetes_io_instance, tasklattice_io_runner_pool) (
+                label_replace(
+                  guard_controller_runner_desired_replicas{ {{ $selector }} },
+                  "tasklattice_io_runner_pool", "$1", "pool", "(.*)"
+                )
+              )
+            )
+            <
+            max by (namespace, app_kubernetes_io_instance, tasklattice_io_runner_pool) (
+              label_replace(
+                guard_controller_runner_desired_replicas{ {{ $selector }} },
+                "tasklattice_io_runner_pool", "$1", "pool", "(.*)"
+              )
+            )
+          for: 2m
+          labels: { severity: critical, category: observability }
+          annotations:
+            summary: Runner metrics targets are below desired capacity
+            description: Prometheus cannot observe all desired data-plane replicas, so business SLI completeness is at risk.
+        - alert: TaskLatticeGuardRunnerReplicaDeficit
+          expr: guard_controller_runner_ready_replicas{ {{ $selector }} } < guard_controller_runner_desired_replicas{ {{ $selector }} }
+          for: 2m
+          labels: { severity: critical, category: availability }
+          annotations:
+            summary: Ready Runner replicas are below desired replicas
+            description: One or more Runner pools cannot satisfy their configured availability target.
+        - alert: TaskLatticeGuardGenerationLag
+          expr: |
+            (
+              guard_controller_runner_generation_lag{ {{ $selector }} }
+              and on (namespace, app_kubernetes_io_instance, pool, runner_id)
+              max by (namespace, app_kubernetes_io_instance, pool, runner_id) (
+                guard_controller_runner_info{status=~"ready|busy|saturated",{{ $selector }}}
+              )
+            ) > 0
+          for: 30s
+          labels: { severity: critical, category: configuration }
+          annotations:
+            summary: Runner has not applied the current desired generation
+            description: GuardRail policy or Integration route state is not converged across the data plane.
+        - alert: TaskLatticeGuardHeartbeatStale
+          expr: |
+            (
+              guard_controller_runner_heartbeat_age_seconds{ {{ $selector }} }
+              and on (namespace, app_kubernetes_io_instance, pool, runner_id)
+              max by (namespace, app_kubernetes_io_instance, pool, runner_id) (
+                guard_controller_runner_info{status=~"ready|busy|saturated",{{ $selector }}}
+              )
+            ) > {{ .Values.observability.slo.heartbeatMaxAgeSeconds }}
+          for: 1m
+          labels: { severity: critical, category: control-channel }
+          annotations:
+            summary: Runner heartbeat is stale
+            description: Controller has not received a current load or generation report from a registered Runner.
+        - alert: TaskLatticeGuardTelemetryStale
+          expr: |
+            (
+              guard_controller_runner_telemetry_age_seconds{ {{ $selector }} }
+              and on (namespace, app_kubernetes_io_instance, pool, runner_id)
+              max by (namespace, app_kubernetes_io_instance, pool, runner_id) (
+                guard_controller_runner_info{status=~"ready|busy|saturated",{{ $selector }}}
+              )
+            ) < 0
+            or
+            (
+              guard_controller_runner_telemetry_age_seconds{ {{ $selector }} }
+              and on (namespace, app_kubernetes_io_instance, pool, runner_id)
+              max by (namespace, app_kubernetes_io_instance, pool, runner_id) (
+                guard_controller_runner_info{status=~"ready|busy|saturated",{{ $selector }}}
+              )
+            ) > {{ .Values.observability.slo.telemetryMaxAgeSeconds }}
+          for: 2m
+          labels: { severity: critical, category: evidence }
+          annotations:
+            summary: Runtime evidence telemetry is stale
+            description: Controller cannot prove that Runner evidence is current.
+        - alert: TaskLatticeGuardControlDisconnected
+          expr: guard_runner_control_connected{ {{ $selector }} } == 0
+          for: 2m
+          labels: { severity: warning, category: control-channel }
+          annotations:
+            summary: Runner is serving last-known-good state without Controller connectivity
+            description: Runtime traffic can continue, but desired-state changes cannot converge.
+        - alert: TaskLatticeGuardTelemetryWalWriteFailure
+          expr: sum(increase(guard_runner_telemetry_wal_write_failures_total{ {{ $selector }} }[5m])) > 0
+          for: 0m
+          labels: { severity: critical, category: evidence }
+          annotations:
+            summary: Runner could not durably update its telemetry WAL
+            description: Evidence durability is impaired; inspect volume health and filesystem permissions immediately.
+        - alert: TaskLatticeGuardTelemetryWalBacklog
+          expr: guard_runner_telemetry_wal_oldest_event_age_seconds{ {{ $selector }} } > {{ .Values.observability.slo.pipelineMaxAgeSeconds }}
+          for: 2m
+          labels: { severity: critical, category: evidence }
+          annotations:
+            summary: Runner telemetry WAL is not draining
+            description: Runtime evidence has remained unacknowledged beyond the configured pipeline budget.
+        - alert: TaskLatticeGuardOutboxStalled
+          expr: guard_controller_outbox_oldest_age_seconds{ {{ $selector }} } > {{ .Values.observability.slo.pipelineMaxAgeSeconds }}
+          for: 2m
+          labels: { severity: critical, category: control-plane }
+          annotations:
+            summary: Controller outbox work is stalled
+            description: Desired-state, compile, or validation work has remained pending beyond its normal retry window.
+        - alert: TaskLatticeGuardArtifactRejected
+          expr: sum(increase(guard_controller_artifact_distribution_total{result="nack",{{ $selector }}}[5m])) > 0
+          for: 0m
+          labels: { severity: critical, category: configuration }
+          annotations:
+            summary: Runner rejected a signed desired-state artifact
+            description: Check signature, checksum, dependency, prewarm, and runtime-profile compatibility.
+{{- end }}

@@ -21,12 +21,20 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
+def _ratio(name: str, default: float) -> float:
+    value = float(os.environ.get(name, str(default)))
+    if not 0 <= value <= 1:
+        raise ValueError(f"{name} must be between 0 and 1.")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class RunnerSettings:
     runner_id: str
     pool_id: str
     controller_target: str
     controller_token: str
+    metrics_token: str | None
     artifact_public_key_path: Path
     artifact_state_path: Path
     compiler_capable: bool
@@ -46,17 +54,24 @@ class RunnerSettings:
     automated_reasoning_endpoint_url: str | None
     automated_reasoning_api_key_env_var: str
     runtime_log_encryption_key: bytes | None
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_trace_sample_ratio: float = 0.1
+    pyroscope_server_address: str | None = None
+    pyroscope_sample_rate: int = 100
 
     @classmethod
     def from_env(cls) -> "RunnerSettings":
         pool_id = os.environ.get("GUARD_RUNNER_POOL_ID", "default").strip()
         runner_id = os.environ.get("GUARD_RUNNER_ID", socket.gethostname()).strip()
         token = os.environ.get("GUARD_CONTROLLER_TOKEN", "")
+        metrics_token = os.environ.get("GUARD_METRICS_TOKEN", "").strip()
         public_key = os.environ.get("GUARD_ARTIFACT_PUBLIC_KEY_PATH", "").strip()
         if not runner_id or not pool_id:
             raise ValueError("GUARD_RUNNER_ID and GUARD_RUNNER_POOL_ID cannot be empty.")
         if len(token) < 32:
             raise ValueError("GUARD_CONTROLLER_TOKEN must contain at least 32 characters.")
+        if metrics_token and len(metrics_token) < 32:
+            raise ValueError("GUARD_METRICS_TOKEN must contain at least 32 characters when configured.")
         if not public_key:
             raise ValueError("GUARD_ARTIFACT_PUBLIC_KEY_PATH is required.")
         target = os.environ.get("GUARD_CONTROLLER_TARGET", "tali-guard-controller:9090").strip()
@@ -71,6 +86,8 @@ class RunnerSettings:
                 "GUARD_CONTROLLER_CA_PATH, GUARD_RUNNER_CLIENT_CERT_PATH, and "
                 "GUARD_RUNNER_CLIENT_KEY_PATH must be configured together."
             )
+        if all(tls_values) and not metrics_token:
+            raise ValueError("GUARD_METRICS_TOKEN is required with production control-channel mTLS.")
         nvidia_base_url = os.environ.get("MODEL_GUARDRAILS_NVIDIA_BASE_URL", "").strip()
         content_safety_model = os.environ.get(
             "MODEL_GUARDRAILS_CONTENT_SAFETY_MODEL", ""
@@ -145,6 +162,7 @@ class RunnerSettings:
             pool_id=pool_id,
             controller_target=target,
             controller_token=token,
+            metrics_token=metrics_token or None,
             artifact_public_key_path=Path(public_key),
             artifact_state_path=Path(
                 os.environ.get("GUARD_RUNNER_STATE_PATH", "/var/lib/tasklattice/guard-runner")
@@ -171,4 +189,14 @@ class RunnerSettings:
             automated_reasoning_endpoint_url=automated_reasoning_endpoint_url or None,
             automated_reasoning_api_key_env_var=automated_reasoning_api_key_env_var,
             runtime_log_encryption_key=runtime_log_encryption_key,
+            otel_exporter_otlp_endpoint=(
+                os.environ.get("GUARD_OTEL_EXPORTER_OTLP_ENDPOINT", "").strip().rstrip("/")
+                or None
+            ),
+            otel_trace_sample_ratio=_ratio("GUARD_OTEL_TRACE_SAMPLE_RATIO", 0.1),
+            pyroscope_server_address=(
+                os.environ.get("GUARD_PYROSCOPE_SERVER_ADDRESS", "").strip().rstrip("/")
+                or None
+            ),
+            pyroscope_sample_rate=_positive_int("GUARD_PYROSCOPE_SAMPLE_RATE", 100),
         )

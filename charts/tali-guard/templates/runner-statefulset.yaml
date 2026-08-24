@@ -61,8 +61,22 @@ spec:
             - { name: GUARD_RUNNER_MAX_CONCURRENCY, value: {{ $pool.maxConcurrency | quote }} }
             - { name: GUARD_CONTROLLER_TARGET, value: {{ printf "%s:%v" (include "tali-guard.controllerName" $root) $root.Values.controller.service.grpcPort | quote }} }
             - { name: GUARD_CONTROLLER_TELEMETRY_ENDPOINT, value: {{ printf "http://%s:%v/api/internal/v1/runtime-events" (include "tali-guard.controllerName" $root) $root.Values.controller.service.httpPort | quote }} }
+            {{- if or $root.Values.observability.performanceDebug.enabled $root.Values.observability.tracing.enabled }}
+            - { name: GUARD_OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ required "observability.tracing.otlpEndpoint is required when tracing or performanceDebug is enabled" $root.Values.observability.tracing.otlpEndpoint | quote }} }
+            {{- if $root.Values.observability.performanceDebug.enabled }}
+            - { name: GUARD_OTEL_TRACE_SAMPLE_RATIO, value: "1" }
+            {{- else }}
+            - { name: GUARD_OTEL_TRACE_SAMPLE_RATIO, value: {{ $root.Values.observability.tracing.sampleRatio | quote }} }
+            {{- end }}
+            {{- end }}
+            {{- if or $root.Values.observability.performanceDebug.enabled $root.Values.observability.profiling.enabled }}
+            - { name: GUARD_PYROSCOPE_SERVER_ADDRESS, value: {{ required "observability.profiling.serverAddress is required when profiling or performanceDebug is enabled" $root.Values.observability.profiling.serverAddress | quote }} }
+            - { name: GUARD_PYROSCOPE_SAMPLE_RATE, value: {{ $root.Values.observability.profiling.sampleRate | quote }} }
+            {{- end }}
             - name: GUARD_CONTROLLER_TOKEN
               valueFrom: { secretKeyRef: { name: {{ include "tali-guard.controlSecretName" $root }}, key: {{ $root.Values.security.controlSecret.runnerTokenKey }} } }
+            - name: GUARD_METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "tali-guard.metricsSecretName" $root }}, key: {{ $root.Values.security.metrics.tokenKey }} } }
             - name: MODEL_GUARDRAILS_RUNTIME_LOG_ENCRYPTION_KEY
               valueFrom: { secretKeyRef: { name: {{ include "tali-guard.runtimeLogSecretName" $root }}, key: {{ $root.Values.security.runtimeLogs.encryptionKeyKey }} } }
             - { name: GUARD_ARTIFACT_PUBLIC_KEY_PATH, value: /var/run/tasklattice/artifact/public-key.pem }

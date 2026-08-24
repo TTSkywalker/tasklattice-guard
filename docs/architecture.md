@@ -141,13 +141,16 @@ rewrites audit events, runtime events, Guardrail versions, or artifacts.
 
 Every Runner heartbeat reports applied generation, inflight/max concurrency,
 queue depth, request/error/timeout deltas, p95 latency, CPU, memory, active
-Guardrails, and compile queue depth. Controller aggregates these per pool into
-ready replicas, RPS, safe capacity, utilization, error rate, headroom, and a
-recommended replica count.
+Guardrails, compile queue depth, and the exact observation interval. Controller
+aggregates these per pool into ready replicas, interval-correct RPS, safe
+capacity, per-resource utilization, request-weighted error rate, worst-Runner
+latency, headroom, and a queue-aware recommended replica count.
 
 Controller exposes the aggregation through the UI, API, and Prometheus. Scaling
 execution remains the responsibility of Kubernetes/Helm or an external
-autoscaler.
+autoscaler. Prometheus also exposes firewall decisions separately from technical
+errors, plus control-channel convergence and evidence-pipeline freshness. The
+deployment and dashboard contract is documented in `observability/README.md`.
 
 ## Acceptance baseline
 

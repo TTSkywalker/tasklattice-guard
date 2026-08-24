@@ -13,19 +13,27 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from opentelemetry import trace
 
 from runner.toolkit.runtime.contracts import GuardContentBlock, ProtectionDecision, ProtectionRequest, RequestContext
 from runner.toolkit.runtime.service import GuardrailRuntimeService
 
 from .artifact_store import ArtifactStore
 from .draft_preview import DraftPreviewRuntime
-from .metrics import RunnerMetrics
+from .metrics import (
+    GuardrailRequestObservation,
+    INTERNAL_METRIC_ID,
+    RunnerMetrics,
+    UNMATCHED_METRIC_ID,
+    UNRESOLVED_METRIC_ID,
+)
 from .telemetry import RuntimeTelemetryExporter
 
 
 LITELLM_ADAPTER_ID = "litellm-generic-guardrail"
 SENSITIVE_HEADERS = frozenset({"authorization", "cookie", "proxy-authorization", "x-api-key"})
 RUNTIME_LOG_AAD = b"tasklattice-runtime-log-v1"
+_TRACER = trace.get_tracer("tasklattice.guard-runner.api")
 
 
 class EvaluateRequest(BaseModel):
@@ -179,6 +187,12 @@ class RunnerAPI:
         self._draft_previews = draft_previews
         self._register()
 
+    def _trace_request_id(self, fallback: str) -> str:
+        """Prefer the active trace id without requiring legacy metric fakes to expose one."""
+
+        trace_id = getattr(self._metrics, "current_trace_id", None)
+        return (trace_id() if callable(trace_id) else None) or fallback
+
     def _register(self) -> None:
         @self.router.get("/")
         async def index():
@@ -203,7 +217,9 @@ class RunnerAPI:
             integration_id: str,
             x_api_key: str | None = Header(default=None),
         ):
-            if not self._store.authenticate_integration(integration_id, x_api_key):
+            authenticated = self._store.authenticate_integration(integration_id, x_api_key)
+            self._metrics.observe_authentication("litellm", authenticated)
+            if not authenticated:
                 raise HTTPException(status_code=401, detail="Integration credential is invalid.")
             adapter = self._store.integration_adapter(integration_id)
             if adapter != LITELLM_ADAPTER_ID:
@@ -224,39 +240,64 @@ class RunnerAPI:
             payload: LiteLLMGuardrailRequest,
             x_api_key: str | None = Header(default=None),
         ) -> LiteLLMGuardrailResponse:
-            if (
-                not self._store.authenticate_integration(integration_id, x_api_key)
-                or self._store.integration_adapter(integration_id) != LITELLM_ADAPTER_ID
-            ):
+            phase = "input" if payload.input_type == "request" else "output"
+            authenticated = self._store.authenticate_integration(integration_id, x_api_key)
+            self._metrics.observe_authentication("litellm", authenticated)
+            adapter_matches = self._store.integration_adapter(integration_id) == LITELLM_ADAPTER_ID
+            if not authenticated:
+                self._metrics.reject_request("litellm", phase=phase, result="authentication_rejected")
                 raise HTTPException(status_code=401, detail="Integration credential is invalid.")
+            if not adapter_matches:
+                self._metrics.reject_request("litellm", phase=phase, result="adapter_mismatch")
+                raise HTTPException(status_code=409, detail="Integration adapter is not compatible with LiteLLM.")
             request_id = str(uuid.uuid4())
             started = time.perf_counter()
-            phase = "input" if payload.input_type == "request" else "output"
             protection_request = _litellm_protection_request(payload, integration_id)
             decision = None
-            try:
-                with self._metrics.request():
+            with self._metrics.request(
+                "runtime", "litellm", phase, integration_id=integration_id,
+            ) as observation:
+                request_id = self._trace_request_id(request_id)
+                try:
+                    route_matched = True
                     try:
-                        decision = await self._runtime.evaluate(protection_request)
+                        decision = await self._runtime.evaluate(
+                            protection_request, on_resolved=observation.resolve,
+                        )
                     except LookupError:
+                        route_matched = False
+                        observation.set_identity(
+                            guardrail_id=UNMATCHED_METRIC_ID,
+                            guardrail_version=UNMATCHED_METRIC_ID,
+                            deployment_id=UNMATCHED_METRIC_ID,
+                        )
                         decision = ProtectionDecision(
                             decision="block",
                             action="reject",
                             reason="No Deployment matches this request.",
+                            mode=protection_request.mode,
                         )
-                return _litellm_response(decision)
-            finally:
-                await self._emit_telemetry(
-                    request_id=request_id,
-                    call_id=protection_request.call_id,
-                    integration_id=integration_id,
-                    phase=phase,
-                    protocol="litellm",
-                    mode=protection_request.mode,
-                    started=started,
-                    decision=decision,
-                    content_before=protection_request.texts,
-                )
+                    self._metrics.observe_route("litellm", phase, route_matched)
+                    observation.complete(decision)
+                    return _litellm_response(decision)
+                except Exception as error:
+                    reason_class = _request_failure_reason(error)
+                    observation.fail("runtime", reason_class)
+                    self._metrics.observe_failure("runtime", reason_class)
+                    raise
+                finally:
+                    await self._emit_telemetry(
+                        request_id=request_id,
+                        call_id=protection_request.call_id,
+                        integration_id=integration_id,
+                        phase=phase,
+                        protocol="litellm",
+                        mode=protection_request.mode,
+                        started=started,
+                        decision=decision,
+                        content_before=protection_request.texts,
+                        observation=observation,
+                    )
 
         @self.router.post("/runtime/v1/integrations/{integration_id}/guardrails/evaluate")
         async def evaluate(
@@ -266,31 +307,67 @@ class RunnerAPI:
             x_api_key: str | None = Header(default=None),
         ):
             expected_adapter = "a2a-guard" if payload.protocol == "a2a" else "generic-http-guard"
-            if (
-                not self._store.authenticate_integration(integration_id, x_api_key)
-                or self._store.integration_adapter(integration_id) != expected_adapter
-            ):
+            authenticated = self._store.authenticate_integration(integration_id, x_api_key)
+            self._metrics.observe_authentication(payload.protocol, authenticated)
+            adapter_matches = self._store.integration_adapter(integration_id) == expected_adapter
+            if not authenticated:
+                self._metrics.reject_request(
+                    payload.protocol, payload.resolved_phase, "authentication_rejected",
+                )
                 raise HTTPException(status_code=401, detail="Integration credential is invalid.")
+            if not adapter_matches:
+                self._metrics.reject_request(payload.protocol, payload.resolved_phase, "adapter_mismatch")
+                raise HTTPException(status_code=409, detail="Integration adapter does not match this protocol.")
             request_id = str(uuid.uuid4())
             started = time.perf_counter()
             decision = None
             protection_request = _http_protection_request(payload, request, integration_id)
-            try:
-                with self._metrics.request():
-                    decision = await self._runtime.evaluate(protection_request)
-                return {**jsonable_encoder(asdict(decision)), "call_id": protection_request.call_id}
-            finally:
-                await self._emit_telemetry(
-                    request_id=request_id,
-                    call_id=protection_request.call_id,
-                    integration_id=integration_id,
-                    phase=payload.resolved_phase,
-                    protocol=payload.protocol,
-                    mode=payload.mode,
-                    started=started,
-                    decision=decision,
-                    content_before=_request_content(protection_request),
-                )
+            with self._metrics.request(
+                "runtime", payload.protocol, payload.resolved_phase,
+                integration_id=integration_id,
+            ) as observation:
+                request_id = self._trace_request_id(request_id)
+                try:
+                    route_matched = True
+                    try:
+                        decision = await self._runtime.evaluate(
+                            protection_request, on_resolved=observation.resolve,
+                        )
+                    except LookupError:
+                        route_matched = False
+                        observation.set_identity(
+                            guardrail_id=UNMATCHED_METRIC_ID,
+                            guardrail_version=UNMATCHED_METRIC_ID,
+                            deployment_id=UNMATCHED_METRIC_ID,
+                        )
+                        decision = ProtectionDecision(
+                            decision="block", action="reject",
+                            reason="No Deployment matches this request.",
+                            mode=payload.mode,
+                        )
+                    self._metrics.observe_route(
+                        payload.protocol, payload.resolved_phase, route_matched,
+                    )
+                    observation.complete(decision)
+                    return {**jsonable_encoder(asdict(decision)), "call_id": protection_request.call_id}
+                except Exception as error:
+                    reason_class = _request_failure_reason(error)
+                    observation.fail("runtime", reason_class)
+                    self._metrics.observe_failure("runtime", reason_class)
+                    raise
+                finally:
+                    await self._emit_telemetry(
+                        request_id=request_id,
+                        call_id=protection_request.call_id,
+                        integration_id=integration_id,
+                        phase=payload.resolved_phase,
+                        protocol=payload.protocol,
+                        mode=payload.mode,
+                        started=started,
+                        decision=decision,
+                        content_before=_request_content(protection_request),
+                        observation=observation,
+                    )
 
         @self.router.post("/internal/v1/guardrails/{guardrail_id}/evaluate")
         async def evaluate_guardrail(
@@ -322,28 +399,42 @@ class RunnerAPI:
                 messages=tuple(payload.messages),
                 mode=payload.mode,
             )
-            try:
-                with self._metrics.request():
+            with self._metrics.request(
+                "controller",
+                payload.protocol,
+                payload.resolved_phase,
+                integration_id=INTERNAL_METRIC_ID,
+                guardrail_id=guardrail_id,
+                guardrail_version=payload.guardrail_version,
+                deployment_id=UNRESOLVED_METRIC_ID,
+            ) as observation:
+                request_id = self._trace_request_id(request_id)
+                try:
                     decision = await self._runtime.evaluate_guardrail(
                         protection_request,
                         guardrail_id,
                         payload.guardrail_version,
+                        on_resolved=observation.resolve,
                     )
-                return jsonable_encoder(asdict(decision))
-            except LookupError as error:
-                raise HTTPException(status_code=404, detail=str(error)) from error
-            finally:
-                await self._emit_telemetry(
-                    request_id=request_id,
-                    call_id=payload.call_id,
-                    integration_id=None,
-                    phase=payload.resolved_phase,
-                    protocol=payload.protocol,
-                    mode=payload.mode,
-                    started=started,
-                    decision=decision,
-                    content_before=protection_request.texts,
-                )
+                    observation.complete(decision)
+                    return jsonable_encoder(asdict(decision))
+                except LookupError as error:
+                    observation.fail("routing", "guardrail_not_loaded")
+                    self._metrics.observe_failure("runtime", "guardrail_not_loaded")
+                    raise HTTPException(status_code=404, detail=str(error)) from error
+                finally:
+                    await self._emit_telemetry(
+                        request_id=request_id,
+                        call_id=payload.call_id,
+                        integration_id=None,
+                        phase=payload.resolved_phase,
+                        protocol=payload.protocol,
+                        mode=payload.mode,
+                        started=started,
+                        decision=decision,
+                        content_before=protection_request.texts,
+                        observation=observation,
+                    )
 
         @self.router.post("/internal/v1/playground/draft-previews/{preview_id}")
         async def prepare_draft_preview(
@@ -403,8 +494,16 @@ class RunnerAPI:
                 messages=tuple(payload.messages),
                 mode=payload.mode,
             )
-            try:
-                with self._metrics.request():
+            with self._metrics.request(
+                "playground",
+                payload.protocol,
+                payload.resolved_phase,
+                integration_id=INTERNAL_METRIC_ID,
+                guardrail_id=payload.plan.get("guardrail_id", UNRESOLVED_METRIC_ID),
+                guardrail_version=payload.candidate_version,
+                deployment_id=UNRESOLVED_METRIC_ID,
+            ) as observation:
+                try:
                     decision = await self._draft_previews.evaluate(
                         protection_request,
                         preview_id=payload.preview_id,
@@ -414,12 +513,13 @@ class RunnerAPI:
                         plan=payload.plan,
                         runtime_profile=payload.runtime_profile,
                     )
-                # Draft previews are deliberately excluded from Runtime Evidence telemetry.
-                return jsonable_encoder(asdict(decision))
-            except LookupError as error:
-                raise HTTPException(status_code=404, detail=str(error)) from error
-            except ValueError as error:
-                raise HTTPException(status_code=409, detail=str(error)) from error
+                    observation.complete(decision)
+                    # Draft previews are deliberately excluded from Runtime Evidence telemetry.
+                    return jsonable_encoder(asdict(decision))
+                except LookupError as error:
+                    raise HTTPException(status_code=404, detail=str(error)) from error
+                except ValueError as error:
+                    raise HTTPException(status_code=409, detail=str(error)) from error
 
     def _authorize_controller(self, authorization: str | None) -> None:
         expected = f"Bearer {self._controller_token}"
@@ -438,6 +538,7 @@ class RunnerAPI:
         started: float,
         decision: ProtectionDecision | None,
         content_before: tuple[str, ...] = (),
+        observation: GuardrailRequestObservation | None = None,
     ) -> None:
         capture_level = self._store.logging_level(
             decision.guardrail_id if decision is not None else None
@@ -475,7 +576,34 @@ class RunnerAPI:
                 event["guardrailVersion"] = decision.guardrail_version
             if decision.deployment_id:
                 event["deploymentId"] = decision.deployment_id
-        await self._telemetry.emit(event)
+        try:
+            with _TRACER.start_as_current_span(
+                "guardrail.telemetry.append",
+                attributes={
+                    "guardrail.id": (
+                        decision.guardrail_id
+                        if decision is not None and decision.guardrail_id
+                        else "__unresolved__"
+                    ),
+                    "guardrail.phase": phase,
+                    "guardrail.protocol": protocol,
+                    "integration.id": integration_id or "__internal__",
+                    "guardrail.telemetry.capture_level": capture_level,
+                },
+            ):
+                await self._telemetry.emit(event)
+        except TimeoutError:
+            self._metrics.observe_failure("telemetry", "timeout")
+            if observation is None or observation.failure_stage is None:
+                if observation is not None:
+                    observation.fail("telemetry", "timeout")
+                raise
+        except Exception:
+            self._metrics.observe_failure("telemetry", "telemetry_append_failed")
+            if observation is None or observation.failure_stage is None:
+                if observation is not None:
+                    observation.fail("telemetry", "telemetry_append_failed")
+                raise
 
 
 def _telemetry_metadata(decision: ProtectionDecision) -> dict[str, Any]:
@@ -505,6 +633,7 @@ def _telemetry_metadata(decision: ProtectionDecision) -> dict[str, Any]:
             "verdict": item.verdict,
             "route": item.route,
             "risk": item.risk,
+            "moduleId": item.module_id,
             "confidence": item.confidence,
             "policyId": item.policy_id,
             "policyVersion": item.policy_version,
@@ -520,6 +649,20 @@ def _telemetry_metadata(decision: ProtectionDecision) -> dict[str, Any]:
             "runtimeProfile": item.runtime_profile,
             "configChecksum": item.config_checksum,
             "providerLatencyMs": item.provider_latency_ms,
+            "providerWorkMs": item.provider_work_ms,
+            "modelWaitMs": item.model_wait_ms,
+            "providerName": item.provider_name,
+            "modelName": item.model_name,
+            "modelOperation": item.model_operation,
+            "modelResult": item.model_result,
+            "errorType": item.error_type,
+            "modelTimeToFirstTokenMs": item.model_time_to_first_token_ms,
+            "modelInputTokens": item.model_input_tokens,
+            "modelOutputTokens": item.model_output_tokens,
+            "modelRetries": item.model_retries,
+            "modelBackoffMs": item.model_backoff_ms,
+            "startedOffsetMs": item.started_offset_ms,
+            "finishedOffsetMs": item.finished_offset_ms,
         }
         for item in decision.trace
     ]
@@ -783,6 +926,19 @@ def _litellm_response(decision: ProtectionDecision) -> LiteLLMGuardrailResponse:
             texts=list(decision.texts),
         )
     return LiteLLMGuardrailResponse(action="NONE")
+
+
+def _request_failure_reason(error: Exception) -> str:
+    """Map request exceptions to a bounded, aggregation-safe reason class."""
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    if isinstance(error, ConnectionError):
+        return "transport_error"
+    if isinstance(error, LookupError):
+        return "dependency_missing"
+    if isinstance(error, ValueError):
+        return "configuration_error"
+    return "runtime_exception"
 
 
 def _iso_now() -> str:

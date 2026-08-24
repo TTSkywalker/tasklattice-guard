@@ -14,6 +14,7 @@ import { loadSync } from "@grpc/proto-loader";
 import type { ControllerConfig } from "../config.js";
 import type { RunnerLoad } from "../db/schema.js";
 import type { ValidationCaseResult, ValidationMetrics } from "../domain/models.js";
+import type { ControllerMetrics } from "../metrics.js";
 import type { ControlPlaneService } from "../services/control-plane.js";
 
 type WireMessage = Record<string, unknown>;
@@ -75,6 +76,7 @@ export class RunnerControlServer {
   constructor(
     private readonly config: ControllerConfig,
     private readonly service: ControlPlaneService,
+    private readonly metrics: ControllerMetrics,
   ) {
     const definition = loadSync(config.protoPath, {
       keepCase: false,
@@ -154,6 +156,7 @@ export class RunnerControlServer {
   private connect(stream: RunnerStream): void {
     const authorization = stream.metadata.get("authorization")[0];
     if (authorization !== `Bearer ${this.config.runnerToken}`) {
+      this.metrics.observeControlMessage("received", "authentication", "rejected");
       const error = Object.assign(new Error("Runner authentication failed."), { code: status.UNAUTHENTICATED });
       stream.destroy(error);
       return;
@@ -161,10 +164,13 @@ export class RunnerControlServer {
     let connection: Connection | null = null;
     let messageChain = Promise.resolve();
     stream.on("data", (message: WireMessage) => {
+      const messageType = wireMessageType(message);
       messageChain = messageChain.then(async () => {
         const registered = await this.handleMessage(stream, message, connection);
         if (registered) connection = registered;
+        this.metrics.observeControlMessage("received", messageType);
       }).catch((error: unknown) => {
+        this.metrics.observeControlMessage("received", messageType, "error");
         const detail = error instanceof Error ? error.message : "Unknown Runner control error.";
         stream.emit("error", Object.assign(new Error(detail), { code: status.INTERNAL }));
       });
@@ -172,7 +178,10 @@ export class RunnerControlServer {
     const disconnected = () => {
       if (!connection) return;
       const current = this.connections.get(connection.runnerId);
-      if (current?.bootId === connection.bootId) this.connections.delete(connection.runnerId);
+      if (current?.bootId === connection.bootId) {
+        this.connections.delete(connection.runnerId);
+        this.metrics.controlConnection(connection.poolId, false);
+      }
       void this.service.disconnectRunner(connection.runnerId, connection.bootId);
     };
     stream.once("end", disconnected);
@@ -208,7 +217,10 @@ export class RunnerControlServer {
         appliedGeneration: number(registration.appliedGeneration),
         lastReconcileGeneration: -1,
       };
+      const prior = this.connections.get(connection.runnerId);
+      if (prior) this.metrics.controlConnection(prior.poolId, false);
       this.connections.set(connection.runnerId, connection);
+      this.metrics.controlConnection(connection.poolId, true);
       this.write(stream, {
         registrationAccepted: {
           desiredGeneration: String(desiredGeneration),
@@ -224,27 +236,38 @@ export class RunnerControlServer {
       if (heartbeat.runnerId !== current.runnerId || heartbeat.bootId !== current.bootId) {
         throw new Error("Heartbeat identity does not match the registered stream.");
       }
-      await this.service.recordHeartbeat({
-        runnerId: heartbeat.runnerId,
-        bootId: heartbeat.bootId,
-        sequence: number(heartbeat.sequence),
-        appliedGeneration: number(heartbeat.appliedGeneration),
-        load: normalizeLoad(heartbeat.load),
-      });
+      try {
+        const accepted = await this.service.recordHeartbeat({
+          runnerId: heartbeat.runnerId,
+          bootId: heartbeat.bootId,
+          sequence: number(heartbeat.sequence),
+          appliedGeneration: number(heartbeat.appliedGeneration),
+          load: normalizeLoad(heartbeat.load),
+        });
+        this.metrics.observeHeartbeat(current.poolId, accepted ? "accepted" : "stale_or_unknown");
+        if (!accepted) return null;
+      } catch (error) {
+        this.metrics.observeHeartbeat(current.poolId, "error");
+        throw error;
+      }
       current.appliedGeneration = number(heartbeat.appliedGeneration);
       const desired = await this.service.desiredGeneration();
       if (number(heartbeat.appliedGeneration) !== desired) await this.reconcile(current);
     } else if (message.compileResult) {
-      await this.handleCompileResult(message.compileResult as CompileResult);
+      const result = message.compileResult as CompileResult;
+      this.metrics.observeJob("compile", result.accepted);
+      await this.handleCompileResult(result);
       await this.reconcileAll();
     } else if (message.validationResult) {
       const result = message.validationResult as ValidationResult;
       if (result.runnerId !== current.runnerId) throw new Error("Validation result identity does not match the registered stream.");
+      this.metrics.observeJob("validation", result.accepted);
       await this.handleValidationResult(result);
     } else if (message.artifactResult) {
       // The following heartbeat advances applied_generation after an atomic
       // activation. NACK keeps the prior last-known-good generation in place.
       const result = message.artifactResult as { accepted?: boolean };
+      this.metrics.observeArtifactResult(current.poolId, Boolean(result.accepted));
       if (result.accepted) await this.reconcile(current);
       else current.lastReconcileGeneration = -1;
     }
@@ -303,9 +326,14 @@ export class RunnerControlServer {
   }
 
   private async reconcile(connection: Connection): Promise<void> {
-    const desired = await this.service.desiredStateForPool(connection.poolId);
-    if (connection.lastReconcileGeneration === desired.generation) return;
-    this.write(connection.stream, {
+    const started = performance.now();
+    try {
+      const desired = await this.service.desiredStateForPool(connection.poolId);
+      if (connection.lastReconcileGeneration === desired.generation) {
+        this.metrics.observeReconcile(connection.poolId, "noop", (performance.now() - started) / 1_000);
+        return;
+      }
+      this.write(connection.stream, {
       desiredState: {
         generation: String(desired.generation),
         artifacts: desired.artifacts.map((artifact) => ({
@@ -342,8 +370,13 @@ export class RunnerControlServer {
         })),
         guardrailLoggingLevels: desired.guardrailLoggingLevels,
       },
-    });
-    connection.lastReconcileGeneration = desired.generation;
+      });
+      connection.lastReconcileGeneration = desired.generation;
+      this.metrics.observeReconcile(connection.poolId, "dispatched", (performance.now() - started) / 1_000);
+    } catch (error) {
+      this.metrics.observeReconcile(connection.poolId, "error", (performance.now() - started) / 1_000);
+      throw error;
+    }
   }
 
   private async dispatchCompileRequests(): Promise<void> {
@@ -401,6 +434,7 @@ export class RunnerControlServer {
 
   private write(stream: RunnerStream, body: WireMessage): void {
     stream.write({ messageId: randomUUID(), sentAtUnixMs: String(Date.now()), ...body });
+    this.metrics.observeControlMessage("sent", wireMessageType(body));
   }
 
   private credentials(): ServerCredentials {
@@ -434,7 +468,15 @@ function normalizeLoad(load: Heartbeat["load"]): RunnerLoad {
     memoryUtilization: number(load?.memoryUtilization),
     activeGuardrails: number(load?.activeGuardrails),
     compileQueueDepth: number(load?.compileQueueDepth),
+    observationIntervalMs: number(load?.observationIntervalMs),
   };
+}
+
+function wireMessageType(message: WireMessage): string {
+  return [
+    "registration", "heartbeat", "artifactResult", "compileResult", "validationResult",
+    "registrationAccepted", "desiredState", "compileRequest", "validationRequest", "drainRequest",
+  ].find((key) => message[key] !== undefined) ?? "unknown";
 }
 
 function number(value: unknown): number {

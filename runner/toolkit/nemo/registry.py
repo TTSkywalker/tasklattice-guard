@@ -23,6 +23,7 @@ from .action_registry import (
     action_providers,
 )
 from .artifacts import config_checksum
+from .actions.model_call import instrument_nemo_models
 
 
 logger = logging.getLogger("uvicorn.error.tasklattice.nemo.registry")
@@ -56,6 +57,7 @@ class NeMoRuntimeInstance:
     rails: Guardrails
     admission: asyncio.BoundedSemaphore
     active_requests: int = 0
+    waiting_requests: int = 0
 
 
 class NeMoRuntimeRegistry:
@@ -145,6 +147,21 @@ class NeMoRuntimeRegistry:
                 "misses": self._misses,
             }
 
+    def admission_load(self) -> tuple[int, int, int]:
+        """Return aggregate active, waiting, and available admission slots."""
+        with self._lock:
+            active_keys = set(self._store.active_plan_keys())
+            draining_inactive = sum(
+                1
+                for key, item in self._items.items()
+                if key[:2] not in active_keys and (item.active_requests or item.waiting_requests)
+            )
+            return (
+                sum(item.active_requests for item in self._items.values()),
+                sum(item.waiting_requests for item in self._items.values()),
+                max(1, len(active_keys) + draining_inactive) * self._max_concurrency_per_guardrail,
+            )
+
     def ready(self) -> bool:
         return bool(self.readiness()["ready"])
 
@@ -219,6 +236,8 @@ class NeMoRuntimeRegistry:
             use_iorails=use_iorails,
             require_iorails=use_iorails,
         )
+        if not use_iorails:
+            instrument_nemo_models(rails, config.required_models)
         bridge = NeMoActionBridge(
             plan,
             config,

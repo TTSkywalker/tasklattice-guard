@@ -142,6 +142,28 @@ def test_runner_rejects_model_names_without_endpoint_or_credential(
         RunnerSettings.from_env()
 
 
+def test_runner_validates_the_optional_metrics_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    _required_runner_env(monkeypatch)
+    monkeypatch.setenv("GUARD_METRICS_TOKEN", "metrics-token-that-is-at-least-32-characters")
+    assert RunnerSettings.from_env().metrics_token == "metrics-token-that-is-at-least-32-characters"
+
+    monkeypatch.setenv("GUARD_METRICS_TOKEN", "short")
+    with pytest.raises(ValueError, match="GUARD_METRICS_TOKEN"):
+        RunnerSettings.from_env()
+
+
+def test_runner_requires_metrics_authentication_with_production_mtls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _required_runner_env(monkeypatch)
+    monkeypatch.setenv("GUARD_CONTROLLER_CA_PATH", "/tmp/ca.crt")
+    monkeypatch.setenv("GUARD_RUNNER_CLIENT_CERT_PATH", "/tmp/runner.crt")
+    monkeypatch.setenv("GUARD_RUNNER_CLIENT_KEY_PATH", "/tmp/runner.key")
+
+    with pytest.raises(ValueError, match="GUARD_METRICS_TOKEN"):
+        RunnerSettings.from_env()
+
+
 def _required_runner_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "MODEL_GUARDRAILS_NVIDIA_BASE_URL",
@@ -150,6 +172,10 @@ def _required_runner_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MODEL_GUARDRAILS_JAILBREAK_MODEL",
         "MODEL_GUARDRAILS_NVIDIA_API_KEY",
         "MODEL_GUARDRAILS_NVIDIA_API_KEY_ENV_VAR",
+        "GUARD_METRICS_TOKEN",
+        "GUARD_CONTROLLER_CA_PATH",
+        "GUARD_RUNNER_CLIENT_CERT_PATH",
+        "GUARD_RUNNER_CLIENT_KEY_PATH",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GUARD_RUNNER_ID", "runner-test")

@@ -14,7 +14,8 @@ describe("Runner pool capacity", () => {
     expect(result.safeRpsCapacity).toBe(100);
     expect(result.inflightUtilization).toBe(0.625);
     expect(result.utilization).toBe(0.75);
-    expect(result.errorRate).toBe(0.02);
+    expect(result.errorRate).toBe(0.0153);
+    expect(result.worstRunnerLatencyP95Ms).toBe(120);
     expect(result.latencyP95Ms).toBe(120);
     expect(result.recommendedReplicas).toBe(4);
   });

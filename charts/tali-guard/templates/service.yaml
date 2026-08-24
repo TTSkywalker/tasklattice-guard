@@ -5,6 +5,7 @@ metadata:
   labels:
     {{- include "tali-guard.commonLabels" . | nindent 4 }}
     app.kubernetes.io/component: controller
+    tasklattice.io/metrics-target: "true"
 spec:
   type: {{ .Values.controller.service.type }}
   selector:
@@ -46,6 +47,7 @@ metadata:
     app.kubernetes.io/component: runner
     tasklattice.io/runner-pool: {{ $pool.name | quote }}
     tasklattice.io/service-role: governing
+    tasklattice.io/metrics-target: "true"
 spec:
   clusterIP: None
   publishNotReadyAddresses: true

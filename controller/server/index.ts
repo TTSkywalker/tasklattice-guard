@@ -23,10 +23,10 @@ if (config.bootstrapAdmin) {
   const status = await ensureBootstrapAdmin({ auth, db, ...config.bootstrapAdmin });
   if (status === "created") process.stdout.write(`Created Better Auth bootstrap administrator ${config.bootstrapAdmin.email}.\n`);
 }
-const runnerControl = new RunnerControlServer(config, service);
+const metrics = new ControllerMetrics();
+const runnerControl = new RunnerControlServer(config, service, metrics);
 await runnerControl.start();
 
-const metrics = new ControllerMetrics();
 const intentAnalyzer = config.controlPlaneAi
   ? new OpenAICompatibleIntentAnalyzer(config.controlPlaneAi)
   : null;

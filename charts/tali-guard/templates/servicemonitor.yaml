@@ -1,0 +1,72 @@
+{{- if or .Values.observability.performanceDebug.enabled .Values.observability.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "tali-guard.controllerName" . }}
+  labels:
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+    {{- with .Values.observability.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace | quote }}]
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: controller
+      tasklattice.io/metrics-target: "true"
+  targetLabels:
+    - app.kubernetes.io/instance
+    - app.kubernetes.io/component
+  endpoints:
+    - port: http
+      path: /metrics
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "tali-guard.metricsSecretName" . }}
+          key: {{ .Values.security.metrics.tokenKey }}
+      interval: {{ .Values.observability.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.observability.serviceMonitor.scrapeTimeout }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "tali-guard.fullname" . }}-runners
+  labels:
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+    {{- with .Values.observability.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace | quote }}]
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: runner
+      tasklattice.io/metrics-target: "true"
+  targetLabels:
+    - app.kubernetes.io/instance
+    - app.kubernetes.io/component
+    - tasklattice.io/runner-pool
+  endpoints:
+    - port: runtime
+      path: /metrics
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "tali-guard.metricsSecretName" . }}
+          key: {{ .Values.security.metrics.tokenKey }}
+      # GUARD_RUNNER_ID is the Pod name in this chart. Non-Kubernetes scrape
+      # configs must provide the same stable identity as the runner_id target label.
+      relabelings:
+        - action: replace
+          sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: runner_id
+      interval: {{ .Values.observability.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.observability.serviceMonitor.scrapeTimeout }}
+{{- end }}

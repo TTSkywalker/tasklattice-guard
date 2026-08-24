@@ -63,6 +63,10 @@ app.kubernetes.io/part-of: tasklattice-guard
 {{- default (printf "%s-control" (include "tali-guard.fullname" .)) .Values.security.controlSecret.existingSecret }}
 {{- end }}
 
+{{- define "tali-guard.metricsSecretName" -}}
+{{- default (printf "%s-metrics" (include "tali-guard.fullname" .)) .Values.security.metrics.existingSecret }}
+{{- end }}
+
 {{- define "tali-guard.runtimeLogSecretName" -}}
 {{- default (printf "%s-runtime-logs" (include "tali-guard.fullname" .)) .Values.security.runtimeLogs.existingSecret }}
 {{- end }}

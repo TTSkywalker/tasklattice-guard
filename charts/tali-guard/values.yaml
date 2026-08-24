@@ -186,6 +186,11 @@ redis:
       memory: 128Mi
 
 security:
+  metrics:
+    # Helm creates and retains a dedicated scrape token by default. Prometheus
+    # receives it through ServiceMonitor without reusing the control token.
+    existingSecret: ""
+    tokenKey: metrics-token
   bootstrapAdmin:
     # Prefer an existing Secret with email/password/name keys in production.
     # Inline values are supported for values-dev.yaml and private values files.
@@ -255,6 +260,59 @@ ingress:
   annotations: {}
   host: guard.example.com
   tls: []
+
+# Prometheus Operator and Grafana sidecar integration. These objects are
+# disabled until the corresponding CRDs/components exist in the cluster.
+observability:
+  # On-demand, Runner data-plane performance troubleshooting preset. Enabling
+  # this one switch forces tracing, continuous profiling, authenticated
+  # ServiceMonitors, Prometheus rules, and both Grafana dashboards on. Traces
+  # are sampled at 100% while the preset is active. Backend addresses still
+  # come from tracing.otlpEndpoint and profiling.serverAddress so production
+  # never silently sends diagnostics to an assumed destination.
+  #
+  # This preset does NOT enable GuardRail debug/trace content logging; runtime
+  # evidence capture remains governed by each GuardRail logging setting.
+  performanceDebug:
+    enabled: false
+  # Trace sampling keeps request -> Action -> model-call causality. The OTLP
+  # endpoint should be an in-cluster collector or Tempo HTTP receiver.
+  tracing:
+    enabled: false
+    otlpEndpoint: ""
+    sampleRatio: 0.1
+  # Continuous profiling is intentionally independent from trace sampling.
+  # When both are enabled, sampled spans carry profile correlation labels.
+  profiling:
+    enabled: false
+    serverAddress: ""
+    sampleRate: 100
+  # SLO and staleness budgets consumed by PrometheusRule. Tune these against
+  # the latency and evidence-retention contract offered to upstream callers.
+  slo:
+    availabilityTarget: 0.999
+    runtimeP90Seconds: 1.0
+    runtimeP95Seconds: 2.5
+    runtimeP99Seconds: 5.0
+    completeCoverageTarget: 1.0
+    burnRateFast: 14.4
+    burnRateSlow: 6
+    heartbeatMaxAgeSeconds: 30
+    telemetryMaxAgeSeconds: 60
+    pipelineMaxAgeSeconds: 60
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    scrapeTimeout: 10s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+  grafanaDashboard:
+    enabled: false
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}
 
 networkPolicy:
   enabled: true

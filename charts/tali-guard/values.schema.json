@@ -197,10 +197,92 @@
         "resources": {"type": "object"}
       }
     },
+    "observability": {
+      "type": "object",
+      "required": ["performanceDebug", "tracing", "profiling", "slo", "serviceMonitor", "prometheusRule", "grafanaDashboard"],
+      "properties": {
+        "performanceDebug": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {"type": "boolean"}
+          }
+        },
+        "tracing": {
+          "type": "object",
+          "required": ["enabled", "otlpEndpoint", "sampleRatio"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "otlpEndpoint": {"type": "string"},
+            "sampleRatio": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        "profiling": {
+          "type": "object",
+          "required": ["enabled", "serverAddress", "sampleRate"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "serverAddress": {"type": "string"},
+            "sampleRate": {"type": "integer", "minimum": 1, "maximum": 1000}
+          }
+        },
+        "slo": {
+          "type": "object",
+          "required": ["availabilityTarget", "runtimeP90Seconds", "runtimeP95Seconds", "runtimeP99Seconds", "completeCoverageTarget", "burnRateFast", "burnRateSlow", "heartbeatMaxAgeSeconds", "telemetryMaxAgeSeconds", "pipelineMaxAgeSeconds"],
+          "properties": {
+            "availabilityTarget": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+            "runtimeP90Seconds": {"type": "number", "exclusiveMinimum": 0},
+            "runtimeP95Seconds": {"type": "number", "exclusiveMinimum": 0},
+            "runtimeP99Seconds": {"type": "number", "exclusiveMinimum": 0},
+            "completeCoverageTarget": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            "burnRateFast": {"type": "number", "exclusiveMinimum": 0},
+            "burnRateSlow": {"type": "number", "exclusiveMinimum": 0},
+            "heartbeatMaxAgeSeconds": {"type": "number", "exclusiveMinimum": 0},
+            "telemetryMaxAgeSeconds": {"type": "number", "exclusiveMinimum": 0},
+            "pipelineMaxAgeSeconds": {"type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "serviceMonitor": {
+          "type": "object",
+          "required": ["enabled", "interval", "scrapeTimeout", "labels"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "interval": {"type": "string", "pattern": "^[0-9]+(ms|s|m|h)$"},
+            "scrapeTimeout": {"type": "string", "pattern": "^[0-9]+(ms|s|m|h)$"},
+            "labels": {"type": "object"}
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "required": ["enabled", "labels"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "labels": {"type": "object"}
+          }
+        },
+        "grafanaDashboard": {
+          "type": "object",
+          "required": ["enabled", "labels", "annotations"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "labels": {"type": "object"},
+            "annotations": {"type": "object"}
+          }
+        }
+      }
+    },
     "security": {
       "type": "object",
-      "required": ["bootstrapAdmin", "controlSecret", "runtimeLogs", "artifactSigning", "controlTls"],
+      "required": ["metrics", "bootstrapAdmin", "controlSecret", "runtimeLogs", "artifactSigning", "controlTls"],
       "properties": {
+        "metrics": {
+          "type": "object",
+          "required": ["existingSecret", "tokenKey"],
+          "properties": {
+            "existingSecret": {"type": "string"},
+            "tokenKey": {"type": "string", "minLength": 1}
+          }
+        },
         "bootstrapAdmin": {
           "type": "object",
           "required": ["existingSecret", "email", "password", "name", "emailKey", "passwordKey", "nameKey"],

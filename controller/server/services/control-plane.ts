@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey, randomUUID, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, max, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, max, min, or, sql } from "drizzle-orm";
 
 import type { ControllerConfig } from "../config.js";
 import type { ControllerDatabase } from "../db/client.js";
@@ -1466,6 +1466,7 @@ export class ControlPlaneService {
         labels: input.labels,
         desiredGeneration,
         appliedGeneration: input.appliedGeneration,
+        heartbeatSequence: 0,
         status: input.appliedGeneration === desiredGeneration ? "ready" : "syncing",
         connectedAt: new Date(),
         lastHeartbeatAt: new Date(),
@@ -1478,7 +1479,7 @@ export class ControlPlaneService {
 
   async recordHeartbeat(input: {
     runnerId: string; bootId: string; sequence: number; appliedGeneration: number; load: RunnerLoad;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const desiredGeneration = await this.desiredGeneration();
     const pressure = Math.max(
       input.load.maxConcurrency > 0 ? input.load.inflight / input.load.maxConcurrency : 0,
@@ -1492,7 +1493,7 @@ export class ControlPlaneService {
         : pressure >= 0.7
           ? "busy"
           : "ready";
-    await this.db.update(runnerInstances).set({
+    const updated = await this.db.update(runnerInstances).set({
       desiredGeneration,
       appliedGeneration: input.appliedGeneration,
       heartbeatSequence: input.sequence,
@@ -1500,7 +1501,12 @@ export class ControlPlaneService {
       status,
       lastHeartbeatAt: new Date(),
       updatedAt: new Date(),
-    }).where(and(eq(runnerInstances.runnerId, input.runnerId), eq(runnerInstances.bootId, input.bootId)));
+    }).where(and(
+      eq(runnerInstances.runnerId, input.runnerId),
+      eq(runnerInstances.bootId, input.bootId),
+      lt(runnerInstances.heartbeatSequence, input.sequence),
+    )).returning({ runnerId: runnerInstances.runnerId });
+    return updated.length === 1;
   }
 
   async disconnectRunner(runnerId: string, bootId: string): Promise<void> {
@@ -1581,8 +1587,14 @@ export class ControlPlaneService {
         queueDepth: runner.load?.queueDepth ?? 0,
         cpuUtilization: runner.load?.cpuUtilization ?? 0,
         memoryUtilization: runner.load?.memoryUtilization ?? 0,
-        requestsPerSecond: (runner.load?.requestsDelta ?? 0) / this.config.heartbeatIntervalSeconds,
-        errorRate: ratio(runner.load?.errorsDelta ?? 0, runner.load?.requestsDelta ?? 0),
+        requestsPerSecond: (runner.load?.requestsDelta ?? 0) / Math.max(
+          0.001,
+          (runner.load?.observationIntervalMs ?? this.config.heartbeatIntervalSeconds * 1_000) / 1_000,
+        ),
+        errorRate: ratio(
+          (runner.load?.errorsDelta ?? 0) + (runner.load?.timeoutsDelta ?? 0),
+          runner.load?.requestsDelta ?? 0,
+        ),
         latencyP95Ms: runner.load?.latencyP95Ms ?? 0,
       }));
       return {
@@ -1597,6 +1609,103 @@ export class ControlPlaneService {
         ),
       };
     });
+  }
+
+  async observabilitySnapshot() {
+    const [watermarks, pendingOutbox, guardrailRows, deploymentRows, integrationRows] = await Promise.all([
+      this.db.select().from(telemetryWatermarks),
+      this.db.select({
+        kind: outboxEvents.kind,
+        pending: count(),
+        oldestCreatedAt: min(outboxEvents.createdAt),
+      }).from(outboxEvents)
+        .where(isNull(outboxEvents.processedAt))
+        .groupBy(outboxEvents.kind),
+      this.db.select({
+        id: guardrails.id,
+        name: guardrails.name,
+        status: guardrails.status,
+        activeVersion: guardrails.activeVersion,
+      }).from(guardrails).where(isNull(guardrails.deletedAt)),
+      this.db.select({
+        id: deployments.id,
+        name: deployments.name,
+        guardrailId: deployments.guardrailId,
+        guardrailVersion: deployments.guardrailVersion,
+        integrationId: deployments.integrationId,
+        poolId: deployments.poolId,
+        enabled: deployments.enabled,
+      }).from(deployments),
+      this.db.select({
+        id: integrations.id,
+        name: integrations.name,
+        adapter: integrations.adapter,
+        status: integrations.status,
+        deletedAt: integrations.deletedAt,
+      }).from(integrations),
+    ]);
+    const guardrailById = new Map(guardrailRows.map((item) => [item.id, item]));
+    const integrationById = new Map(integrationRows.map((item) => [item.id, item]));
+    const integrationBindings = new Map<string, {
+      guardrailId: string;
+      integrationId: string;
+      integrationName: string;
+      poolId: string;
+      status: "active" | "inactive" | "disabled";
+    }>();
+    const deploymentTopology = deploymentRows.flatMap((item) => {
+      const guardrail = guardrailById.get(item.guardrailId);
+      if (!guardrail) return [];
+      const integration = item.integrationId === null ? null : integrationById.get(item.integrationId);
+      const guardrailVersion = item.guardrailVersion ?? guardrail.activeVersion;
+      const status = !item.enabled
+        ? "disabled"
+        : guardrail.status !== "active"
+          || guardrailVersion === null
+          || (item.integrationId !== null && (!integration || integration.status !== "active" || integration.deletedAt !== null))
+          ? "inactive"
+          : "active";
+      if (item.integrationId !== null && integration?.deletedAt === null) {
+        const key = `${item.guardrailId}\u0000${item.integrationId}\u0000${item.poolId}`;
+        const current = integrationBindings.get(key);
+        const priority = { disabled: 0, inactive: 1, active: 2 } as const;
+        if (!current || priority[status] > priority[current.status]) {
+          integrationBindings.set(key, {
+            guardrailId: item.guardrailId,
+            integrationId: item.integrationId,
+            integrationName: integration.name,
+            poolId: item.poolId,
+            status,
+          });
+        }
+      }
+      return [{
+        guardrailId: item.guardrailId,
+        guardrailVersion,
+        deploymentId: item.id,
+        deploymentName: item.name,
+        poolId: item.poolId,
+        status,
+      }];
+    });
+    return {
+      watermarks,
+      pendingOutbox,
+      guardrails: guardrailRows.map((item) => ({
+        guardrailId: item.id,
+        guardrailName: item.name,
+        status: item.status,
+        activeVersion: item.activeVersion,
+      })),
+      integrations: integrationRows.filter((item) => item.deletedAt === null).map((item) => ({
+        integrationId: item.id,
+        integrationName: item.name,
+        adapter: item.adapter,
+        status: item.status,
+      })),
+      integrationBindings: [...integrationBindings.values()],
+      deployments: deploymentTopology,
+    };
   }
 
   async updateRunnerPool(input: {

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from .content_views import content_view, text_blocks
 from .context import CallContextStore
 from .contracts import (
@@ -13,6 +15,7 @@ from .contracts import (
     NeMoPolicyRuntime,
     GuardContentBlock,
     ModuleAssessment,
+    PlanResolution,
     PlanResolver,
     RuntimeCoverage,
 )
@@ -31,13 +34,20 @@ class GuardrailRuntimeService:
         self._resolver = resolver
         self._contexts = contexts or CallContextStore()
 
-    async def evaluate(self, request: ProtectionRequest) -> ProtectionDecision:
+    async def evaluate(
+        self,
+        request: ProtectionRequest,
+        *,
+        on_resolved: Callable[[PlanResolution], None] | None = None,
+    ) -> ProtectionDecision:
         stored = self._contexts.get(request.call_id)
         resolution = (
             stored.resolution
             if request.phase == "output" and stored is not None
             else self._resolver.resolve(request.context)
         )
+        if on_resolved is not None:
+            on_resolved(resolution)
         return await self._evaluate_resolved(request, resolution, stored)
 
     async def evaluate_guardrail(
@@ -45,6 +55,8 @@ class GuardrailRuntimeService:
         request: ProtectionRequest,
         guardrail_id: str,
         version: int,
+        *,
+        on_resolved: Callable[[PlanResolution], None] | None = None,
     ) -> ProtectionDecision:
         stored = self._contexts.get(request.call_id)
         resolver = getattr(self._resolver, "resolve_guardrail", None)
@@ -59,6 +71,8 @@ class GuardrailRuntimeService:
             resolution = stored.resolution
         else:
             resolution = resolver(guardrail_id, version)
+        if on_resolved is not None:
+            on_resolved(resolution)
         return await self._evaluate_resolved(request, resolution, stored)
 
     async def _evaluate_resolved(self, request, resolution, stored) -> ProtectionDecision:
@@ -291,6 +305,11 @@ def _usage(items: list[RuntimeUsage]) -> RuntimeUsage | None:
             default=0,
         ),
         provider_latency_ms=sum(item.provider_latency_ms for item in items),
+        provider_work_latency_ms=sum(
+            item.provider_work_latency_ms or item.provider_latency_ms
+            for item in items
+        ),
+        model_wait_latency_ms=sum(item.model_wait_latency_ms for item in items),
     )
 
 

@@ -128,17 +128,29 @@ The browser never authors raw NeMo YAML or Colang.
 ## Capacity and observability
 
 Runner heartbeat summaries include request/error/timeout deltas, inflight and
-maximum concurrency, p95 latency, host-observed CPU and memory, active
-Guardrails, compile load, and applied generation. The protocol also carries
-queue depth, but the current Runner has no admission-queue instrumentation, so
-that value remains zero. Controller calculates pool status and headroom from
-these reports. Safe RPS per Runner is an operator-provided planning value, and
-the recommended replica count is guidance rather than an automatic scaling
-decision.
+maximum concurrency, p95 latency, cgroup-normalized process CPU and memory, active
+Guardrails, real admission-queue depth, observation interval, compile load, and
+applied generation. Controller calculates RPS using the actual observation
+window, weights error ratios by request volume, preserves worst-Runner latency,
+and includes queue/concurrency/resource pressure in replica guidance. Safe RPS
+per Runner remains an operator-provided planning value, and recommended replica
+count remains guidance rather than an automatic scaling decision.
 
 - Controller metrics: `GET /metrics` on port `8080`
 - Runner metrics: `GET /metrics` on port `8091`
 - Capacity API: `GET /api/v1/runner-pools`
+
+Helm protects both metrics endpoints with a retained, dedicated Bearer Secret
+and configures ServiceMonitor to use it. Standalone deployments can set
+`CONTROLLER_METRICS_TOKEN` and `GUARD_METRICS_TOKEN`; leaving them unset keeps
+the local endpoint unauthenticated for backward-compatible development only.
+
+The Prometheus contract separates technical execution results from firewall
+decisions and adds control convergence, artifact delivery, WAL/outbox age, and
+evidence freshness. Helm can create ServiceMonitors, PrometheusRules, and the
+Grafana dashboard ConfigMap. See [observability/README.md](observability/README.md)
+for installation, metric semantics, alert budgets, and the unavoidable upstream
+bypass-denominator boundary.
 
 If any Runner pool has more than one replica, Redis is required for shared
 input/output call-version pinning.

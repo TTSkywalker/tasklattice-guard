@@ -8,6 +8,7 @@ import httpx
 
 from ...runtime.contracts import RiskFinding
 from .contracts import ActionRequest, ActionResult, action_result
+from .model_call import action_usage, observe_model_call
 from .names import ACTION_TOPIC_JUDGE
 
 
@@ -29,12 +30,14 @@ class TopicJudgeActionProvider:
         api_key_env_var: str,
         timeout_seconds: float = 20.0,
         request_options: dict[str, object] | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key_env_var = api_key_env_var
         self._timeout_seconds = timeout_seconds
         self._request_options = dict(request_options or {})
+        self._transport = transport
 
     async def execute(self, request: ActionRequest) -> ActionResult:
         credential = os.environ.get(self._api_key_env_var, "").strip()
@@ -46,21 +49,33 @@ class TopicJudgeActionProvider:
                 reason="Topic Judge credential is not configured.",
             )
 
+        call = None
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-                response = await client.post(
-                    f"{self._base_url}/chat/completions",
-                    headers={"authorization": f"Bearer {credential}"},
-                    json={
-                        "model": self._model,
-                        "temperature": 0.01,
-                        "max_tokens": 16,
-                        "messages": _topic_messages(request),
-                        **self._request_options,
-                    },
-                )
-                response.raise_for_status()
-                payload = _response_payload(response.json())
+            with observe_model_call(
+                request,
+                provider="nvidia",
+                model=self._model,
+                operation="topic_classification",
+            ) as call:
+                async with httpx.AsyncClient(
+                    timeout=self._timeout_seconds,
+                    transport=self._transport,
+                ) as client:
+                    response = await client.post(
+                        f"{self._base_url}/chat/completions",
+                        headers={"authorization": f"Bearer {credential}"},
+                        json={
+                            "model": self._model,
+                            "temperature": 0.01,
+                            "max_tokens": 16,
+                            "messages": _topic_messages(request),
+                            **self._request_options,
+                        },
+                    )
+                    response.raise_for_status()
+                    raw_payload = response.json()
+                    payload = _response_payload(raw_payload)
+                    call.complete(payload=raw_payload)
         except (
             httpx.HTTPError,
             KeyError,
@@ -73,12 +88,16 @@ class TopicJudgeActionProvider:
                 "error",
                 request.content,
                 reason=f"Topic Judge failed: {type(error).__name__}.",
+                usage=action_usage(call, len(request.content)),
             )
 
         verdict = str(payload.get("verdict", "uncertain")).lower()
         reason = str(payload.get("reason", "Topic decision returned without a reason."))
         if verdict == "safe":
-            return action_result(request, "safe", request.content, reason=reason)
+            return action_result(
+                request, "safe", request.content, reason=reason,
+                usage=action_usage(call, len(request.content)),
+            )
         if verdict not in {"unsafe", "uncertain"}:
             verdict = "uncertain"
         findings = () if verdict == "uncertain" else (
@@ -96,6 +115,7 @@ class TopicJudgeActionProvider:
             request.content,
             findings=findings,
             reason=reason,
+            usage=action_usage(call, len(request.content)),
         )
 
 

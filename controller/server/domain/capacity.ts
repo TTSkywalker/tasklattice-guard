@@ -25,6 +25,9 @@ export type PoolCapacity = {
   cpuUtilization: number;
   memoryUtilization: number;
   errorRate: number;
+  /** Worst per-Runner heartbeat-window p95. This is not a fleet-wide p95. */
+  worstRunnerLatencyP95Ms: number;
+  /** @deprecated Use worstRunnerLatencyP95Ms or aggregate Runner histograms in Prometheus. */
   latencyP95Ms: number;
   status: "ready" | "busy" | "saturated" | "degraded" | "offline";
   recommendedReplicas: number;
@@ -64,10 +67,29 @@ export function calculatePoolCapacity(
           : "ready";
   const demand = Math.max(requestsPerSecond, predictedPeakRps ?? 0);
   const safeRpsCapacity = ready.length * Math.max(0, safeRpsPerRunner);
+  const rpsReplicas = safeRpsPerRunner > 0
+    ? Math.ceil((demand * safetyFactor) / safeRpsPerRunner)
+    : ready.length;
+  const pressureReplicas = ready.length > 0
+    ? Math.ceil(ready.length * Math.max(1, utilization * safetyFactor))
+    : minimumReplicas;
+  const queueReplicas = queueDepth > 0
+    ? ready.length + Math.ceil(queueDepth / 10)
+    : ready.length;
   const recommendedReplicas = Math.max(
     minimumReplicas,
-    safeRpsPerRunner > 0 ? Math.ceil((demand * safetyFactor) / safeRpsPerRunner) : ready.length,
+    rpsReplicas,
+    pressureReplicas,
+    queueReplicas,
   );
+  const weightedErrorNumerator = ready.reduce(
+    (sum, runner) => sum + Math.max(0, runner.errorRate) * Math.max(0, runner.requestsPerSecond),
+    0,
+  );
+  const aggregateErrorRate = requestsPerSecond > 0
+    ? weightedErrorNumerator / requestsPerSecond
+    : maximum(ready.map((runner) => runner.errorRate));
+  const worstRunnerLatencyP95Ms = maximum(ready.map((runner) => runner.latencyP95Ms));
   return {
     readyRunners: ready.length,
     totalRunners: runners.length,
@@ -82,8 +104,9 @@ export function calculatePoolCapacity(
     inflightUtilization: round(Math.min(1, concurrency)),
     cpuUtilization: round(cpu),
     memoryUtilization: round(memory),
-    errorRate: round(maximum(ready.map((runner) => runner.errorRate))),
-    latencyP95Ms: round(maximum(ready.map((runner) => runner.latencyP95Ms))),
+    errorRate: round(aggregateErrorRate),
+    worstRunnerLatencyP95Ms: round(worstRunnerLatencyP95Ms),
+    latencyP95Ms: round(worstRunnerLatencyP95Ms),
     status,
     recommendedReplicas,
     bottleneck: utilization === 0 ? "none" : bottleneck as keyof typeof pressure,

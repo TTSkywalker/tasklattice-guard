@@ -14,9 +14,30 @@ class Store:
     def apply(self, desired_state):
         self.generation = desired_state.generation
 
+    def observability_counts(self):
+        return 0, 0, 0
+
 
 class Metrics:
-    def set_active_guardrails(self, _count, _generation):
+    def set_control_state(self, **_kwargs):
+        return None
+
+    def set_desired_generation(self, _generation):
+        return None
+
+    def observe_desired_state_apply(self, *_args, **_kwargs):
+        return None
+
+    def observe_failure(self, *_args, **_kwargs):
+        return None
+
+    def set_desired_state(self, **_kwargs):
+        return None
+
+    def observe_heartbeat_sent(self):
+        return None
+
+    def set_control_queue_depth(self, _depth):
         return None
 
     def heartbeat(self):

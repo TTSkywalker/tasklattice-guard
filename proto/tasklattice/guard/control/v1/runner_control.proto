@@ -60,8 +60,12 @@ message RunnerHeartbeat {
 }
 
 message RunnerLoad {
+  // Aggregate requests currently holding admission slots across active
+  // Guardrail runtimes. This is not the HTTP socket/in-flight count.
   int32 inflight = 1;
+  // Aggregate admission-slot capacity for the same active runtime set.
   int32 max_concurrency = 2;
+  // Requests waiting to acquire an admission slot.
   int32 queue_depth = 3;
   int64 requests_delta = 4;
   int64 errors_delta = 5;
@@ -71,6 +75,9 @@ message RunnerLoad {
   double memory_utilization = 9;
   int32 active_guardrails = 10;
   int32 compile_queue_depth = 11;
+  // Actual duration covered by the delta counters. This prevents reconnects,
+  // immediate reconciliation heartbeats, and scheduling delay from skewing RPS.
+  int64 observation_interval_ms = 12;
 }
 
 message DesiredState {

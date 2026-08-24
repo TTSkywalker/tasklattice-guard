@@ -22,6 +22,8 @@ dependencies = [
   "psutil>=7,<8",
   "redis>=6,<7",
   "prometheus-client>=0.21,<1",
+  "pyroscope-io>=1.2,<2",
+  "pyroscope-otel>=1.1,<2",
 ]
 
 [project.urls]

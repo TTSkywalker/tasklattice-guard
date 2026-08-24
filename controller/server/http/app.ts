@@ -175,13 +175,26 @@ export function createHttpApp(input: {
   });
   app.use("*", logger());
   app.use("*", secureHeaders());
+  app.use("*", async (context, next) => {
+    const started = performance.now();
+    try {
+      await next();
+    } finally {
+      input.metrics.observeHttp?.(
+        context.req.method,
+        metricSurface(context.req.path),
+        context.res.status,
+        (performance.now() - started) / 1_000,
+      );
+    }
+  });
 
   app.get("/health/live", (context) => context.json({ status: "ok", component: "guard-controller" }));
   app.get("/health/ready", async (context) => {
     const desiredGeneration = await input.service.desiredGeneration();
     return context.json({ status: "ready", component: "guard-controller", desiredGeneration });
   });
-  app.get("/metrics", async (context) => context.text(
+  app.get("/metrics", metricsAuthentication(input.config.metricsToken), async (context) => context.text(
     await input.metrics.render(input.service),
     200,
     { "content-type": input.metrics.registry.contentType },
@@ -589,9 +602,19 @@ export function createHttpApp(input: {
 
   app.post("/api/internal/v1/runtime-events", runnerAuthentication(input.config.runnerToken), async (context) => {
     const body = runtimeEventBatchInput.parse(await context.req.json());
-    await input.service.recordRuntimeEvents(body.events);
-    if (body.runnerId) await input.service.recordTelemetryWatermark(body.runnerId);
-    return context.json({ accepted: body.events.length }, 202);
+    try {
+      await input.service.recordRuntimeEvents(body.events);
+      if (body.runnerId) await input.service.recordTelemetryWatermark(body.runnerId);
+      input.metrics.observeTelemetryBatch?.(
+        "accepted", body.events.map((event) => event.occurredAt), body.events.length,
+      );
+      return context.json({ accepted: body.events.length }, 202);
+    } catch (error) {
+      input.metrics.observeTelemetryBatch?.(
+        "error", body.events.map((event) => event.occurredAt), body.events.length,
+      );
+      throw error;
+    }
   });
 
   app.notFound((context) => {
@@ -618,6 +641,15 @@ export function createHttpApp(input: {
     app.get("*", serveStatic({ root: uiRoot, path: "index.html" }));
   }
   return app;
+}
+
+function metricSurface(path: string): string {
+  if (path === "/metrics") return "metrics";
+  if (path.startsWith("/health/")) return "health";
+  if (path.startsWith("/api/internal/")) return "internal_api";
+  if (path.startsWith("/api/auth/")) return "authentication";
+  if (path.startsWith("/api/")) return "management_api";
+  return "ui";
 }
 
 function authentication(auth: ControllerAuth): MiddlewareHandler<{ Variables: Variables }> {
@@ -714,6 +746,15 @@ function runnerAuthentication(token: string): MiddlewareHandler {
   return async (context: Context, next) => {
     if (context.req.header("authorization") !== `Bearer ${token}`) {
       return context.json({ error: { code: "runner_unauthenticated", message: "Runner authentication failed." } }, 401);
+    }
+    await next();
+  };
+}
+
+function metricsAuthentication(token: string | null): MiddlewareHandler {
+  return async (context: Context, next) => {
+    if (token && context.req.header("authorization") !== `Bearer ${token}`) {
+      return context.json({ error: { code: "metrics_unauthenticated", message: "Metrics authentication failed." } }, 401);
     }
     await next();
   };

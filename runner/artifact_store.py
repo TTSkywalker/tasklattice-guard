@@ -73,6 +73,11 @@ class ArtifactStore:
         with self._lock:
             return self._generation
 
+    def observability_counts(self) -> tuple[int, int, int]:
+        """Return loaded artifact, deployment-route, and Integration counts."""
+        with self._lock:
+            return len(self._artifacts), len(self._routes), len(self._integrations)
+
     def plan(self, guardrail_id: str, version: int) -> GuardrailPlanSnapshot:
         with self._lock:
             return next(

@@ -285,6 +285,7 @@ export type RunnerLoad = {
   memoryUtilization: number;
   activeGuardrails: number;
   compileQueueDepth: number;
+  observationIntervalMs: number;
 };
 
 export const runnerInstances = pgTable("runner_instance", {

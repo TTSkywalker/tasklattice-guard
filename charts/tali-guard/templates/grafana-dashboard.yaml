@@ -1,0 +1,20 @@
+{{- if or .Values.observability.performanceDebug.enabled .Values.observability.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tali-guard.fullname" . }}-grafana-dashboard
+  labels:
+    {{- include "tali-guard.commonLabels" . | nindent 4 }}
+    {{- with .Values.observability.grafanaDashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.observability.grafanaDashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  tasklattice-guard-overview.json: |
+{{ .Files.Get "grafana/dashboards/tasklattice-guard-overview.json" | indent 4 }}
+  tasklattice-guard-troubleshooting.json: |
+{{ .Files.Get "grafana/dashboards/tasklattice-guard-troubleshooting.json" | indent 4 }}
+{{- end }}

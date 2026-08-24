@@ -193,3 +193,83 @@ traverses Controller.
 Each pool also gets a private headless governing Service for StatefulSet network
 identity. Upstream integrations continue to use only the load-balanced Runtime
 Service; the headless Service and ordinal Pod names are not public endpoints.
+
+## Prometheus and Grafana
+
+For an on-demand, full Runner performance-debug deployment, use the umbrella
+preset instead of enabling every component separately:
+
+```yaml
+observability:
+  performanceDebug:
+    enabled: true
+  tracing:
+    otlpEndpoint: http://tempo.monitoring.svc.cluster.local:4318
+  profiling:
+    serverAddress: http://pyroscope.monitoring.svc.cluster.local:4040
+    sampleRate: 100
+  serviceMonitor:
+    labels: { release: kube-prometheus-stack }
+  prometheusRule:
+    labels: { release: kube-prometheus-stack }
+```
+
+`performanceDebug.enabled=true` forces Runner tracing, continuous profiling,
+both authenticated ServiceMonitors, the PrometheusRule, and both Grafana
+dashboards on. It also overrides `observability.tracing.sampleRatio` to `1` so
+every request can be followed from a latency exemplar to Tempo and Pyroscope.
+Helm rejects the deployment if either backend address is missing.
+
+The preset intentionally does not change per-GuardRail runtime logging levels
+or enable content capture. In production it defaults to `false`. Turning it off
+returns control to the individual `tracing.enabled`, `profiling.enabled`,
+`serviceMonitor.enabled`, `prometheusRule.enabled`, and
+`grafanaDashboard.enabled` switches, so metrics/dashboards can remain enabled
+without the higher-cost full Trace/Profile path. The repository's
+`observability/tali-guard-values-local.yaml` is a complete local example.
+
+When Prometheus Operator and a Grafana dashboard sidecar are available, enable
+the bundled scrape, alert, and dashboard resources:
+
+```yaml
+observability:
+  serviceMonitor:
+    enabled: true
+    labels: { release: kube-prometheus-stack }
+  prometheusRule:
+    enabled: true
+    labels: { release: kube-prometheus-stack }
+  grafanaDashboard:
+    enabled: true
+```
+
+`observability.slo` configures per-GuardRail availability, latency, complete
+coverage, error-budget burn, and platform freshness budgets. The bundled
+`GuardRails Overview` exposes only the ordered, cascading GuardRail,
+Integration, and Runner filters. It opens with **System Overview · Global** for
+system status, Runner fleet health, Controller uptime, Runner/evidence freshness, and
+topology; that section is not narrowed by the business filters. **Traffic &
+Latency · Selected scope** follows. Its throughput panel stacks mutually
+exclusive allow, deny, transform, and technical-error checks so its height is
+completed checks/s. Its one Latency panel keeps successful-check latency
+semantics, renders P95 as the dominant line alongside P90 and P99, and lets the
+panel legend isolate a percentile without changing the rest of the dashboard.
+Availability, Protection Health, Integration SLI, and Runner Load/Health
+follow; their tables and the collapsed Diagnostics latency views use fixed
+P95. Deployment, version, phase, protocol, namespace, release, and Pool are not
+Overview filters.
+The bundled `GuardRails Troubleshooting` workbench keeps the same first three
+selectors, then adds Provider, Model, and Action drilldowns. It separates
+latency ownership, scoped technical failures, policy-trigger semantics,
+module-level protection failures, global pre-auth entry failures, traces and
+profiles, Pool/convergence state, and Runtime Evidence pipeline health.
+The chart creates a retained `security.metrics` Bearer Secret and injects it
+into Controller, every Runner, and both ServiceMonitors. Use
+`security.metrics.existingSecret` when the platform owns secret rotation.
+Roll Controller and Runner Pods after rotating that external token because it
+is injected through environment variables.
+The dashboard datasource UID is `tasklattice-prometheus`; change the Grafana
+datasource UID during import only when the installation cannot provision that
+stable UID. Full metric semantics, standalone Grafana provisioning paths, and
+the product label-cardinality budget and upstream bypass boundary are in the repository's
+`observability/README.md`.

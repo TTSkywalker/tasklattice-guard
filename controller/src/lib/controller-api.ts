@@ -161,6 +161,7 @@ export type RunnerLoad = {
   memoryUtilization: number;
   activeGuardrails: number;
   compileQueueDepth: number;
+  observationIntervalMs: number;
 };
 
 export type RunnerInstance = {
@@ -189,6 +190,7 @@ export type PoolCapacity = {
   memoryUtilization: number;
   queueDepth: number;
   errorRate: number;
+  worstRunnerLatencyP95Ms: number;
   latencyP95Ms: number;
   recommendedReplicas: number;
   headroomRps: number;

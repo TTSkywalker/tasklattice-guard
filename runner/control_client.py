@@ -40,6 +40,7 @@ class RunnerControlClient:
         self._synchronized = asyncio.Event()
         if store.generation > 0:
             self._synchronized.set()
+        self._metrics.set_control_state(connected=False, synchronized=self._synchronized.is_set())
         self._heartbeat_interval = 10
         self._sequence = 0
         self._compiler = DefaultRunnerCompiler(settings) if settings.compiler_capable else None
@@ -64,6 +65,8 @@ class RunnerControlClient:
                 raise
             except Exception:
                 self._connected.clear()
+                self._metrics.set_control_state(connected=False)
+                self._metrics.observe_control_reconnect("stream_error")
                 logger.exception("Runner control stream failed; reconnecting in %.1f seconds.", delay)
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=delay)
@@ -87,17 +90,29 @@ class RunnerControlClient:
             response_stream = stub.Connect(self._messages(self._registration()), metadata=metadata)
             async for message in response_stream:
                 self._connected.set()
-                await self._handle(message)
+                self._metrics.set_control_state(connected=True)
+                message_type = message.WhichOneof("body") or "unknown"
+                try:
+                    await self._handle(message)
+                    self._metrics.observe_control_message("received", message_type)
+                except Exception:
+                    self._metrics.observe_control_message("received", message_type, "error")
+                    raise
         finally:
             self._connected.clear()
+            self._metrics.set_control_state(connected=False)
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
             await channel.close()
 
     async def _messages(self, registration: protocol.RunnerMessage):
+        self._metrics.observe_control_message("sent", "registration")
         yield registration
         while not self._stop.is_set():
-            yield await self._outgoing.get()
+            message = await self._outgoing.get()
+            self._metrics.set_control_queue_depth(self._outgoing.qsize())
+            self._metrics.observe_control_message("sent", message.WhichOneof("body") or "unknown")
+            yield message
 
     async def _heartbeats(self) -> None:
         while not self._stop.is_set():
@@ -117,11 +132,13 @@ class RunnerControlClient:
                 load=self._metrics.heartbeat(),
             ),
         ))
+        self._metrics.observe_heartbeat_sent()
 
     async def _handle(self, message: protocol.ControllerMessage) -> None:
         body = message.WhichOneof("body")
         if body == "registration_accepted":
             self._heartbeat_interval = max(2, message.registration_accepted.heartbeat_interval_seconds)
+            self._metrics.set_desired_generation(message.registration_accepted.desired_generation)
         elif body == "desired_state":
             await self._apply_desired_state(message.desired_state)
         elif body == "compile_request":
@@ -132,11 +149,23 @@ class RunnerControlClient:
             logger.warning("Controller requested Runner drain: %s", message.drain_request.reason)
 
     async def _apply_desired_state(self, desired_state: protocol.DesiredState) -> None:
+        started = time.perf_counter()
+        self._metrics.set_desired_generation(desired_state.generation)
         try:
             await asyncio.to_thread(self._store.apply, desired_state)
-            self._metrics.set_active_guardrails(len(desired_state.artifacts), desired_state.generation)
+            artifact_count, route_count, integration_count = self._store.observability_counts()
+            self._metrics.set_desired_state(
+                generation=desired_state.generation,
+                artifacts=artifact_count,
+                routes=route_count,
+                integrations=integration_count,
+            )
             self._synchronized.set()
+            self._metrics.set_control_state(synchronized=True)
+            self._metrics.observe_desired_state_apply("success", time.perf_counter() - started)
         except Exception as error:
+            self._metrics.observe_desired_state_apply("rejected", time.perf_counter() - started)
+            self._metrics.observe_failure("desired_state", "verification_or_prewarm")
             logger.exception("Rejected desired generation %d.", desired_state.generation)
             for artifact in desired_state.artifacts:
                 await self._artifact_result(artifact, desired_state.generation, False, str(error))
@@ -152,7 +181,7 @@ class RunnerControlClient:
     async def _compile(self, request: protocol.CompileRequest) -> None:
         if self._compiler is None:
             return
-        self._metrics.compiling(True)
+        self._metrics.job("compile", True)
         try:
             artifact = await asyncio.to_thread(self._compiler.compile, request)
             result = protocol.CompileResult(
@@ -175,7 +204,7 @@ class RunnerControlClient:
                 ),
             )
         finally:
-            self._metrics.compiling(False)
+            self._metrics.job("compile", False)
         await self._send(protocol.RunnerMessage(
             message_id=str(uuid.uuid4()), sent_at_unix_ms=_now_ms(), compile_result=result,
         ))
@@ -183,7 +212,7 @@ class RunnerControlClient:
     async def _validate(self, request: protocol.ValidationRequest) -> None:
         if self._validator is None:
             return
-        self._metrics.compiling(True)
+        self._metrics.job("validation", True)
         try:
             status, metrics, results = await self._validator.validate(request)
             result = protocol.ValidationResult(
@@ -204,7 +233,7 @@ class RunnerControlClient:
                 status="failed",
             )
         finally:
-            self._metrics.compiling(False)
+            self._metrics.job("validation", False)
         await self._send(protocol.RunnerMessage(
             message_id=str(uuid.uuid4()), sent_at_unix_ms=_now_ms(), validation_result=result,
         ))
@@ -223,6 +252,7 @@ class RunnerControlClient:
 
     async def _send(self, message: protocol.RunnerMessage) -> None:
         await self._outgoing.put(message)
+        self._metrics.set_control_queue_depth(self._outgoing.qsize())
 
     def _registration(self) -> protocol.RunnerMessage:
         return protocol.RunnerMessage(

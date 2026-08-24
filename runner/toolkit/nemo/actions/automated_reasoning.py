@@ -15,7 +15,8 @@ from ...runtime.contracts import (
     AutomatedReasoningTranslation,
     RiskFinding,
 )
-from .contracts import ActionRequest, ActionResult, action_result, action_view
+from .contracts import ActionRequest, ActionResult, ActionUsage, action_result, action_view
+from .model_call import action_usage, observe_model_call
 from .names import ACTION_AUTOMATED_REASONING
 
 
@@ -39,7 +40,7 @@ class AutomatedReasoningProvider(Protocol):
         policy: AutomatedReasoningPolicySnapshot,
         query_content: str,
         guard_content: str,
-    ) -> tuple[AutomatedReasoningFinding, ...]: ...
+    ) -> tuple[tuple[AutomatedReasoningFinding, ...], ActionUsage]: ...
 
 
 class HTTPAutomatedReasoningProvider:
@@ -64,29 +65,53 @@ class HTTPAutomatedReasoningProvider:
         policy: AutomatedReasoningPolicySnapshot,
         query_content: str,
         guard_content: str,
-    ) -> tuple[AutomatedReasoningFinding, ...]:
+    ) -> tuple[tuple[AutomatedReasoningFinding, ...], ActionUsage]:
         credential = os.environ.get(self._api_key_env_var, "").strip()
         if not credential:
             raise RuntimeError("Automated Reasoning provider credential is not configured.")
-        async with httpx.AsyncClient(
-            timeout=self._timeout_seconds,
-            transport=self._transport,
-        ) as client:
-            response = await client.post(
-                self._endpoint_url,
-                headers={"authorization": f"Bearer {credential}"},
-                json={
-                    "policy": {
-                        "id": policy.policy_id,
-                        "version": policy.policy_version,
+        raise RuntimeError(
+            "HTTPAutomatedReasoningProvider.evaluate requires ActionRequest context."
+        )
+
+    async def evaluate_action(
+        self,
+        request: ActionRequest,
+        *,
+        policy: AutomatedReasoningPolicySnapshot,
+        query_content: str,
+        guard_content: str,
+    ) -> tuple[tuple[AutomatedReasoningFinding, ...], ActionUsage]:
+        credential = os.environ.get(self._api_key_env_var, "").strip()
+        if not credential:
+            raise RuntimeError("Automated Reasoning provider credential is not configured.")
+        with observe_model_call(
+            request,
+            provider="automated_reasoning",
+            model="formal_reasoning",
+            operation="policy_proof",
+        ) as call:
+            async with httpx.AsyncClient(
+                timeout=self._timeout_seconds,
+                transport=self._transport,
+            ) as client:
+                response = await client.post(
+                    self._endpoint_url,
+                    headers={"authorization": f"Bearer {credential}"},
+                    json={
+                        "policy": {
+                            "id": policy.policy_id,
+                            "version": policy.policy_version,
+                        },
+                        "query_content": query_content,
+                        "guard_content": guard_content,
+                        "confidence_threshold": policy.confidence_threshold,
                     },
-                    "query_content": query_content,
-                    "guard_content": guard_content,
-                    "confidence_threshold": policy.confidence_threshold,
-                },
-            )
-            response.raise_for_status()
-            return parse_reasoning_findings(response.json())
+                )
+                response.raise_for_status()
+                payload = response.json()
+                findings = parse_reasoning_findings(payload)
+                call.complete(payload=payload)
+        return findings, action_usage(call, len(query_content) + len(guard_content))
 
 
 class ReasoningActionProvider:
@@ -136,11 +161,20 @@ class ReasoningActionProvider:
             block.text for block in view.blocks if "query" in block.qualifiers
         )
         try:
-            findings = await self._provider.evaluate(
-                policy=policy,
-                query_content=query_content,
-                guard_content=request.content,
-            )
+            evaluate_action = getattr(self._provider, "evaluate_action", None)
+            if evaluate_action is not None:
+                findings, usage = await evaluate_action(
+                    request,
+                    policy=policy,
+                    query_content=query_content,
+                    guard_content=request.content,
+                )
+            else:
+                findings, usage = await self._provider.evaluate(
+                    policy=policy,
+                    query_content=query_content,
+                    guard_content=request.content,
+                )
         except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError) as error:
             return action_result(request,
                 "error",
@@ -178,6 +212,7 @@ class ReasoningActionProvider:
                 else ()
             ),
             reason=message,
+            usage=usage,
         )
 
 
