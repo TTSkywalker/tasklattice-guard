@@ -194,6 +194,9 @@ artifact signing, and control-channel mTLS with:
 make helm-install
 ```
 
+Use `make helm-install-debug` for the same OrbStack deployment with the
+`values-debug.yaml` overlay and all performance diagnostics enabled.
+
 If `.env` contains `DEEPSEEK_API_KEY` and/or `NVAPI_API_KEY`, the same command
 securely connects the Controller authoring model and the Runner NVIDIA Content
 Safety, Topic Control, and Jailbreak model evaluators. All three Runner models

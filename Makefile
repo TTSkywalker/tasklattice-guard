@@ -6,6 +6,7 @@ RUNNER_IMAGE ?= $(RUNNER_REPOSITORY):dev
 HELM_CHART := charts/tali-guard
 HELM_DEV_VALUES := $(HELM_CHART)/values-dev.yaml
 HELM_DEBUG_VALUES := $(HELM_CHART)/values-debug.yaml
+HELM_VALUES_ARGS ?= --values $(HELM_DEV_VALUES)
 HELM_RELEASE ?= tali-guard
 HELM_NAMESPACE ?= tali
 HELM_CONTEXT ?= orbstack
@@ -24,7 +25,7 @@ NVIDIA_GROUNDING_MODEL ?=
 HELM_REQUIRED_VALUES := --set database.url=postgresql://guard:guard@postgres:5432/guard --set security.artifactSigning.existingSecret=guard-artifact-signing --set security.controlTls.existingSecret=guard-control-tls --set security.bootstrapAdmin.existingSecret=guard-bootstrap-admin --set runner.callContextRedisUrl=redis://redis:6379/0
 
 .PHONY: sync test controller-dev controller-build controller-run runner-run images \
-	helm-lint helm-template helm-install helm-status helm-test helm-uninstall
+	helm-lint helm-template helm-install helm-install-debug helm-status helm-test helm-uninstall
 
 sync:
 	uv sync --all-extras --frozen
@@ -143,7 +144,7 @@ helm-install: images
 			--kube-context $(HELM_CONTEXT) \
 			--namespace $(HELM_NAMESPACE) \
 			--create-namespace \
-			--values $(HELM_DEV_VALUES) \
+			$(HELM_VALUES_ARGS) \
 			--set controller.image.repository=$(CONTROLLER_REPOSITORY) \
 			--set-string controller.image.tag=dev \
 			--set runner.image.repository=$(RUNNER_REPOSITORY) \
@@ -152,6 +153,11 @@ helm-install: images
 			$$helm_args \
 			--server-side=false \
 			--timeout $(HELM_TIMEOUT)
+
+# Reuses the self-contained development environment and adds full tracing,
+# profiling, Prometheus rules, and Grafana dashboards as an orthogonal overlay.
+helm-install-debug:
+	$(MAKE) helm-install HELM_VALUES_ARGS="--values $(HELM_DEV_VALUES) --values $(HELM_DEBUG_VALUES)"
 
 helm-status:
 	helm status $(HELM_RELEASE) --kube-context $(HELM_CONTEXT) --namespace $(HELM_NAMESPACE)

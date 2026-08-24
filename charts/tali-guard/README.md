@@ -55,6 +55,17 @@ whole Guard release on the `orbstack` context:
 make helm-install
 ```
 
+To deploy the same local environment with every performance-debug feature
+enabled, use the Debug overlay entry point:
+
+```bash
+make helm-install-debug
+```
+
+This is equivalent to applying `values-dev.yaml` followed by
+`values-debug.yaml`; it preserves the separation between local infrastructure
+and temporary observability overhead.
+
 When the repository `.env` contains `DEEPSEEK_API_KEY` and/or `NVAPI_API_KEY`,
 this target also creates or updates the `tali-guard-provider-keys` Secret.
 DeepSeek is connected to Controller's authoring-only policy analyst. NVIDIA
