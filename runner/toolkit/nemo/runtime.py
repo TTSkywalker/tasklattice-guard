@@ -52,7 +52,7 @@ from .action_registry import (
     ActionProviders,
 )
 from ..evaluation.contracts import CONTRACT_PII_EXACT
-from .actions.contracts import ActionRequest, ActionResult, ModelCallUsage
+from .actions.contracts import ActionRequest, ActionResult, ActionUsage, ModelCallUsage
 from .actions.model_call import (
     ModelCallObserver,
     activate_native_model_observation,
@@ -735,6 +735,7 @@ class NeMoActionBridge:
             ),
             "latency_ms": latency_ms,
             "provider_latency_ms": runtime_result.provider_latency_ms,
+            "model_calls": [asdict(item) for item in result.usage.model_calls],
             "input_text": before,
         }
 
@@ -756,7 +757,8 @@ class NeMoRuntime:
 
     async def evaluate(self, request: EngineRequest) -> ProtectionDecision:
         instance, cache_hit, registry_queue_latency_ms = self._registry.acquire(
-            request.plan
+            request.plan,
+            **({"release_id": request.effective_release_id} if request.effective_release_id else {}),
         )
         profile = instance.config.runtime_profile
         started = time.perf_counter()
@@ -1206,6 +1208,10 @@ def _colang1_runtime_result(
     provider_latency_ms = _non_negative_int(
         payload.get("provider_latency_ms", latency_ms)
     )
+    model_calls_raw = payload.get("model_calls", [])
+    if not isinstance(model_calls_raw, list):
+        raise RuntimeError(f"NeMo Action {binding.id!r} returned invalid model-call evidence.")
+    model_calls = tuple(_model_call_usage_from_payload(binding, item) for item in model_calls_raw)
     return _RuntimeResult(
         binding=binding,
         result=ActionResult(
@@ -1217,10 +1223,52 @@ def _colang1_runtime_result(
                 if payload.get("reason") is not None
                 else None
             ),
+            usage=ActionUsage(
+                provider_latency_ms=provider_latency_ms,
+                model_invocations=len(model_calls),
+                input_characters=len(str(payload.get("input_text", content))),
+                model_calls=model_calls,
+            ),
         ),
         latency_ms=latency_ms,
         provider_latency_ms=provider_latency_ms,
         input_text=str(payload.get("input_text", content)),
+    )
+
+
+def _model_call_usage_from_payload(
+    binding: NeMoActionBinding,
+    payload: Any,
+) -> ModelCallUsage:
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"NeMo Action {binding.id!r} returned invalid model-call evidence.")
+    required = (payload.get("provider"), payload.get("model"), payload.get("operation"), payload.get("result"))
+    if not all(isinstance(value, str) and value for value in required):
+        raise RuntimeError(f"NeMo Action {binding.id!r} returned incomplete model-call evidence.")
+    if required[3] not in {
+        "success", "timeout", "rate_limited", "client_error", "server_error",
+        "transport_error", "invalid_response", "configuration_error", "unknown_error",
+    }:
+        raise RuntimeError(f"NeMo Action {binding.id!r} returned an invalid model-call result.")
+    return ModelCallUsage(
+        provider=required[0],
+        model=required[1],
+        operation=required[2],
+        result=required[3],  # type: ignore[arg-type]
+        duration_ms=_non_negative_int(payload.get("duration_ms", 0)),
+        profile_ref=(str(payload["profile_ref"]) if payload.get("profile_ref") is not None else None),
+        runtime_ref=(str(payload["runtime_ref"]) if payload.get("runtime_ref") is not None else None),
+        started_offset_ms=_non_negative_int(payload.get("started_offset_ms", 0)),
+        finished_offset_ms=_non_negative_int(payload.get("finished_offset_ms", 0)),
+        time_to_first_token_ms=(
+            _non_negative_int(payload["time_to_first_token_ms"])
+            if payload.get("time_to_first_token_ms") is not None else None
+        ),
+        input_tokens=_non_negative_int(payload.get("input_tokens", 0)),
+        output_tokens=_non_negative_int(payload.get("output_tokens", 0)),
+        retries=_non_negative_int(payload.get("retries", 0)),
+        backoff_ms=_non_negative_int(payload.get("backoff_ms", 0)),
+        error_type=str(payload.get("error_type", "none")),
     )
 
 
@@ -2125,9 +2173,22 @@ def _binding_policy_rule_identity(
     if binding.policy_id is not None:
         rail = _policy_rail_binding(plan, binding, phase)
         flow_name = binding.flow_name or (rail.flow_name if rail is not None else None)
+        selected = next((
+            item for item in plan.policy_bindings
+            if item.policy_id == binding.policy_id
+            and item.policy_version == binding.policy_version
+            and phase in item.enabled_rails
+        ), None)
+        rule_id = (
+            flow_rule_id(phase, flow_name)
+            if flow_name is not None
+            else selected.enabled_rule_ids[0]
+            if selected is not None and len(selected.enabled_rule_ids) == 1
+            else None
+        )
         return (
             binding.policy_id,
-            flow_rule_id(phase, flow_name) if flow_name is not None else None,
+            rule_id,
         )
     native = _native_policy_rail(plan, binding.capability, phase)
     if native is None:

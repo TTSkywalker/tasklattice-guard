@@ -79,7 +79,7 @@ describe("Controller Guardrail plan", () => {
     expect(plan).toMatchObject({
       guardrail_id: "guardrail-1",
       guardrail_version: "20260904-030000.003Z",
-      compiler_version: "tasklattice-controller-plan-v5-rule-order",
+      compiler_version: "tasklattice-controller-plan-v6-topic-allowlist",
       safety_level: "strict",
     });
     expect(plan.steps).toEqual(expect.arrayContaining([
@@ -343,6 +343,31 @@ describe("Controller Guardrail plan", () => {
     ]);
     binding.enabledRuleIds = ["flow/output/check_output"];
     expect(build().steps).toEqual([expect.objectContaining({ phases: ["output"], on_unsafe: "redact" })]);
+  });
+
+  it("compiles Topic Control as a strict allowlist and rejects an empty allowlist", () => {
+    const draft = {
+      purposeDetails: { audience: "Support", tasks: "Answer order questions", protect: "Account data", outOfScope: "Everything else" },
+      allowedTopics: ["Order status", "Returns"],
+      restrictedTopics: ["legacy deny-list value"],
+      safetyLevel: "balanced" as const,
+      outputDelivery: "full_buffered" as const,
+      policyBindings: [nativeBinding("builtin-topic-safety")],
+    };
+    const plan = buildGuardrailPlan({
+      guardrailId: "topic-allowlist",
+      guardrailVersion: "20260905-010000.001Z",
+      purpose: "Customer support",
+      draft,
+    });
+    const parameters = Object.fromEntries((plan.steps as Array<{ parameters: Array<[string, string]> }>)[0]!.parameters);
+    expect(plan).toMatchObject({ topic_control_mode: "allowlist" });
+    expect(parameters).toMatchObject({ topic_mode: "allowlist", allowed_topics: "Order status\nReturns" });
+    expect(parameters).not.toHaveProperty("restricted_topics");
+
+    draft.allowedTopics = [];
+    expect(() => buildGuardrailPlan({ guardrailId: "topic-allowlist", guardrailVersion: "20260905-010000.001Z", draft }))
+      .toThrow(/requires at least one allowed topic/i);
   });
 });
 

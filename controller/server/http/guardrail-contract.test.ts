@@ -1,0 +1,83 @@
+// @vitest-environment node
+import { resolve } from "node:path";
+
+import { describe, expect, it, vi } from "vitest";
+
+import type { ControllerAuth } from "../auth.js";
+import { loadConfig } from "../config.js";
+import type { RunnerControlServer } from "../control-channel/control-server.js";
+import type { ControllerMetrics } from "../metrics.js";
+import type { ControlPlaneService } from "../services/control-plane.js";
+import { createHttpApp } from "./app.js";
+
+const config = loadConfig({
+  NODE_ENV: "test",
+  CONTROLLER_DATABASE_URL: "postgresql://controller:controller@localhost/controller",
+  CONTROLLER_RUNNER_TOKEN: "runner-token-that-is-at-least-32-characters",
+  CONTROLLER_ARTIFACT_SIGNING_KEY_PATH: "/tmp/controller-signing-key.pem",
+  CONTROLLER_POLICY_CATALOG_DIR: resolve("../runner/toolkit/policy_library/assets"),
+  BETTER_AUTH_SECRET: "better-auth-secret-that-is-at-least-32-characters",
+});
+
+const draftConfig = {
+  purposeDetails: { audience: "Support", tasks: "Orders", protect: "Accounts", outOfScope: "Everything else" },
+  allowedTopics: ["Order status"],
+  restrictedTopics: [],
+  policyBindings: [{
+    policyId: "builtin-topic-safety",
+    policyVersion: "1.0.0",
+    action: "redirect",
+    parameterValues: {},
+    enabledRuleIds: ["model/topic-control"],
+    ruleActions: {},
+    enabledRails: ["input"],
+    reasoningPolicy: null,
+  }],
+  safetyLevel: "balanced",
+  outputDelivery: "full_buffered",
+};
+
+describe("Guardrail HTTP contract", () => {
+  it("requires Business purpose when a Guardrail is created", async () => {
+    const createGuardrail = vi.fn();
+    const response = await appWith(createGuardrail).request("/api/v1/guardrails", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Support", draftConfig, runtimeProfile: "auto" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(createGuardrail).not.toHaveBeenCalled();
+  });
+
+  it("rejects the retired restricted-topic contract", async () => {
+    const createGuardrail = vi.fn();
+    const response = await appWith(createGuardrail).request("/api/v1/guardrails", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Support",
+        description: "Support account operations.",
+        draftConfig: { ...draftConfig, restrictedTopics: ["Medical advice"] },
+        runtimeProfile: "auto",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(createGuardrail).not.toHaveBeenCalled();
+  });
+});
+
+function appWith(createGuardrail: ReturnType<typeof vi.fn>) {
+  const auth = {
+    api: { getSession: vi.fn().mockResolvedValue({ user: { id: "admin-1", role: "admin" } }) },
+    handler: vi.fn(),
+  } as unknown as ControllerAuth;
+  return createHttpApp({
+    config,
+    auth,
+    service: { createGuardrail } as unknown as ControlPlaneService,
+    runnerControl: {} as RunnerControlServer,
+    metrics: {} as ControllerMetrics,
+  });
+}

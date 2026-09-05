@@ -32,6 +32,7 @@ from runner.toolkit.safety.providers import (
     ModelCompletionResponse,
     OpenAIChatModelClient,
 )
+from tests.capability_binding import capability_binding
 
 
 @pytest.fixture
@@ -107,8 +108,8 @@ async def test_jailbreak_detect_revision_uses_scoped_tls_and_protobuf_without_ch
             if runtime.id == "chat-jailbreak":
                 runtime.model = "nvidia/nemoguard-jailbreak-detect"
                 runtime.profile_ref = "tali.nemoguard-jailbreak-detect.v1"
-        for binding in configuration.assignments:
-            if binding.detector_type == "jailbreak_detection":
+        for binding in configuration.bindings:
+            if binding.binding_id == "jailbreak.input":
                 binding.profile_ref = "tali.nemoguard-jailbreak-detect.v1"
         configuration = protocol.DataPlaneModelConfiguration.FromString(configuration.SerializeToString())
         providers = action_providers(*dynamic_runtime_action_providers(
@@ -153,25 +154,25 @@ def test_controller_model_revision_builds_a_complete_dynamic_provider_registry()
         ),
     ]
     assignments = [
-        protocol.ModelAssignment(
+        capability_binding(
             detector_type="content_safety", model_ref="safety",
             profile_ref="tali.nemotron-safety-guard-v3.v1",
             contract_refs=["tali.guard.content-safety.v1"],
         ),
-        protocol.ModelAssignment(
+        capability_binding(
             detector_type="jailbreak_detection", model_ref="jailbreak",
             profile_ref="tali.openai-compatible-jailbreak.v1",
             contract_refs=["tali.guard.jailbreak.v1"],
         ),
-        protocol.ModelAssignment(
+        capability_binding(
             detector_type="topic_control", model_ref="topic", profile_ref="tali.nemoguard-topic-control.v1",
             contract_refs=["tali.guard.topic-control.semantic.v1"],
         ),
-        protocol.ModelAssignment(
+        capability_binding(
             detector_type="contextual_grounding", model_ref="grounding", profile_ref="tali.grounding-judge.v1",
             contract_refs=["tali.guard.contextual-grounding.v1"],
         ),
-        protocol.ModelAssignment(
+        capability_binding(
             detector_type="automated_reasoning", model_ref="reasoning", profile_ref="tali.automated-reasoning.v1",
             contract_refs=["tali.guard.automated-reasoning.v1"],
         ),
@@ -180,7 +181,7 @@ def test_controller_model_revision_builds_a_complete_dynamic_provider_registry()
     providers = action_providers(*dynamic_runtime_action_providers(
         protocol.DataPlaneModelConfiguration(
             revision_id="revision-1", revision=1,
-            runtimes=runtimes, assignments=assignments,
+            runtimes=runtimes, bindings=assignments,
         ),
         {"provider-1": "leased-secret"},
     ))
@@ -313,7 +314,7 @@ async def test_dynamic_safety_model_executes_with_a_mock_client_and_leased_crede
             timeout_seconds=20,
             max_tokens=128,
         )],
-        assignments=[protocol.ModelAssignment(
+        bindings=[capability_binding(
             detector_type="content_safety",
             model_ref="safety",
             profile_ref="tali.qwen3guard.v1",
@@ -367,13 +368,13 @@ async def test_dedicated_jailbreak_slot_overrides_a_bundled_guard_contract(
                 timeout_seconds=20, max_tokens=32,
             ),
         ],
-        assignments=[
-            protocol.ModelAssignment(
+        bindings=[
+            capability_binding(
                 detector_type="content_safety", model_ref="qwen",
                 profile_ref="tali.qwen3guard.v1",
                 contract_refs=[CONTRACT_CONTENT_SAFETY, CONTRACT_JAILBREAK],
             ),
-            protocol.ModelAssignment(
+            capability_binding(
                 detector_type="jailbreak_detection", model_ref="chat-jailbreak",
                 profile_ref="tali.openai-compatible-jailbreak.v1",
                 contract_refs=[CONTRACT_JAILBREAK],
@@ -408,7 +409,7 @@ def test_runner_rejects_a_profile_that_does_not_implement_the_assigned_contract(
             timeout_seconds=20,
             max_tokens=128,
         )],
-        assignments=[protocol.ModelAssignment(
+        bindings=[capability_binding(
             detector_type="content_safety",
             model_ref="llama",
             profile_ref="tali.llama-guard-3.v1",
@@ -456,14 +457,14 @@ def _split_guard_configuration() -> protocol.DataPlaneModelConfiguration:
                 max_tokens=32,
             ),
         ],
-        assignments=[
-            protocol.ModelAssignment(
+        bindings=[
+            capability_binding(
                 detector_type="content_safety",
                 model_ref="nvidia-safety",
                 profile_ref="tali.nemotron-safety-guard-v3.v1",
                 contract_refs=[CONTRACT_CONTENT_SAFETY],
             ),
-            protocol.ModelAssignment(
+            capability_binding(
                 detector_type="topic_control",
                 model_ref="nvidia-topic",
                 profile_ref="tali.nemoguard-topic-control.v1",
@@ -472,7 +473,7 @@ def _split_guard_configuration() -> protocol.DataPlaneModelConfiguration:
                     "tali.guard.company-policy.v1",
                 ],
             ),
-            protocol.ModelAssignment(
+            capability_binding(
                 detector_type="jailbreak_detection",
                 model_ref="chat-jailbreak",
                 profile_ref="tali.openai-compatible-jailbreak.v1",
@@ -495,7 +496,7 @@ def _qwen3guard_configuration() -> protocol.DataPlaneModelConfiguration:
             timeout_seconds=20,
             max_tokens=128,
         )],
-        assignments=[protocol.ModelAssignment(
+        bindings=[capability_binding(
             detector_type="content_safety",
             model_ref="qwen3guard",
             profile_ref="tali.qwen3guard.v1",

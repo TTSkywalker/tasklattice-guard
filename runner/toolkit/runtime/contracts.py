@@ -637,6 +637,8 @@ class ProtectionDecision:
     usage: RuntimeUsage | None = None
     mode: EnforcementMode = "enforce"
     content_results: tuple[ContentBlockResult, ...] = ()
+    effective_release_id: str | None = None
+    model_revision_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -645,6 +647,8 @@ class PlanResolution:
     deployment_id: str
     integration_id: str | None = None
     trace: tuple[RuntimeTraceStep, ...] = ()
+    effective_release_id: str | None = None
+    model_revision_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -660,6 +664,7 @@ class EngineRequest:
     content_view: ContentViewSnapshot | None = None
     active_block_id: str | None = None
     request_context: RequestContext | None = None
+    effective_release_id: str | None = None
 
 
 class NeMoPolicyRuntime(Protocol):

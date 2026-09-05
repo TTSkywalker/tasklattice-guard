@@ -66,6 +66,7 @@ class EvaluatorBindingConfig:
     profile_ref: str
     model_ref: str
     priority: int = 100
+    rail_type: Literal["input", "output"] | None = None
 
     def __post_init__(self) -> None:
         if not all(
@@ -73,6 +74,8 @@ class EvaluatorBindingConfig:
             for value in (self.id, self.contract_ref, self.profile_ref, self.model_ref)
         ):
             raise ValueError("Evaluator Binding fields cannot be empty.")
+        if self.rail_type not in {None, "input", "output"}:
+            raise ValueError("Evaluator Binding rail_type must be input or output.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +170,7 @@ class SafetyModelProviderConfig:
     runtime_ref: str = ""
     skip_tls_verify: bool = False
     transport: ModelTransport = "openai_chat"
+    rail_types: frozenset[Literal["input", "output"]] = frozenset({"input", "output"})
 
     def __post_init__(self) -> None:
         if not self.id.strip() or not self.model.strip():
@@ -188,6 +192,8 @@ class SafetyModelProviderConfig:
             "nemoguard_jailbreak_detect",
         } and self.role != "guard":
             raise ValueError("Native Guard adapters require the guard role.")
+        if not self.rail_types or not self.rail_types.issubset({"input", "output"}):
+            raise ValueError("Safety Provider rail_types must contain input and/or output.")
         if not self.base_url.strip():
             raise ValueError(f"Safety Provider {self.id!r} base_url cannot be empty.")
         if self.timeout_seconds <= 0 or self.max_tokens <= 0:
@@ -431,6 +437,15 @@ class NemotronContentSafetyAdapter:
     )
     _CATEGORIES = re.compile(r"Safety\s+Categories\s*:\s*([^\r\n]+)", re.IGNORECASE)
 
+    def parse_scoped(self, content, payload, config, candidate_taxonomy_ids, *, scope):
+        label = "User" if scope == "input" else "Response"
+        selected = re.search(rf"{label}\s+Safety\s*:\s*(safe|unsafe|needs\s+caution)", content, re.IGNORECASE)
+        if selected is None:
+            raise ValueError(f"Nemotron Content Safety did not return {label} Safety.")
+        categories = self._CATEGORIES.search(content)
+        scoped = selected.group(0) + ("\n" + categories.group(0) if categories else "")
+        return self.parse(scoped, payload, config, candidate_taxonomy_ids)
+
     def messages(
         self,
         messages: tuple[dict[str, str], ...],
@@ -468,33 +483,6 @@ class NemotronContentSafetyAdapter:
         return _native_assessment(config, verdict, categories, content, payload)
 
 
-_NEMOTRON_SAFETY_CATEGORIES = "\n".join((
-    "S1: Violence.",
-    "S2: Sexual.",
-    "S3: Criminal Planning/Confessions.",
-    "S4: Guns and Illegal Weapons.",
-    "S5: Controlled/Regulated Substances.",
-    "S6: Suicide and Self Harm.",
-    "S7: Sexual (minor).",
-    "S8: Hate/Identity Hate.",
-    "S9: PII/Privacy.",
-    "S10: Harassment.",
-    "S11: Threat.",
-    "S12: Profanity.",
-    "S13: Needs Caution.",
-    "S14: Other.",
-    "S15: Manipulation.",
-    "S16: Fraud/Deception.",
-    "S17: Malware.",
-    "S18: High Risk Gov Decision Making.",
-    "S19: Political/Misinformation/Conspiracy.",
-    "S20: Copyright/Trademark/Plagiarism.",
-    "S21: Unauthorized Advice.",
-    "S22: Illegal Activity.",
-    "S23: Immoral/Unethical.",
-))
-
-
 class NemotronSafetyGuardV3Adapter:
     """NVIDIA Safety Guard v3 prompt and JSON response protocol."""
 
@@ -509,31 +497,20 @@ class NemotronSafetyGuardV3Adapter:
         candidate_taxonomy_ids: tuple[str, ...],
     ) -> tuple[dict[str, str], ...]:
         del candidate_taxonomy_ids
-        target_role = "user" if scope == "input" else "assistant"
-        target = next(
-            (
-                str(item.get("content", ""))
-                for item in reversed(messages)
-                if item.get("role") == target_role
-            ),
-            "",
+        from jinja2 import Environment, StrictUndefined
+        import yaml
+        from ..nemo.builtin_policies import prompt_catalog_yaml
+
+        task = f"content_safety_check_{scope} $model=content_safety"
+        prompt = next(item["content"] for item in yaml.safe_load(prompt_catalog_yaml())["prompts"] if item["task"] == task)
+        latest = lambda role: next((str(item.get("content", "")) for item in reversed(messages) if item.get("role") == role), "")
+        rendered = Environment(undefined=StrictUndefined, autoescape=False).from_string(prompt).render(
+            user_input=latest("user"), bot_response=latest("assistant"),
         )
-        return ({
-            "role": "user",
-            "content": "\n".join((
-                "Task: Check if there is unsafe content in the user message in accordance with our safety policy with the below categories.",
-                "<BEGIN UNSAFE CONTENT CATEGORIES>",
-                _NEMOTRON_SAFETY_CATEGORIES,
-                "<END UNSAFE CONTENT CATEGORIES>",
-                "<BEGIN CONVERSATION>",
-                f"user: {target}",
-                "<END CONVERSATION>",
-                "Provide your safety assessment in the below output JSON format:",
-                '{"User Safety": "safe" or "unsafe", "Safety Categories": "comma-separated applicable categories; omit when safe"}',
-                "Do not include anything other than the output JSON in your response.",
-                "Output JSON:",
-            )),
-        },)
+        return ({"role": "user", "content": rendered},)
+
+    def parse_scoped(self, content, payload, config, candidate_taxonomy_ids, *, scope):
+        return self.parse(content, payload, config, candidate_taxonomy_ids, scope=scope)
 
     def parse(
         self,
@@ -541,15 +518,17 @@ class NemotronSafetyGuardV3Adapter:
         payload: dict[str, Any] | None,
         config: SafetyModelProviderConfig,
         candidate_taxonomy_ids: tuple[str, ...],
+        *, scope: Literal["input", "output"] = "input",
     ) -> NativeSafetyAssessment:
         del candidate_taxonomy_ids
         cleaned = _strip_json_fence(content)
         decoded = json.loads(cleaned)
         if not isinstance(decoded, dict):
             raise TypeError("Nemotron Safety Guard v3 response must be a JSON object.")
-        verdict = str(decoded.get("User Safety", "")).strip().casefold()
+        label = "User Safety" if scope == "input" else "Response Safety"
+        verdict = str(decoded.get(label, "")).strip().casefold()
         if verdict not in {"safe", "unsafe"}:
-            raise ValueError("Nemotron Safety Guard v3 returned an invalid User Safety value.")
+            raise ValueError(f"Nemotron Safety Guard v3 returned an invalid {label} value.")
         raw_categories = decoded.get("Safety Categories", "")
         if raw_categories is None:
             raw_categories = ""
@@ -813,6 +792,9 @@ class ConfiguredSafetyModelProvider:
             max_tokens=self.config.max_tokens,
             skip_tls_verify=self.config.skip_tls_verify,
         ))
+        parser = getattr(self.adapter, "parse_scoped", None)
+        if parser is not None:
+            return parser(response.content, response.payload, self.config, candidate_taxonomy_ids, scope=scope)
         return self.adapter.parse(
             response.content,
             response.payload,
@@ -922,6 +904,11 @@ def resolve_evaluator_model_providers(
             runtime_ref=binding.model_ref,
             skip_tls_verify=runtime.skip_tls_verify,
             transport=profile.transport,
+            rail_types=(
+                frozenset({binding.rail_type})
+                if binding.rail_type is not None
+                else frozenset({"input", "output"})
+            ),
         ))
     return tuple(sorted(resolved, key=lambda item: (item.priority, item.id)))
 

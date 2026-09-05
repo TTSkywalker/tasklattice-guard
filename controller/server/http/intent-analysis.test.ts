@@ -29,7 +29,6 @@ const analysis = {
     out_of_scope: "Medical or chemical-process advice",
   },
   allowed_topics: ["Financial analysis", "Financial reporting"],
-  restricted_topics: ["Medical advice", "Chemical process instructions"],
   review_notes: [],
 };
 
@@ -132,7 +131,6 @@ function fakeAnalyzer(): IntentAnalyzer {
     analyzeDocuments: vi.fn().mockResolvedValue({
       summary: "Privacy requirements.",
       allowed_topics: [],
-      restricted_topics: [],
       requirements: [{
         title: "Redact identifiers",
         description: "Identifiers must be redacted.",

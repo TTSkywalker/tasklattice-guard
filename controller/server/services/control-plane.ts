@@ -481,6 +481,11 @@ export class ControlPlaneService {
       if (!existing) throw new NotFoundError("Guardrail", input.id);
       const draftConfig = input.draftConfig ? normalizeGuardrailDraft(input.draftConfig) : normalizeGuardrailDraft(existing.draftConfig);
       const description = input.description ?? existing.description;
+      const existingDraft = normalizeGuardrailDraft(existing.draftConfig);
+      assertGuardrailBusinessPurposeImmutable(
+        { description: existing.description, purposeDetails: existingDraft.purposeDetails },
+        { description, purposeDetails: draftConfig.purposeDetails },
+      );
       await this.validateGuardrailDraft(description, draftConfig);
       const draftChanged = input.draftConfig !== undefined || input.description !== undefined;
       const nextExcluded = draftChanged ? await this.syncGeneratedTestCases(tx, input.id, draftConfig, existing.excludedTestCaseIds) : existing.excludedTestCaseIds;
@@ -2841,6 +2846,18 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+export function assertGuardrailBusinessPurposeImmutable(
+  current: { description: string; purposeDetails: GuardrailDraftConfig["purposeDetails"] },
+  next: { description: string; purposeDetails: GuardrailDraftConfig["purposeDetails"] },
+): void {
+  if (next.description !== current.description || stableJson(next.purposeDetails) !== stableJson(current.purposeDetails)) {
+    throw new ConflictError(
+      "Business purpose is fixed when a Guardrail is created. Create a new Guardrail to use a different purpose.",
+      "guardrail_business_purpose_immutable",
+    );
+  }
+}
+
 function ratio(numerator: number, denominator: number): number {
   return denominator > 0 ? numerator / denominator : 0;
 }
@@ -2882,6 +2899,7 @@ export function integrationSetup(runtimeServiceUrl: string, integrationId: strin
   return {
     api_base_url: apiBaseUrl,
     callback_url: callbackUrl,
+    stream_callback_url: isLiteLLM ? null : `${apiBaseUrl}/guardrails/output-stream`,
     auth_header: "x-api-key",
     credential_env_var: "TASKLATTICE_GUARD_API_KEY",
     api_base_env_var: "TASKLATTICE_GUARD_API_BASE",

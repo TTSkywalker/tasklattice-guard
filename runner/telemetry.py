@@ -90,7 +90,11 @@ class RuntimeTelemetryExporter:
             return False
         started = time.perf_counter()
         try:
-            events = [json.loads(line) for line in batch]
+            # Older Runner versions wrote absent optional fields as JSON null.
+            # The Controller contract models those fields as optional, so omit
+            # nulls during delivery and let an upgraded Runner drain its WAL
+            # without requiring an operator to edit or discard evidence.
+            events = [_normalize_event_for_transport(json.loads(line)) for line in batch]
             response = await client.post(
                 self._endpoint,
                 headers={"authorization": f"Bearer {self._token}"},
@@ -203,3 +207,7 @@ def _event_timestamp(event: dict[str, Any]) -> float:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return time.time()
+
+
+def _normalize_event_for_transport(event: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in event.items() if value is not None}

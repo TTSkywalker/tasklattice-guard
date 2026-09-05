@@ -36,6 +36,7 @@ from runner.toolkit.runtime.contracts import (
     GuardrailPlanSnapshot,
     GuardrailPlanStep,
 )
+from tests.capability_binding import capability_binding
 
 
 def _native_model() -> NativeRailModel:
@@ -115,8 +116,8 @@ def _semantic_input(
         trigger=trigger,
         parameters=(
             ("purpose", "Support product questions"),
+            ("topic_mode", "allowlist"),
             ("allowed_topics", "Product support"),
-            ("restricted_topics", "Political campaigning"),
         ),
     )
 
@@ -175,6 +176,8 @@ def test_mixed_topic_plan_uses_official_input_action_and_custom_output_action() 
     assert "TopicSafetyCheckInputAction" in snapshot.colang_content
     assert f'binding_id="{semantic.id}"' in snapshot.colang_content
     assert "Support product questions" in snapshot.config_yaml
+    assert "strict allowlist" in snapshot.config_yaml
+    assert "Restricted topics" not in snapshot.config_yaml
     assert {binding.id for binding in snapshot.action_bindings} == {
         rules.id,
         output.id,
@@ -211,7 +214,7 @@ def test_only_dedicated_topic_assignment_enables_the_standard_rail_model() -> No
             timeout_seconds=12,
             max_tokens=16,
         )],
-        assignments=[protocol.ModelAssignment(
+        bindings=[capability_binding(
             detector_type="topic_control",
             model_ref="topic-runtime",
             profile_ref=TOPIC_CONTROL_PROFILE,
@@ -225,10 +228,10 @@ def test_only_dedicated_topic_assignment_enables_the_standard_rail_model() -> No
     )
     assert [item.type for item in selected] == ["topic_control"]
 
-    configuration.assignments[0].profile_ref = "tali.taxonomy-judge.v1"
+    configuration.bindings[0].profile_ref = "tali.taxonomy-judge.v1"
     assert native_rail_models(configuration, {}) == ()
 
-    configuration.assignments[0].profile_ref = TOPIC_CONTROL_PROFILE
+    configuration.bindings[0].profile_ref = TOPIC_CONTROL_PROFILE
     configuration.runtimes[0].skip_tls_verify = True
     assert native_rail_models(configuration, {}) == ()
 
@@ -544,8 +547,8 @@ def _topic_model_desired_state(*, generation: int) -> protocol.DesiredState:
                     max_tokens=16,
                 )
             ],
-            assignments=[
-                protocol.ModelAssignment(
+            bindings=[
+                capability_binding(
                     detector_type="topic_control",
                     model_ref="topic-runtime",
                     profile_ref=TOPIC_CONTROL_PROFILE,

@@ -11,8 +11,9 @@ describe("Policy catalog", () => {
     const catalog = PolicyCatalog.load(assetDirectory);
     const policies = catalog.list();
 
-    expect(policies).toHaveLength(38);
-    expect(new Set(policies.map((policy) => policy.id)).size).toBe(38);
+    expect(policies).toHaveLength(45);
+    expect(new Set(policies.map((policy) => policy.id)).size).toBe(45);
+    expect(catalog.get("builtin-content-safety")).toMatchObject({ rails: ["input", "output"], test_count: 2 });
     expect(catalog.get("competitor-mention-detection")).toMatchObject({
       name: "Competitor Name Blocking",
       implementation: "rules",

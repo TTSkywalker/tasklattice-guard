@@ -10,6 +10,10 @@ import type { AutomatedReasoningPolicy as _tasklattice_guard_control_v1_Automate
 import type { AutomatedReasoningRuleEvidence as _tasklattice_guard_control_v1_AutomatedReasoningRuleEvidence, AutomatedReasoningRuleEvidence__Output as _tasklattice_guard_control_v1_AutomatedReasoningRuleEvidence__Output } from './tasklattice/guard/control/v1/AutomatedReasoningRuleEvidence.js';
 import type { AutomatedReasoningScenario as _tasklattice_guard_control_v1_AutomatedReasoningScenario, AutomatedReasoningScenario__Output as _tasklattice_guard_control_v1_AutomatedReasoningScenario__Output } from './tasklattice/guard/control/v1/AutomatedReasoningScenario.js';
 import type { AutomatedReasoningTranslation as _tasklattice_guard_control_v1_AutomatedReasoningTranslation, AutomatedReasoningTranslation__Output as _tasklattice_guard_control_v1_AutomatedReasoningTranslation__Output } from './tasklattice/guard/control/v1/AutomatedReasoningTranslation.js';
+import type { CapabilityBinding as _tasklattice_guard_control_v1_CapabilityBinding, CapabilityBinding__Output as _tasklattice_guard_control_v1_CapabilityBinding__Output } from './tasklattice/guard/control/v1/CapabilityBinding.js';
+import type { CapabilityValidationCase as _tasklattice_guard_control_v1_CapabilityValidationCase, CapabilityValidationCase__Output as _tasklattice_guard_control_v1_CapabilityValidationCase__Output } from './tasklattice/guard/control/v1/CapabilityValidationCase.js';
+import type { CapabilityValidationRequest as _tasklattice_guard_control_v1_CapabilityValidationRequest, CapabilityValidationRequest__Output as _tasklattice_guard_control_v1_CapabilityValidationRequest__Output } from './tasklattice/guard/control/v1/CapabilityValidationRequest.js';
+import type { CapabilityValidationResult as _tasklattice_guard_control_v1_CapabilityValidationResult, CapabilityValidationResult__Output as _tasklattice_guard_control_v1_CapabilityValidationResult__Output } from './tasklattice/guard/control/v1/CapabilityValidationResult.js';
 import type { CompileRequest as _tasklattice_guard_control_v1_CompileRequest, CompileRequest__Output as _tasklattice_guard_control_v1_CompileRequest__Output } from './tasklattice/guard/control/v1/CompileRequest.js';
 import type { CompileResult as _tasklattice_guard_control_v1_CompileResult, CompileResult__Output as _tasklattice_guard_control_v1_CompileResult__Output } from './tasklattice/guard/control/v1/CompileResult.js';
 import type { ControllerMessage as _tasklattice_guard_control_v1_ControllerMessage, ControllerMessage__Output as _tasklattice_guard_control_v1_ControllerMessage__Output } from './tasklattice/guard/control/v1/ControllerMessage.js';
@@ -28,7 +32,6 @@ import type { GuardrailPolicyBinding as _tasklattice_guard_control_v1_GuardrailP
 import type { IntegrationCredential as _tasklattice_guard_control_v1_IntegrationCredential, IntegrationCredential__Output as _tasklattice_guard_control_v1_IntegrationCredential__Output } from './tasklattice/guard/control/v1/IntegrationCredential.js';
 import type { IntegrationRuntime as _tasklattice_guard_control_v1_IntegrationRuntime, IntegrationRuntime__Output as _tasklattice_guard_control_v1_IntegrationRuntime__Output } from './tasklattice/guard/control/v1/IntegrationRuntime.js';
 import type { IntegrationVerification as _tasklattice_guard_control_v1_IntegrationVerification, IntegrationVerification__Output as _tasklattice_guard_control_v1_IntegrationVerification__Output } from './tasklattice/guard/control/v1/IntegrationVerification.js';
-import type { ModelAssignment as _tasklattice_guard_control_v1_ModelAssignment, ModelAssignment__Output as _tasklattice_guard_control_v1_ModelAssignment__Output } from './tasklattice/guard/control/v1/ModelAssignment.js';
 import type { ModelRuntime as _tasklattice_guard_control_v1_ModelRuntime, ModelRuntime__Output as _tasklattice_guard_control_v1_ModelRuntime__Output } from './tasklattice/guard/control/v1/ModelRuntime.js';
 import type { PolicyActionReference as _tasklattice_guard_control_v1_PolicyActionReference, PolicyActionReference__Output as _tasklattice_guard_control_v1_PolicyActionReference__Output } from './tasklattice/guard/control/v1/PolicyActionReference.js';
 import type { PolicyRailBinding as _tasklattice_guard_control_v1_PolicyRailBinding, PolicyRailBinding__Output as _tasklattice_guard_control_v1_PolicyRailBinding__Output } from './tasklattice/guard/control/v1/PolicyRailBinding.js';
@@ -74,6 +77,10 @@ export interface ProtoGrpcType {
           AutomatedReasoningRuleEvidence: MessageTypeDefinition<_tasklattice_guard_control_v1_AutomatedReasoningRuleEvidence, _tasklattice_guard_control_v1_AutomatedReasoningRuleEvidence__Output>
           AutomatedReasoningScenario: MessageTypeDefinition<_tasklattice_guard_control_v1_AutomatedReasoningScenario, _tasklattice_guard_control_v1_AutomatedReasoningScenario__Output>
           AutomatedReasoningTranslation: MessageTypeDefinition<_tasklattice_guard_control_v1_AutomatedReasoningTranslation, _tasklattice_guard_control_v1_AutomatedReasoningTranslation__Output>
+          CapabilityBinding: MessageTypeDefinition<_tasklattice_guard_control_v1_CapabilityBinding, _tasklattice_guard_control_v1_CapabilityBinding__Output>
+          CapabilityValidationCase: MessageTypeDefinition<_tasklattice_guard_control_v1_CapabilityValidationCase, _tasklattice_guard_control_v1_CapabilityValidationCase__Output>
+          CapabilityValidationRequest: MessageTypeDefinition<_tasklattice_guard_control_v1_CapabilityValidationRequest, _tasklattice_guard_control_v1_CapabilityValidationRequest__Output>
+          CapabilityValidationResult: MessageTypeDefinition<_tasklattice_guard_control_v1_CapabilityValidationResult, _tasklattice_guard_control_v1_CapabilityValidationResult__Output>
           ClaimSupport: EnumTypeDefinition
           CompileRequest: MessageTypeDefinition<_tasklattice_guard_control_v1_CompileRequest, _tasklattice_guard_control_v1_CompileRequest__Output>
           CompileResult: MessageTypeDefinition<_tasklattice_guard_control_v1_CompileResult, _tasklattice_guard_control_v1_CompileResult__Output>
@@ -100,7 +107,6 @@ export interface ProtoGrpcType {
           IntegrationCredential: MessageTypeDefinition<_tasklattice_guard_control_v1_IntegrationCredential, _tasklattice_guard_control_v1_IntegrationCredential__Output>
           IntegrationRuntime: MessageTypeDefinition<_tasklattice_guard_control_v1_IntegrationRuntime, _tasklattice_guard_control_v1_IntegrationRuntime__Output>
           IntegrationVerification: MessageTypeDefinition<_tasklattice_guard_control_v1_IntegrationVerification, _tasklattice_guard_control_v1_IntegrationVerification__Output>
-          ModelAssignment: MessageTypeDefinition<_tasklattice_guard_control_v1_ModelAssignment, _tasklattice_guard_control_v1_ModelAssignment__Output>
           ModelRuntime: MessageTypeDefinition<_tasklattice_guard_control_v1_ModelRuntime, _tasklattice_guard_control_v1_ModelRuntime__Output>
           OutputDeliveryMode: EnumTypeDefinition
           PolicyActionReference: MessageTypeDefinition<_tasklattice_guard_control_v1_PolicyActionReference, _tasklattice_guard_control_v1_PolicyActionReference__Output>

@@ -375,10 +375,9 @@ class NeMoConfigCompiler:
                         (
                             "You are the topic policy evaluator for an enterprise assistant.",
                             f"Authorized purpose: {parameters.get('purpose', '')}",
-                            "Allowed topics:",
+                            "Allowed topics (strict allowlist):",
                             parameters.get("allowed_topics", ""),
-                            "Restricted topics:",
-                            parameters.get("restricted_topics", ""),
+                            "Anything whose primary task is not listed above is off-topic.",
                             "Classify the primary requested task, not entities merely mentioned as context.",
                         )
                     ),

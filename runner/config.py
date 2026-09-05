@@ -245,6 +245,11 @@ def _evaluator_bindings(value: str) -> tuple[EvaluatorBindingConfig, ...]:
                 profile_ref=str(item["profile_ref"]),
                 model_ref=str(item["model_ref"]),
                 priority=int(item.get("priority", 100)),
+                rail_type=(
+                    str(item["rail_type"])  # type: ignore[arg-type]
+                    if item.get("rail_type") is not None
+                    else None
+                ),
             ))
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(

@@ -17,6 +17,7 @@ from runner.toolkit.nemo.native_models import native_rail_models
 from . import __version__
 from .artifact_store import ArtifactStore
 from .compiler import DefaultRunnerCompiler
+from .capability_validation import validate_capability
 from .config import RunnerSettings
 from . import generated as protocol
 from .generated import runner_control_pb2_grpc as services
@@ -52,6 +53,7 @@ class RunnerControlClient:
         self._metrics.set_control_state(connected=False, synchronized=self._synchronized.is_set())
         self._heartbeat_interval = 10
         self._sequence = 0
+        self._capability_tasks: set[asyncio.Task] = set()
         self._compiler = None
         if settings.compiler_capable:
             self._compiler = compiler or DefaultRunnerCompiler(settings)
@@ -119,6 +121,10 @@ class RunnerControlClient:
             self._connected.clear()
             self._metrics.set_control_state(connected=False)
             heartbeat.cancel()
+            for task in self._capability_tasks:
+                task.cancel()
+            await asyncio.gather(*self._capability_tasks, return_exceptions=True)
+            self._capability_tasks.clear()
             await asyncio.gather(heartbeat, return_exceptions=True)
             await channel.close()
 
@@ -162,6 +168,16 @@ class RunnerControlClient:
             await self._compile(message.compile_request)
         elif body == "validation_request":
             await self._validate(message.validation_request)
+        elif body == "capability_validation_request":
+            if len(self._capability_tasks) >= 4:
+                await self._send_capability_result(protocol.CapabilityValidationResult(
+                    request_id=message.capability_validation_request.request_id,
+                    message="Runner validation capacity reached. Retry shortly.",
+                ))
+            else:
+                task = asyncio.create_task(self._validate_capability(message.capability_validation_request))
+                self._capability_tasks.add(task)
+                task.add_done_callback(self._capability_tasks.discard)
         elif body == "drain_request":
             logger.warning("Controller requested Runner drain: %s", message.drain_request.reason)
 
@@ -250,6 +266,7 @@ class RunnerControlClient:
     async def _model_credentials(
         self,
         configuration: protocol.DataPlaneModelConfiguration,
+        lease_id: str | None = None,
     ) -> dict[str, str]:
         refs = sorted({
             runtime.credential_ref
@@ -269,7 +286,7 @@ class RunnerControlClient:
                     "authorization": f"Bearer {self._settings.controller_token}",
                     "content-type": "application/json",
                 },
-                json={"refs": refs},
+                json={"refs": refs, **({"leaseId": lease_id} if lease_id else {})},
             )
             response.raise_for_status()
             payload = response.json()
@@ -282,6 +299,22 @@ class RunnerControlClient:
                 "Controller did not resolve Model credentials: " + ", ".join(missing)
             )
         return {ref: str(credentials[ref]) for ref in refs}
+
+    async def _validate_capability(self, request: protocol.CapabilityValidationRequest) -> None:
+        try:
+            if self._compiler is None:
+                raise ValueError("This Runner is not compiler-capable.")
+            async with asyncio.timeout(90):
+                credentials = await self._model_credentials(request.configuration, request.credential_lease_id)
+                result = await validate_capability(request, credentials)
+        except Exception as error:
+            result = protocol.CapabilityValidationResult(request_id=request.request_id,
+                message=f"Rail validation could not complete ({type(error).__name__}). Check Runner availability and retry.")
+        await self._send_capability_result(result)
+
+    async def _send_capability_result(self, result: protocol.CapabilityValidationResult) -> None:
+        await self._send(protocol.RunnerMessage(message_id=str(uuid.uuid4()), sent_at_unix_ms=_now_ms(),
+                                              capability_validation_result=result))
 
     async def _compile(self, request: protocol.CompileRequest) -> None:
         if self._compiler is None:

@@ -7,6 +7,7 @@ import pytest
 
 from runner.control_client import RunnerControlClient
 from runner import generated as protocol
+from tests.capability_binding import capability_binding
 
 
 class Store:
@@ -140,7 +141,7 @@ def _model_desired_state(*, generation: int) -> protocol.DesiredState:
                 timeout_seconds=20,
                 max_tokens=128,
             )],
-            assignments=[protocol.ModelAssignment(
+            bindings=[capability_binding(
                 detector_type="content_safety",
                 model_ref="safety",
                 profile_ref="tali.qwen3guard.v1",

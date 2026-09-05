@@ -53,13 +53,15 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 
 const assignments: ModelAssignments = {
   controlPlane: "chat-model",
-  detectors: {
-    content_safety: "safety-model",
-    jailbreak_detection: null,
-    topic_control: null,
-    pii_detection: null,
-    contextual_grounding: null,
-    automated_reasoning: null,
+  bindings: {
+    "content_safety.input": "safety-model",
+    "content_safety.output": "safety-model",
+    "jailbreak.input": null,
+    "topic_control.input": null,
+    "pii_semantic.input": null,
+    "pii_semantic.output": null,
+    "contextual_grounding.output": null,
+    "automated_reasoning.output": null,
   },
 };
 
@@ -93,10 +95,13 @@ const view: ModelConfigurationView = {
     id: "revision-2", revision: 2, state: "validated", generation: null, assignments,
     validationReport: {
       valid: true, checkedAt: now,
-      checks: [{ id: "probe:content_safety:safety-model", scope: "detector", status: "passed", message: "Content safety detector passed.", latencyMs: 6 }],
+      checks: [
+        { id: "probe:content_safety.input:safety-model", scope: "capability", status: "passed", evidenceKind: "nemo-rail-v1", message: "Input Rail samples passed.", latencyMs: 6 },
+        { id: "probe:content_safety.output:safety-model", scope: "capability", status: "passed", evidenceKind: "nemo-rail-v1", message: "Output Rail samples passed.", latencyMs: 6 },
+      ],
       contractCoverage: [
-        { contract: "tali.guard.secrets.exact.v1", source: "local", modelId: null, detectorType: null },
-        { contract: "tali.guard.content-safety.v1", source: "model", modelId: "safety-model", detectorType: "content_safety" },
+        { contract: "tali.guard.secrets.exact.v1", source: "local", modelId: null, bindingId: null, railType: "input" },
+        { contract: "tali.guard.content-safety.v1", source: "model", modelId: "safety-model", bindingId: "content_safety.input", railType: "input" },
       ],
       policies: [],
     },
@@ -130,27 +135,25 @@ describe("Models and Guardrail Catalog", () => {
 
   afterEach(() => { cleanup(); client?.clear(); client = null; });
 
-  it("uses one dense assignment table for all nine NeMo business categories", async () => {
+  it("shows model-backed capabilities grouped into Input and Output Rail tabs", async () => {
     renderPage(<GuardrailCatalogPage />);
     expect(await screen.findByRole("heading", { name: "modelSettings.catalogConfiguration" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "modelSettings.categoryColumn" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "modelSettings.detectorColumn" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "modelSettings.inputRail" }).getAttribute("data-state")).toBe("active");
+    expect(screen.getByRole("columnheader", { name: "modelSettings.capabilityColumn" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "modelSettings.modelColumn" })).toBeTruthy();
-    for (const category of ["content_safety", "jailbreak_protection", "topic_control", "pii_detection", "agentic_security", "tool_calling", "hallucinations_fact_checking", "llm_self_check", "third_party_apis"]) {
-      expect(screen.getAllByRole("row", { name: `modelSettings.categories.${category}.title` }).length).toBeGreaterThan(0);
-    }
-    expect(screen.getAllByText("modelSettings.detectors.content_safety.title").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("modelSettings.detectors.jailbreak_detection.title").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("modelSettings.categoryStates.service.title").length).toBeGreaterThan(0);
+    expect(screen.getByRole("row", { name: "modelSettings.detectors.content_safety.title · modelSettings.inputRail" })).toBeTruthy();
+    expect(screen.getByRole("row", { name: "modelSettings.detectors.jailbreak_detection.title · modelSettings.inputRail" })).toBeTruthy();
+    expect(screen.getAllByText("modelSettings.detectors.content_safety.title · modelSettings.inputRail").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("modelSettings.detectors.jailbreak_detection.title · modelSettings.inputRail").length).toBeGreaterThan(0);
   });
 
   it("binds and saves a compatible Model only for the selected detector", async () => {
     renderPage(<GuardrailCatalogPage />);
-    const jailbreak = await screen.findByRole("row", { name: "modelSettings.categories.jailbreak_protection.title" });
+    const jailbreak = await screen.findByRole("row", { name: "modelSettings.detectors.jailbreak_detection.title · modelSettings.inputRail" });
     fireEvent.keyDown(within(jailbreak).getByRole("combobox", { name: "modelSettings.modelColumn" }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("option", { name: /Qwen Guard · Mock provider/ }));
     fireEvent.click(within(jailbreak).getAllByRole("button", { name: "modelSettings.saveAssignment" })[0]!);
-    await waitFor(() => expect(saveModelAssignment).toHaveBeenCalledWith("jailbreak_detection", "safety-model"));
+    await waitFor(() => expect(saveModelAssignment).toHaveBeenCalledWith("jailbreak.input", "safety-model"));
   });
 
   it("activates only after confirming the validated clean catalog revision", async () => {
@@ -161,11 +164,21 @@ describe("Models and Guardrail Catalog", () => {
     await waitFor(() => expect(activateModelConfiguration).toHaveBeenCalledWith("revision-2"));
   });
 
+  it("requires new Rail evidence instead of treating a legacy model probe as validated", async () => {
+    const legacy = structuredClone(view);
+    for (const check of legacy.draft.validationReport!.checks) delete check.evidenceKind;
+    vi.mocked(getModelConfiguration).mockResolvedValue(legacy);
+    renderPage(<GuardrailCatalogPage />);
+    const activate = await screen.findByRole("button", { name: "modelSettings.activate" });
+    expect(activate.hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByText("modelSettings.railSamplesPassed")).toBeNull();
+  });
+
   it("validates only the selected detector without a global Catalog action", async () => {
     renderPage(<GuardrailCatalogPage />);
-    const contentSafety = await screen.findByRole("row", { name: "modelSettings.categories.content_safety.title" });
+    const contentSafety = await screen.findByRole("row", { name: "modelSettings.detectors.content_safety.title · modelSettings.inputRail" });
     fireEvent.click(within(contentSafety).getAllByRole("button", { name: "modelSettings.validateAssignment" })[0]!);
-    await waitFor(() => expect(validateModelAssignment).toHaveBeenCalledWith("content_safety", expect.anything()));
+    await waitFor(() => expect(validateModelAssignment).toHaveBeenCalledWith("content_safety.input", expect.anything()));
     expect(screen.queryByRole("button", { name: "modelSettings.validateCatalog" })).toBeNull();
   });
 
@@ -176,16 +189,38 @@ describe("Models and Guardrail Catalog", () => {
     await waitFor(() => expect(validateModelAssignment).toHaveBeenCalledWith("control_plane", expect.anything()));
   });
 
+  it("keeps a failed validation response behind the red status control", async () => {
+    const message = "Model probe returned HTTP 500 with a complete upstream diagnostic response.";
+    vi.mocked(getModelConfiguration).mockResolvedValue({
+      ...view,
+      draft: {
+        ...view.draft,
+        state: "draft",
+        validationReport: {
+          ...view.draft.validationReport!,
+          valid: false,
+          checks: [{ id: "probe:content_safety.input:safety-model", scope: "capability", status: "failed", message }],
+        },
+      },
+    });
+    renderPage(<GuardrailCatalogPage />);
+    const row = await screen.findByRole("row", { name: "modelSettings.detectors.content_safety.title · modelSettings.inputRail" });
+    expect(within(row).queryByText(message)).toBeNull();
+    fireEvent.click(within(row).getAllByRole("button", { name: /modelSettings.probeFailed/ })[0]!);
+    const inspector = screen.getByRole("dialog", { name: "modelSettings.validationErrorTitle" });
+    expect(within(inspector).getByText(message)).toBeTruthy();
+  });
+
   it("blocks removal in the shared right drawer and clearly identifies Topic Control use", async () => {
     vi.mocked(getModelConfiguration).mockResolvedValue({
       ...view,
-      draft: { ...view.draft, assignments: { ...assignments, detectors: { ...assignments.detectors, topic_control: "safety-model" } } },
+      draft: { ...view.draft, assignments: { ...assignments, bindings: { ...assignments.bindings, "topic_control.input": "safety-model" } } },
     });
     renderPage(<ModelsPage />);
     fireEvent.click(await screen.findByRole("button", { name: "common.remove Qwen Guard" }));
     const drawer = screen.getByRole("dialog", { name: "modelSettings.removeResourceTitle" });
     expect(within(drawer).getByText("modelSettings.topicControlRemovalTitle")).toBeTruthy();
-    expect(within(drawer).getByText("modelSettings.detectors.topic_control.title")).toBeTruthy();
+    expect(within(drawer).getByText("modelSettings.detectors.topic_control.title · modelSettings.inputRail")).toBeTruthy();
     expect(within(drawer).getByRole("button", { name: "common.remove" })).toHaveProperty("disabled", true);
   });
 

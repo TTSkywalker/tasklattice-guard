@@ -523,6 +523,7 @@ export type GuardrailVersionArtifact = {
 export type GuardrailVersionDetail = GuardrailVersion & {
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
+  effective_output_delivery?: OutputDelivery;
   runtime_profile: string;
   colang_version: string;
   rails: Array<{ rail_type: NativeRailType; flow: string }>;
@@ -789,6 +790,7 @@ export type IntegrationSetupStatus = IntegrationSetupState;
 export type IntegrationSetup = {
   api_base_url: string;
   callback_url: string;
+  stream_callback_url?: string | null;
   auth_header: string;
   credential_env_var: string;
   api_base_env_var: string;
@@ -824,6 +826,7 @@ export type Integration = {
   first_seen_at: string | null;
   input_seen_at: string | null;
   output_seen_at: string | null;
+  stream_final_check_seen_at?: string | null;
   last_seen_at: string | null;
   last_error_at: string | null;
   request_count: number;
@@ -1136,7 +1139,6 @@ export type IntentAnalysis = {
   summary: string;
   structured_purpose: GuardrailPurposeDetails;
   allowed_topics: string[];
-  restricted_topics: string[];
   review_notes: string[];
 };
 export type ComplianceDocumentSource = {

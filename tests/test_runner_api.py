@@ -68,6 +68,31 @@ class Runtime:
         return await self.evaluate(request)
 
 
+class StreamingRuntime:
+    def __init__(self, mode="full_buffered") -> None:
+        self.mode = mode
+        self.requests = []
+
+    def output_delivery(self, _request, *, on_resolved=None, require_existing=False):
+        from runner.toolkit.runtime.contracts import GuardrailPlanSnapshot, PlanResolution
+        if on_resolved:
+            on_resolved(PlanResolution(plan=GuardrailPlanSnapshot(
+                guardrail_id="guardrail-stream", guardrail_version="20260904-020000.002Z",
+                compiler_version="test", safety_level="balanced", output_delivery=self.mode, steps=(),
+            ), deployment_id="deployment-stream"))
+        return self.mode
+
+    async def evaluate(self, request, *, on_resolved=None):
+        self.requests.append(request)
+        return ProtectionDecision(
+            decision="allow",
+            action="pass",
+            output_delivery=self.mode,
+            guardrail_id="guardrail-stream",
+            guardrail_version="20260904-020000.002Z",
+        )
+
+
 class NoDeploymentRuntime:
     async def evaluate(self, _request, *, on_resolved=None):
         raise LookupError("No active Runner deployment matches this request.")
@@ -237,6 +262,32 @@ async def test_runtime_authenticates_locally_and_emits_content_free_telemetry():
     assert telemetry.events[0]["metadata"]["trace"][0]["actionName"] == "GuardSecretsAction"
     assert "texts" not in telemetry.events[0]
     assert "secret prompt" not in str(telemetry.events[0])
+
+
+@pytest.mark.asyncio
+async def test_output_stream_endpoint_holds_full_response_until_final_chunk():
+    runtime = StreamingRuntime()
+    app = FastAPI()
+    app.include_router(RunnerAPI(runtime, Store(), Metrics(), Telemetry(), "runner-1", "controller-token").router)  # type: ignore[arg-type]
+    headers = {"x-api-key": "valid-secret"}
+    url = "/runtime/v1/integrations/integration-http/guardrails/output-stream"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        first = await client.post(url, headers=headers, json={
+            "stream_id": "stream-1", "call_id": "call-1", "sequence": 0,
+            "text": "hello ", "final": False,
+        })
+        final = await client.post(url, headers=headers, json={
+            "stream_id": "stream-1", "call_id": "call-1", "sequence": 1,
+            "text": "world", "final": True,
+        })
+
+    assert first.status_code == 200
+    assert first.json()["status"] == "buffering"
+    assert first.json()["released_text"] == ""
+    assert final.status_code == 200
+    assert final.json()["status"] == "completed"
+    assert final.json()["released_text"] == "hello world"
+    assert runtime.requests[0].texts == ("hello world",)
 
 
 @pytest.mark.asyncio
@@ -413,7 +464,7 @@ async def test_controller_can_evaluate_an_explicit_guardrail_version_without_an_
     assert runtime.request.context.integration_id is None
     assert runtime.request.context.value("header", "authorization") is None
     assert runtime.request.context.value("header", "x-api-key") is None
-    assert telemetry.events[0]["integrationId"] is None
+    assert "integrationId" not in telemetry.events[0]
     assert telemetry.events[0]["metadata"]["protocol"] == "playground"
     encrypted = telemetry.events[0]["metadata"]["contentCiphertext"]
     assert "secret prompt" not in encrypted

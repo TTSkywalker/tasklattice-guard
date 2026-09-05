@@ -80,6 +80,72 @@ code.
 Runner never receives database credentials. Controller never loads NeMo or
 serves a protection request.
 
+## Rail and model-binding boundary
+
+Provider connectivity, physical Model callability, and Rail behavior are three
+different facts. Controller stores them separately and exposes Rail assignment
+through a versioned Guardrail Catalog revision. Each assignment is a stable
+`capability.rail` binding, for example `content_safety.input` or
+`content_safety.output`, rather than an implicit capability attached to a Model.
+
+The shared binding manifest currently executes Input and Output Rails. It also
+reserves Retrieval, Dialog, and Execution as future Rail types, so later support
+adds new manifest entries and runtime implementations without changing Provider,
+Model, Policy, or Guardrail identity. Policy order and Rule order still determine
+execution; a reject terminates the sequence, while a transformation continues
+with transformed content.
+
+Control-plane-only Provider kinds are enforced when a Model is registered,
+assigned, validated, activated, and serialized into desired state. In particular,
+DeepSeek may power Controller authoring and intent understanding but cannot be
+bound to a Data Plane Rail. Controller sends Runner only the models referenced by
+active Data Plane bindings and resolves only those credentials.
+
+Catalog validation is an isolated `CapabilityValidationRequest` on the existing
+typed control channel. The Default Runner compiles a single binding with the
+production NeMo compiler and exercises safe and unsafe samples through its actual
+Input or Output Rail. Evidence is scoped to `capability.rail` and every advertised
+contract; a shared Model cannot transfer evidence between Rails. Provider
+credentials are fetched with a 95-second, candidate-scoped lease, never embedded
+in commands or artifacts. Validation neither activates a revision nor emits
+customer traffic. Old connection/profile probes do not authorize activation.
+These samples verify execution and protocol semantics, not comprehensive model
+quality. Grounding and formal reasoning require Policy-specific sources or formal
+policy references; generic probes deliberately cannot certify those bindings.
+
+### Effective releases and streaming
+
+The Runner pins an **effective release**, derived from desired-state generation,
+signed artifact checksums, and the complete model configuration. Redis call
+contexts carry both that identity and the Model revision. Old materialized NeMo
+runtimes remain leased across updates; they are retired only after leases and
+in-flight evaluations drain. Output never silently switches to newer models.
+On a fresh replica that cannot serve an old release, the call fails closed and
+must restart. Redis context sharing alone does not replicate historical runtime
+clients; uninterrupted in-flight migration across cold rollouts is not promised.
+
+The HTTP/A2A output-stream endpoint accepts ordered chunks. It is **not** an
+upstream generation proxy or an SSE endpoint. The integration must use a stable
+`call_id` and `stream_id`, serialize increasing `sequence` values, await each
+result, and forward only `released_text`. It must send `final=true` on completion
+and cancel generation on `terminate=true` or transport failure. A lost response
+must not cause speculative raw-text delivery or sequence advancement.
+
+`full_buffered` checks the whole response before releasing text. Incremental
+content-safety checks evaluate accumulated output, and `window_buffered` retains
+one window across chunk boundaries. `interruptible` checks each chunk before
+releasing it, with previous output as context. Neither incremental mode can recall
+earlier text if later context changes the verdict. Pattern/PII, transformations,
+grounding, and arbitrary Policy programs therefore use complete-response checks;
+the immutable plan determines this fallback, not model callability. The API
+returns requested/effective delivery modes, the reason, and effective release ID.
+Timeouts do not consume sequences or duplicate accumulated text on retry.
+
+Integration UI distinguishes Input checks, Output checks, and final Stream checks
+observed in retained telemetry. These observations are not proof that the caller
+forwarded transformations or cancelled its upstream. A LiteLLM pre/post callback
+or an endpoint connectivity test alone never proves incremental stream protection.
+
 ## Control protocol
 
 Runner initiates a long-lived gRPC connection to Controller. Production uses a

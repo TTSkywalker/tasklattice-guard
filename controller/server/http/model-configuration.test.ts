@@ -94,12 +94,12 @@ describe("Model configuration HTTP routes", () => {
     };
     const app = appWith("admin", models);
     const modelId = "7471c0eb-a533-449a-8814-98c3bc23aa98";
-    expect((await app.request("/api/v1/model-configuration/draft/assignments/content_safety", {
+    expect((await app.request("/api/v1/model-configuration/draft/assignments/content_safety.input", {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ modelId }),
     })).status).toBe(200);
-    expect(models.updateAssignment).toHaveBeenCalledWith("content_safety", modelId, "admin-1");
-    expect((await app.request("/api/v1/model-configuration/draft/assignments/content_safety/validate", { method: "POST" })).status).toBe(200);
-    expect(models.validateAssignment).toHaveBeenCalledWith("content_safety", "admin-1");
+    expect(models.updateAssignment).toHaveBeenCalledWith("content_safety.input", modelId, "admin-1");
+    expect((await app.request("/api/v1/model-configuration/draft/assignments/content_safety.input/validate", { method: "POST" })).status).toBe(200);
+    expect(models.validateAssignment).toHaveBeenCalledWith("content_safety.input", "admin-1");
   });
 
   it("requires an administrator to create Providers", async () => {
@@ -219,7 +219,7 @@ describe("Model configuration HTTP routes", () => {
     expect(models.resolveCredentials).toHaveBeenCalledWith([
       providerId,
       "33dcc196-94f6-42ac-b104-0c975b3be5ef",
-    ]);
+    ], undefined);
   });
 });
 

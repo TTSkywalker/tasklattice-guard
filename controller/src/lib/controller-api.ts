@@ -6,7 +6,7 @@ import type {
   RunnerStatus,
   ValidationRunState,
 } from "../../shared/lifecycle";
-import type { ModelDetectorType } from "../../shared/guardrail-catalog";
+import type { CapabilityBindingId, ImplementedGuardrailRailType } from "../../shared/guardrail-catalog";
 import type { PlatformStatusSnapshot } from "../../shared/platform-status";
 
 export type Collection<T> = { items: T[]; count?: number };
@@ -15,10 +15,10 @@ export type SystemStatus = PlatformStatusSnapshot;
 
 export type ModelProviderKind = "openai" | "qwen" | "deepseek" | "vllm" | "ollama" | "custom-openai-compatible";
 export type ModelProfile = "generic-chat" | "tali.qwen3guard.v1" | "tali.llama-guard-3.v1" | "tali.nemotron-content-safety.v1" | "tali.nemotron-safety-guard-v3.v1" | "tali.nemoguard-topic-control.v1" | "tali.openai-compatible-jailbreak.v1" | "tali.nemoguard-jailbreak-detect.v1" | "tali.taxonomy-judge.v1" | "tali.grounding-judge.v1" | "tali.automated-reasoning.v1";
-export type { ModelDetectorType };
+export type { CapabilityBindingId };
 export type ModelAssignments = {
   controlPlane: string | null;
-  detectors: Record<ModelDetectorType, string | null>;
+  bindings: Record<CapabilityBindingId, string | null>;
 };
 
 export type ModelProvider = {
@@ -67,12 +67,13 @@ export type ModelValidationReport = {
   checkedAt: string;
   checks: Array<{
     id: string;
-    scope: "configuration" | "provider" | "model" | "detector";
+    scope: "configuration" | "provider" | "model" | "capability";
     status: "passed" | "failed" | "skipped";
     message: string;
     latencyMs?: number;
+    evidenceKind?: "model-probe" | "nemo-rail-v1";
   }>;
-  contractCoverage: Array<{ contract: string; source: "local" | "model"; modelId: string | null; detectorType: ModelDetectorType | null }>;
+  contractCoverage: Array<{ contract: string; bindingId: CapabilityBindingId | null; railType: ImplementedGuardrailRailType | null; source: "local" | "model"; modelId: string | null }>;
   policies: Array<{ id: string; name: string; status: "ready" | "blocked"; missingContracts: string[] }>;
 };
 
@@ -397,7 +398,7 @@ export const getControllerSystemStatus = async () => {
 };
 export const getModelConfiguration = async () => {
   const view = await requestController<ModelConfigurationView>("/api/v1/model-configuration");
-  if (!view.draft?.assignments?.detectors) {
+  if (!view.draft?.assignments?.bindings) {
     throw new Error("The Controller is serving an incompatible legacy Model configuration. Deploy the matching Controller backend before using Guardrail Catalog.");
   }
   return view;
@@ -420,7 +421,7 @@ export const testModelConnection = (id: string) => requestController<ModelDefini
 export const deleteModelDefinition = (id: string) => requestController<void>(`/api/v1/models/${encodeURIComponent(id)}`, json("DELETE"));
 export const saveModelAssignments = (assignments: ModelAssignments) => requestController<ModelConfigurationRevision>("/api/v1/model-configuration/draft", json("PUT", assignments));
 export const validateModelConfiguration = () => requestController<ModelConfigurationRevision>("/api/v1/model-configuration/validate", json("POST"));
-export type ModelAssignmentTarget = "control_plane" | ModelDetectorType;
+export type ModelAssignmentTarget = "control_plane" | CapabilityBindingId;
 export const saveModelAssignment = (target: ModelAssignmentTarget, modelId: string | null) => requestController<ModelConfigurationRevision>(`/api/v1/model-configuration/draft/assignments/${encodeURIComponent(target)}`, json("PUT", { modelId }));
 export const validateModelAssignment = (target: ModelAssignmentTarget) => requestController<ModelConfigurationRevision>(`/api/v1/model-configuration/draft/assignments/${encodeURIComponent(target)}/validate`, json("POST"));
 export const activateModelConfiguration = (revisionId: string) => requestController<ModelConfigurationView & { distribution: { desiredGeneration: number; distributionStatus: "ready" | "syncing" } }>(`/api/v1/model-configuration/${encodeURIComponent(revisionId)}/activate`, json("POST"));

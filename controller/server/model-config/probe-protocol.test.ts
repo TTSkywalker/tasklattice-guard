@@ -53,4 +53,20 @@ describe("replaceable model probe protocols", () => {
       "Safety: Unsafe\nCategories: Jailbreak",
     )).not.toThrow();
   });
+
+  it("uses NVIDIA's constrained inference shape for TopicControl", () => {
+    const request = probeRequest({
+      model: "nvidia/llama-3.1-nemoguard-8b-topic-control",
+      profile: "tali.nemoguard-topic-control.v1",
+      maxTokens: 512,
+    });
+    expect(request).toMatchObject({
+      max_tokens: 20,
+      top_p: 1,
+      n: 1,
+      stream: false,
+      frequency_penalty: 0,
+    });
+    expect(request.messages[0]?.content).toMatch(/You must respond with "on-topic" or "off-topic"\.$/);
+  });
 });

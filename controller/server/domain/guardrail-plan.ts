@@ -50,6 +50,7 @@ export type GuardrailPurposeDetails = {
 export type GuardrailDraftConfig = {
   purposeDetails: GuardrailPurposeDetails;
   allowedTopics: string[];
+  /** @deprecated Topic Control is allowlist-only; retained only to read older drafts. */
   restrictedTopics: string[];
   policyBindings: GuardrailPolicyBindingConfig[];
   safetyLevel: "balanced" | "strict";
@@ -113,8 +114,8 @@ const capabilities: RuntimeCapability[] = [
   capability("jailbreak", "builtin-jailbreak", ["input"], "reject", [always("primary", contracts.jailbreak, true)], "interaction_safety"),
   capability("system_prompt_leakage", "builtin-system-prompt-leakage", ["output"], "reject", [always("exact", contracts.systemPromptLeakage)], "data_protection"),
   capability("content_safety", "builtin-content-safety", ["input", "output"], "reject", [always("primary", contracts.contentSafety, true)], "interaction_safety"),
-  capability("topic_control", "builtin-topic-safety", ["input", "output"], "redirect", [always("rules", contracts.topicRules), afterUncertain("semantic", contracts.topicSemantic, "rules")], "business_assurance"),
-  capability("company_policy", "builtin-company-policy", ["input", "output"], "reject", [always("primary", contracts.companyPolicy, true)], "business_assurance"),
+  capability("topic_control", "builtin-topic-safety", ["input"], "redirect", [always("rules", contracts.topicRules), afterUncertain("semantic", contracts.topicSemantic, "rules")], "business_assurance"),
+  capability("company_policy", "builtin-company-policy", ["input"], "reject", [always("primary", contracts.companyPolicy, true)], "business_assurance"),
   capability("contextual_grounding", "builtin-contextual-grounding", ["output"], "regenerate", [always("primary", contracts.contextualGrounding, true)], "business_assurance"),
   capability("automated_reasoning", "builtin-automated-reasoning", ["output"], "rewrite", [always("primary", contracts.automatedReasoning, true)], "business_assurance"),
 ];
@@ -138,7 +139,10 @@ export function normalizeGuardrailDraft(value: unknown): GuardrailDraftConfig {
   return {
     purposeDetails: normalizePurposeDetails(source.purposeDetails),
     allowedTopics: stringArray(source.allowedTopics),
-    restrictedTopics: stringArray(source.restrictedTopics),
+    // Topic Control is intentionally allowlist-only. Keep the serialized field
+    // empty so older drafts remain readable without preserving deny-list
+    // semantics in newly compiled versions.
+    restrictedTopics: [],
     policyBindings: Array.isArray(source.policyBindings)
       ? source.policyBindings.map(normalizeBinding)
       : [],
@@ -194,6 +198,10 @@ export function buildGuardrailPlan(input: {
       capability: "builtin_content_filter", policyId: "", defaultPhases: ["input", "output"],
       defaultAction: "reject", evaluations: [always("rules", contracts.contentFilter)], module: "interaction_safety",
     }, binding, policy });
+  }
+
+  if (resolved.some(({ capability }) => capability.capability === "topic_control" || capability.capability === "company_policy") && !draft.allowedTopics.length) {
+    throw new Error("Topic Control requires at least one allowed topic. Requests outside this allowlist are off-topic.");
   }
 
   const steps: PlanStep[] = [];
@@ -276,7 +284,8 @@ export function buildGuardrailPlan(input: {
   return {
     guardrail_id: input.guardrailId,
     guardrail_version: input.guardrailVersion,
-    compiler_version: "tasklattice-controller-plan-v5-rule-order",
+    compiler_version: "tasklattice-controller-plan-v6-topic-allowlist",
+    topic_control_mode: "allowlist",
     safety_level: draft.safetyLevel,
     output_delivery: draft.outputDelivery,
     steps,
@@ -338,13 +347,13 @@ function parametersFor(
   }
   if (capabilityId === "topic_control" || capabilityId === "company_policy") {
     return [
+      ["topic_mode", "allowlist"],
       ["purpose", purpose],
       ["purpose_audience", draft.purposeDetails.audience],
       ["purpose_tasks", draft.purposeDetails.tasks],
       ["purpose_protect", draft.purposeDetails.protect],
       ["purpose_out_of_scope", draft.purposeDetails.outOfScope],
       ["allowed_topics", draft.allowedTopics.join("\n")],
-      ["restricted_topics", draft.restrictedTopics.join("\n")],
     ];
   }
   if (capabilityId === "contextual_grounding") {

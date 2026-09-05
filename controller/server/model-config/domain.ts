@@ -1,10 +1,12 @@
 import { z } from "zod";
 
 import {
+  capabilityBindingById,
+  capabilityBindingDefinitions,
+  capabilityBindingIds,
+  type CapabilityBindingId,
   controlPlaneProfileRefs,
-  detectorProfileRefs,
-  modelDetectorTypes,
-  type ModelDetectorType,
+  isDataPlaneProviderKindAllowed,
 } from "../../shared/guardrail-catalog.js";
 
 export const modelProviderKinds = [
@@ -32,7 +34,7 @@ export const modelProfiles = [
 
 export type ModelProviderKind = (typeof modelProviderKinds)[number];
 export type ModelProfile = (typeof modelProfiles)[number];
-export type { ModelDetectorType };
+export type { CapabilityBindingId };
 export type ModelTransport = "openai_chat" | "nemoguard_jailbreak_detect";
 export type ModelResourceStatus = "pending" | "validated" | "failed";
 export type ModelRevisionState = "draft" | "validated" | "activating" | "active" | "superseded" | "failed";
@@ -45,16 +47,16 @@ export function isRetiredModel(modelId: string): boolean {
 
 export type ModelAssignments = {
   controlPlane: string | null;
-  detectors: Record<ModelDetectorType, string | null>;
+  bindings: Record<CapabilityBindingId, string | null>;
 };
 
-export const modelAssignmentTargets = ["control_plane", ...modelDetectorTypes] as const;
+export const modelAssignmentTargets = ["control_plane", ...capabilityBindingIds] as const;
 export type ModelAssignmentTarget = (typeof modelAssignmentTargets)[number];
 export const modelAssignmentTargetSchema = z.enum(modelAssignmentTargets);
 
 export const emptyModelAssignments = (): ModelAssignments => ({
   controlPlane: null,
-  detectors: Object.fromEntries(modelDetectorTypes.map((type) => [type, null])) as Record<ModelDetectorType, null>,
+  bindings: Object.fromEntries(capabilityBindingIds.map((id) => [id, null])) as Record<CapabilityBindingId, null>,
 });
 
 export const providerInputSchema = z.object({
@@ -102,9 +104,9 @@ export const providerRegistrationSchema = z.object({
 
 export const assignmentInputSchema = z.object({
   controlPlane: z.string().uuid().nullable(),
-  detectors: z.object(
-    Object.fromEntries(modelDetectorTypes.map((type) => [type, z.string().uuid().nullable()])) as {
-      [Type in ModelDetectorType]: z.ZodNullable<z.ZodString>;
+  bindings: z.object(
+    Object.fromEntries(capabilityBindingIds.map((id) => [id, z.string().uuid().nullable()])) as {
+      [Id in CapabilityBindingId]: z.ZodNullable<z.ZodString>;
     },
   ),
 });
@@ -150,53 +152,58 @@ export const profileTransports: Record<ModelProfile, ModelTransport> = {
 
 export const controlPlaneProfiles: readonly ModelProfile[] = controlPlaneProfileRefs;
 
-export const detectorProfiles = detectorProfileRefs as Record<ModelDetectorType, readonly ModelProfile[]>;
-
 export function normalizeModelAssignments(
   value: Partial<{
     controlPlane: string | null;
-    detectors: Partial<Record<ModelDetectorType, string | null>>;
+    bindings: Partial<Record<CapabilityBindingId, string | null>>;
   }> | null | undefined,
 ): ModelAssignments {
   const source = value ?? {};
   return {
     controlPlane: source.controlPlane ?? null,
-    detectors: Object.fromEntries(modelDetectorTypes.map((type) => [type, source.detectors?.[type] ?? null])) as Record<ModelDetectorType, string | null>,
+    bindings: Object.fromEntries(capabilityBindingIds.map((id) => [id, source.bindings?.[id] ?? null])) as Record<CapabilityBindingId, string | null>,
   };
 }
 
-export function detectorContracts(
-  detectorType: ModelDetectorType,
+export function capabilityBindingContracts(
+  bindingId: CapabilityBindingId,
   profile: ModelProfile,
 ): readonly string[] {
+  const definition = capabilityBindingById.get(bindingId);
+  if (!definition) return [];
   const contracts = profileContracts[profile];
-  const allowed: Record<ModelDetectorType, readonly string[]> = {
-    content_safety: ["tali.guard.content-safety.v1"],
-    jailbreak_detection: ["tali.guard.jailbreak.v1"],
-    topic_control: ["tali.guard.topic-control.semantic.v1", "tali.guard.company-policy.v1"],
-    pii_detection: ["tali.guard.pii.semantic.v1"],
-    contextual_grounding: ["tali.guard.contextual-grounding.v1"],
-    automated_reasoning: ["tali.guard.automated-reasoning.v1"],
-  };
-  return contracts.filter((contract) => allowed[detectorType].includes(contract));
+  return contracts.filter((contract) => definition.contractRefs.includes(contract));
 }
 
 export function assignedModelIds(assignments: ModelAssignments): string[] {
   return [
     assignments.controlPlane,
-    ...Object.values(assignments.detectors),
+    ...Object.values(assignments.bindings),
   ].filter((value): value is string => Boolean(value));
 }
 
-export function detectorUsesModel(assignments: ModelAssignments, detectorType: ModelDetectorType, modelId: string): boolean {
-  return assignments.detectors[detectorType] === modelId;
+export function capabilityBindingUsesModel(assignments: ModelAssignments, bindingId: CapabilityBindingId, modelId: string): boolean {
+  return assignments.bindings[bindingId] === modelId;
 }
 
-export function assignmentTargetProfiles(target: "control_plane" | ModelDetectorType): readonly ModelProfile[] {
+export function assignmentTargetProfiles(target: ModelAssignmentTarget): readonly ModelProfile[] {
   if (target === "control_plane") {
     return controlPlaneProfiles;
   }
-  return detectorProfiles[target];
+  return (capabilityBindingById.get(target)?.profileRefs ?? []) as readonly ModelProfile[];
+}
+
+export function assignmentTargetAcceptsModel(
+  target: ModelAssignmentTarget,
+  profile: ModelProfile,
+  providerKind: ModelProviderKind,
+): boolean {
+  return assignmentTargetProfiles(target).includes(profile)
+    && (target === "control_plane" || isDataPlaneProviderKindAllowed(providerKind));
+}
+
+export function providerAcceptsProfile(providerKind: ModelProviderKind, profile: ModelProfile): boolean {
+  return isDataPlaneProviderKindAllowed(providerKind) || profile === "generic-chat";
 }
 
 export const localGuardrailContracts = [
@@ -211,10 +218,11 @@ export const localGuardrailContracts = [
 
 export type ModelValidationCheck = {
   id: string;
-  scope: "configuration" | "provider" | "model" | "detector";
+  scope: "configuration" | "provider" | "model" | "capability";
   status: "passed" | "failed" | "skipped";
   message: string;
   latencyMs?: number;
+  evidenceKind?: "model-probe" | "nemo-rail-v1";
 };
 
 export type PolicyCoverage = {
@@ -230,9 +238,10 @@ export type ModelValidationReport = {
   checks: ModelValidationCheck[];
   contractCoverage: Array<{
     contract: string;
+    bindingId: CapabilityBindingId | null;
+    railType: "input" | "output" | null;
     source: "local" | "model";
     modelId: string | null;
-    detectorType: ModelDetectorType | null;
   }>;
   policies: PolicyCoverage[];
 };
@@ -257,3 +266,5 @@ export type ActiveModelConfiguration = {
   assignments: ModelAssignments;
   models: ActiveModelRuntime[];
 };
+
+export const capabilityBindings = capabilityBindingDefinitions;

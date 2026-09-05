@@ -9,7 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { defaultGuardrailDraft, DEFAULT_GUARDRAIL_ID } from "../../server/domain/defaults";
 import { PolicyCatalog } from "../../server/policy-catalog/catalog";
 
-import { DeleteGuardrailSheet, DraftReleaseView, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
+import { DeleteGuardrailSheet, DraftReleaseView, EditGuardrailSheet, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
 
 const VERSION_ID = "20260813-080000.000Z";
 
@@ -159,6 +159,46 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("guardrails.playgroundSource")).toBeTruthy();
     expect(screen.getByText("Policy content-safety matched Rule harmful-request.")).toBeTruthy();
     expect(screen.getByText("99%")).toBeTruthy();
+  });
+
+  it("removes findings with repeated local ids when filtering to an empty severity", () => {
+    const repeatedFinding = {
+      id: "model/content-safety",
+      created_at: "2026-08-16T09:46:46Z",
+      guardrail_id: "guardrail-observed",
+      guardrail_version: "20260816-094646.000Z",
+      deployment_id: null,
+      integration_id: null,
+      protocol: "http",
+      phase: "output" as const,
+      severity: "medium" as const,
+      risk: "content_safety",
+      verdict: "unsafe",
+      confidence: null,
+      recommended_action: "reject",
+      policy_id: "builtin-content-safety",
+      rule_id: "model/content-safety",
+      detail: "Runner reported an unsafe content-safety finding.",
+    };
+    const data: GuardrailFindingPage = {
+      count: 2,
+      summary: { total: 2, critical: 0, high: 0, medium: 2, low: 0, affected_traces: 2, latest_at: repeatedFinding.created_at },
+      items: [
+        { ...repeatedFinding, trace_id: "trace-one" },
+        { ...repeatedFinding, trace_id: "trace-two" },
+      ],
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { container } = render(<QueryClientProvider client={client}><GuardrailFindingsView data={data} loading={false} error={null} policies={[]} deployments={[]} integrations={[]} window="24h" onWindowChange={() => undefined} /></QueryClientProvider>);
+
+    expect(container.querySelectorAll("article")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "deploymentDetail.severity.critical0" }));
+    expect(container.querySelectorAll("article")).toHaveLength(0);
+    expect(screen.getByText("guardrails.noMatchingFindings")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "deploymentDetail.severity.medium2" }));
+    expect(container.querySelectorAll("article")).toHaveLength(2);
   });
 
   it("shows immutable configuration before the unified compiled runtime", () => {
@@ -354,6 +394,38 @@ describe("Guardrail detail information hierarchy", () => {
     fireEvent.click(screen.getByRole("button", { name: "common.edit" }));
     expect(onEdit).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "guardrails.createDeployment" })).toBeNull();
+  });
+
+  it("locks Business Purpose and edits Topic Control as an allowlist", () => {
+    const topicGuardrail = {
+      ...deletableGuardrail,
+      purpose: "Support account operations.",
+      custom_content_rules: [],
+      allowed_topics: [],
+      restricted_topics: ["legacy restricted topic"],
+      policy_bindings: [{
+        policy_id: "builtin-topic-safety",
+        policy_version: "1.0.0",
+        action: "redirect",
+        parameter_values: {},
+        enabled_rule_ids: ["model/topic-control"],
+        rule_actions: {},
+        enabled_rails: ["input"],
+        reasoning_policy: null,
+      }],
+    } satisfies Guardrail;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><TooltipProvider><EditGuardrailSheet guardrail={topicGuardrail} policies={[]} open onOpenChange={vi.fn()} onSaved={vi.fn()} /></TooltipProvider></QueryClientProvider>);
+
+    expect(screen.getByText("Support account operations.")).toBeTruthy();
+    expect(screen.queryByDisplayValue("Support account operations.")).toBeNull();
+    expect(screen.getByText("guardrails.businessPurposeLocked")).toBeTruthy();
+    expect(screen.getByText("guardrails.topicAllowlist")).toBeTruthy();
+    expect(screen.getByText("guardrails.topicAllowlistRequired")).toBeTruthy();
+    expect(screen.queryByText("guardrails.restrictedDomains")).toBeNull();
+    expect(screen.queryByText("legacy restricted topic")).toBeNull();
+    expect(screen.getByRole("button", { name: "common.save" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("shows every complete Default Policy with its identity, version, and full Rule count", () => {

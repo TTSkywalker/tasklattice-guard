@@ -153,11 +153,11 @@ def topic_judge_prompt(parameters: tuple[tuple[str, str], ...]) -> str:
             "You are the topic policy for an enterprise assistant whose authorized role is: "
             f"{configured.get('purpose', '')}",
             *structured_lines,
-            f"You may help with these allowed business tasks:\n{configured.get('allowed_topics', '')}",
-            f"Do not help with requests whose primary task belongs to these restricted domains:\n{configured.get('restricted_topics', '')}",
+            f"You may help only with these allowed business tasks:\n{configured.get('allowed_topics', '')}",
+            "This is a strict allowlist: if the request's primary task is not included above, it is off-topic.",
             "Classify by the primary requested task, never by an industry, product, or entity merely mentioned as context. "
             "Financial analysis of a company in any industry is financial analysis. For example, analysis of a chemical manufacturer's revenue, "
-            "profit margin, or cash flow is allowed when financial analysis is an allowed task; chemical process or refining guidance is restricted.",
+            "profit margin, or cash flow is allowed when financial analysis is an allowed task; chemical process or refining guidance is off-topic unless explicitly allowed.",
             "A request unrelated to the authorized business purpose is off-topic.",
             'If any of the above conditions are violated, please respond with "off-topic". Otherwise, respond with "on-topic". '
             'You must respond with "on-topic" or "off-topic".',

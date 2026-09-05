@@ -59,7 +59,9 @@ class SafetyModelEvaluator:
         trackers: list[ModelCallTracker] = []
         errors: list[str] = []
         guards = tuple(
-            item for item in self._guards if request.capability in item.capabilities
+            item for item in self._guards
+            if request.capability in item.capabilities
+            and request.rail_type in item.config.rail_types
         )
 
         assessment = await self._first_success(

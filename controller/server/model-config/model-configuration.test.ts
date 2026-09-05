@@ -4,7 +4,7 @@ import type { ControllerDatabase } from "../db/client.js";
 import { controllerState, outboxEvents, modelConfigurationRevisions, modelDefinitions, modelProviders } from "../db/schema.js";
 import { emptyModelAssignments } from "./domain.js";
 import { ModelConfigurationService } from "./service.js";
-import { jailbreakDetectProfile, jailbreakDetectSafeInput } from "./jailbreak-detect.js";
+import { jailbreakDetectAttackInput, jailbreakDetectProfile, jailbreakDetectSafeInput } from "./jailbreak-detect.js";
 
 const id = "7471c0eb-a533-449a-8814-98c3bc23aa98";
 const input = { profile: "tali.qwen3guard.v1", timeoutSeconds: 30, maxTokens: 512 };
@@ -14,7 +14,7 @@ const input = { profile: "tali.qwen3guard.v1", timeoutSeconds: 30, maxTokens: 51
 function setup(state = "draft", assigned = false, failProbe = false) {
   const empty = emptyModelAssignments();
   const assignments = assigned
-    ? { ...empty, detectors: { ...empty.detectors, content_safety: id, jailbreak_detection: id } }
+    ? { ...empty, bindings: { ...empty.bindings, "content_safety.input": id, "jailbreak.input": id } }
     : empty;
   const rows = new Map<unknown, Array<Record<string, unknown>>>([
     [modelProviders, [{ id: "provider-1", name: "Mock", kind: "custom-openai-compatible", baseUrl: "https://provider.test/v1", credentialCiphertext: null }]],
@@ -39,10 +39,38 @@ function setup(state = "draft", assigned = false, failProbe = false) {
   const db = { ...tx, transaction: async (run: (value: typeof tx) => unknown) => run(tx) };
   const fetcher = vi.fn(async () => failProbe ? new Response("Unavailable", { status: 503 }) : Response.json({ choices: [{ message: { content: "Safety: Safe\nCategories: None" } }] }));
   const service = new ModelConfigurationService(db as unknown as ControllerDatabase, "test-root-secret", resolve("../runner/toolkit/policy_library/assets"), fetcher);
-  return { service, rows, tx, fetcher };
+  const railValidator = vi.fn(async () => ({ passed: !failProbe, message: failProbe ? "Runner Rail case failed." : "Runner safe and unsafe cases passed.", latencyMs: 12 }));
+  service.setRailValidator(railValidator);
+  return { service, rows, tx, fetcher, railValidator };
 }
 
 describe("Capability configuration after registration", () => {
+  it("leases only the candidate Provider credential and revokes it after Rail validation", async () => {
+    const { service, fetcher } = setup("draft", true);
+    let leaseId = "";
+    service.setRailValidator(async (request) => {
+      leaseId = request.credentialLeaseId!;
+      expect(request.bindingId).toBe("content_safety.input");
+      expect(request.configuration?.bindings?.[0]?.railType).toBe("RAIL_TYPE_INPUT");
+      expect(await service.resolveCredentials(["provider-1"], leaseId)).toEqual({ "provider-1": "" });
+      expect(await service.resolveCredentials(["other-provider"], leaseId)).toEqual({});
+      return { passed: true, message: "Rail samples passed.", latencyMs: 1 };
+    });
+    const revision = await service.validateAssignment("content_safety.input", "admin");
+    expect(await service.resolveCredentials(["provider-1"], leaseId)).toEqual({});
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(revision.validationReport?.checks).toContainEqual(expect.objectContaining({ evidenceKind: "nemo-rail-v1", status: "passed" }));
+  });
+
+  it("never substitutes a Controller model probe when the Runner validation fails", async () => {
+    const { service, fetcher } = setup("draft", true);
+    service.setRailValidator(async () => { throw new Error("Runner disconnected"); });
+    const revision = await service.validateAssignment("content_safety.input", "admin");
+    expect(revision.validationReport?.valid).toBe(false);
+    expect(revision.validationReport?.checks).toContainEqual(expect.objectContaining({ evidenceKind: "nemo-rail-v1", status: "failed" }));
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("keeps classifier call health independent of paired jailbreak capability checks", async () => {
     const { service, rows, fetcher } = setup();
     Object.assign(rows.get(modelDefinitions)![0]!, { model: "nvidia/nemoguard-jailbreak-detect", profile: jailbreakDetectProfile });
@@ -69,6 +97,8 @@ describe("Capability configuration after registration", () => {
     const result = await service.revalidateModel(id, "admin");
     expect(result).toMatchObject({ status: "failed", connectionStatus: "validated" });
     expect(result.validationMessage).toContain("did not detect");
+    expect(result.validationMessage).toContain("score 0.01");
+    expect(jailbreakDetectAttackInput.length).toBeGreaterThan(500);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
@@ -95,12 +125,12 @@ describe("Capability configuration after registration", () => {
     const { service, rows, fetcher } = setup();
     Object.assign(rows.get(modelDefinitions)![0]!, { profile: jailbreakDetectProfile });
     const empty = emptyModelAssignments();
-    await service.updateDraft({ ...empty, detectors: { ...empty.detectors, jailbreak_detection: id } }, "admin");
+    await service.updateDraft({ ...empty, bindings: { ...empty.bindings, "jailbreak.input": id } }, "admin");
     fetcher.mockResolvedValueOnce(Response.json({ jailbreak: false, score: 0.01 }))
       .mockResolvedValueOnce(Response.json({ jailbreak: true, score: 0.99 }));
     const revision = await service.validateDraft("admin");
     expect(revision.validationReport?.valid).toBe(true);
-    expect(revision.validationReport?.contractCoverage).toContainEqual({ contract: "tali.guard.jailbreak.v1", source: "model", modelId: id, detectorType: "jailbreak_detection" });
+    expect(revision.validationReport?.contractCoverage).toContainEqual({ contract: "tali.guard.jailbreak.v1", source: "model", modelId: id, bindingId: "jailbreak.input", railType: "input" });
     rows.get(modelConfigurationRevisions)![0]!.state = "active";
     expect((await service.activeConfiguration())?.models[0]).toMatchObject({ profile: jailbreakDetectProfile, baseUrl: "https://provider.test/v1" });
   });
@@ -221,42 +251,44 @@ describe("Capability configuration after registration", () => {
   });
 
   it.each([false, true])("validates a pending model in Capabilities and publishes accurate probe evidence (failure=%s)", async (failed) => {
-    const { service, rows, fetcher } = setup("draft", true, failed);
+    const { service, rows, fetcher, railValidator } = setup("draft", true, failed);
     const revision = await service.validateDraft("admin");
     expect(revision.validationReport?.valid).toBe(!failed);
     expect(rows.get(modelDefinitions)?.[0]).toMatchObject({ status: failed ? "failed" : "validated", validatedAt: expect.any(Date) });
-    // One model serving two capabilities is probed once, not once per role.
-    expect(fetcher).toHaveBeenCalledOnce();
-    expect(revision.validationReport?.checks.filter((check) => check.scope === "detector")).toHaveLength(2);
+    // Sharing a model must not reuse evidence between different Rail bindings.
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(railValidator).toHaveBeenCalledTimes(2);
+    expect(revision.validationReport?.checks.filter((check) => check.scope === "capability")).toHaveLength(2);
   });
 
   it("assigns a registered but unvalidated model to multiple capabilities before probing", async () => {
-    const { service, fetcher } = setup();
+    const { service, fetcher, railValidator } = setup();
     const empty = emptyModelAssignments();
-    const draft = await service.updateDraft({ ...empty, detectors: { ...empty.detectors, content_safety: id, jailbreak_detection: id } }, "admin");
-    expect(draft.assignments.detectors).toMatchObject({ content_safety: id, jailbreak_detection: id });
+    const draft = await service.updateDraft({ ...empty, bindings: { ...empty.bindings, "content_safety.input": id, "jailbreak.input": id } }, "admin");
+    expect(draft.assignments.bindings).toMatchObject({ "content_safety.input": id, "jailbreak.input": id });
     expect(draft.state).toBe("draft");
     expect(fetcher).not.toHaveBeenCalled();
     expect((await service.validateDraft("admin")).validationReport?.valid).toBe(true);
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(railValidator).toHaveBeenCalledTimes(2);
   });
 
   it("saves and validates capability assignments independently", async () => {
-    const { service, fetcher } = setup("draft", true);
-    const saved = await service.updateAssignment("content_safety", id, "admin");
-    expect(saved.assignments.detectors.content_safety).toBe(id);
+    const { service, fetcher, railValidator } = setup("draft", true);
+    const saved = await service.updateAssignment("content_safety.input", id, "admin");
+    expect(saved.assignments.bindings["content_safety.input"]).toBe(id);
     expect(fetcher).not.toHaveBeenCalled();
 
-    const first = await service.validateAssignment("content_safety", "admin");
-    expect(fetcher).toHaveBeenCalledOnce();
-    expect(first.validationReport?.checks).toContainEqual(expect.objectContaining({ id: `probe:content_safety:${id}`, status: "passed" }));
-    expect(first.validationReport?.checks.some((check) => check.id.startsWith("probe:jailbreak_detection:"))).toBe(false);
+    const first = await service.validateAssignment("content_safety.input", "admin");
+    expect(railValidator).toHaveBeenCalledOnce();
+    expect(first.validationReport?.checks).toContainEqual(expect.objectContaining({ id: `probe:content_safety.input:${id}`, status: "passed" }));
+    expect(first.validationReport?.checks.some((check) => check.id.startsWith("probe:jailbreak.input:"))).toBe(false);
     expect(first.validationReport?.valid).toBe(false);
 
-    const second = await service.validateAssignment("jailbreak_detection", "admin");
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(second.validationReport?.checks).toContainEqual(expect.objectContaining({ id: `probe:content_safety:${id}`, status: "passed" }));
-    expect(second.validationReport?.checks).toContainEqual(expect.objectContaining({ id: `probe:jailbreak_detection:${id}`, status: "passed" }));
+    const second = await service.validateAssignment("jailbreak.input", "admin");
+    expect(railValidator).toHaveBeenCalledTimes(2);
+    expect(second.validationReport?.checks).toContainEqual(expect.objectContaining({ id: `probe:content_safety.input:${id}`, status: "passed" }));
+    expect(second.validationReport?.checks).toContainEqual(expect.objectContaining({ id: `probe:jailbreak.input:${id}`, status: "passed" }));
     expect(second.validationReport?.valid).toBe(true);
   });
 });

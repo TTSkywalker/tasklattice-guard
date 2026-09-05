@@ -66,7 +66,7 @@ const guardrailDraftInput = z.object({
     outOfScope: z.string().trim().max(2_000).default(""),
   }).default({ audience: "", tasks: "", protect: "", outOfScope: "" }),
   allowedTopics: z.array(z.string().trim().min(1).max(500)).max(256).default([]),
-  restrictedTopics: z.array(z.string().trim().min(1).max(500)).max(256).default([]),
+  restrictedTopics: z.array(z.never()).max(0, "Topic Control is allowlist-only; restricted topics are not accepted.").default([]),
   policyBindings: z.array(guardrailPolicyBindingInput).min(1).max(128),
   safetyLevel: z.enum(["balanced", "strict"]).default("balanced"),
   outputDelivery: z.enum(["interruptible", "window_buffered", "full_buffered"]).default("full_buffered"),
@@ -82,7 +82,7 @@ const guardrailDraftInput = z.object({
 });
 const guardrailInput = z.object({
   name: z.string().trim().min(1).max(160),
-  description: z.string().trim().max(4_000).default(""),
+  description: z.string().trim().min(1, "Business purpose is required.").max(4_000),
   draftConfig: guardrailDraftInput,
   runtimeProfile: z.enum(["auto", "llmrails_colang1_standard", "llmrails_colang2_programmable", "iorails_native"]).default("auto"),
 });
@@ -181,7 +181,7 @@ const runtimeEventBatchInput = z.object({
     context.addIssue({ code: "custom", path: ["runnerId"], message: "runnerId is required for an empty telemetry batch." });
   }
 });
-const modelCredentialRefsInput = z.object({ refs: z.array(z.string().uuid()).max(64) });
+const modelCredentialRefsInput = z.object({ refs: z.array(z.string().uuid()).max(64), leaseId: z.string().uuid().optional() });
 
 export function createHttpApp(input: {
   config: ControllerConfig;
@@ -823,7 +823,7 @@ export function createHttpApp(input: {
   app.post("/api/internal/v1/model-credentials/resolve", runnerAuthentication(input.config.runnerToken), async (context) => {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     const body = modelCredentialRefsInput.parse(await context.req.json());
-    return context.json({ credentials: await input.models.resolveCredentials(body.refs) });
+    return context.json({ credentials: await input.models.resolveCredentials(body.refs, body.leaseId) });
   });
 
   app.notFound((context) => {

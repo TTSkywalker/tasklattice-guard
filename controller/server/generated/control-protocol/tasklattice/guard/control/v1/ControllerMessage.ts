@@ -5,6 +5,7 @@ import type { DesiredState as _tasklattice_guard_control_v1_DesiredState, Desire
 import type { CompileRequest as _tasklattice_guard_control_v1_CompileRequest, CompileRequest__Output as _tasklattice_guard_control_v1_CompileRequest__Output } from '../../../../tasklattice/guard/control/v1/CompileRequest.js';
 import type { DrainRequest as _tasklattice_guard_control_v1_DrainRequest, DrainRequest__Output as _tasklattice_guard_control_v1_DrainRequest__Output } from '../../../../tasklattice/guard/control/v1/DrainRequest.js';
 import type { ValidationRequest as _tasklattice_guard_control_v1_ValidationRequest, ValidationRequest__Output as _tasklattice_guard_control_v1_ValidationRequest__Output } from '../../../../tasklattice/guard/control/v1/ValidationRequest.js';
+import type { CapabilityValidationRequest as _tasklattice_guard_control_v1_CapabilityValidationRequest, CapabilityValidationRequest__Output as _tasklattice_guard_control_v1_CapabilityValidationRequest__Output } from '../../../../tasklattice/guard/control/v1/CapabilityValidationRequest.js';
 import type { Long } from '@grpc/proto-loader';
 
 /**
@@ -24,7 +25,8 @@ export interface ControllerMessage {
   'compileRequest'?: (_tasklattice_guard_control_v1_CompileRequest | null);
   'drainRequest'?: (_tasklattice_guard_control_v1_DrainRequest | null);
   'validationRequest'?: (_tasklattice_guard_control_v1_ValidationRequest | null);
-  'body'?: "registrationAccepted"|"desiredState"|"compileRequest"|"drainRequest"|"validationRequest";
+  'capabilityValidationRequest'?: (_tasklattice_guard_control_v1_CapabilityValidationRequest | null);
+  'body'?: "registrationAccepted"|"desiredState"|"compileRequest"|"drainRequest"|"validationRequest"|"capabilityValidationRequest";
 }
 
 /**
@@ -44,5 +46,6 @@ export interface ControllerMessage__Output {
   'compileRequest'?: (_tasklattice_guard_control_v1_CompileRequest__Output | null);
   'drainRequest'?: (_tasklattice_guard_control_v1_DrainRequest__Output | null);
   'validationRequest'?: (_tasklattice_guard_control_v1_ValidationRequest__Output | null);
-  'body'?: "registrationAccepted"|"desiredState"|"compileRequest"|"drainRequest"|"validationRequest";
+  'capabilityValidationRequest'?: (_tasklattice_guard_control_v1_CapabilityValidationRequest__Output | null);
+  'body'?: "registrationAccepted"|"desiredState"|"compileRequest"|"drainRequest"|"validationRequest"|"capabilityValidationRequest";
 }

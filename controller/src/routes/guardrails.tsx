@@ -492,7 +492,7 @@ export function GuardrailFindingsView({ data, loading, error, policies, deployme
           const deployment = deployments.find((item) => item.id === finding.deployment_id);
           const integration = integrations.find((item) => item.id === finding.integration_id);
           const source = deployment?.name ?? integration?.name ?? (finding.protocol === "playground" ? t("guardrails.playgroundSource") : finding.protocol?.toUpperCase()) ?? t("guardrails.directRuntimeSource");
-          return <article key={finding.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5">
+          return <article key={`${finding.trace_id}:${finding.id}`} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2"><GuardrailSeverityBadge severity={finding.severity} /><strong className="text-sm">{guardrailFindingTitle(finding, policies)}</strong></div>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{finding.detail}</p>
@@ -666,7 +666,20 @@ export function ImmutableVersionView({ detail, selectedVersion, versions, loadin
 
 function VersionFact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { return <div className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className={`${mono ? "font-mono text-xs" : "text-sm font-medium"} mt-1.5 truncate`} title={value}>{value}</dd></div>; }
 
-function ImmutablePosture({ detail }: { detail: GuardrailVersionDetail }) { const { t } = useTranslation(); return <section className="rounded-lg border p-4"><h3 className="text-sm font-semibold">{t("guardrails.decisionPosture")}</h3><dl className="mt-4 grid gap-4 sm:grid-cols-2"><VersionFact label={t("guardrailWizard.safetyLevel")} value={t(`guardrailWizard.safetyLevelOptions.${detail.safety_level}`)} /><VersionFact label={t("guardrailWizard.outputDelivery")} value={t(`guardrailWizard.outputDeliveryOptions.${detail.output_delivery}`)} /><VersionFact label={t("guardrails.colangVersion")} value={detail.colang_version} /><VersionFact label={t("guardrails.criticalPath")} value={`${detail.estimated_critical_path_ms} ms`} /></dl></section>; }
+function ImmutablePosture({ detail }: { detail: GuardrailVersionDetail }) {
+  const { t } = useTranslation();
+  const effective = detail.effective_output_delivery ?? detail.output_delivery;
+  return <section className="rounded-lg border p-4"><h3 className="text-sm font-semibold">{t("guardrails.decisionPosture")}</h3>
+    <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+      <VersionFact label={t("guardrailWizard.safetyLevel")} value={t(`guardrailWizard.safetyLevelOptions.${detail.safety_level}`)} />
+      <VersionFact label={t("guardrailWizard.outputDelivery")} value={t(`guardrailWizard.outputDeliveryOptions.${effective}`)} />
+      <VersionFact label={t("modelSettings.inputRail")} value={t("guardrails.compiledFlowCount", { count: detail.rails.filter((rail) => rail.rail_type === "input").length })} />
+      <VersionFact label={t("modelSettings.outputRail")} value={t("guardrails.compiledFlowCount", { count: detail.rails.filter((rail) => rail.rail_type === "output").length })} />
+      <VersionFact label={t("guardrails.colangVersion")} value={detail.colang_version} /><VersionFact label={t("guardrails.criticalPath")} value={`${detail.estimated_critical_path_ms} ms`} />
+    </dl><p className="mt-4 border-t pt-3 text-xs leading-5 text-muted-foreground">{t(effective === "full_buffered" ? "modelSettings.streamFull" : "modelSettings.streamWindow")}</p>
+    {effective !== detail.output_delivery ? <p className="mt-2 text-xs text-muted-foreground">{t("guardrails.deliverySafetyFallback")}</p> : null}
+  </section>;
+}
 
 function PinnedPolicies({ bindings }: { bindings: GuardrailVersionDetail["policy_bindings"] }) { const { t } = useTranslation(); return <section className="rounded-lg border p-4"><h3 className="text-sm font-semibold">{t("guardrails.pinnedPolicies")}</h3><div className="mt-3 divide-y">{bindings.map((binding) => <div key={`${binding.policy_id}@${binding.policy_version}`} className="py-3 first:pt-0 last:pb-0"><div className="flex flex-wrap items-center justify-between gap-2"><code className="text-xs">{binding.policy_id}@{binding.policy_version}</code><Badge variant="outline">{binding.action ?? t("guardrails.policyBehavior")}</Badge></div><p className="mt-2 text-xs text-muted-foreground">{t("guardrails.pinnedPolicyRules", { count: binding.enabled_rule_ids.length })}</p></div>)}</div></section>; }
 
@@ -893,23 +906,19 @@ export function TestCases({ cases, bindings, policies, loading, onAdd, onExclude
   </section>;
 }
 
-function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, onSaved }: { guardrail: Guardrail; policies: Policy[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
+export function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, onSaved }: { guardrail: Guardrail; policies: Policy[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
   const { t } = useTranslation();
   const [name, setName] = useState(guardrail.name);
-  const [purpose, setPurpose] = useState(guardrail.purpose);
   const [customRules, setCustomRules] = useState(() => customRuleRowsFromGuardrail(guardrail));
   const [allowed, setAllowed] = useState(guardrail.allowed_topics.join("\n"));
-  const [restricted, setRestricted] = useState(guardrail.restricted_topics.join("\n"));
   const [bindings, setBindings] = useState(guardrail.policy_bindings);
   const [level, setLevel] = useState(guardrail.safety_level);
   const [delivery, setDelivery] = useState(guardrail.output_delivery);
   useEffect(() => {
     if (open) {
       setName(guardrail.name);
-      setPurpose(guardrail.purpose);
       setCustomRules(customRuleRowsFromGuardrail(guardrail));
       setAllowed(guardrail.allowed_topics.join("\n"));
-      setRestricted(guardrail.restricted_topics.join("\n"));
       setBindings(guardrail.policy_bindings);
       setLevel(guardrail.safety_level);
       setDelivery(guardrail.output_delivery);
@@ -918,10 +927,8 @@ function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, onSaved }
   const mutation = useMutation({
     mutationFn: () => updateGuardrail(guardrail.id, {
       name,
-      purpose,
       custom_content_rules: customRulesToDraft(customRules),
       allowed_topics: lines(allowed),
-      restricted_topics: lines(restricted),
       policy_bindings: bindings,
       safety_level: level,
       output_delivery: delivery,
@@ -929,10 +936,21 @@ function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, onSaved }
     onSuccess: () => { toast.success(t("guardrails.updated")); onSaved(); },
     onError: (error) => notifyError(error, t("guardrails.operationFailed")),
   });
-  return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("guardrails.editEyebrow")} title={t("guardrails.editTitle", { name: guardrail.name })} description={t("guardrails.editDescription")} width="xl" footer={<><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!name.trim() || !purpose.trim() || !bindings.length || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? <LoaderCircle className="animate-spin" /> : <Save />}{t(mutation.isPending ? "common.saving" : "common.save")}</Button></>}>
+  const topicControlEnabled = hasTopicControlBinding(bindings, policies);
+  const allowedTopicsMissing = topicControlEnabled && !lines(allowed).length;
+  return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("guardrails.editEyebrow")} title={t("guardrails.editTitle", { name: guardrail.name })} description={t("guardrails.editDescription")} width="xl" footer={<><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!name.trim() || !bindings.length || allowedTopicsMissing || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? <LoaderCircle className="animate-spin" /> : <Save />}{t(mutation.isPending ? "common.saving" : "common.save")}</Button></>}>
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
       <Field label={t("guardrails.guardrailName")}><Input className="min-h-11" value={name} onChange={(event) => setName(event.target.value)} /></Field>
-      <Field label={t("guardrails.businessPurpose")}><Textarea className="min-h-28" value={purpose} onChange={(event) => setPurpose(event.target.value)} /></Field>
+      <section className="rounded-xl border bg-muted/20 p-4" aria-labelledby="guardrail-business-purpose">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground"><LockKeyhole className="size-4" /></span>
+          <div className="min-w-0">
+            <h3 id="guardrail-business-purpose" className="text-sm font-semibold">{t("guardrails.businessPurpose")}</h3>
+            <p className={`mt-1 whitespace-pre-wrap text-sm leading-6 ${guardrail.purpose ? "text-foreground" : "text-muted-foreground"}`}>{guardrail.purpose || t("guardrails.businessPurposeLegacyMissing")}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("guardrails.businessPurposeLocked")}</p>
+          </div>
+        </div>
+      </section>
       <section className="rounded-xl border bg-card p-4">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
@@ -964,11 +982,20 @@ function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, onSaved }
           {!customRules.length ? <p className="text-xs text-muted-foreground">No custom phrase rules yet.</p> : null}
         </div>
       </section>
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2"><Field label={t("guardrails.allowedDomains")}><Textarea className="min-h-24" value={allowed} onChange={(event) => setAllowed(event.target.value)} /></Field><Field label={t("guardrails.restrictedDomains")}><Textarea className="min-h-24" value={restricted} onChange={(event) => setRestricted(event.target.value)} /></Field></div>
+      <section className="rounded-xl border bg-card p-4">
+        <h3 className="text-sm font-semibold">{t("guardrails.topicAllowlist")}</h3>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrails.topicAllowlistDescription")}</p>
+        <div className="mt-4"><Field label={`${t("guardrails.allowedDomains")}${topicControlEnabled ? " *" : ""}`}><Textarea className="min-h-28" value={allowed} onChange={(event) => setAllowed(event.target.value)} placeholder={t("guardrails.topicAllowlistPlaceholder")} /></Field></div>
+        {allowedTopicsMissing ? <p role="alert" className="mt-2 flex items-start gap-2 text-xs leading-5 text-destructive"><CircleAlert className="mt-0.5 size-4 shrink-0" />{t("guardrails.topicAllowlistRequired")}</p> : null}
+      </section>
       <RuntimePostureFields safetyLevel={level} outputDelivery={delivery} onSafetyLevelChange={setLevel} onOutputDeliveryChange={setDelivery} />
       <section className="min-w-0"><h3 className="mb-3 text-sm font-semibold">{t("guardrails.policyBindings")}</h3><PolicyBindingEditor policies={policies} value={bindings} onChange={setBindings} /></section>
     </div>
   </EntitySheet>;
+}
+
+function hasTopicControlBinding(bindings: GuardrailPolicyBinding[], policies: Policy[]): boolean {
+  return bindings.some((binding) => binding.policy_id === "builtin-topic-safety" || policies.find((policy) => policy.id === binding.policy_id)?.tags.some((tag) => tag.namespace === "guardrail_category" && tag.value === "topic_control"));
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="grid gap-2"><Label>{label}</Label>{children}</label>; }

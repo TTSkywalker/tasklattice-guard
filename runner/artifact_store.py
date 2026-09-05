@@ -70,6 +70,8 @@ class ArtifactStore:
         self._lock = threading.RLock()
         self._registry: NeMoRuntimeRegistry | None = None
         self._generation = 0
+        self._release_id: str | None = None
+        self._model_revision_id: str | None = None
         self._artifacts: dict[str, RuntimeArtifact] = {}
         self._routes: tuple[DeploymentRoute, ...] = ()
         self._integrations: dict[str, dict[str, Any]] = {}
@@ -146,6 +148,8 @@ class ArtifactStore:
             artifact = self._artifacts[route.artifact_id]
             return PlanResolution(
                 plan=artifact.plan,
+                effective_release_id=self._release_id,
+                model_revision_id=self._model_revision_id,
                 deployment_id=route.deployment_id,
                 integration_id=route.integration_id,
                 trace=(RuntimeTraceStep(
@@ -180,6 +184,8 @@ class ArtifactStore:
             deployment_id = route.deployment_id if route else f"playground:{guardrail_id}:{version}"
             return PlanResolution(
                 plan=artifact.plan,
+                effective_release_id=self._release_id,
+                model_revision_id=self._model_revision_id,
                 deployment_id=deployment_id,
                 integration_id=None,
                 trace=(RuntimeTraceStep(
@@ -229,6 +235,10 @@ class ArtifactStore:
         with self._lock:
             value = self._logging_levels.get(guardrail_id, "info")
         return value if value in {"info", "debug", "trace"} else "info"
+
+    def retain_release(self, release_id: str | None) -> None:
+        if release_id and self._registry:
+            self._registry.retain_release(release_id)
 
     def apply(
         self,
@@ -281,11 +291,20 @@ class ArtifactStore:
                 native_models,
             )
         with self._lock:
+            candidates = tuple((artifact.plan, artifact.config) for artifact in staged.values())
+            release_id = hashlib.sha256(
+                str(generation).encode() + b":"
+                + desired_state.model_configuration.SerializeToString(deterministic=True)
+                + ":".join(sorted(artifact.checksum for artifact in staged.values())).encode()
+            ).hexdigest()
+            registry.publish_release(release_id, candidates)
             self._artifacts = staged
             self._routes = routes
             self._integrations = integrations
             self._logging_levels = dict(desired_state.guardrail_logging_levels)
             self._generation = generation
+            self._release_id = release_id
+            self._model_revision_id = desired_state.model_configuration.revision_id or None
             if persist:
                 self._persist_snapshot(desired_state)
         if providers is None and native_models is None:

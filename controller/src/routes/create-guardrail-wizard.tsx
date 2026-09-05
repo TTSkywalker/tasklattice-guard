@@ -72,7 +72,6 @@ export function CreateGuardrailWizard({
   const [intentText, setIntentText] = useState("");
   const [intentProposal, setIntentProposal] = useState<IntentAnalysis | null>(null);
   const [allowed, setAllowed] = useState("");
-  const [restricted, setRestricted] = useState("");
   const [boundarySource, setBoundarySource] = useState<BoundarySource>(null);
   const [bindings, setBindings] = useState<GuardrailPolicyBinding[]>([]);
   const [outputDelivery, setOutputDelivery] = useState<OutputDelivery>("window_buffered");
@@ -102,7 +101,6 @@ export function CreateGuardrailWizard({
     setIntentText("");
     setIntentProposal(null);
     setAllowed("");
-    setRestricted("");
     setBoundarySource(null);
     setBindings([]);
     setOutputDelivery("window_buffered");
@@ -127,15 +125,14 @@ export function CreateGuardrailWizard({
     },
     custom_content_rules: customRulesToDraft(customRules),
     allowed_topics: lines(allowed),
-    restricted_topics: lines(restricted),
     policy_bindings: bindings,
     safety_level: "balanced" as const,
     output_delivery: outputDelivery,
-  }), [allowed, bindings, customRules, description, name, outputDelivery, purposeAudience, purposeTasks, purposeProtect, purposeOutOfScope, restricted]);
+  }), [allowed, bindings, customRules, description, name, outputDelivery, purposeAudience, purposeTasks, purposeProtect, purposeOutOfScope]);
 
   const preview = useMutation({ mutationFn: () => previewGuardrailCandidate(payload) });
   useEffect(() => {
-    if (step === 2 && bindings.length && bindingsValid(bindings, policies)) preview.mutate();
+    if (step === 2 && bindings.length && bindingsValid(bindings, policies, allowed)) preview.mutate();
     // The preview is a point-in-time review; edits happen on previous steps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -170,7 +167,6 @@ export function CreateGuardrailWizard({
       setPurposeOutOfScope(intentProposal.structured_purpose.out_of_scope);
     }
     setAllowed(intentProposal.allowed_topics.join("\n"));
-    setRestricted(intentProposal.restricted_topics.join("\n"));
     setBoundarySource("intent");
     const topicPolicy = recommendedTopicPolicy(policies);
     if (topicPolicy) addPolicies([topicPolicy.id]);
@@ -180,7 +176,6 @@ export function CreateGuardrailWizard({
 
   function applyDocumentAnalysis(analysis: ComplianceDocumentAnalysis) {
     setAllowed(analysis.allowed_topics.join("\n"));
-    setRestricted(analysis.restricted_topics.join("\n"));
     setBoundarySource("documents");
     addPolicies(analysis.recommended_policy_ids);
     setPolicyWorkspace("main");
@@ -194,16 +189,16 @@ export function CreateGuardrailWizard({
 
   const hasOutputPolicy = bindings.some((binding) => binding.enabled_rails.includes("output"));
   const fullBufferedMismatch = bindings.some((binding) => FULL_BUFFERED_POLICY_IDS.has(binding.policy_id)) && outputDelivery !== "full_buffered";
-  const policyBlocker = getPolicyBindingsBlocker(bindings, policies);
+  const policyBlocker = getPolicyBindingsBlocker(bindings, policies, allowed);
   const policyBlockedReason = policyBlocker ? t(policyBlocker.key, policyBlocker.values)
     : fullBufferedMismatch ? t("guardrailWizard.fullBufferedRequiredDescription") : null;
   const stepValid = [
-    Boolean(name.trim()),
+    Boolean(name.trim() && description.trim()),
     !policyBlockedReason,
     Boolean(preview.data && !preview.error),
   ];
   const nextBlockedReason = step === 0 && !stepValid[0]
-    ? t("guardrailWizard.nextBlocked.name")
+    ? t(name.trim() ? "guardrailWizard.nextBlocked.purpose" : "guardrailWizard.nextBlocked.name")
     : step === 1 ? policyBlockedReason : null;
   const inPolicyWorkspace = step === 1 && policyWorkspace !== "main";
 
@@ -258,7 +253,7 @@ export function CreateGuardrailWizard({
               <Field label={`${t("guardrailWizard.name")} *`}>
                 <Input autoFocus className="min-h-11 bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("guardrailWizard.namePlaceholder")} />
               </Field>
-              <Field label={t("guardrailWizard.descriptionLabel")} hint={t("guardrailWizard.descriptionHint")}>
+              <Field label={`${t("guardrailWizard.descriptionLabel")} *`} hint={t("guardrailWizard.descriptionHint")}>
                 <Textarea className="min-h-28 bg-card" value={description} onChange={(event) => setDescription(event.target.value)} placeholder={t("guardrailWizard.descriptionPlaceholder")} />
               </Field>
               <details className="rounded-xl border bg-card p-4">
@@ -313,13 +308,11 @@ export function CreateGuardrailWizard({
                 ) : null}
               </section>
 
-              {showBoundaries || boundarySource || allowed.trim() || restricted.trim() ? (
+              {showBoundaries || boundarySource || allowed.trim() ? (
                 <TopicBoundaryEditor
                   allowed={allowed}
-                  restricted={restricted}
                   source={boundarySource}
                   onAllowedChange={setAllowed}
-                  onRestrictedChange={setRestricted}
                 />
               ) : <Button variant="outline" onClick={() => setShowBoundaries(true)}>{t("guardrailWizard.addBoundaries")}</Button>}
 
@@ -434,7 +427,7 @@ export function CreateGuardrailWizard({
               {customRules.length ? <ReviewRow label="Custom phrase rules" value={customRules.map((rule) => rule.mode === "transform" ? `${rule.phrase} → ${rule.replacement || "[REDACTED]"}` : `${rule.phrase} → block`).join(", ")} /> : null}
               <ReviewRow label={t("guardrailWizard.policies")} value={bindings.map((binding) => policies.find((policy) => policy.id === binding.policy_id)?.name ?? binding.policy_id).join(", ")} />
               <ReviewRow label={t("guardrailWizard.policyRules")} value={String(bindings.reduce((total, binding) => total + binding.enabled_rule_ids.length, 0))} />
-              {boundarySource || allowed.trim() || restricted.trim() ? <ReviewRow label={t("guardrailWizard.topicControl")} value={t("guardrailWizard.topicControlSummary", { allowed: lines(allowed).length, restricted: lines(restricted).length })} /> : null}
+              {boundarySource || allowed.trim() ? <ReviewRow label={t("guardrailWizard.topicControl")} value={t("guardrailWizard.topicControlSummary", { allowed: lines(allowed).length })} /> : null}
               {hasOutputPolicy ? <ReviewRow label={t("guardrailWizard.outputDelivery")} value={t(`guardrailWizard.outputDeliveryOptions.${outputDelivery}`)} /> : null}
             </section>
 
@@ -524,7 +517,6 @@ function IntentPolicyWorkspace({
                 <ReviewRow label={t("guardrailWizard.purposeOutOfScope")} value={proposal.structured_purpose.out_of_scope} />
               </div> : null}
               <BoundaryPreview label={t("guardrailWizard.allowedDomains")} values={proposal.allowed_topics} />
-              <BoundaryPreview label={t("guardrailWizard.restrictedDomains")} values={proposal.restricted_topics} />
               {proposal.review_notes.length ? <InfoNotice title={t("guardrailWizard.documentReviewNotes")}>{proposal.review_notes.join(" · ")}</InfoNotice> : null}
               <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs leading-5 text-muted-foreground">{t("guardrailWizard.intentApplyDescription")}</p>
@@ -540,16 +532,12 @@ function IntentPolicyWorkspace({
 
 function TopicBoundaryEditor({
   allowed,
-  restricted,
   source,
   onAllowedChange,
-  onRestrictedChange,
 }: {
   allowed: string;
-  restricted: string;
   source: BoundarySource;
   onAllowedChange: (value: string) => void;
-  onRestrictedChange: (value: string) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -561,10 +549,7 @@ function TopicBoundaryEditor({
         </div>
         {source ? <Badge variant="secondary"><Sparkles />{t(`guardrailWizard.boundarySources.${source}`)}</Badge> : null}
       </header>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("guardrailWizard.allowedDomains")}><Textarea className="min-h-28 bg-card" value={allowed} onChange={(event) => onAllowedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></Field>
-        <Field label={t("guardrailWizard.restrictedDomains")}><Textarea className="min-h-28 bg-card" value={restricted} onChange={(event) => onRestrictedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></Field>
-      </div>
+      <Field label={t("guardrailWizard.allowedDomains")} hint={t("guardrailWizard.topicAllowlistHint")}><Textarea aria-label={t("guardrailWizard.allowedDomains")} className="min-h-32 bg-card" value={allowed} onChange={(event) => onAllowedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></Field>
     </section>
   );
 }
@@ -629,7 +614,7 @@ function isBindablePolicy(policy: Policy | undefined): policy is Policy {
   return Boolean(policy && (policy.source === "built_in" || policy.version !== "0"));
 }
 
-function getPolicyBindingsBlocker(bindings: GuardrailPolicyBinding[], policies: Policy[]) {
+function getPolicyBindingsBlocker(bindings: GuardrailPolicyBinding[], policies: Policy[], allowedTopics: string) {
   if (!bindings.length) return { key: "guardrailWizard.nextBlocked.selectPolicy" };
   for (const binding of bindings) {
     const policy = policies.find((item) => item.id === binding.policy_id);
@@ -647,11 +632,18 @@ function getPolicyBindingsBlocker(bindings: GuardrailPolicyBinding[], policies: 
     }
     if (validation.missingReasoningPolicy) return { key: "guardrailWizard.nextBlocked.reasoningPolicy", values: { name: policy.name } };
   }
+  if (hasTopicControlBinding(bindings, policies) && !lines(allowedTopics).length) {
+    return { key: "guardrailWizard.nextBlocked.allowedTopics" };
+  }
   return null;
 }
 
-function bindingsValid(bindings: GuardrailPolicyBinding[], policies: Policy[]) {
-  return !getPolicyBindingsBlocker(bindings, policies);
+function bindingsValid(bindings: GuardrailPolicyBinding[], policies: Policy[], allowedTopics: string) {
+  return !getPolicyBindingsBlocker(bindings, policies, allowedTopics);
+}
+
+function hasTopicControlBinding(bindings: GuardrailPolicyBinding[], policies: Policy[]): boolean {
+  return bindings.some((binding) => binding.policy_id === "builtin-topic-safety" || policies.find((policy) => policy.id === binding.policy_id)?.tags.some((tag) => tag.namespace === "guardrail_category" && tag.value === "topic_control"));
 }
 
 function WizardSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {

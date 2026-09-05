@@ -7,6 +7,7 @@ import yaml
 
 
 TOPIC_CONTROL_MODEL_TYPE = "topic_control"
+TOPIC_CONTROL_BINDING_ID = "topic_control.input"
 TOPIC_CONTROL_PROFILE = "tali.nemoguard-topic-control.v1"
 
 
@@ -71,8 +72,9 @@ def native_rail_models(
     assignment = next(
         (
             item
-            for item in configuration.assignments
-            if item.detector_type == TOPIC_CONTROL_MODEL_TYPE
+            for item in configuration.bindings
+            if item.binding_id == TOPIC_CONTROL_BINDING_ID
+            and item.capability_ref == TOPIC_CONTROL_MODEL_TYPE
         ),
         None,
     )

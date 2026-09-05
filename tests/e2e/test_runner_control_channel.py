@@ -20,6 +20,7 @@ from runner.toolkit.evaluation.contracts import (
     CONTRACT_PII_SEMANTIC,
 )
 from runner.toolkit.nemo.registry import NeMoRuntimeRegistry
+from tests.capability_binding import capability_binding
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "artifacts" / "local-secrets-v1"
@@ -223,14 +224,14 @@ def _split_guard_configuration() -> protocol.DataPlaneModelConfiguration:
                 max_tokens=32,
             ),
         ],
-        assignments=[
-            protocol.ModelAssignment(
+        bindings=[
+            capability_binding(
                 detector_type="content_safety",
                 model_ref="nvidia-safety",
                 profile_ref="tali.nemotron-safety-guard-v3.v1",
                 contract_refs=[CONTRACT_CONTENT_SAFETY],
             ),
-            protocol.ModelAssignment(
+            capability_binding(
                 detector_type="topic_control",
                 model_ref="nvidia-topic",
                 profile_ref="tali.nemoguard-topic-control.v1",
@@ -239,7 +240,7 @@ def _split_guard_configuration() -> protocol.DataPlaneModelConfiguration:
                     "tali.guard.company-policy.v1",
                 ],
             ),
-            protocol.ModelAssignment(
+            capability_binding(
                 detector_type="jailbreak_detection",
                 model_ref="chat-jailbreak",
                 profile_ref="tali.openai-compatible-jailbreak.v1",
@@ -262,7 +263,7 @@ def _qwen3guard_configuration() -> protocol.DataPlaneModelConfiguration:
             timeout_seconds=20,
             max_tokens=128,
         )],
-        assignments=[protocol.ModelAssignment(
+        bindings=[capability_binding(
             detector_type="content_safety",
             model_ref="qwen3guard",
             profile_ref="tali.qwen3guard.v1",

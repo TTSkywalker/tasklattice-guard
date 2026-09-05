@@ -31,7 +31,6 @@ describe("OpenAI-compatible intent analyzer", () => {
                 out_of_scope: "Biomedical or chemical-process guidance",
               },
               allowed_topics: ["Financial data analysis", "SQL and Python for finance"],
-              restricted_topics: ["Biomedical research advice", "Chemical refining instructions"],
               review_notes: ["Confirm whether general statistics is allowed."],
             }),
           },
@@ -54,10 +53,10 @@ describe("OpenAI-compatible intent analyzer", () => {
 
     expect(fetcher).toHaveBeenCalledWith("https://api.deepseek.test/chat/completions", expect.any(Object));
     expect(result.allowed_topics[0]).toBe("Financial data analysis");
-    expect(result.restricted_topics.at(-1)).toBe("Chemical refining instructions");
+    expect(result).not.toHaveProperty("restricted_topics");
   });
 
-  it("rejects overlapping or malformed model output", async () => {
+  it("rejects malformed allowlist output", async () => {
     const fetcher = vi.fn(async () => Response.json({
       choices: [{
         message: {
@@ -69,8 +68,7 @@ describe("OpenAI-compatible intent analyzer", () => {
               protect: "",
               out_of_scope: "",
             },
-            allowed_topics: ["Finance", "SQL"],
-            restricted_topics: ["finance", "Biomedicine"],
+            allowed_topics: ["Finance"],
             review_notes: [],
           }) + "\n```",
         },
@@ -85,7 +83,7 @@ describe("OpenAI-compatible intent analyzer", () => {
     });
 
     await expect(analyzer.analyze({ purpose: "A sufficiently detailed business purpose.", language: "en" }))
-      .rejects.toThrow(/overlapping/);
+      .rejects.toBeInstanceOf(IntentAnalysisError);
   });
 
   it("maps provider and response failures to a stable Controller error", async () => {
@@ -105,5 +103,7 @@ describe("OpenAI-compatible intent analyzer", () => {
     expect(intentAnalysisPrompt("zh-CN")).toContain("primary business task");
     expect(intentAnalysisPrompt("zh-CN")).toContain("financial analysis of a chemical company");
     expect(intentAnalysisPrompt("zh-CN")).toContain("Simplified Chinese");
+    expect(intentAnalysisPrompt("zh-CN")).toContain("strict allowlist");
+    expect(intentAnalysisPrompt("zh-CN")).not.toContain("restricted_topics");
   });
 });

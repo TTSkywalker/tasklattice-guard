@@ -6,6 +6,7 @@ import type { ArtifactResult as _tasklattice_guard_control_v1_ArtifactResult, Ar
 import type { CompileResult as _tasklattice_guard_control_v1_CompileResult, CompileResult__Output as _tasklattice_guard_control_v1_CompileResult__Output } from '../../../../tasklattice/guard/control/v1/CompileResult.js';
 import type { ValidationResult as _tasklattice_guard_control_v1_ValidationResult, ValidationResult__Output as _tasklattice_guard_control_v1_ValidationResult__Output } from '../../../../tasklattice/guard/control/v1/ValidationResult.js';
 import type { DesiredStateResult as _tasklattice_guard_control_v1_DesiredStateResult, DesiredStateResult__Output as _tasklattice_guard_control_v1_DesiredStateResult__Output } from '../../../../tasklattice/guard/control/v1/DesiredStateResult.js';
+import type { CapabilityValidationResult as _tasklattice_guard_control_v1_CapabilityValidationResult, CapabilityValidationResult__Output as _tasklattice_guard_control_v1_CapabilityValidationResult__Output } from '../../../../tasklattice/guard/control/v1/CapabilityValidationResult.js';
 import type { Long } from '@grpc/proto-loader';
 
 /**
@@ -27,7 +28,8 @@ export interface RunnerMessage {
   'compileResult'?: (_tasklattice_guard_control_v1_CompileResult | null);
   'validationResult'?: (_tasklattice_guard_control_v1_ValidationResult | null);
   'desiredStateResult'?: (_tasklattice_guard_control_v1_DesiredStateResult | null);
-  'body'?: "registration"|"heartbeat"|"artifactResult"|"compileResult"|"validationResult"|"desiredStateResult";
+  'capabilityValidationResult'?: (_tasklattice_guard_control_v1_CapabilityValidationResult | null);
+  'body'?: "registration"|"heartbeat"|"artifactResult"|"compileResult"|"validationResult"|"desiredStateResult"|"capabilityValidationResult";
 }
 
 /**
@@ -49,5 +51,6 @@ export interface RunnerMessage__Output {
   'compileResult'?: (_tasklattice_guard_control_v1_CompileResult__Output | null);
   'validationResult'?: (_tasklattice_guard_control_v1_ValidationResult__Output | null);
   'desiredStateResult'?: (_tasklattice_guard_control_v1_DesiredStateResult__Output | null);
-  'body'?: "registration"|"heartbeat"|"artifactResult"|"compileResult"|"validationResult"|"desiredStateResult";
+  'capabilityValidationResult'?: (_tasklattice_guard_control_v1_CapabilityValidationResult__Output | null);
+  'body'?: "registration"|"heartbeat"|"artifactResult"|"compileResult"|"validationResult"|"desiredStateResult"|"capabilityValidationResult";
 }

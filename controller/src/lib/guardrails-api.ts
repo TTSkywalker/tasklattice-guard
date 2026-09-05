@@ -178,18 +178,17 @@ export async function getGuardrail(id: string): Promise<Guardrail> {
 
 export async function createGuardrail(input: {
   name: string;
-  purpose?: string;
+  purpose: string;
   purpose_details?: GuardrailPurposeDetails;
   custom_content_rules?: Guardrail["custom_content_rules"];
   allowed_topics?: string[];
-  restricted_topics?: string[];
   policy_bindings: GuardrailPolicyBinding[];
   safety_level?: SafetyLevel;
   output_delivery?: OutputDelivery;
 }): Promise<Guardrail> {
   const created = await controllerApi.createControllerGuardrail({
     name: input.name,
-    description: input.purpose ?? "",
+    description: input.purpose,
     draftConfig: {
       purposeDetails: {
         audience: input.purpose_details?.audience ?? "",
@@ -199,7 +198,7 @@ export async function createGuardrail(input: {
       },
       customContentRules: input.custom_content_rules ?? [],
       allowedTopics: input.allowed_topics ?? [],
-      restrictedTopics: input.restricted_topics ?? [],
+      restrictedTopics: [],
       policyBindings: input.policy_bindings.map(toCurrentBinding),
       safetyLevel: input.safety_level ?? "balanced",
       outputDelivery: input.output_delivery ?? "window_buffered",
@@ -211,27 +210,26 @@ export async function createGuardrail(input: {
 
 export const updateGuardrail = (
   id: string,
-  input: Partial<Pick<Guardrail, "name" | "purpose" | "purpose_details" | "custom_content_rules" | "allowed_topics" | "restricted_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
+  input: Partial<Pick<Guardrail, "name" | "custom_content_rules" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
 ) => updateGuardrailDraft(id, input);
 
 async function updateGuardrailDraft(
   id: string,
-  input: Partial<Pick<Guardrail, "name" | "purpose" | "purpose_details" | "custom_content_rules" | "allowed_topics" | "restricted_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
+  input: Partial<Pick<Guardrail, "name" | "custom_content_rules" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
 ): Promise<Guardrail> {
   const current = await controllerApi.getControllerGuardrail(id);
   const updated = await controllerApi.updateControllerGuardrail(id, {
     ...(input.name !== undefined ? { name: input.name } : {}),
-    ...(input.purpose !== undefined ? { description: input.purpose } : {}),
     draftConfig: {
       purposeDetails: {
-        audience: input.purpose_details?.audience ?? current.draftConfig.purposeDetails?.audience ?? "",
-        tasks: input.purpose_details?.tasks ?? current.draftConfig.purposeDetails?.tasks ?? "",
-        protect: input.purpose_details?.protect ?? current.draftConfig.purposeDetails?.protect ?? "",
-        outOfScope: input.purpose_details?.out_of_scope ?? current.draftConfig.purposeDetails?.outOfScope ?? "",
+        audience: current.draftConfig.purposeDetails?.audience ?? "",
+        tasks: current.draftConfig.purposeDetails?.tasks ?? "",
+        protect: current.draftConfig.purposeDetails?.protect ?? "",
+        outOfScope: current.draftConfig.purposeDetails?.outOfScope ?? "",
       },
       customContentRules: input.custom_content_rules ?? current.draftConfig.customContentRules ?? [],
       allowedTopics: input.allowed_topics ?? current.draftConfig.allowedTopics,
-      restrictedTopics: input.restricted_topics ?? current.draftConfig.restrictedTopics,
+      restrictedTopics: [],
       policyBindings: (input.policy_bindings ?? current.draftConfig.policyBindings.map(fromCurrentBinding)).map(toCurrentBinding),
       safetyLevel: input.safety_level ?? current.draftConfig.safetyLevel,
       outputDelivery: input.output_delivery ?? current.draftConfig.outputDelivery,
@@ -289,6 +287,10 @@ function mapVersionDetail(value: controllerApi.GuardrailVersion, guardrail: cont
   const modules = arrayOfRecords(value.plan.modules);
   const artifactBindings = arrayOfRecords(value.artifact?.actionBindings);
   const dependencies = dependencyRecords(value.artifact?.dependencyManifest);
+  const requestedDelivery = enumValue(value.plan.output_delivery, ["interruptible", "window_buffered", "full_buffered"]) ?? "full_buffered";
+  const hasCustomOutput = arrayOfRecords(value.plan.policy_versions).some((policy) => arrayOfRecords(policy.rail_bindings).some((binding) => binding.rail_type === "output"));
+  const incrementalOutput = !hasCustomOutput && steps.filter((step) => arrayOfStrings(step.phases).includes("output"))
+    .every((step) => step.capability === "content_safety" && ["reject", "report", "pass"].includes(String(step.on_unsafe)));
   const actions = artifactBindings.length ? artifactBindings.map((binding) => ({
     name: stringValue(binding.action_name) ?? stringValue(binding.name) ?? stringValue(binding.id) ?? "runtime-action",
     version: stringValue(binding.action_version) ?? stringValue(binding.version),
@@ -304,29 +306,30 @@ function mapVersionDetail(value: controllerApi.GuardrailVersion, guardrail: cont
     timeout_ms: moduleTimeoutForStep(step, modules),
     failure_mode: "fail_closed",
   }));
+  const rails = actions.flatMap((action) => action.phases.map((phase) => ({
+    rail_type: phase,
+    flow: action.flow ?? action.name,
+  })));
   return {
     ...base,
-    safety_level: enumValue(value.plan.safety_level, ["balanced", "strict"]) ?? guardrail.draftConfig.safetyLevel,
-    output_delivery: enumValue(value.plan.output_delivery, ["interruptible", "window_buffered", "full_buffered"]) ?? guardrail.draftConfig.outputDelivery,
+    safety_level: enumValue(value.plan.safety_level, ["balanced", "strict"]) ?? "balanced",
+    output_delivery: requestedDelivery,
+    effective_output_delivery: incrementalOutput ? requestedDelivery : "full_buffered",
     runtime_profile: value.runtimeProfile,
     colang_version: colangVersion(value.runtimeProfile),
-    rails: steps.flatMap((step) => arrayOfStrings(step.phases).map((phase) => ({
-      rail_type: phase === "output" ? "output" as const : "input" as const,
-      flow: stringValue(step.id) ?? stringValue(step.capability) ?? "controller-plan-step",
-    }))),
+    rails: [...new Map(rails.map((rail) => [`${rail.rail_type}:${rail.flow}`, rail])).values()],
     actions,
     models: dependencies.filter((item) => item.kind === "model").map((item) => item.name),
     features: dependencies.filter((item) => item.kind === "feature").map((item) => item.name),
     dependencies,
     estimated_critical_path_ms: Math.max(0, ...modules.map((item) => numberValue(item.timeout_ms) ?? 0)),
-    policy_bindings: guardrail.draftConfig.policyBindings.map((currentBinding) => {
-      const binding = fromCurrentBinding(currentBinding);
+    policy_bindings: arrayOfRecords(value.plan.policy_bindings).map((binding) => {
       return {
-        policy_id: binding.policy_id,
-        policy_version: binding.policy_version,
-        action: binding.action ?? null,
-        enabled_rule_ids: binding.enabled_rule_ids,
-        enabled_rails: binding.enabled_rails,
+        policy_id: stringValue(binding.policy_id) ?? "",
+        policy_version: stringValue(binding.policy_version) ?? "",
+        action: stringValue(binding.action),
+        enabled_rule_ids: arrayOfStrings(binding.enabled_rule_ids),
+        enabled_rails: arrayOfStrings(binding.enabled_rails).filter((rail): rail is "input" | "output" | "retrieval" | "dialog" | "execution" => ["input", "output", "retrieval", "dialog", "execution"].includes(rail)),
       };
     }),
     artifacts: value.artifact ? [
@@ -394,7 +397,6 @@ export function previewGuardrailCandidate(input: {
   purpose_details?: GuardrailPurposeDetails;
   custom_content_rules?: Guardrail["custom_content_rules"];
   allowed_topics?: string[];
-  restricted_topics?: string[];
   policy_bindings: GuardrailPolicyBinding[];
   safety_level?: SafetyLevel;
   output_delivery?: OutputDelivery;
@@ -411,7 +413,7 @@ export function previewGuardrailCandidate(input: {
       },
       customContentRules: input.custom_content_rules ?? [],
       allowedTopics: input.allowed_topics ?? [],
-      restrictedTopics: input.restricted_topics ?? [],
+      restrictedTopics: [],
       policyBindings: input.policy_bindings.map(toCurrentBinding),
       safetyLevel: input.safety_level ?? "balanced",
       outputDelivery: input.output_delivery ?? "full_buffered",

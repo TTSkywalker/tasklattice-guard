@@ -34,8 +34,8 @@ describe("Policy catalog HTTP compatibility", () => {
     const collection = await listResponse.json() as { count: number; items: Array<{ id: string; test_count: number }> };
 
     expect(listResponse.status).toBe(200);
-    expect(collection.count).toBe(38);
-    expect(collection.items).toHaveLength(38);
+    expect(collection.count).toBe(45);
+    expect(collection.items).toHaveLength(45);
     expect(collection.items.find((item) => item.id === "pattern-matching")?.test_count).toBeGreaterThan(0);
 
     const detailResponse = await app.request("/api/v1/policies/pattern-matching");

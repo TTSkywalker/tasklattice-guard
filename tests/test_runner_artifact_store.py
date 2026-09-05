@@ -22,6 +22,9 @@ FIXTURE = Path(__file__).parent / "fixtures" / "artifacts" / "local-secrets-v1"
 
 
 class Registry:
+    def publish_release(self, release_id, candidates):
+        self.release_id = release_id
+
     def __init__(self) -> None:
         self.reloads = 0
 

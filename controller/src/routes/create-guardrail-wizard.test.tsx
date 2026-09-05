@@ -31,8 +31,8 @@ vi.mock("react-i18next", () => ({
         "guardrailWizard.detailsTitle": "Guardrail details",
         "guardrailWizard.name": "Name",
         "guardrailWizard.namePlaceholder": "Customer data protection",
-        "guardrailWizard.descriptionLabel": "Description (optional)",
-        "guardrailWizard.descriptionPlaceholder": "Optional description",
+        "guardrailWizard.descriptionLabel": "Business purpose",
+        "guardrailWizard.descriptionPlaceholder": "Business purpose",
         "guardrailWizard.policiesTitle": "Bind Policies",
         "guardrailWizard.policyAssistantTitle": "Start with existing Policies or generate a proposal",
         "guardrailWizard.generateFromIntent": "Generate from intent",
@@ -51,10 +51,14 @@ vi.mock("react-i18next", () => ({
         "guardrailWizard.topicControl": "Topic Control",
         "guardrailWizard.allowedDomains": "Allowed business domains",
         "guardrailWizard.restrictedDomains": "Restricted domains",
+        "guardrailWizard.addBoundaries": "Add topic allowlist",
+        "guardrailWizard.topicAllowlistHint": "Anything not listed is off-topic.",
         "guardrailWizard.boundarySources.intent": "Generated from intent",
         "guardrailWizard.outputDelivery": "Output delivery",
         "guardrailWizard.outputDeliveryOptions.window_buffered": "Window buffered",
         "guardrailWizard.nextBlocked.name": "Enter a Guardrail name to continue.",
+        "guardrailWizard.nextBlocked.purpose": "Enter the Business purpose to continue.",
+        "guardrailWizard.nextBlocked.allowedTopics": "Add at least one allowed topic.",
         "guardrailWizard.nextBlocked.selectPolicy": "Select at least one published Policy to continue.",
         "guardrailWizard.nextBlocked.requiredFields": "Complete required fields for {{name}}: {{fields}}.",
         "guardrailWizard.reviewTitle": "Review Guardrail",
@@ -145,6 +149,7 @@ const requiredPolicy = {
   ...policy,
   id: "aviation-operations-security",
   name: "Aviation Operations Security",
+  tags: [],
   parameters: [
     { name: "brand_name", label: "Your Airline / Brand Name", kind: "text", required: true, placeholder: "e.g. Acme Airlines", description: "" },
     { name: "competitors", label: "Competitors", kind: "textarea", required: true, placeholder: "One competitor per line", description: "Reviewed competitors." },
@@ -182,7 +187,6 @@ describe("Create Guardrail wizard", () => {
       summary: "Customer support only.",
       structured_purpose: { audience: "Support agents", tasks: "Answer order questions", protect: "Customer identifiers", out_of_scope: "Medical advice" },
       allowed_topics: ["Orders", "Returns"],
-      restricted_topics: ["Medical advice"],
       review_notes: [],
     });
     apiMocks.getIntentStatus.mockReset().mockResolvedValue({ available: true, provider: "test", model: "test", document_analysis_available: true });
@@ -200,7 +204,7 @@ describe("Create Guardrail wizard", () => {
 
   afterEach(cleanup);
 
-  it("uses three steps and only requires a name before Policies", async () => {
+  it("uses three steps and requires a stable business purpose before Policies", async () => {
     renderWizard();
     expect(screen.getByText("Details")).toBeTruthy();
     expect(screen.getByText("Policies")).toBeTruthy();
@@ -208,6 +212,9 @@ describe("Create Guardrail wizard", () => {
     expect(screen.queryByText("Runtime")).toBeNull();
 
     fireEvent.change(screen.getByPlaceholderText("Customer data protection"), { target: { value: "Support Guardrail" } });
+    expect(screen.getByRole("button", { name: "Next" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Enter the Business purpose to continue.")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("Business purpose"), { target: { value: "Support account operations" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByText("Start with existing Policies or generate a proposal")).toBeTruthy();
@@ -218,6 +225,7 @@ describe("Create Guardrail wizard", () => {
   it("keeps intent generation inside Policies and applies only after review", async () => {
     renderWizard();
     fireEvent.change(screen.getByPlaceholderText("Customer data protection"), { target: { value: "Support Guardrail" } });
+    fireEvent.change(screen.getByPlaceholderText("Business purpose"), { target: { value: "Support account operations" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText("Start with existing Policies or generate a proposal");
     fireEvent.click(await screen.findByRole("button", { name: "Select Topic Policy" }));
@@ -237,12 +245,15 @@ describe("Create Guardrail wizard", () => {
     expect(screen.getByText("Output delivery")).toBeTruthy();
   });
 
-  it("saves an editable draft with an optional description and hidden balanced runtime default", async () => {
+  it("saves an editable draft with an immutable purpose and hidden balanced runtime default", async () => {
     const { onCreated } = renderWizard();
     fireEvent.change(screen.getByPlaceholderText("Customer data protection"), { target: { value: "Support Guardrail" } });
+    fireEvent.change(screen.getByPlaceholderText("Business purpose"), { target: { value: "Support account operations" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText("Start with existing Policies or generate a proposal");
     fireEvent.click(await screen.findByRole("button", { name: "Select Topic Policy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add topic allowlist" }));
+    fireEvent.change(screen.getByPlaceholderText("guardrailWizard.onePerLine"), { target: { value: "Orders\nReturns" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => expect(apiMocks.preview).toHaveBeenCalled());
@@ -251,7 +262,8 @@ describe("Create Guardrail wizard", () => {
 
     await waitFor(() => expect(apiMocks.createGuardrail).toHaveBeenCalledWith(expect.objectContaining({
       name: "Support Guardrail",
-      purpose: "",
+      purpose: "Support account operations",
+      allowed_topics: ["Orders", "Returns"],
       safety_level: "balanced",
       policy_bindings: [binding],
     })));
@@ -261,13 +273,15 @@ describe("Create Guardrail wizard", () => {
   it("keeps structured purpose and custom phrase rules in preview and saved drafts", async () => {
     renderWizard();
     fireEvent.change(screen.getByPlaceholderText("Customer data protection"), { target: { value: "Support Guardrail" } });
-    fireEvent.change(screen.getByPlaceholderText("Optional description"), { target: { value: "Support account operations" } });
+    fireEvent.change(screen.getByPlaceholderText("Business purpose"), { target: { value: "Support account operations" } });
     fireEvent.click(screen.getByText("guardrailWizard.purposeStructuredTitle"));
     for (const [field, value] of Object.entries({ Audience: "Support agents", Tasks: "Summarize requests", Protect: "Customer identifiers", OutOfScope: "Medical advice" })) {
       fireEvent.change(screen.getByPlaceholderText(`guardrailWizard.purpose${field}Placeholder`), { target: { value } });
     }
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(await screen.findByRole("button", { name: "Select Topic Policy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add topic allowlist" }));
+    fireEvent.change(screen.getByPlaceholderText("guardrailWizard.onePerLine"), { target: { value: "Orders\nReturns" } });
     fireEvent.click(screen.getByRole("button", { name: "Add rule" }));
     fireEvent.change(screen.getByPlaceholderText("mama"), { target: { value: "internal-name" } });
     fireEvent.change(screen.getByPlaceholderText("niulai"), { target: { value: "[PRIVATE]" } });
@@ -288,6 +302,7 @@ describe("Create Guardrail wizard", () => {
   it("does not overwrite structured purpose until the generated proposal is explicitly applied", async () => {
     renderWizard();
     fireEvent.change(screen.getByPlaceholderText("Customer data protection"), { target: { value: "Support Guardrail" } });
+    fireEvent.change(screen.getByPlaceholderText("Business purpose"), { target: { value: "Support account operations" } });
     fireEvent.click(screen.getByText("guardrailWizard.purposeStructuredTitle"));
     fireEvent.change(screen.getByPlaceholderText("guardrailWizard.purposeAudiencePlaceholder"), { target: { value: "Manual audience" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -310,6 +325,7 @@ describe("Create Guardrail wizard", () => {
   it("explains hidden required Policy configuration and enables Next after it is completed", async () => {
     renderWizard();
     fireEvent.change(screen.getByPlaceholderText("Customer data protection"), { target: { value: "Aviation Guardrail" } });
+    fireEvent.change(screen.getByPlaceholderText("Business purpose"), { target: { value: "Protect aviation operations" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText("Start with existing Policies or generate a proposal");
 

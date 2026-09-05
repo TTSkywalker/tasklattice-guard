@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { ConfirmationSheet } from "@/components/confirmation-sheet";
 import { ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import { SettingsNavigation } from "@/components/settings-navigation";
+import { ValidationFailureEvidence } from "@/components/validation-failure-evidence";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ import { ModelProtocolSettings } from "@/components/providers/model-protocol-set
 import { ModelCallEvidence } from "@/components/providers/model-call-evidence";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
 import {
@@ -46,15 +48,14 @@ import {
   type ModelAssignmentTarget,
   type ModelConfigurationView,
   type ModelDefinition,
-  type ModelDetectorType,
+  type CapabilityBindingId,
 } from "@/lib/controller-api";
 import {
+  capabilityBindingDefinitions,
   controlPlaneProfileRefs,
-  detectorProfilePreference,
-  detectorProfileRefs,
-  guardrailCatalog,
-  modelDetectorTypes,
-  type GuardrailCategoryId,
+  isDataPlaneProviderKindAllowed,
+  type CapabilityBindingDefinition,
+  type ImplementedGuardrailRailType,
 } from "../../shared/guardrail-catalog";
 
 const configurationKey = ["resources", "model-configuration"] as const;
@@ -136,7 +137,7 @@ export function GuardrailCatalogPage() {
   const validateAssignmentMutation = useMutation({
     mutationFn: validateModelAssignment,
     onSuccess: async (revision, target) => {
-      const modelId = target === "control_plane" ? revision.assignments.controlPlane : revision.assignments.detectors[target];
+      const modelId = target === "control_plane" ? revision.assignments.controlPlane : revision.assignments.bindings[target];
       const passed = Boolean(modelId && revision.validationReport?.checks.some((check) => check.id === `probe:${target}:${modelId}` && check.status === "passed"));
       toast[passed ? "success" : "error"](t(passed ? "modelSettings.assignmentValidationPassed" : "modelSettings.assignmentValidationFailed"));
       await refresh();
@@ -167,6 +168,10 @@ export function GuardrailCatalogPage() {
   }
   if (!assignments) return <ModelsSkeleton />;
   const report = query.data.draft.validationReport;
+  const hasRailEvidence = capabilityBindingDefinitions.every((binding) => {
+    const modelId = query.data.draft.assignments.bindings[binding.id];
+    return !modelId || report?.checks.some((check) => check.id === `probe:${binding.id}:${modelId}` && check.status === "passed" && check.evidenceKind === "nemo-rail-v1");
+  });
   const confirmationPending = activateMutation.isPending || rollbackMutation.isPending;
   const confirmationError = pendingAction === "activate"
         ? activateMutation.error
@@ -193,7 +198,7 @@ export function GuardrailCatalogPage() {
             <Button
               type="button"
               className="h-11"
-              disabled={!administrator || operationPending || dirty || query.data.draft.state !== "validated" || !report?.valid}
+              disabled={!administrator || operationPending || dirty || query.data.draft.state !== "validated" || !report?.valid || !hasRailEvidence}
               onClick={() => setPendingAction("activate")}
             >
               {activateMutation.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}{t("modelSettings.activate")}
@@ -216,7 +221,8 @@ export function GuardrailCatalogPage() {
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">{t("modelSettings.draftRevision", { revision: query.data.draft.revision })}</span>
-          <StateBadge state={query.data.draft.state} />
+          <StateBadge state={query.data.draft.state === "validated" && !hasRailEvidence ? "needs_validation" : query.data.draft.state} />
+          {query.data.draft.state === "validated" && !hasRailEvidence ? <span className="text-xs text-muted-foreground">{t("modelSettings.legacyRailEvidence")}</span> : null}
           {query.data.active ? <span className="text-muted-foreground">{t("modelSettings.activeRevision", { revision: query.data.active.revision })}</span> : <span className="text-muted-foreground">{t("modelSettings.noActiveRevision")}</span>}
           {dirty ? <Badge variant="secondary">{t("modelSettings.unsaved")}</Badge> : null}
         </div>
@@ -233,9 +239,9 @@ export function GuardrailCatalogPage() {
         disabled={!administrator || operationPending}
         savingTarget={saveAssignmentMutation.isPending ? saveAssignmentMutation.variables?.target ?? null : null}
         validatingTarget={validateAssignmentMutation.isPending ? validateAssignmentMutation.variables ?? null : null}
-        onChange={(detectorType, modelId) => setAssignments({
+        onChange={(bindingId, modelId) => setAssignments({
           ...assignments,
-          detectors: { ...assignments.detectors, [detectorType]: modelId },
+          bindings: { ...assignments.bindings, [bindingId]: modelId },
         })}
         onSave={(target, modelId) => saveAssignmentMutation.mutate({ target, modelId })}
         onValidate={(target) => validateAssignmentMutation.mutate(target)}
@@ -332,116 +338,159 @@ function GuardrailCatalogSection({ assignments, savedAssignments, models, report
   disabled: boolean;
   savingTarget: ModelAssignmentTarget | null;
   validatingTarget: ModelAssignmentTarget | null;
-  onChange: (detectorType: ModelDetectorType, modelId: string | null) => void;
-  onSave: (detectorType: ModelDetectorType, modelId: string | null) => void;
-  onValidate: (detectorType: ModelDetectorType) => void;
+  onChange: (bindingId: CapabilityBindingId, modelId: string | null) => void;
+  onSave: (bindingId: CapabilityBindingId, modelId: string | null) => void;
+  onValidate: (bindingId: CapabilityBindingId) => void;
 }) {
   const { t } = useTranslation();
+  const [rail, setRail] = useState<ImplementedGuardrailRailType>("input");
+  // Generic Model samples cannot prove context-dependent Policy behavior.
+  // Preserve existing assignments so operators can inspect or remove them.
+  const catalogBindings = capabilityBindingDefinitions.filter((binding) =>
+    !["contextual_grounding", "automated_reasoning"].includes(binding.capabilityRef)
+    || assignments.bindings[binding.id] || savedAssignments.bindings[binding.id]);
+  const rows = catalogBindings.filter((binding) => binding.railType === rail).map((binding) => {
+    const modelId = assignments.bindings[binding.id];
+    const selectedModel = models.find((model) => model.id === modelId);
+    const compatibleModels = models
+      .filter((model) => isDataPlaneProviderKindAllowed(model.providerKind) && binding.profileRefs.includes(model.profile))
+      .sort((left, right) => binding.profilePreference.indexOf(left.profile) - binding.profilePreference.indexOf(right.profile) || left.name.localeCompare(right.name));
+    const selectableModels = selectedModel && !compatibleModels.some((model) => model.id === selectedModel.id)
+      ? [selectedModel, ...compatibleModels]
+      : compatibleModels;
+    return { binding, modelId, selectedModel, compatibleModels, selectableModels };
+  });
   return (
     <section className="mt-6 overflow-hidden rounded-lg border bg-card" aria-labelledby="guardrail-catalog-title">
       <div className="border-b px-5 py-4">
         <h2 id="guardrail-catalog-title" className="text-base font-semibold">{t("modelSettings.catalogConfiguration")}</h2>
         <p className="mt-1 max-w-4xl text-sm leading-6 text-muted-foreground">{t("modelSettings.catalogConfigurationDescription")}</p>
       </div>
-      <Table className="table-fixed md:min-w-[56rem]">
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[42%] pl-5 md:w-[18%]">{t("modelSettings.categoryColumn")}</TableHead>
-            <TableHead className="hidden w-[19%] md:table-cell">{t("modelSettings.detectorColumn")}</TableHead>
-            <TableHead className="w-[58%] md:w-[30%]">{t("modelSettings.modelColumn")}</TableHead>
-            <TableHead className="hidden w-[17%] md:table-cell">{t("modelSettings.validationColumn")}</TableHead>
-            <TableHead className="hidden w-[16%] pr-5 text-right md:table-cell">{t("modelSettings.actionsColumn")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {guardrailCatalog.flatMap((category) => {
-            if (!category.detectors.length) {
-              const state = categoryExecutionState(category.id);
-              return [<TableRow key={category.id} aria-label={t(`modelSettings.categories.${category.id}.title`)}>
-                <TableCell className="whitespace-normal pl-5 font-medium" title={t(`modelSettings.categories.${category.id}.description`)}>
-                  {t(`modelSettings.categories.${category.id}.title`)}
-                  <span className="mt-1 block text-xs font-normal text-muted-foreground md:hidden">{t(`modelSettings.categoryStates.${state}.title`)}</span>
-                </TableCell>
-                <TableCell className="hidden md:table-cell" title={t(`modelSettings.categoryStates.${state}.description`)}>{t(`modelSettings.categoryStates.${state}.title`)}</TableCell>
-                <TableCell className="whitespace-normal text-muted-foreground">{t("modelSettings.noModelBinding")}</TableCell>
-                <TableCell className="hidden pr-5 text-muted-foreground md:table-cell">—</TableCell>
-                <TableCell className="hidden pr-5 md:table-cell" />
-              </TableRow>];
-            }
-            return category.detectors.map((detectorType) => {
-              const modelId = assignments.detectors[detectorType];
+      <Tabs value={rail} onValueChange={(value) => setRail(value as ImplementedGuardrailRailType)}>
+        <TabsList className="mx-5 mt-3">
+          <TabsTrigger value="input">{t("modelSettings.inputRail")}</TabsTrigger>
+          <TabsTrigger value="output">{t("modelSettings.outputRail")}</TabsTrigger>
+        </TabsList>
+        {(["input", "output"] as const).map((railType) => <TabsContent key={railType} value={railType}>
+          <CapabilityBindingTable
+            rows={railType === rail ? rows : catalogBindings.filter((binding) => binding.railType === railType).map((binding) => {
+              const modelId = assignments.bindings[binding.id];
               const selectedModel = models.find((model) => model.id === modelId);
-              const preference = detectorProfilePreference[detectorType] as readonly string[];
-              const compatibleModels = models
-                .filter((model) => (detectorProfileRefs[detectorType] as readonly string[]).includes(model.profile))
-                .sort((left, right) => preference.indexOf(left.profile) - preference.indexOf(right.profile) || left.name.localeCompare(right.name));
-              const rowDirty = modelId !== savedAssignments.detectors[detectorType];
-              const preferred = compatibleModels[0];
-              return <TableRow key={detectorType} aria-label={t(`modelSettings.categories.${category.id}.title`)}>
-                <TableCell className="whitespace-normal pl-5 font-medium" title={t(`modelSettings.categories.${category.id}.description`)}>
-                  {t(`modelSettings.categories.${category.id}.title`)}
-                  <span className="mt-1 block text-xs font-normal text-muted-foreground md:hidden">{t(`modelSettings.detectors.${detectorType}.title`)}</span>
-                </TableCell>
-                <TableCell className="hidden font-medium md:table-cell" title={t(`modelSettings.detectors.${detectorType}.description`)}>{t(`modelSettings.detectors.${detectorType}.title`)}</TableCell>
-                <TableCell className="whitespace-normal">
-                  <Label className="sr-only" htmlFor={`detector-model-${detectorType}`}>{t("modelSettings.modelColumn")}</Label>
-                  <Select value={modelId ?? noneValue} disabled={disabled || !compatibleModels.length} onValueChange={(value) => onChange(detectorType, value === noneValue ? null : value)}>
-                    <SelectTrigger id={`detector-model-${detectorType}`} className="h-11 w-full" title={!compatibleModels.length ? t("modelSettings.noCompatibleModels") : undefined}><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
-                    <SelectContent position="popper">
-                      <SelectItem value={noneValue}>{t(compatibleModels.length ? "modelSettings.notAssigned" : "modelSettings.noCompatibleModelsShort")}</SelectItem>
-                      {compatibleModels.map((model) => <SelectItem key={model.id} value={model.id}><ModelOption model={model} /></SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  {preferred ? <p className="mt-2 text-xs text-muted-foreground">{t("modelSettings.recommendedModel", { name: preferred.name })}</p> : <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t("modelSettings.noCompatibleModelsHelp")}</p>}
-                  <div className="mt-3 space-y-3 md:hidden"><AssignmentValidationStatus target={detectorType} model={selectedModel} report={report} dirty={rowDirty} /><AssignmentActions target={detectorType} modelId={modelId} dirty={rowDirty} disabled={disabled} saving={savingTarget === detectorType} validating={validatingTarget === detectorType} onSave={onSave} onValidate={onValidate} /></div>
-                </TableCell>
-                <TableCell className="hidden md:table-cell"><AssignmentValidationStatus target={detectorType} model={selectedModel} report={report} dirty={rowDirty} /></TableCell>
-                <TableCell className="hidden pr-5 md:table-cell"><AssignmentActions target={detectorType} modelId={modelId} dirty={rowDirty} disabled={disabled} saving={savingTarget === detectorType} validating={validatingTarget === detectorType} onSave={onSave} onValidate={onValidate} /></TableCell>
-              </TableRow>;
-            });
-          })}
-        </TableBody>
-      </Table>
+              const compatibleModels = models.filter((model) => isDataPlaneProviderKindAllowed(model.providerKind) && binding.profileRefs.includes(model.profile)).sort((left, right) => binding.profilePreference.indexOf(left.profile) - binding.profilePreference.indexOf(right.profile) || left.name.localeCompare(right.name));
+              return { binding, modelId, selectedModel, compatibleModels, selectableModels: selectedModel && !compatibleModels.some((model) => model.id === selectedModel.id) ? [selectedModel, ...compatibleModels] : compatibleModels };
+            })}
+            savedAssignments={savedAssignments} report={report} disabled={disabled} savingTarget={savingTarget} validatingTarget={validatingTarget}
+            onChange={onChange} onSave={onSave} onValidate={onValidate}
+          />
+        </TabsContent>)}
+      </Tabs>
+      {rail === "output" ? <p className="border-t px-5 py-3 text-xs leading-5 text-muted-foreground">{t("modelSettings.contextualValidationBoundary")}</p> : null}
     </section>
   );
 }
 
-function AssignmentValidationStatus({ target, model, report, dirty }: {
+type CapabilityRow = {
+  binding: CapabilityBindingDefinition;
+  modelId: string | null;
+  selectedModel?: ModelDefinition;
+  compatibleModels: ModelDefinition[];
+  selectableModels: ModelDefinition[];
+};
+
+function CapabilityBindingTable({ rows, savedAssignments, report, disabled, savingTarget, validatingTarget, onChange, onSave, onValidate }: {
+  rows: CapabilityRow[];
+  savedAssignments: ModelAssignments;
+  report: ModelConfigurationView["draft"]["validationReport"];
+  disabled: boolean;
+  savingTarget: ModelAssignmentTarget | null;
+  validatingTarget: ModelAssignmentTarget | null;
+  onChange: (bindingId: CapabilityBindingId, modelId: string | null) => void;
+  onSave: (bindingId: CapabilityBindingId, modelId: string | null) => void;
+  onValidate: (bindingId: CapabilityBindingId) => void;
+}) {
+  const { t } = useTranslation();
+  return <Table className="table-fixed md:min-w-[56rem]">
+    <TableHeader><TableRow>
+      <TableHead className="w-[38%] pl-5 md:w-[34%]">{t("modelSettings.capabilityColumn")}</TableHead>
+      <TableHead className="w-[62%] md:w-[34%]">{t("modelSettings.modelColumn")}</TableHead>
+      <TableHead className="hidden w-[16%] md:table-cell">{t("modelSettings.validationColumn")}</TableHead>
+      <TableHead className="hidden w-[16%] pr-5 text-right md:table-cell">{t("modelSettings.actionsColumn")}</TableHead>
+    </TableRow></TableHeader>
+    <TableBody>{rows.map(({ binding, modelId, selectedModel, compatibleModels, selectableModels }) => {
+      const rowDirty = modelId !== savedAssignments.bindings[binding.id];
+      const preferred = compatibleModels[0];
+      return <TableRow key={binding.id} aria-label={capabilityTitle(t, binding)}>
+        <TableCell className="whitespace-normal pl-5"><p className="font-medium">{capabilityTitle(t, binding)}</p><p className="mt-1 text-xs text-muted-foreground">{t(`modelSettings.categories.${binding.categoryId}.description`)}</p>{binding.railType === "output" ? <p className="mt-2 text-xs text-muted-foreground">{t(binding.capabilityRef === "content_safety" ? "modelSettings.streamWindow" : "modelSettings.streamFull")}</p> : null}</TableCell>
+        <TableCell className="whitespace-normal">
+          <Label className="sr-only" htmlFor={`binding-model-${binding.id}`}>{t("modelSettings.modelColumn")}</Label>
+          <Select value={modelId ?? noneValue} disabled={disabled || !selectableModels.length} onValueChange={(value) => onChange(binding.id, value === noneValue ? null : value)}>
+            <SelectTrigger id={`binding-model-${binding.id}`} className="h-11 w-full" title={!compatibleModels.length ? t("modelSettings.noCompatibleModels") : undefined}><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
+            <SelectContent position="popper"><SelectItem value={noneValue}>{t(compatibleModels.length ? "modelSettings.notAssigned" : "modelSettings.noCompatibleModelsShort")}</SelectItem>{selectableModels.map((model) => <SelectItem key={model.id} value={model.id}><ModelOption model={model} /></SelectItem>)}</SelectContent>
+          </Select>
+          {preferred ? <p className="mt-2 text-xs text-muted-foreground">{t("modelSettings.recommendedModel", { name: preferred.name })}</p> : <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t("modelSettings.noCompatibleModelsHelp")}</p>}
+          <div className="mt-3 space-y-3 md:hidden"><AssignmentValidationStatus target={binding.id} model={selectedModel} report={report} dirty={rowDirty} binding={binding} /><AssignmentActions target={binding.id} modelId={modelId} dirty={rowDirty} disabled={disabled} saving={savingTarget === binding.id} validating={validatingTarget === binding.id} onSave={onSave} onValidate={onValidate} /></div>
+        </TableCell>
+        <TableCell className="hidden md:table-cell"><AssignmentValidationStatus target={binding.id} model={selectedModel} report={report} dirty={rowDirty} binding={binding} /></TableCell>
+        <TableCell className="hidden pr-5 md:table-cell"><AssignmentActions target={binding.id} modelId={modelId} dirty={rowDirty} disabled={disabled} saving={savingTarget === binding.id} validating={validatingTarget === binding.id} onSave={onSave} onValidate={onValidate} /></TableCell>
+      </TableRow>;
+    })}</TableBody>
+  </Table>;
+}
+
+function capabilityTitle(t: ReturnType<typeof useTranslation>["t"], binding: CapabilityBindingDefinition): string {
+  const detectorKey = {
+    content_safety: "content_safety",
+    jailbreak: "jailbreak_detection",
+    topic_control: "topic_control",
+    pii_semantic: "pii_detection",
+    contextual_grounding: "contextual_grounding",
+    automated_reasoning: "automated_reasoning",
+  }[binding.capabilityRef];
+  return `${t(`modelSettings.detectors.${detectorKey}.title`)} · ${t(binding.railType === "input" ? "modelSettings.inputRail" : "modelSettings.outputRail")}`;
+}
+
+function AssignmentValidationStatus({ target, model, report, dirty, binding }: {
   target: ModelAssignmentTarget;
   model?: ModelDefinition;
   report: ModelConfigurationView["draft"]["validationReport"];
   dirty: boolean;
+  binding?: CapabilityBindingDefinition;
 }) {
   const { t } = useTranslation();
   if (!model) return <StateBadge state="unconfigured" label={t("modelSettings.notAssigned")} />;
   if (dirty) return <StateBadge state="needs_validation" label={t("modelSettings.saveToValidate")} />;
   const result = report?.checks.find((check) => check.id === `probe:${target}:${model.id}`);
-  if (result?.status === "passed") return <div><StateBadge state="ready" label={t("modelSettings.detectorValidated")} />{result.latencyMs ? <p className="mt-1 text-xs text-muted-foreground">{result.latencyMs} ms</p> : null}</div>;
-  if (result?.status === "failed") return <div><StateBadge state="failed" label={t("modelSettings.probeFailed")} /><p className="mt-1 line-clamp-2 max-w-xs text-xs leading-5 text-destructive" title={result.message}>{result.message}</p></div>;
+  if (result?.status === "passed" && (target === "control_plane" || result.evidenceKind === "nemo-rail-v1")) return <div><StateBadge state="ready" label={t(target === "control_plane" ? "modelSettings.detectorValidated" : "modelSettings.railSamplesPassed")} />{result.latencyMs ? <p className="mt-1 text-xs text-muted-foreground">{result.latencyMs} ms</p> : null}</div>;
+  if (result?.status === "failed") return <ValidationFailureEvidence
+    label={t("modelSettings.probeFailed")}
+    title={t("modelSettings.validationErrorTitle")}
+    subject={`${target === "control_plane" ? t("modelSettings.controlPlaneModel") : binding ? capabilityTitle(t, binding) : target} · ${model.name}`}
+    message={result.message}
+    hint={t("modelSettings.validationErrorHint")}
+    detailLabel={t("modelSettings.validationErrorDetail")}
+    copyLabel={t("modelSettings.copyValidationError")}
+    copiedMessage={t("modelSettings.validationErrorCopied")}
+    copyFailedMessage={t("modelSettings.validationErrorCopyFailed")}
+    closeLabel={t("common.close")}
+  />;
   return <StateBadge state="needs_validation" label={t("modelSettings.notChecked")} />;
 }
 
 function AssignmentActions({ target, modelId, dirty, disabled, saving, validating, onSave, onValidate }: {
-  target: ModelDetectorType;
+  target: CapabilityBindingId;
   modelId: string | null;
   dirty: boolean;
   disabled: boolean;
   saving: boolean;
   validating: boolean;
-  onSave: (target: ModelDetectorType, modelId: string | null) => void;
-  onValidate: (target: ModelDetectorType) => void;
+  onSave: (target: CapabilityBindingId, modelId: string | null) => void;
+  onValidate: (target: CapabilityBindingId) => void;
 }) {
   const { t } = useTranslation();
   return <div className="flex flex-col items-stretch justify-end gap-2 2xl:flex-row">
     <Button type="button" variant="outline" className="h-10" disabled={disabled || !dirty || saving || validating} onClick={() => onSave(target, modelId)}>{saving ? <LoaderCircle className="animate-spin" /> : <Save />}{t("modelSettings.saveAssignment")}</Button>
     <Button type="button" className="h-10" disabled={disabled || dirty || !modelId || saving || validating} onClick={() => onValidate(target)}>{validating ? <LoaderCircle className="animate-spin" /> : <TestTube2 />}{t("modelSettings.validateAssignment")}</Button>
   </div>;
-}
-
-function categoryExecutionState(category: GuardrailCategoryId): "policy" | "service" | "notAvailable" {
-  if (category === "agentic_security" || category === "tool_calling") return "policy";
-  if (category === "third_party_apis") return "service";
-  return "notAvailable";
 }
 
 function ModelOption({ model }: { model: ModelDefinition }) {
@@ -478,16 +527,16 @@ function ResourceManagement({ resource, view, administrator, onChanged }: { reso
   });
   const pending = probeMutation.isPending || deleteMutation.isPending;
   const removalModelIds = new Set(removeTarget ? [removeTarget.id] : []);
-  const topicControlDraftUse = Boolean(view.draft.assignments.detectors.topic_control && removalModelIds.has(view.draft.assignments.detectors.topic_control));
-  const topicControlActiveUse = Boolean(view.active?.assignments.detectors.topic_control && removalModelIds.has(view.active.assignments.detectors.topic_control));
+  const topicControlDraftUse = Boolean(view.draft.assignments.bindings["topic_control.input"] && removalModelIds.has(view.draft.assignments.bindings["topic_control.input"]));
+  const topicControlActiveUse = Boolean(view.active?.assignments.bindings["topic_control.input"] && removalModelIds.has(view.active.assignments.bindings["topic_control.input"]));
   const topicControlUse = topicControlDraftUse || topicControlActiveUse;
-  const assignmentTargets: Array<{ id: "control_plane" | ModelDetectorType; kind: "controlPlane" | "detector" }> = [
+  const assignmentTargets: Array<{ id: ModelAssignmentTarget; kind: "controlPlane" | "capability" }> = [
     { id: "control_plane", kind: "controlPlane" },
-    ...modelDetectorTypes.map((id) => ({ id, kind: "detector" as const })),
+    ...capabilityBindingDefinitions.map(({ id }) => ({ id, kind: "capability" as const })),
   ];
   const assignedTargets = assignmentTargets.filter(({ id }) => {
-    const draftModelId = id === "control_plane" ? view.draft.assignments.controlPlane : view.draft.assignments.detectors[id];
-    const activeModelId = id === "control_plane" ? view.active?.assignments.controlPlane : view.active?.assignments.detectors[id];
+    const draftModelId = id === "control_plane" ? view.draft.assignments.controlPlane : view.draft.assignments.bindings[id];
+    const activeModelId = id === "control_plane" ? view.active?.assignments.controlPlane : view.active?.assignments.bindings[id];
     return Boolean((draftModelId && removalModelIds.has(draftModelId)) || (activeModelId && removalModelIds.has(activeModelId)));
   });
   const removalBlocked = assignedTargets.length > 0;
@@ -627,8 +676,8 @@ function ResourceManagement({ resource, view, administrator, onChanged }: { reso
         {assignedTargets.length ? <section aria-labelledby="model-removal-assignments" className="rounded-lg border bg-card px-4 py-3">
           <h3 id="model-removal-assignments" className="text-sm font-semibold">{t("modelSettings.currentAssignments")}</h3>
           <div className="mt-2 flex flex-wrap gap-2">{assignedTargets.map(({ id, kind }) => (
-            <Badge key={id} variant={id === "topic_control" ? "destructive" : "secondary"}>
-              {kind === "controlPlane" ? t("modelSettings.controlPlaneModel") : t(`modelSettings.detectors.${id}.title`)}
+            <Badge key={id} variant={id === "topic_control.input" ? "destructive" : "secondary"}>
+              {kind === "controlPlane" ? t("modelSettings.controlPlaneModel") : capabilityTitle(t, capabilityBindingDefinitions.find((binding) => binding.id === id)!)}
             </Badge>
           ))}</div>
         </section> : null}

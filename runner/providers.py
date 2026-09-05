@@ -107,45 +107,26 @@ def dynamic_runtime_action_providers(
         )
         for item in configuration.runtimes
     }
-    assignments = {item.detector_type: item for item in configuration.assignments}
+    bindings = {item.binding_id: item for item in configuration.bindings}
     local_providers = local_action_providers(PromptSecurityActionProvider())
     pii_evaluator = PiiEvaluator()
 
-    content_safety_binding = assignments.get("content_safety")
-    jailbreak_binding = assignments.get("jailbreak_detection")
-    pii_binding = assignments.get("pii_detection")
-    binding_sources = []
-    if content_safety_binding is not None:
-        binding_sources.append((
-            "content_safety",
-            content_safety_binding,
-            tuple(content_safety_binding.contract_refs),
-            100,
-        ))
-    if jailbreak_binding is not None:
-        binding_sources.append((
-            "jailbreak_detection",
-            jailbreak_binding,
-            tuple(jailbreak_binding.contract_refs),
-            50,
-        ))
-    if pii_binding is not None:
-        binding_sources.append((
-            "pii_detection",
-            pii_binding,
-            tuple(pii_binding.contract_refs),
-            75,
-        ))
+    binding_sources = [
+        item
+        for item in configuration.bindings
+        if item.capability_ref in {"content_safety", "jailbreak", "pii_semantic"}
+    ]
     evaluator_bindings = tuple(
         EvaluatorBindingConfig(
-            id=f"{role}:{binding.model_ref}:{index}",
+            id=f"{binding.binding_id}:{binding.model_ref}:{index}",
             contract_ref=contract_ref,
             profile_ref=binding.profile_ref,
             model_ref=binding.model_ref,
-            priority=priority + index,
+            priority={"jailbreak": 50, "pii_semantic": 75, "content_safety": 100}[binding.capability_ref] + index,
+            rail_type=_rail_name(binding.rail_type),
         )
-        for role, binding, contract_refs, priority in binding_sources
-        for index, contract_ref in enumerate(contract_refs)
+        for binding in binding_sources
+        for index, contract_ref in enumerate(binding.contract_refs)
     )
     provider_configs = resolve_evaluator_model_providers(
         tuple(runtimes.values()),
@@ -170,7 +151,7 @@ def dynamic_runtime_action_providers(
         EvaluationActionProvider(tuple(routes)),
     ]
 
-    topic = assignments.get("topic_control")
+    topic = bindings.get("topic_control.input")
     if topic is not None:
         runtime = _assigned_runtime(topic.model_ref, runtimes)
         providers.append(TopicJudgeActionProvider(
@@ -184,7 +165,7 @@ def dynamic_runtime_action_providers(
             transport=transport,
         ))
 
-    grounding = assignments.get("contextual_grounding")
+    grounding = bindings.get("contextual_grounding.output")
     if grounding is not None:
         runtime = _assigned_runtime(grounding.model_ref, runtimes)
         providers.append(GroundingActionProvider(
@@ -196,7 +177,7 @@ def dynamic_runtime_action_providers(
             transport=transport,
         ))
 
-    reasoning = assignments.get("automated_reasoning")
+    reasoning = bindings.get("automated_reasoning.output")
     if reasoning is not None:
         runtime = _assigned_runtime(reasoning.model_ref, runtimes)
         providers.append(ReasoningActionProvider(HTTPAutomatedReasoningProvider(
@@ -207,6 +188,14 @@ def dynamic_runtime_action_providers(
             transport=transport,
         )))
     return tuple(providers)
+
+
+def _rail_name(value: int) -> str:
+    if value == 1:
+        return "input"
+    if value == 2:
+        return "output"
+    raise ValueError(f"Capability Binding uses unsupported RailType {value!r}.")
 
 
 def _assigned_runtime(

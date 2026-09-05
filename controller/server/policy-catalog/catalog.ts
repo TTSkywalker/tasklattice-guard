@@ -121,6 +121,7 @@ export type PolicyDto = {
 export const POLICY_CATALOG_FILE_NAMES = [
   "builtin_policies.json",
   "local_content_filters.json",
+  "model_capability_policies.json",
 ] as const;
 
 const RAIL_ORDER: PolicyDto["rails"] = ["input", "retrieval", "dialog", "execution", "output"];
