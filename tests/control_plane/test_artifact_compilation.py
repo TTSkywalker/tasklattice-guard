@@ -16,6 +16,43 @@ from runner.toolkit.evaluation.contracts import CONTRACT_CONTENT_SAFETY
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("mode", ["window_buffered", "interruptible"])
+@pytest.mark.parametrize("selection", ["input_rail", "input_rule", "output_rule"])
+def test_custom_full_response_requirement_applies_only_to_enabled_output(mode, selection):
+    from runner.toolkit.compiler.nemo_compiler import PlanCompilationError
+
+    plan = {
+        "guardrail_id": "selected-output", "guardrail_version": "20260904-010000.001Z",
+        "compiler_version": "test", "safety_level": "balanced", "output_delivery": mode,
+        "steps": [], "modules": [],
+        "policy_versions": [{
+            "policy_id": "custom", "version": "1", "name": "Custom", "source": "custom",
+            "colang_version": "2.x", "checksum": "test",
+            "sources": [{"path": "main.co", "content": "\n".join(
+                f'flow check_{rail} $text\n  $r = await GuardRecordPolicyAction(flow_name="check_{rail}", safe=True, text=$text)\n'
+                for rail in ("input", "output"))}],
+            "rail_bindings": [{"rail_type": rail, "flow_name": f"check_{rail}",
+                "execution_mode": "detect", "on_unsafe": "reject"} for rail in ("input", "output")],
+            "action_references": [{"name": "GuardRecordPolicyAction", "version": "1.0.0"}],
+            "execution_contract": [["output_delivery", "full_buffered"]],
+        }],
+        "policy_bindings": [{"policy_id": "custom", "policy_version": "1",
+            "enabled_rails": ["input"] if selection == "input_rail" else ["input", "output"],
+            "enabled_rule_ids": ["flow/input/check_input"] if selection == "input_rule"
+                else ["flow/output/check_output"] if selection == "output_rule" else [],
+        }],
+    }
+    request = protocol.CompileRequest(compile_id="selected-output", guardrail_id=plan["guardrail_id"],
+        guardrail_version=plan["guardrail_version"], generation=1, plan=plan_to_proto(plan), runtime_profile="auto")
+    if selection == "output_rule":
+        with pytest.raises(PlanCompilationError, match="requires full-buffered output"):
+            DefaultRunnerCompiler().compile(request)
+    else:
+        artifact = DefaultRunnerCompiler().compile(request)
+        assert plan_from_proto(artifact.plan)["output_delivery"] == mode
+        assert [binding["phases"] for binding in action_bindings_from_proto(artifact.action_bindings)] == [["input"]]
+
+
 @pytest.mark.parametrize("safety_level", ["balanced", "strict"])
 @pytest.mark.parametrize(
     "output_delivery",
@@ -82,13 +119,14 @@ def test_checked_in_runner_fixture_is_the_current_compiler_output() -> None:
         capture_output=True,
         text=True,
     )
+
     assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_model_capability_compiles_to_a_provider_agnostic_action_binding() -> None:
     plan = {
         "guardrail_id": "model-contract",
-        "guardrail_version": 1,
+        "guardrail_version": "20260904-010000.001Z",
         "compiler_version": "tasklattice-controller-plan-v3",
         "safety_level": "balanced",
         "output_delivery": "full_buffered",
@@ -119,7 +157,7 @@ def test_model_capability_compiles_to_a_provider_agnostic_action_binding() -> No
     artifact = DefaultRunnerCompiler().compile(protocol.CompileRequest(
         compile_id="model-provider-agnostic",
         guardrail_id="model-contract",
-        guardrail_version=1,
+        guardrail_version="20260904-010000.001Z",
         generation=1,
         plan=plan_to_proto(plan),
         runtime_profile="auto",
@@ -141,7 +179,7 @@ def _compile(
 ) -> protocol.Artifact:
     plan = {
         "guardrail_id": "flag-contract",
-        "guardrail_version": 1,
+        "guardrail_version": "20260904-010000.001Z",
         "compiler_version": "tasklattice-controller-plan-v3",
         "safety_level": safety_level,
         "output_delivery": output_delivery,
@@ -175,7 +213,7 @@ def _compile(
     return DefaultRunnerCompiler().compile(protocol.CompileRequest(
         compile_id=f"flags-{safety_level}-{output_delivery}",
         guardrail_id="flag-contract",
-        guardrail_version=1,
+        guardrail_version="20260904-010000.001Z",
         generation=1,
         plan=plan_to_proto(plan),
         runtime_profile="auto",

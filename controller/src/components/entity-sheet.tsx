@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const widthClasses = {
+  workflow: "!w-full !max-w-none sm:!w-[min(96vw,90rem)] sm:!max-w-[90rem]",
   md: "!w-full !max-w-none sm:!w-[min(92vw,40rem)] sm:!max-w-[40rem]",
   lg: "!w-full !max-w-none sm:!w-[min(92vw,48rem)] sm:!max-w-[48rem]",
   xl: "!w-full !max-w-none sm:!w-[min(92vw,56rem)] sm:!max-w-[56rem]",
@@ -19,6 +20,7 @@ const widthClasses = {
 export function EntitySheet({
   bodyClassName,
   children,
+  closeDisabled = false,
   density = "default",
   description,
   eyebrow,
@@ -30,6 +32,7 @@ export function EntitySheet({
 }: {
   bodyClassName?: string;
   children: ReactNode;
+  closeDisabled?: boolean;
   density?: "default" | "compact";
   description: ReactNode;
   eyebrow: string;
@@ -43,6 +46,7 @@ export function EntitySheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        closeDisabled={closeDisabled}
         className={cn(
           "gap-0 border-l bg-background shadow-[var(--shadow-overlay)] [&>button]:size-11 [&>button]:rounded-lg",
           widthClasses[width],

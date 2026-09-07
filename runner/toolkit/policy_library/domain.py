@@ -20,7 +20,8 @@ PolicyTestDecision = Literal["allow", "block", "transform", "intervene"]
 PolicyTestKind = Literal["rule_acceptance", "scenario"]
 PolicyTagSource = Literal["declared", "derived"]
 PolicyTagNamespace = Literal[
-    "capability",
+    "protection",
+    "guardrail_category",
     "collection",
     "domain",
     "framework",

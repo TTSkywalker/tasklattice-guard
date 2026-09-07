@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useId, useState, type ReactElement, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -58,6 +58,7 @@ import {
   type PolicyRailType,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { policyProtectionDirectory, protectionDirectories, type ProtectionDirectoryId } from "../../shared/protection-map";
 
 const RAILS: PolicyRailType[] = ["input", "output"];
 const DEFAULT_COLANG = `flow check_request $text
@@ -179,7 +180,20 @@ export function PolicyStudioSheet({ policy, imported = null, open, onOpenChange,
       <CreationFlow orientation="sidebar" currentStep={step} onStepChange={setStep} progressLabel={t("policyStudio.createTitle")} steps={steps}>
         {step === 0 ? <div className="space-y-8">
           {imported ? <Alert variant="info"><PackageCheck /><AlertTitle>{t("policyStudio.transferNoticeTitle")}</AlertTitle><AlertDescription>{t("policyStudio.transferNoticeDescription")}</AlertDescription></Alert> : null}
-          <StudioSection title={t("policyStudio.definitionTitle")} description={t("policyStudio.definitionDescription")}><div className="grid gap-5"><Field label={`${t("policyStudio.name")} *`}><Input autoFocus className="min-h-11" value={name} onChange={(event) => { invalidateRelease(); setName(event.target.value); }} /></Field><Field label={`${t("policyStudio.description")} *`}><Textarea className="min-h-28" value={description} onChange={(event) => { invalidateRelease(); setDescription(event.target.value); }} /></Field><Field label={`${t("policyStudio.owner")} *`}><Input className="min-h-11" value={owner} onChange={(event) => { invalidateRelease(); setOwner(event.target.value); }} /></Field></div></StudioSection>
+          <StudioSection title={t("policyStudio.definitionTitle")} description={t("policyStudio.definitionDescription")}>
+            <div className="grid gap-5">
+              <Field label={`${t("policyStudio.name")} *`}><Input autoFocus className="min-h-11" value={name} onChange={(event) => { invalidateRelease(); setName(event.target.value); }} /></Field>
+              <Field label={`${t("policyStudio.protectionDirectory")} *`}>
+                <Select value={policyProtectionDirectory(draft)} onValueChange={(value) => changeDraft({ ...draft, protection_directory: value as ProtectionDirectoryId })}>
+                  <SelectTrigger className="min-h-11" aria-label={t("policyStudio.protectionDirectory")} aria-describedby="policy-protection-directory-hint"><SelectValue /></SelectTrigger>
+                  <SelectContent>{protectionDirectories.map((directory) => <SelectItem className="min-h-11" key={directory.id} value={directory.id}>{t(`protection.directories.${directory.id}`)}</SelectItem>)}</SelectContent>
+                </Select>
+                <span id="policy-protection-directory-hint" className="text-xs leading-5 text-muted-foreground">{t("policyStudio.protectionDirectoryHint")}</span>
+              </Field>
+              <Field label={`${t("policyStudio.description")} *`}><Textarea className="min-h-28" value={description} onChange={(event) => { invalidateRelease(); setDescription(event.target.value); }} /></Field>
+              <Field label={`${t("policyStudio.owner")} *`}><Input className="min-h-11" value={owner} onChange={(event) => { invalidateRelease(); setOwner(event.target.value); }} /></Field>
+            </div>
+          </StudioSection>
           <ColangEditor version={draft.colang_version} sources={draft.sources} error={compileError} onChange={(sources) => changeDraft({ ...draft, sources })} />
         </div> : null}
         {step === 1 ? <div className="space-y-8"><RailEditor rails={draft.rail_bindings} onChange={(rail_bindings) => changeDraft({ ...draft, rail_bindings })} /><ActionEditor actions={actions} selected={draft.action_references} onChange={(action_references) => changeDraft({ ...draft, action_references })} loading={actionsQuery.isLoading} /><ParameterEditor parameters={draft.parameter_schema} onChange={(parameter_schema) => changeDraft({ ...draft, parameter_schema })} /></div> : null}
@@ -286,15 +300,30 @@ function ReleaseStatus({ run, error, running }: { run: PolicyDraftValidationRun 
   if (run?.status === "failed") return <Alert variant="destructive"><X /><AlertTitle>{t("policyStudio.validationFailed")}</AlertTitle><AlertDescription>{t("policyStudio.releaseFailedDescription")}</AlertDescription></Alert>;
   return <Alert variant="info"><PackageCheck /><AlertTitle>{t("policyStudio.releaseNotRun")}</AlertTitle><AlertDescription>{t("policyStudio.releaseNotRunDescription")}</AlertDescription></Alert>;
 }
-function PublishReview({ name, draft, run }: { name: string; draft: ProgrammablePolicyDraft; run: PolicyDraftValidationRun | null }) { const { t } = useTranslation(); return <StudioSection title={t("policyStudio.publishTitle")} description={t("policyStudio.publishDescription")}><Alert className="mb-4"><LockKeyhole /><AlertTitle>{t("policyStudio.immutableTitle")}</AlertTitle><AlertDescription>{t("policyStudio.immutableDescription")}</AlertDescription></Alert><ReviewGrid items={[{ label: t("policyStudio.policy"), value: name }, { label: t("policyStudio.rails"), value: uniqueRailBindings(draft.rail_bindings).join(", ") }, { label: t("policyStudio.actions"), value: String(draft.action_references.length) }, { label: t("policyStudio.validationRun"), value: run?.status ?? "not_run" }, { label: t("policyStudio.testCases"), value: String(draft.test_cases.length) }, { label: t("policyStudio.timeoutBudget"), value: `${criticalPath(draft.rail_bindings)}ms` }]} /></StudioSection>; }
+function PublishReview({ name, draft, run }: { name: string; draft: ProgrammablePolicyDraft; run: PolicyDraftValidationRun | null }) { const { t } = useTranslation(); return <StudioSection title={t("policyStudio.publishTitle")} description={t("policyStudio.publishDescription")}><Alert className="mb-4"><LockKeyhole /><AlertTitle>{t("policyStudio.immutableTitle")}</AlertTitle><AlertDescription>{t("policyStudio.immutableDescription")}</AlertDescription></Alert><ReviewGrid items={[{ label: t("policyStudio.policy"), value: name }, { label: t("policyStudio.protectionDirectory"), value: t(`protection.directories.${policyProtectionDirectory(draft)}`) }, { label: t("policyStudio.rails"), value: uniqueRailBindings(draft.rail_bindings).join(", ") }, { label: t("policyStudio.actions"), value: String(draft.action_references.length) }, { label: t("policyStudio.validationRun"), value: run?.status ?? "not_run" }, { label: t("policyStudio.testCases"), value: String(draft.test_cases.length) }, { label: t("policyStudio.timeoutBudget"), value: `${criticalPath(draft.rail_bindings)}ms` }]} /></StudioSection>; }
 
 function StudioSection({ title, description, action, children }: { title: string; description: string; action?: ReactNode; children: ReactNode }) { return <section><header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="text-lg font-semibold">{title}</h3><p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p></div>{action}</header>{children}</section>; }
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) { return <label className="grid gap-2"><Label>{label}</Label>{children}{hint ? <span className="text-xs leading-5 text-muted-foreground">{hint}</span> : null}</label>; }
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  const id = useId();
+  const controlProps = { id, ...(hint ? { "aria-describedby": `${id}-hint` } : {}) };
+  const attachLabel = (child: ReactNode): ReactNode => {
+    if (!isValidElement(child)) return child;
+    if (child.type === Input || child.type === Textarea || child.type === SelectTrigger) {
+      return cloneElement(child as ReactElement<{ id?: string; "aria-describedby"?: string }>, controlProps);
+    }
+    if (child.type === Select) {
+      const select = child as ReactElement<{ children: ReactNode }>;
+      return cloneElement(select, {}, Children.map(select.props.children, attachLabel));
+    }
+    return child;
+  };
+  return <div className="grid gap-2"><Label htmlFor={id}>{label}</Label>{Children.map(children, attachLabel)}{hint ? <span id={`${id}-hint`} className="text-xs leading-5 text-muted-foreground">{hint}</span> : null}</div>;
+}
 function RailBadge({ rail }: { rail: NativeRailType }) { return <Badge variant="outline" className="font-mono text-[10px] uppercase">{rail}</Badge>; }
 function EmptyInline({ icon: Icon, text }: { icon: typeof Braces; text: string }) { return <div className="rounded-lg border border-dashed p-8 text-center"><Icon className="mx-auto size-7 text-muted-foreground" /><p className="mt-2 text-xs text-muted-foreground">{text}</p></div>; }
 function ReviewGrid({ items }: { items: Array<{ label: string; value: string; mono?: boolean }> }) { return <dl className="divide-y rounded-lg border bg-card px-4">{items.map((item) => <div key={item.label} className="grid gap-1 py-3 text-sm sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-5"><dt className="text-muted-foreground">{item.label}</dt><dd className={cn("min-w-0 break-words font-medium", item.mono && "font-mono text-xs")}>{item.value || "—"}</dd></div>)}</dl>; }
 
-function emptyDraft(): ProgrammablePolicyDraft { return { colang_version: "2.x", sources: [{ path: "main.co", content: DEFAULT_COLANG }], parameter_schema: [], rail_bindings: [emptyRail(0)], action_references: [{ name: "GuardCustomerIdentifierAction", version: "1.0.0" }, { name: "GuardRecordPolicyAction", version: "1.0.0" }], evaluation_contracts: [], prompt_dependencies: [], execution_contract: [], test_cases: [] }; }
+function emptyDraft(): ProgrammablePolicyDraft { return { guardrail_category: "pii_detection", protection_directory: "privacy", colang_version: "2.x", sources: [{ path: "main.co", content: DEFAULT_COLANG }], parameter_schema: [], rail_bindings: [emptyRail(0)], action_references: [{ name: "GuardCustomerIdentifierAction", version: "1.0.0" }, { name: "GuardRecordPolicyAction", version: "1.0.0" }], evaluation_contracts: [], prompt_dependencies: [], execution_contract: [], test_cases: [] }; }
 function emptyRail(index: number): PolicyRailBinding { return { rail_type: index ? "output" : "input", flow_name: index ? "check_response" : "check_request", execution_mode: index ? "mutate" : "detect", on_unsafe: index ? "redact" : "reject", parallel_group: index ? null : "primary-detection", priority: index ? 100 : null, timeout_ms: 500, failure_mode: "fail_closed", required: true, depends_on: [] }; }
 function cloneDraft(draft: ProgrammablePolicyDraft): ProgrammablePolicyDraft { return JSON.parse(JSON.stringify(draft)) as ProgrammablePolicyDraft; }
 function replaceAt<T>(items: T[], index: number, item: T, onChange: (items: T[]) => void) { onChange(items.map((current, currentIndex) => currentIndex === index ? item : current)); }

@@ -18,12 +18,17 @@ const config = loadConfig({
 });
 
 const assignments = {
-  control_plane: null,
-  safety_evaluator: "safety-model",
-  jailbreak_evaluator: null,
-  topic_policy_judge: null,
-  grounding_judge: null,
-  automated_reasoning: null,
+  controlPlane: "control-model",
+  bindings: {
+    "content_safety.input": "safety-model",
+    "content_safety.output": null,
+    "jailbreak.input": null,
+    "topic_control.input": null,
+    "pii_semantic.input": null,
+    "pii_semantic.output": null,
+    "contextual_grounding.output": null,
+    "automated_reasoning.output": null,
+  },
 };
 
 const activeConfiguration = (revisionId: string, revision: number) => ({
@@ -35,16 +40,56 @@ const activeConfiguration = (revisionId: string, revision: number) => ({
     id: "safety-model",
     providerId: "provider-1",
     providerName: "Mock provider",
-    baseUrl: "http://models.mock/v1",
+    baseUrl: "https://models.mock/v1",
+    skipTlsVerify: true,
     credentialRef: "provider-1",
     model: "Qwen/Qwen3Guard-Gen-8B",
     profile: "tali.qwen3guard.v1" as const,
     timeoutSeconds: 20,
     maxTokens: 128,
+  }, {
+    id: "control-model",
+    providerId: "provider-deepseek",
+    providerName: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    skipTlsVerify: false,
+    credentialRef: "provider-deepseek",
+    model: "deepseek-v4-flash",
+    profile: "generic-chat" as const,
+    timeoutSeconds: 20,
+    maxTokens: 512,
   }],
 });
 
 describe("Runner model-configuration convergence", () => {
+  it.each([true, false])("accepts Rail evidence only from the assigned Runner with both verdicts (complete=%s)", async (complete) => {
+    const models = { activeConfiguration: vi.fn().mockResolvedValue(null) };
+    const server = new RunnerControlServer(config, serviceMock() as unknown as ControlPlaneService,
+      metricsMock() as unknown as ControllerMetrics, models as unknown as ModelConfigurationService);
+    const stream = streamMock();
+    const hello = registration("compiler");
+    hello.registration.compilerCapable = true;
+    const connection = await handle(server, stream, hello, null);
+    const otherStream = streamMock();
+    const other = await handle(server, otherStream, registration("other"), null);
+    const pending = server.validateRail({ requestId: "rail-test", bindingId: "content_safety.input" });
+    const settled = vi.fn();
+    void pending.then(settled);
+    expect(stream.write).toHaveBeenCalledWith(expect.objectContaining({
+      capabilityValidationRequest: expect.objectContaining({ requestId: "rail-test" }),
+    }));
+    const result = { capabilityValidationResult: {
+      requestId: "rail-test", passed: true, runtimeProfile: "llmrails-v1", message: "samples", latencyMs: 10,
+      cases: [{ expectedDecision: "allow", actualDecision: "allow", passed: true },
+        { expectedDecision: complete ? "block" : "allow", actualDecision: complete ? "block" : "allow", passed: true }],
+    } };
+    await handle(server, otherStream, result, other);
+    expect(settled).not.toHaveBeenCalled();
+    await handle(server, stream, result, connection);
+    expect((await pending).passed).toBe(complete);
+    await server.stop();
+  });
+
   it("finalizes only after every connected Runner ACKs the same revision", async () => {
     const service = serviceMock();
     const models = {
@@ -62,6 +107,16 @@ describe("Runner model-configuration convergence", () => {
     const secondStream = streamMock();
     const first = await handle(server, firstStream, registration("runner-0"), null);
     const second = await handle(server, secondStream, registration("runner-1"), null);
+
+    const dispatched = firstStream.write.mock.calls
+      .map(([message]) => message.desiredState?.modelConfiguration)
+      .find(Boolean);
+    expect(dispatched?.runtimes).toEqual([
+      expect.objectContaining({ id: "safety-model", skipTlsVerify: true }),
+    ]);
+    expect(dispatched?.runtimes).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "control-model" }),
+    ]));
 
     await handle(server, firstStream, desiredResult("runner-0", true), first);
     expect(models.finalizeActivation).not.toHaveBeenCalled();

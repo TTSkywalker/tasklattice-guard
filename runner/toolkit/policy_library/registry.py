@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from .domain import PolicySpec
 from .loader import load_builtin_policies
+from .protection import policy_protection
 from ..safety.taxonomy import taxonomy
 
 
@@ -15,7 +16,8 @@ _SUPPORTED_TEST_DECISIONS = frozenset(
 )
 _SUPPORTED_TAG_NAMESPACES = frozenset(
     {
-        "capability",
+        "protection",
+        "guardrail_category",
         "collection",
         "domain",
         "framework",
@@ -24,6 +26,17 @@ _SUPPORTED_TAG_NAMESPACES = frozenset(
         "rail",
     }
 )
+_GUARDRAIL_CATEGORIES = frozenset({
+    "content_safety",
+    "jailbreak_protection",
+    "topic_control",
+    "pii_detection",
+    "agentic_security",
+    "tool_calling",
+    "hallucinations_fact_checking",
+    "llm_self_check",
+    "third_party_apis",
+})
 
 
 class PolicyLibraryRegistry:
@@ -69,8 +82,17 @@ class PolicyLibraryRegistry:
                     f"Policy {item.id!r} has unsupported tag namespace "
                     f"{tag.namespace!r}."
                 )
+            if (
+                tag.namespace == "guardrail_category"
+                and tag.value not in _GUARDRAIL_CATEGORIES
+            ):
+                raise ValueError(
+                    f"Policy {item.id!r} has unknown Guardrail category "
+                    f"{tag.value!r}."
+                )
 
         parameter_names = [parameter.name for parameter in item.parameters]
+        policy_protection(item)
         if len(parameter_names) != len(set(parameter_names)):
             raise ValueError(f"Policy {item.id!r} repeats a parameter name.")
 

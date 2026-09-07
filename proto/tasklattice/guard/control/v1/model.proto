@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package tasklattice.guard.control.v1;
 
+import "common.proto";
+
 // One physical model endpoint. Credentials are resolved through the
 // authenticated Controller credential lease and are never persisted in the
 // desired-state snapshot.
@@ -15,21 +17,56 @@ message ModelRuntime {
   string profile_ref = 7;
   int32 timeout_seconds = 8;
   int32 max_tokens = 9;
+  // Explicit Provider-scoped opt-in. False retains HTTPS certificate checks.
+  bool skip_tls_verify = 10;
 }
 
-// Bind one product module role to a registered Model.
-message ModelAssignment {
-  string role = 1;
-  string model_ref = 2;
-  string profile_ref = 3;
-  repeated string contract_refs = 4;
+// Bind one stable product capability on one Rail surface to a registered
+// Model implementation. Policies reference contract_refs, never model IDs.
+message CapabilityBinding {
+  string binding_id = 1;
+  string capability_ref = 2;
+  RailType rail_type = 3;
+  string implementation_ref = 4;
+  string model_ref = 5;
+  string profile_ref = 6;
+  repeated string contract_refs = 7;
 }
 
 // Complete data-plane projection of one validated Model configuration
-// revision. Only roles needed by Runner are included.
+// revision. Only model-backed capability bindings needed by Runner are included.
 message DataPlaneModelConfiguration {
   string revision_id = 1;
   int32 revision = 2;
   repeated ModelRuntime runtimes = 3;
-  repeated ModelAssignment assignments = 4;
+  repeated CapabilityBinding bindings = 4;
+}
+
+// Isolated, non-activating verification of one proposed Input/Output binding.
+// The lease is short-lived and scoped to exactly the candidate's credential refs.
+message CapabilityValidationRequest {
+  string request_id = 1;
+  string binding_id = 2;
+  DataPlaneModelConfiguration configuration = 3;
+  string credential_lease_id = 4;
+}
+
+// Behavioural evidence from the same NeMo compiler and runtime used for traffic.
+message CapabilityValidationResult {
+  string request_id = 1;
+  bool passed = 2;
+  string message = 3;
+  // Total compilation and evaluation duration in milliseconds.
+  int32 latency_ms = 4;
+  // Compiler-selected NeMo execution profile; never a client-selected bypass.
+  string runtime_profile = 5;
+  repeated CapabilityValidationCase cases = 6;
+}
+
+// Synthetic test metadata only; no customer prompts or credentials are returned.
+message CapabilityValidationCase {
+  string id = 1;
+  string expected_decision = 2;
+  string actual_decision = 3;
+  bool passed = 4;
 }

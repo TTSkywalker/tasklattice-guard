@@ -81,6 +81,8 @@ function mapIntegration(value: CurrentIntegration, events: controllerApi.Runtime
     first_seen_at: timestamps[0] ?? null,
     input_seen_at: incoming[0] ?? null,
     output_seen_at: outgoing[0] ?? null,
+    stream_final_check_seen_at: matching.filter((event) => event.metadata?.streamFinalCheck === true)
+      .map((event) => event.occurredAt).sort().at(-1) ?? null,
     last_seen_at: timestamps.at(-1) ?? null,
     last_error_at: errors.map((event) => event.occurredAt).sort().at(-1) ?? null,
     request_count: new Set(matching.map((event) => event.requestId)).size,

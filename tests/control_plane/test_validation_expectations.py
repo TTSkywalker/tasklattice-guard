@@ -8,8 +8,25 @@ import pytest
 from runner.compiler import DefaultRunnerCompiler
 from runner.protocol_codec import validation_test_from_proto, validation_test_to_proto
 from runner.serialization import plan_from_dict
-from runner.toolkit.runtime.contracts import ProtectionDecision, RiskFinding
+from runner.toolkit.runtime.contracts import ProtectionDecision, RiskFinding, RuntimeUsage
 from runner.validator import DefaultRunnerValidator
+
+
+def test_legacy_numeric_guardrail_versions_are_rejected():
+    with pytest.raises(ValueError, match="canonical UTC timestamp"):
+        plan_from_dict({"guardrail_id": "legacy", "guardrail_version": 1})
+
+
+async def test_unclassified_runtime_failure_is_not_a_successful_block_test():
+    runtime = AsyncMock()
+    runtime.evaluate.return_value = ProtectionDecision(decision="block", action="reject",
+        usage=RuntimeUsage(fail_closed=True))
+    plan = plan_from_dict({"guardrail_id": "test", "guardrail_version": "20260904-010000.001Z",
+        "compiler_version": "test", "steps": [], "modules": []})
+    result = await DefaultRunnerValidator(DefaultRunnerCompiler())._evaluate(runtime, plan,
+        {"id": "block", "content": "ordinary", "phase": "output", "expectedDecision": "block", "required": True})
+    assert not result["passed"]
+    assert any("not a Policy match" in item for item in result["assertionFailures"])
 
 
 @pytest.mark.parametrize("change", ["none", "partial_output", "wrong_rule", "stale", "unreviewed"])
@@ -45,7 +62,7 @@ async def test_composition_assertions_require_reviewed_evidence_and_complete_out
         ),),
     )
     plan = plan_from_dict({
-        "guardrail_id": "test", "guardrail_version": 1, "compiler_version": "test",
+        "guardrail_id": "test", "guardrail_version": "20260904-010000.001Z", "compiler_version": "test",
         "safety_level": "balanced", "output_delivery": "full_buffered",
         "steps": [], "modules": [],
     })

@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from .content_views import content_view, text_blocks
 from .context import CallContextStore
+from .streaming import output_stream_contract
 from .contracts import (
     AppliedIntervention,
     ContentBlockResult,
@@ -19,6 +20,7 @@ from .contracts import (
     PlanResolution,
     PlanResolver,
     RuntimeCoverage,
+    OutputDeliveryMode,
 )
 
 
@@ -51,11 +53,32 @@ class GuardrailRuntimeService:
             on_resolved(resolution)
         return await self._evaluate_resolved(request, resolution, stored)
 
+    def output_delivery(
+        self,
+        request: ProtectionRequest,
+        *,
+        on_resolved: Callable[[PlanResolution], None] | None = None,
+        require_existing: bool = False,
+    ) -> OutputDeliveryMode:
+        """Resolve and pin the delivery contract before the first output chunk is released."""
+        stored = self._contexts.get(request.call_id)
+        if require_existing and stored is None:
+            raise ValueError("The stream's pinned release expired or is unavailable. Start a new call; no output was released.")
+        resolution = stored.resolution if stored is not None else self._resolver.resolve(request.context)
+        retain = getattr(self._resolver, "retain_release", None)
+        if retain is not None:
+            retain(resolution.effective_release_id)
+        self._contexts.put(request.call_id, stored.messages if stored else request.messages,
+                           resolution, stored.content_blocks if stored else request.content_blocks)
+        if on_resolved is not None:
+            on_resolved(resolution)
+        return output_stream_contract(resolution.plan).effective_mode
+
     async def evaluate_guardrail(
         self,
         request: ProtectionRequest,
         guardrail_id: str,
-        version: int,
+        version: str,
         *,
         on_resolved: Callable[[PlanResolution], None] | None = None,
     ) -> ProtectionDecision:
@@ -100,6 +123,8 @@ class GuardrailRuntimeService:
                 deployment_id=resolution.deployment_id,
                 integration_id=resolution.integration_id,
                 output_delivery=resolution.plan.output_delivery,
+                effective_release_id=resolution.effective_release_id,
+                model_revision_id=resolution.model_revision_id,
                 trace=resolution.trace,
                 mode=request.mode,
             )
@@ -152,6 +177,7 @@ class GuardrailRuntimeService:
                     content_view=view,
                     active_block_id=block.id,
                     request_context=request.context,
+                    effective_release_id=resolution.effective_release_id,
                 )
             )
             findings.extend(decision.findings)
@@ -207,6 +233,8 @@ class GuardrailRuntimeService:
             deployment_id=resolution.deployment_id,
             integration_id=resolution.integration_id,
             output_delivery=resolution.plan.output_delivery,
+            effective_release_id=resolution.effective_release_id,
+            model_revision_id=resolution.model_revision_id,
             findings=tuple(findings),
             trace=tuple(trace),
             assessments=tuple(assessments),

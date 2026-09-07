@@ -37,6 +37,8 @@ class RedisCallContextStore:
                 "plan": asdict(resolution.plan),
                 "deployment_id": resolution.deployment_id,
                 "integration_id": resolution.integration_id,
+                "effective_release_id": resolution.effective_release_id,
+                "model_revision_id": resolution.model_revision_id,
                 "trace": [asdict(item) for item in resolution.trace],
             },
         }
@@ -57,6 +59,8 @@ class RedisCallContextStore:
                 plan=plan_from_dict(resolution["plan"]),
                 deployment_id=resolution["deployment_id"],
                 integration_id=resolution.get("integration_id"),
+                effective_release_id=resolution.get("effective_release_id"),
+                model_revision_id=resolution.get("model_revision_id"),
                 # Resolution trace is informational. The immutable deployment
                 # and plan pin are the consistency contract across replicas.
                 trace=(),

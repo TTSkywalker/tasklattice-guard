@@ -11,8 +11,9 @@ describe("Policy catalog", () => {
     const catalog = PolicyCatalog.load(assetDirectory);
     const policies = catalog.list();
 
-    expect(policies).toHaveLength(38);
-    expect(new Set(policies.map((policy) => policy.id)).size).toBe(38);
+    expect(policies).toHaveLength(69);
+    expect(new Set(policies.map((policy) => policy.id)).size).toBe(69);
+    expect(catalog.get("builtin-content-safety")).toMatchObject({ rails: ["input", "output"], test_count: 2 });
     expect(catalog.get("competitor-mention-detection")).toMatchObject({
       name: "Competitor Name Blocking",
       implementation: "rules",
@@ -20,7 +21,7 @@ describe("Policy catalog", () => {
     });
   });
 
-  it("normalizes computed fields, defaults, tag IDs, and framework metadata for the old UI DTO", () => {
+  it("normalizes computed fields, Guardrail categories, and framework metadata", () => {
     const policy = PolicyCatalog.load(assetDirectory).get("pattern-matching");
 
     expect(policy).toBeDefined();
@@ -30,7 +31,7 @@ describe("Policy catalog", () => {
     expect(policy?.test_count).toBe(policy?.test_cases.length);
     expect(policy?.tags).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "framework:owasp-llm-2025", label: "OWASP LLM 2025" }),
-      expect.objectContaining({ id: "capability:sensitive-data" }),
+      expect.objectContaining({ id: "guardrail_category:pii_detection", label: "PII Detection" }),
     ]));
     expect(policy?.rules[0]).toMatchObject({
       context_max_gap_words: null,
@@ -46,6 +47,8 @@ describe("Policy catalog", () => {
 
     expect(namespaces.has("scope")).toBe(false);
     expect(namespaces.has("stage")).toBe(false);
+    expect(namespaces.has("capability")).toBe(false);
+    expect(namespaces.has("guardrail_category")).toBe(true);
     expect(namespaces.has("rail")).toBe(true);
     expect(tags).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "rail:input", label: "Input rail" }),
@@ -56,7 +59,7 @@ describe("Policy catalog", () => {
   it("fails fast with the configured asset path in the error", () => {
     const missingDirectory = resolve("../runner/toolkit/policy_library/missing-assets");
     expect(() => PolicyCatalog.load(missingDirectory)).toThrow(
-      `Unable to load Policy catalog asset ${resolve(missingDirectory, "builtin_policies.json")}`,
+      `Unable to load protection contract ${resolve(missingDirectory, "protection-contracts.json")}`,
     );
   });
 });

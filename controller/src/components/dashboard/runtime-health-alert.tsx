@@ -6,6 +6,7 @@ import type { Metrics } from "@/lib/api";
 
 export type RuntimeHealthAlertMetrics = {
   system_status: Metrics["system_status"];
+  system_reasons?: Metrics["system_reasons"];
   latency_slo: Pick<Metrics["latency_slo"], "p95_status">;
   fail_closed_count: number;
   degraded_integrations: number;
@@ -20,8 +21,10 @@ export function RuntimeHealthAlert({ metrics }: { metrics: RuntimeHealthAlertMet
   return (
     <Alert className="border-amber-200 bg-amber-50/70 text-amber-950">
       <TriangleAlert />
-      <AlertTitle>{t("dashboard.degraded")}</AlertTitle>
-      <AlertDescription className="text-amber-900/75">{t(detailKey, { count: metrics.degraded_integrations })}</AlertDescription>
+      <AlertTitle>{t(detailKey === "dashboard.healthSystem" ? "dashboard.platformAttention" : "dashboard.degraded")}</AlertTitle>
+      <AlertDescription className="text-amber-900/75">{detailKey === "dashboard.healthSystem" && metrics.system_reasons?.some(reason => reason !== "all_required_components_ready")
+        ? metrics.system_reasons.filter(reason => reason !== "all_required_components_ready").map(reason => <p key={reason}>{t(`platformStatus.reason.${reason}`)}</p>)
+        : t(detailKey, { count: metrics.degraded_integrations })}</AlertDescription>
     </Alert>
   );
 }

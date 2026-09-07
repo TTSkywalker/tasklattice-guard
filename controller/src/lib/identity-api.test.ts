@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { signInWithEmail } = vi.hoisted(() => ({
+const { signInWithEmail, getSession } = vi.hoisted(() => ({
   signInWithEmail: vi.fn(),
+  getSession: vi.fn(),
 }));
 
 vi.mock("@/lib/better-auth", () => ({
   authClient: {
     signIn: { email: signInWithEmail },
+    getSession,
   },
 }));
 
-import { login } from "@/lib/identity-api";
+import { getAuthStatus, login } from "@/lib/identity-api";
 
 const signedInUser = {
   id: "admin-id",
@@ -25,8 +27,15 @@ const signedInUser = {
 
 describe("identity login", () => {
   beforeEach(() => {
+    getSession.mockReset();
     signInWithEmail.mockReset();
     signInWithEmail.mockResolvedValue({ data: { user: signedInUser }, error: null });
+  });
+
+  it("checks current session state rather than a stale signed cookie", async () => {
+    getSession.mockResolvedValue({ data: null, error: null });
+    expect(await getAuthStatus()).toEqual({ authenticated: false, user: null });
+    expect(getSession).toHaveBeenCalledWith({ query: { disableCookieCache: true } });
   });
 
   it("maps the admin username alias to the internal Better Auth email", async () => {

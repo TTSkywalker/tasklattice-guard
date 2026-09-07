@@ -1,0 +1,29 @@
+# A real Relay/LiteLLM proxy. Only the business model endpoint is synthetic.
+model_list:
+  - model_name: replay-model
+    litellm_params:
+      model: openai/replay-model
+      api_base: os.environ/BUSINESS_REPLAY_BASE
+      api_key: synthetic-business-model-key
+      num_retries: 0
+credential_list:
+  - credential_name: tasklattice-guard
+    credential_info:
+      custom_llm_provider: tasklattice_guard
+    credential_values:
+      api_key: os.environ/TASKLATTICE_GUARD_API_KEY
+guardrails:
+  - guardrail_name: tasklattice-guard
+    litellm_params:
+      guardrail: tasklattice_guard
+      mode: [pre_call, post_call]
+      api_base: os.environ/TASKLATTICE_GUARD_API_BASE
+      credential_name: tasklattice-guard
+      default_on: true
+      fail_on_error: true
+      unreachable_fallback: fail_closed
+litellm_settings:
+  telemetry: false
+  num_retries: 0
+general_settings:
+  master_key: os.environ/REPLAY_PROXY_MASTER_KEY

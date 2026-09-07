@@ -1,0 +1,20 @@
+{
+  "adapter": "litellm-generic-guardrail",
+  "artifact_id": "fixture-artifact-stream-safety-interruptible-v1",
+  "checksum": "eab7e02e374669229e0fe37593be25fb01fee15b9f6264a6ce4d96d55e548ecf",
+  "compiler_version": "tasklattice-nemo-config-v18-selected-policy-dependencies",
+  "expected": {
+    "output_delivery": "interruptible",
+    "safe_output": "allow",
+    "unsafe_output": "block"
+  },
+  "fixture": "stream-safety-interruptible-v1",
+  "format": "tasklattice.guard.control.v1.DesiredState/base64",
+  "generation": 1,
+  "guardrail_id": "fixture-secrets",
+  "guardrail_version": "20260904-010000.001Z",
+  "integration_id": "fixture-integration",
+  "nemo_version": "0.24.0",
+  "runtime_profile": "llmrails_colang1_standard",
+  "scope": "Frozen output-only model Policy; transport responses in tests are synthetic, not model quality evidence."
+}

@@ -222,6 +222,7 @@ def _model_runtimes(value: str) -> tuple[ModelRuntimeConfig, ...]:
                 ),
                 timeout_seconds=float(item.get("timeout_seconds", 20.0)),
                 max_tokens=int(item.get("max_tokens", 128)),
+                skip_tls_verify=item.get("skip_tls_verify") is True,
             ))
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"Model Runtime at index {index} is invalid: {error}") from error
@@ -244,6 +245,11 @@ def _evaluator_bindings(value: str) -> tuple[EvaluatorBindingConfig, ...]:
                 profile_ref=str(item["profile_ref"]),
                 model_ref=str(item["model_ref"]),
                 priority=int(item.get("priority", 100)),
+                rail_type=(
+                    str(item["rail_type"])  # type: ignore[arg-type]
+                    if item.get("rail_type") is not None
+                    else None
+                ),
             ))
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(

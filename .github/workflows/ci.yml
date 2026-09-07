@@ -50,6 +50,16 @@ jobs:
   data-plane:
     name: Data plane (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     strategy:
       fail-fast: false
       matrix:
@@ -74,6 +84,8 @@ jobs:
         run: uv sync --all-extras --frozen
 
       - name: Execute precompiled artifacts in Runner
+        env:
+          GUARD_TEST_REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports[6379] }}/0
         run: make test-data-plane
 
   runner-communication:

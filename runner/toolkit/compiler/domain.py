@@ -184,13 +184,12 @@ class AutomatedReasoningPolicyBinding:
 class Guardrail:
     id: str
     name: str
-    purpose: str
     allowed_topics: tuple[str, ...]
     restricted_topics: tuple[str, ...]
     safety_level: SafetyLevel
     output_delivery: OutputDeliveryMode
     draft_version: int
-    active_version: int | None
+    active_version: str | None
     updated_at: str
     policy_bindings: tuple[GuardrailPolicyBinding, ...] = ()
     excluded_test_case_ids: tuple[str, ...] = ()
@@ -209,7 +208,7 @@ class GuardrailDeletionImpact:
 @dataclass(frozen=True, slots=True)
 class GuardrailVersion:
     guardrail_id: str
-    version: int
+    version: str
     source_draft_version: int
     compiler_version: str
     plan_checksum: str
@@ -240,7 +239,7 @@ class Deployment:
     id: str
     name: str
     guardrail_id: str
-    guardrail_version: int
+    guardrail_version: str
     integration_id: str | None
     route_order: int
     traffic_scope: TrafficScopeExpression
@@ -411,7 +410,7 @@ class ValidationMetrics:
 class ValidationRun:
     id: str
     guardrail_id: str
-    guardrail_version: int | None
+    guardrail_version: str
     source_draft_version: int
     status: ValidationRunStatus
     metrics: ValidationMetrics
@@ -443,7 +442,7 @@ class RuntimeMetricEvent:
     trace_id: str
     created_at: str
     guardrail_id: str | None
-    guardrail_version: int | None
+    guardrail_version: str | None
     deployment_id: str | None
     integration_id: str | None
     protocol: str
@@ -480,7 +479,7 @@ class RuntimeStepMetricEvent:
     trace_id: str
     created_at: str
     guardrail_id: str
-    guardrail_version: int
+    guardrail_version: str
     deployment_id: str | None
     integration_id: str | None
     protocol: str
@@ -527,7 +526,7 @@ class RuntimeFindingEvent:
     trace_id: str
     created_at: str
     guardrail_id: str | None
-    guardrail_version: int | None
+    guardrail_version: str | None
     deployment_id: str | None
     integration_id: str | None
     phase: str
@@ -564,7 +563,7 @@ class DeploymentRuntimeTrace:
     created_at: str
     deployment_id: str
     guardrail_id: str | None
-    guardrail_version: int | None
+    guardrail_version: str | None
     integration_id: str | None
     protocol: str
     phase: str
@@ -625,7 +624,7 @@ class RuntimeLogInteraction:
     created_at: str
     completed_at: str | None
     guardrail_id: str
-    guardrail_version: int | None
+    guardrail_version: str | None
     deployment_id: str | None
     integration_id: str | None
     protocol: str

@@ -4,6 +4,7 @@ from dataclasses import asdict
 
 from .domain import PolicySpec
 from .registry import policies, policy
+from .protection import policy_protection
 
 
 def policy_catalog() -> tuple[dict[str, object], ...]:
@@ -28,6 +29,7 @@ def policy_payload(item: PolicySpec) -> dict[str, object]:
         "test_count": item.test_count,
         "safety_level": item.safety_level,
         "output_delivery": item.output_delivery,
+        "protection": policy_protection(item),
     }
 
 

@@ -14,7 +14,6 @@ from runner.toolkit.nemo.actions.grounding import GroundingActionProvider
 from runner.toolkit.nemo.actions.automated_reasoning import HTTPAutomatedReasoningProvider, ReasoningActionProvider
 from runner.toolkit.nemo.evaluators.pii import PiiEvaluator
 from runner.toolkit.evaluation.contracts import (
-    CONTRACT_JAILBREAK,
     CONTRACT_PII_EXACT,
     MODEL_SAFETY_CONTRACT_BY_CAPABILITY,
 )
@@ -77,6 +76,7 @@ def runtime_action_providers(settings: RunnerSettings) -> tuple[ActionProvider, 
                 api_key_env_var=taxonomy_judge.api_key_env_var,
                 provider_id=taxonomy_judge.id,
                 timeout_seconds=taxonomy_judge.timeout_seconds,
+                skip_tls_verify=taxonomy_judge.skip_tls_verify,
             )
         )
     if settings.automated_reasoning_endpoint_url:
@@ -103,44 +103,30 @@ def dynamic_runtime_action_providers(
             api_key=credentials.get(item.credential_ref, ""),
             timeout_seconds=float(item.timeout_seconds or 20),
             max_tokens=int(item.max_tokens or 128),
+            skip_tls_verify=item.skip_tls_verify,
         )
         for item in configuration.runtimes
     }
-    assignments = {item.role: item for item in configuration.assignments}
+    bindings = {item.binding_id: item for item in configuration.bindings}
     local_providers = local_action_providers(PromptSecurityActionProvider())
     pii_evaluator = PiiEvaluator()
 
-    safety_binding = assignments.get("safety_evaluator")
-    jailbreak_binding = assignments.get("jailbreak_evaluator")
-    binding_sources = []
-    if safety_binding is not None:
-        safety_contracts = tuple(
-            contract_ref
-            for contract_ref in safety_binding.contract_refs
-            if jailbreak_binding is None or contract_ref != CONTRACT_JAILBREAK
-        )
-        binding_sources.append(("safety", safety_binding, safety_contracts, 100))
-    if jailbreak_binding is not None:
-        binding_sources.append((
-            "jailbreak",
-            jailbreak_binding,
-            tuple(
-                contract_ref
-                for contract_ref in jailbreak_binding.contract_refs
-                if contract_ref == CONTRACT_JAILBREAK
-            ),
-            50,
-        ))
+    binding_sources = [
+        item
+        for item in configuration.bindings
+        if item.capability_ref in {"content_safety", "jailbreak", "pii_semantic"}
+    ]
     evaluator_bindings = tuple(
         EvaluatorBindingConfig(
-            id=f"{role}:{binding.model_ref}:{index}",
+            id=f"{binding.binding_id}:{binding.model_ref}:{index}",
             contract_ref=contract_ref,
             profile_ref=binding.profile_ref,
             model_ref=binding.model_ref,
-            priority=priority + index,
+            priority={"jailbreak": 50, "pii_semantic": 75, "content_safety": 100}[binding.capability_ref] + index,
+            rail_type=_rail_name(binding.rail_type),
         )
-        for role, binding, contract_refs, priority in binding_sources
-        for index, contract_ref in enumerate(contract_refs)
+        for binding in binding_sources
+        for index, contract_ref in enumerate(binding.contract_refs)
     )
     provider_configs = resolve_evaluator_model_providers(
         tuple(runtimes.values()),
@@ -165,7 +151,7 @@ def dynamic_runtime_action_providers(
         EvaluationActionProvider(tuple(routes)),
     ]
 
-    topic = assignments.get("topic_policy_judge")
+    topic = bindings.get("topic_control.input")
     if topic is not None:
         runtime = _assigned_runtime(topic.model_ref, runtimes)
         providers.append(TopicJudgeActionProvider(
@@ -174,29 +160,42 @@ def dynamic_runtime_action_providers(
             api_key_env_var=None,
             api_key=runtime.api_key,
             provider_id=runtime.id,
+            skip_tls_verify=runtime.skip_tls_verify,
             timeout_seconds=runtime.timeout_seconds,
             transport=transport,
         ))
 
-    grounding = assignments.get("grounding_judge")
+    grounding = bindings.get("contextual_grounding.output")
     if grounding is not None:
         runtime = _assigned_runtime(grounding.model_ref, runtimes)
         providers.append(GroundingActionProvider(
             base_url=runtime.base_url,
             model=runtime.model,
             api_key=runtime.api_key,
+            skip_tls_verify=runtime.skip_tls_verify,
             timeout_seconds=runtime.timeout_seconds,
+            transport=transport,
         ))
 
-    reasoning = assignments.get("automated_reasoning")
+    reasoning = bindings.get("automated_reasoning.output")
     if reasoning is not None:
         runtime = _assigned_runtime(reasoning.model_ref, runtimes)
         providers.append(ReasoningActionProvider(HTTPAutomatedReasoningProvider(
             endpoint_url=runtime.base_url,
             api_key=runtime.api_key,
+            skip_tls_verify=runtime.skip_tls_verify,
             timeout_seconds=runtime.timeout_seconds,
+            transport=transport,
         )))
     return tuple(providers)
+
+
+def _rail_name(value: int) -> str:
+    if value == 1:
+        return "input"
+    if value == 2:
+        return "output"
+    raise ValueError(f"Capability Binding uses unsupported RailType {value!r}.")
 
 
 def _assigned_runtime(

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { PolicyDto } from "../policy-catalog/catalog.js";
 import type { ProgrammablePolicySnapshot } from "../policy-studio/model.js";
 import { normalizeGuardrailDraft, type GuardrailDraftConfig, type ValidationExpectationOverride } from "./guardrail-plan.js";
+import { PHRASE_PARAMETER, PHRASE_POLICY_ID, parsePhraseEntries } from "../../shared/phrase-policy.js";
 import type { ValidationCaseResult, ValidationMetrics } from "./models.js";
 
 export type StoredTestCaseInput = {
@@ -40,17 +41,26 @@ export function generatedTestCases(
   const declarative = draft.policyBindings.flatMap((binding) => {
     const policy = byId.get(binding.policyId);
     if (!policy) return [];
+    const enabledRails = new Set(binding.enabledRails.length ? binding.enabledRails : policy.rails);
     const enabledRules = new Set(binding.enabledRuleIds);
     return policy.test_cases.flatMap((item) => {
       if (item.phase !== "input" && item.phase !== "output") return [];
+      if (!enabledRails.has(item.phase)) return [];
+      const phase = item.phase;
       if (item.covered_rule_ids.length && !item.covered_rule_ids.some((id) => enabledRules.has(id))) return [];
-      return [{
+      const expanded = policy.id === PHRASE_POLICY_ID
+        ? parsePhraseEntries(binding.parameterValues[PHRASE_PARAMETER] ?? "").map((entry) => ({
+            ...item, id: `${item.id}/${entry.id}`, name: `${item.name}: ${entry.phrase}`,
+            content: entry.phrase,
+            expected_decision: entry.action === "reject" ? "block" as const : "transform" as const,
+          })) : [item];
+      return expanded.map((item) => ({
         id: generatedCaseId(policy.id, item.id),
         guardrailId,
-        name: materialize(item.name, binding.parameterValues),
+        name: policy.id === PHRASE_POLICY_ID ? item.name : materialize(item.name, binding.parameterValues),
         policyId: policy.id,
-        phase: item.phase,
-        content: materialize(item.content, binding.parameterValues),
+        phase,
+        content: policy.id === PHRASE_POLICY_ID ? item.content : materialize(item.content, binding.parameterValues),
         expectedDecision: item.expected_decision,
         origin: "generated" as const,
         trustedInstruction: "",
@@ -66,7 +76,7 @@ export function generatedTestCases(
         sourcePolicyVersion: policy.version,
         sourceCaseId: item.id,
         coveredRuleIds: item.covered_rule_ids,
-      }];
+      }));
     });
   });
   const programmableByKey = new Map(programmablePolicies.map((item) => [`${item.policy_id}@${item.version}`, item]));

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import grpc
 import pytest
@@ -10,6 +12,7 @@ import pytest
 from runner import generated as protocol
 from runner.artifact_store import ArtifactStore
 from runner.control_client import RunnerControlClient
+from runner.control_transport import CONTROL_CHANNEL_OPTIONS
 from runner.generated import runner_control_pb2_grpc as services
 from runner.metrics import RunnerMetrics
 from runner.toolkit.nemo.action_registry import action_providers
@@ -20,9 +23,72 @@ from runner.toolkit.evaluation.contracts import (
     CONTRACT_PII_SEMANTIC,
 )
 from runner.toolkit.nemo.registry import NeMoRuntimeRegistry
+from tests.capability_binding import capability_binding
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "artifacts" / "local-secrets-v1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server_abort", [False, True])
+async def test_large_validation_round_trip_and_reconnect_sender_cleanup(tmp_path: Path, server_abort: bool) -> None:
+    """Real protobuf/socket/Runner dispatch, mocked validation computation only."""
+    content = "synthetic transport evidence " * 700
+    request = protocol.ValidationRequest(run_id="large-validation", test_cases=[
+        protocol.ValidationTestCase(id=f"case-{index}", content=content)
+        for index in range(321)
+    ])
+    assert request.ByteSize() > 4 * 1024 * 1024
+    results = [{"caseId": case.id, "passed": True, "outputContent": case.content}
+               for case in request.test_cases]
+    received = []
+
+    class ValidationController(services.RunnerControlServicer):
+        async def Connect(self, request_iterator, context):  # noqa: N802
+            assert (await request_iterator.__anext__()).WhichOneof("body") == "registration"
+            yield protocol.ControllerMessage(validation_request=request)
+            async for message in request_iterator:
+                if message.WhichOneof("body") == "validation_result":
+                    received.append(message.validation_result)
+                    if server_abort:
+                        await context.abort(grpc.StatusCode.UNAVAILABLE, "synthetic connection loss")
+                    return
+
+    server = grpc.aio.server(options=CONTROL_CHANNEL_OPTIONS)
+    services.add_RunnerControlServicer_to_server(ValidationController(), server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    settings = SimpleNamespace(
+        runner_id="e2e-runner", pool_id="default", compiler_capable=False,
+        max_concurrency=4, controller_ca_path=None,
+        controller_target=f"127.0.0.1:{port}", controller_token="e2e-runner-token",
+    )
+    client = RunnerControlClient(settings, ArtifactStore(FIXTURE / "public-key.pem", tmp_path), RunnerMetrics(4))
+    client._validator = SimpleNamespace(validate=AsyncMock(return_value=(
+        "passed", {"total": 321, "passed": 321}, results,
+    )))
+    baseline_tasks = asyncio.all_tasks()
+    try:
+        for _ in range(3):
+            if server_abort:
+                with pytest.raises(grpc.aio.AioRpcError) as failure:
+                    await asyncio.wait_for(client._connect_once(), timeout=10)
+                assert failure.value.code() == grpc.StatusCode.UNAVAILABLE
+            else:
+                await asyncio.wait_for(client._connect_once(), timeout=10)
+            # A completed stream must not leave a sender waiting on the old queue.
+            assert not [task for task in asyncio.all_tasks() - baseline_tasks
+                        if task.get_name() == "guard-control-writer"]
+    finally:
+        await server.stop(grace=0)
+    assert len(received) == 3
+    for result in received:
+        assert result.ByteSize() > 4 * 1024 * 1024
+        assert result.accepted and result.metrics.passed == 321
+        assert len(result.results) == 321
+        assert [item.case_id for item in result.results] == [item.id for item in request.test_cases]
+        assert all(item.output_content == content for item in result.results)
+    assert not client.connected
 
 
 class MockController(services.RunnerControlServicer):
@@ -111,9 +177,9 @@ async def test_mock_controller_and_real_runner_exchange_and_apply_desired_state(
     "configuration,credentials",
     [
         pytest.param(
-            lambda: _nvidia_trio_configuration(),
+            lambda: _split_guard_configuration(),
             {"provider-nvidia": "mock-nvidia-key"},
-            id="nvidia-trio",
+            id="split-guard-stack",
         ),
         pytest.param(
             lambda: _qwen3guard_configuration(),
@@ -190,7 +256,7 @@ def _desired_state() -> protocol.DesiredState:
     return message
 
 
-def _nvidia_trio_configuration() -> protocol.DataPlaneModelConfiguration:
+def _split_guard_configuration() -> protocol.DataPlaneModelConfiguration:
     return protocol.DataPlaneModelConfiguration(
         revision_id="revision-nvidia-trio",
         revision=5,
@@ -214,24 +280,24 @@ def _nvidia_trio_configuration() -> protocol.DataPlaneModelConfiguration:
                 max_tokens=32,
             ),
             protocol.ModelRuntime(
-                id="nvidia-jailbreak",
+                id="chat-jailbreak",
                 base_url="http://nvidia.mock/v1",
                 credential_ref="provider-nvidia",
-                model="nvidia/nvidia-nemotron-nano-9b-v2",
-                profile_ref="tali.nemotron-nano-jailbreak.v1",
+                model="example/jailbreak-judge",
+                profile_ref="tali.openai-compatible-jailbreak.v1",
                 timeout_seconds=20,
                 max_tokens=32,
             ),
         ],
-        assignments=[
-            protocol.ModelAssignment(
-                role="safety_evaluator",
+        bindings=[
+            capability_binding(
+                detector_type="content_safety",
                 model_ref="nvidia-safety",
                 profile_ref="tali.nemotron-safety-guard-v3.v1",
                 contract_refs=[CONTRACT_CONTENT_SAFETY],
             ),
-            protocol.ModelAssignment(
-                role="topic_policy_judge",
+            capability_binding(
+                detector_type="topic_control",
                 model_ref="nvidia-topic",
                 profile_ref="tali.nemoguard-topic-control.v1",
                 contract_refs=[
@@ -239,10 +305,10 @@ def _nvidia_trio_configuration() -> protocol.DataPlaneModelConfiguration:
                     "tali.guard.company-policy.v1",
                 ],
             ),
-            protocol.ModelAssignment(
-                role="jailbreak_evaluator",
-                model_ref="nvidia-jailbreak",
-                profile_ref="tali.nemotron-nano-jailbreak.v1",
+            capability_binding(
+                detector_type="jailbreak_detection",
+                model_ref="chat-jailbreak",
+                profile_ref="tali.openai-compatible-jailbreak.v1",
                 contract_refs=[CONTRACT_JAILBREAK],
             ),
         ],
@@ -262,8 +328,8 @@ def _qwen3guard_configuration() -> protocol.DataPlaneModelConfiguration:
             timeout_seconds=20,
             max_tokens=128,
         )],
-        assignments=[protocol.ModelAssignment(
-            role="safety_evaluator",
+        bindings=[capability_binding(
+            detector_type="content_safety",
             model_ref="qwen3guard",
             profile_ref="tali.qwen3guard.v1",
             contract_refs=[

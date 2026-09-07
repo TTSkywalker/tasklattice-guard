@@ -5,7 +5,7 @@
     "description": "Detects requests for personalized financial advice, investment recommendations, or financial planning that should be provided by licensed financial advisors",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -13,8 +13,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -449,7 +449,7 @@
     "description": "Detects insults, name-calling, and personal attacks directed at the chatbot, staff, or other people",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -457,8 +457,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -991,7 +991,7 @@
     "description": "Detects requests for legal advice, representation, or legal strategy that should be provided by licensed attorneys",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -999,8 +999,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -1276,7 +1276,7 @@
     "description": "Detects requests for medical advice, diagnosis, or treatment recommendations that should be provided by licensed healthcare professionals",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -1284,8 +1284,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -1559,7 +1559,7 @@
     "description": "Detects content related to violence, criminal planning, and attacks",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -1567,8 +1567,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -2145,7 +2145,7 @@
     "description": "Detects content related to self-harm, suicide, and eating disorders",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -2153,8 +2153,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -2568,7 +2568,7 @@
     "description": "Detects inappropriate content involving minors using identifier + block word combinations",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -2576,8 +2576,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -3808,7 +3808,7 @@
     "description": "Detects content related to illegal weapons, explosives, and dangerous materials",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -3816,8 +3816,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -4462,7 +4462,7 @@
     "description": "Detects gender-based discriminatory language, stereotypes, and biased content",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -4470,8 +4470,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -4624,7 +4624,7 @@
     "description": "Detects racial and ethnic discrimination, hate speech, and biased content using identifier + block word combinations",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -4632,8 +4632,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -6154,7 +6154,7 @@
     "description": "Detects religious discrimination, stereotypes, and biased content",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -6162,8 +6162,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -6418,7 +6418,7 @@
     "description": "Detects discriminatory language targeting LGBTQ+ individuals and communities",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -6426,8 +6426,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -6968,7 +6968,7 @@
     "description": "Detects jailbreak attempts including DAN, roleplay attacks, and safety bypass requests",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"attacks_and_abuse","label":"Attacks & abuse","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -6976,9 +6976,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "prompt-security",
-        "label": "Prompt Security",
+        "namespace": "guardrail_category",
+        "value": "jailbreak_protection",
+        "label": "Jailbreak Protection",
         "source": "declared"
       },
       {
@@ -7242,7 +7242,7 @@
     "description": "Detects attempts to extract training data, internal information, or user data through prompts",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"attacks_and_abuse","label":"Attacks & abuse","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -7250,9 +7250,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "prompt-security",
-        "label": "Prompt Security",
+        "namespace": "guardrail_category",
+        "value": "agentic_security",
+        "label": "Agentic Security",
         "source": "declared"
       },
       {
@@ -7486,7 +7486,7 @@
     "description": "Detects SQL injection attempts embedded in prompts",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"application_injection","label":"Code & application injection","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -7494,9 +7494,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "prompt-security",
-        "label": "Prompt Security",
+        "namespace": "guardrail_category",
+        "value": "agentic_security",
+        "label": "Agentic Security",
         "source": "declared"
       },
       {
@@ -7783,7 +7783,7 @@
     "description": "Detects attempts to inject or execute malicious code via prompts",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"application_injection","label":"Code & application injection","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -7791,9 +7791,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "prompt-security",
-        "label": "Prompt Security",
+        "namespace": "guardrail_category",
+        "value": "agentic_security",
+        "label": "Agentic Security",
         "source": "declared"
       },
       {
@@ -8049,7 +8049,7 @@
     "description": "Detects attempts to extract, reveal, or override system prompts and instructions",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"attacks_and_abuse","label":"Attacks & abuse","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -8057,9 +8057,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "prompt-security",
-        "label": "Prompt Security",
+        "namespace": "guardrail_category",
+        "value": "agentic_security",
+        "label": "Agentic Security",
         "source": "declared"
       },
       {
@@ -8332,7 +8332,7 @@
     "description": "Detects harmful, toxic, abusive, and hateful language.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -8340,8 +8340,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -12191,7 +12191,7 @@
     "description": "Detects and masks 82 reviewed identity, credential, financial, safety, and regional data patterns locally.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -12199,9 +12199,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "sensitive-data",
-        "label": "Sensitive Data",
+        "namespace": "guardrail_category",
+        "value": "pii_detection",
+        "label": "PII Detection",
         "source": "declared"
       },
       {
@@ -16337,7 +16337,7 @@
     "description": "Blocks or masks a reviewed, line-separated list of words and phrases without an external model call.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_filters","label":"Words & content filters","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -16345,8 +16345,8 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "content-safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
         "label": "Content Safety",
         "source": "declared"
       },
@@ -16447,7 +16447,7 @@
     "description": "Detects executable fenced code and explicit execution requests while allowing explanation and review intent.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"application_injection","label":"Code & application injection","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -16455,9 +16455,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "code-safety",
-        "label": "Code Safety",
+        "namespace": "guardrail_category",
+        "value": "tool_calling",
+        "label": "Tool Calling",
         "source": "declared"
       },
       {
@@ -16566,7 +16566,7 @@
     "description": "Detects reviewed competitor entities, aliases, obfuscation, recommendations, comparisons, and category-ranking intent while allowing destination and service questions.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_filters","label":"Words & content filters","source":"declared"},
       {
         "namespace": "collection",
         "value": "local-content-filter",
@@ -16574,9 +16574,9 @@
         "source": "declared"
       },
       {
-        "namespace": "capability",
-        "value": "brand-safety",
-        "label": "Brand Safety",
+        "namespace": "guardrail_category",
+        "value": "content_safety",
+        "label": "Content Safety",
         "source": "declared"
       },
       {

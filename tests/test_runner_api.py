@@ -27,7 +27,7 @@ class Runtime:
             action="reject",
             reason="policy matched",
             guardrail_id="guardrail-1",
-            guardrail_version=2,
+            guardrail_version="20260904-020000.002Z",
             deployment_id="deployment-1",
             integration_id="integration-1",
             findings=(RiskFinding(
@@ -42,6 +42,7 @@ class Runtime:
             ),),
             trace=(RuntimeTraceStep(
                 id="action-1",
+                parent_id="rail-1",
                 kind="action",
                 name="Secrets detector",
                 status="complete",
@@ -68,6 +69,31 @@ class Runtime:
         return await self.evaluate(request)
 
 
+class StreamingRuntime:
+    def __init__(self, mode="full_buffered") -> None:
+        self.mode = mode
+        self.requests = []
+
+    def output_delivery(self, _request, *, on_resolved=None, require_existing=False):
+        from runner.toolkit.runtime.contracts import GuardrailPlanSnapshot, PlanResolution
+        if on_resolved:
+            on_resolved(PlanResolution(plan=GuardrailPlanSnapshot(
+                guardrail_id="guardrail-stream", guardrail_version="20260904-020000.002Z",
+                compiler_version="test", safety_level="balanced", output_delivery=self.mode, steps=(),
+            ), deployment_id="deployment-stream"))
+        return self.mode
+
+    async def evaluate(self, request, *, on_resolved=None):
+        self.requests.append(request)
+        return ProtectionDecision(
+            decision="allow",
+            action="pass",
+            output_delivery=self.mode,
+            guardrail_id="guardrail-stream",
+            guardrail_version="20260904-020000.002Z",
+        )
+
+
 class NoDeploymentRuntime:
     async def evaluate(self, _request, *, on_resolved=None):
         raise LookupError("No active Runner deployment matches this request.")
@@ -77,7 +103,7 @@ class ResolvedFailureRuntime:
     async def evaluate(self, _request, *, on_resolved=None):
         assert on_resolved is not None
         on_resolved(SimpleNamespace(
-            plan=SimpleNamespace(guardrail_id="guardrail-resolved", guardrail_version=7),
+            plan=SimpleNamespace(guardrail_id="guardrail-resolved", guardrail_version="20260904-070000.007Z"),
             deployment_id="deployment-resolved",
         ))
         raise RuntimeError("provider failed")
@@ -235,8 +261,89 @@ async def test_runtime_authenticates_locally_and_emits_content_free_telemetry():
     }]
     assert telemetry.events[0]["metadata"]["usage"]["action_invocations"] == 1
     assert telemetry.events[0]["metadata"]["trace"][0]["actionName"] == "GuardSecretsAction"
+    assert telemetry.events[0]["metadata"]["trace"][0]["parentId"] == "rail-1"
     assert "texts" not in telemetry.events[0]
     assert "secret prompt" not in str(telemetry.events[0])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("protocol,integration", [("http", "integration-http"), ("litellm", "integration-1")])
+async def test_output_stream_endpoint_holds_full_response_until_final_chunk(protocol, integration):
+    runtime = StreamingRuntime()
+    app = FastAPI()
+    app.include_router(RunnerAPI(runtime, Store(), Metrics(), Telemetry(), "runner-1", "controller-token").router)  # type: ignore[arg-type]
+    headers = {"x-api-key": "valid-secret"}
+    url = f"/runtime/v1/integrations/{integration}/guardrails/output-stream"
+    context = {"protocol": protocol, "request_data": {"user_api_key_team_id": "team-1"},
+               "request_headers": {"x-api-key": "never-forward", "x-original-uri": "/chat/completions"}}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        first = await client.post(url, headers=headers, json={
+            **context,
+            "stream_id": "stream-1", "call_id": "call-1", "sequence": 0,
+            "text": "hello ", "final": False,
+        })
+        final = await client.post(url, headers=headers, json={
+            **context,
+            "stream_id": "stream-1", "call_id": "call-1", "sequence": 1,
+            "text": "world", "final": True,
+        })
+
+    assert first.status_code == 200
+    assert first.json()["status"] == "buffering"
+    assert first.json()["released_text"] == ""
+    assert final.status_code == 200
+    assert final.json()["status"] == "completed"
+    assert final.json()["released_text"] == "hello world"
+    assert runtime.requests[0].texts == ("hello world",)
+    assert runtime.requests[0].context.protocol == protocol
+    if protocol == "litellm":
+        assert runtime.requests[0].call_id == "integration-1:call-1"
+        assert runtime.requests[0].context.value("field", "litellm.team_id") == "team-1"
+        assert runtime.requests[0].context.value("field", "http.path") == "/chat/completions"
+        assert runtime.requests[0].context.value("header", "x-api-key") is None
+
+
+@pytest.mark.asyncio
+async def test_litellm_stream_rejects_wrong_adapter_and_credentials():
+    app = FastAPI()
+    app.include_router(RunnerAPI(StreamingRuntime(), Store(), Metrics(), Telemetry(), "runner-1", "token").router)
+    body = {"protocol": "litellm", "stream_id": "stream", "sequence": 0, "text": "hello", "final": True}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        mismatch = await client.post("/runtime/v1/integrations/integration-http/guardrails/output-stream",
+                                     headers={"x-api-key": "valid-secret"}, json=body)
+        unauthorized = await client.post("/runtime/v1/integrations/integration-1/guardrails/output-stream", json=body)
+    assert mismatch.status_code == 409
+    assert unauthorized.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("protocol,integration", [("http", "integration-http"), ("litellm", "integration-1")])
+@pytest.mark.parametrize("kind,expected", [("provider_failure", 502), ("timeout", 504), ("missing_transform", 502), ("policy_block", 200)])
+async def test_stream_distinguishes_failed_checks_from_policy_rejection(protocol, integration, kind, expected):
+    runtime = StreamingRuntime()
+
+    async def evaluate(_request):
+        return ProtectionDecision(
+            decision="transform" if kind == "missing_transform" else "block", action="reject",
+            reason="private upstream body must not appear in HTTP errors",
+            usage=RuntimeUsage(fail_closed=kind in {"provider_failure", "timeout"}),
+            trace=(RuntimeTraceStep(id="check", kind="action", name="Check", status="failed", detail="private detail", timed_out=kind == "timeout"),),
+        )
+
+    runtime.evaluate = evaluate
+    app = FastAPI()
+    app.include_router(RunnerAPI(runtime, Store(), Metrics(), Telemetry(), "runner-1", "token").router)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        response = await client.post(f"/runtime/v1/integrations/{integration}/guardrails/output-stream",
+            headers={"x-api-key": "valid-secret"}, json={"protocol": protocol, "stream_id": "failed-check",
+                "sequence": 0, "text": "private content", "final": True})
+    assert response.status_code == expected
+    if kind == "policy_block":
+        assert response.json()["status"] == "blocked"
+        assert response.json()["released_text"] == "" and response.json()["terminate"]
+    else:
+        assert "private" not in response.text
+        assert "released_text" not in response.json()
 
 
 @pytest.mark.asyncio
@@ -256,7 +363,7 @@ async def test_controller_can_prepare_and_evaluate_draft_without_runtime_evidenc
     ).router)  # type: ignore[arg-type]
     plan = {
         "guardrail_id": "guardrail-draft",
-        "guardrail_version": 4,
+        "guardrail_version": "20260904-040000.004Z",
         "compiler_version": "controller-plan-v2",
         "steps": [],
         "modules": [],
@@ -265,7 +372,7 @@ async def test_controller_can_prepare_and_evaluate_draft_without_runtime_evidenc
         "preview_id": "preview-1",
         "guardrail_id": "guardrail-draft",
         "draft_revision": 7,
-        "candidate_version": 4,
+        "candidate_version": "20260904-040000.004Z",
         "plan": plan,
         "runtime_profile": "auto",
     }
@@ -292,7 +399,7 @@ async def test_controller_can_prepare_and_evaluate_draft_without_runtime_evidenc
     assert prepared.status_code == 200
     assert prepared.json()["ttl_seconds"] == 900
     assert evaluated.status_code == 200
-    assert evaluated.json()["guardrail_version"] == 4
+    assert evaluated.json()["guardrail_version"] == "20260904-040000.004Z"
     assert previews.prepared["draft_revision"] == 7
     request, evaluation = previews.evaluated
     assert evaluation["guardrail_id"] == "guardrail-draft"
@@ -393,7 +500,7 @@ async def test_controller_can_evaluate_an_explicit_guardrail_version_without_an_
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
         unauthorized = await client.post(
             "/internal/v1/guardrails/guardrail-1/evaluate",
-            json={"phase": "input", "texts": ["hello"], "guardrail_version": 2},
+            json={"phase": "input", "texts": ["hello"], "guardrail_version": "20260904-020000.002Z"},
         )
         response = await client.post(
             "/internal/v1/guardrails/guardrail-1/evaluate",
@@ -401,7 +508,7 @@ async def test_controller_can_evaluate_an_explicit_guardrail_version_without_an_
             json={
                 "phase": "input",
                 "texts": ["secret prompt"],
-                "guardrail_version": 2,
+                "guardrail_version": "20260904-020000.002Z",
                 "call_id": "playground-call-1",
                 "protocol": "playground",
             },
@@ -409,11 +516,11 @@ async def test_controller_can_evaluate_an_explicit_guardrail_version_without_an_
 
     assert unauthorized.status_code == 401
     assert response.status_code == 200
-    assert runtime.explicit_guardrail == ("guardrail-1", 2)
+    assert runtime.explicit_guardrail == ("guardrail-1", "20260904-020000.002Z")
     assert runtime.request.context.integration_id is None
     assert runtime.request.context.value("header", "authorization") is None
     assert runtime.request.context.value("header", "x-api-key") is None
-    assert telemetry.events[0]["integrationId"] is None
+    assert "integrationId" not in telemetry.events[0]
     assert telemetry.events[0]["metadata"]["protocol"] == "playground"
     encrypted = telemetry.events[0]["metadata"]["contentCiphertext"]
     assert "secret prompt" not in encrypted
@@ -587,7 +694,7 @@ async def test_internal_api_uses_bounded_sentinel_and_rejected_ids_never_reach_b
         internal = await client.post(
             "/internal/v1/guardrails/guardrail-1/evaluate",
             headers={"authorization": "Bearer controller-token"},
-            json={"phase": "input", "texts": ["hello"], "guardrail_version": 2},
+            json={"phase": "input", "texts": ["hello"], "guardrail_version": "20260904-020000.002Z"},
         )
 
     assert rejected.status_code == 401

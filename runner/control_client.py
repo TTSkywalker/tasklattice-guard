@@ -12,11 +12,14 @@ import grpc
 import httpx
 
 from runner.toolkit.nemo.action_registry import ActionProviders, action_providers
+from runner.toolkit.nemo.native_models import native_rail_models
 
 from . import __version__
 from .artifact_store import ArtifactStore
 from .compiler import DefaultRunnerCompiler
+from .capability_validation import validate_capability
 from .config import RunnerSettings
+from .control_transport import CONTROL_CHANNEL_OPTIONS
 from . import generated as protocol
 from .generated import runner_control_pb2_grpc as services
 from .metrics import RunnerMetrics
@@ -36,6 +39,7 @@ class RunnerControlClient:
         metrics: RunnerMetrics,
         providers: ActionProviders | None = None,
         provider_observer: Callable[[ActionProviders], Awaitable[None]] | None = None,
+        compiler: DefaultRunnerCompiler | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -50,7 +54,10 @@ class RunnerControlClient:
         self._metrics.set_control_state(connected=False, synchronized=self._synchronized.is_set())
         self._heartbeat_interval = 10
         self._sequence = 0
-        self._compiler = DefaultRunnerCompiler(settings) if settings.compiler_capable else None
+        self._capability_tasks: set[asyncio.Task] = set()
+        self._compiler = None
+        if settings.compiler_capable:
+            self._compiler = compiler or DefaultRunnerCompiler(settings)
         self._providers = providers
         self._provider_observer = provider_observer
         self._validator = (
@@ -99,8 +106,13 @@ class RunnerControlClient:
         stub = services.RunnerControlStub(channel)
         heartbeat = asyncio.create_task(self._heartbeats())
         metadata = (("authorization", f"Bearer {self._settings.controller_token}"),)
+        # Own the sender task explicitly. gRPC's iterator consumer can remain
+        # blocked on our empty queue after the server has closed the RPC.
+        response_stream = stub.Connect(metadata=metadata)
+        sender = asyncio.create_task(
+            self._write_messages(response_stream), name="guard-control-writer",
+        )
         try:
-            response_stream = stub.Connect(self._messages(self._registration()), metadata=metadata)
             async for message in response_stream:
                 self._connected.set()
                 self._metrics.set_control_state(connected=True)
@@ -112,11 +124,21 @@ class RunnerControlClient:
                     self._metrics.observe_control_message("received", message_type, "error")
                     raise
         finally:
+            response_stream.cancel()
+            sender.cancel()
             self._connected.clear()
             self._metrics.set_control_state(connected=False)
             heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
+            for task in self._capability_tasks:
+                task.cancel()
+            await asyncio.gather(*self._capability_tasks, return_exceptions=True)
+            self._capability_tasks.clear()
+            await asyncio.gather(heartbeat, sender, return_exceptions=True)
             await channel.close()
+
+    async def _write_messages(self, stream) -> None:
+        async for message in self._messages(self._registration()):
+            await stream.write(message)
 
     async def _messages(self, registration: protocol.RunnerMessage):
         self._metrics.observe_control_message("sent", "registration")
@@ -158,6 +180,16 @@ class RunnerControlClient:
             await self._compile(message.compile_request)
         elif body == "validation_request":
             await self._validate(message.validation_request)
+        elif body == "capability_validation_request":
+            if len(self._capability_tasks) >= 4:
+                await self._send_capability_result(protocol.CapabilityValidationResult(
+                    request_id=message.capability_validation_request.request_id,
+                    message="Runner validation capacity reached. Retry shortly.",
+                ))
+            else:
+                task = asyncio.create_task(self._validate_capability(message.capability_validation_request))
+                self._capability_tasks.add(task)
+                task.add_done_callback(self._capability_tasks.discard)
         elif body == "drain_request":
             logger.warning("Controller requested Runner drain: %s", message.drain_request.reason)
 
@@ -171,6 +203,7 @@ class RunnerControlClient:
         )
         try:
             providers = None
+            native_models = None
             if desired_state.HasField("model_configuration"):
                 credentials = await self._model_credentials(
                     desired_state.model_configuration
@@ -179,6 +212,10 @@ class RunnerControlClient:
                     desired_state.model_configuration,
                     credentials,
                 ))
+                native_models = native_rail_models(
+                    desired_state.model_configuration,
+                    credentials,
+                )
             if providers is None:
                 await asyncio.to_thread(self._store.apply, desired_state)
             else:
@@ -186,10 +223,12 @@ class RunnerControlClient:
                     self._store.apply,
                     desired_state,
                     providers=providers,
+                    native_models=native_models,
                 )
             if providers is not None:
                 self._providers = providers
                 if self._compiler is not None:
+                    self._compiler.configure_native_models(native_models or ())
                     self._validator = DefaultRunnerValidator(self._compiler, providers)
                 if self._provider_observer is not None:
                     try:
@@ -239,6 +278,7 @@ class RunnerControlClient:
     async def _model_credentials(
         self,
         configuration: protocol.DataPlaneModelConfiguration,
+        lease_id: str | None = None,
     ) -> dict[str, str]:
         refs = sorted({
             runtime.credential_ref
@@ -258,7 +298,7 @@ class RunnerControlClient:
                     "authorization": f"Bearer {self._settings.controller_token}",
                     "content-type": "application/json",
                 },
-                json={"refs": refs},
+                json={"refs": refs, **({"leaseId": lease_id} if lease_id else {})},
             )
             response.raise_for_status()
             payload = response.json()
@@ -271,6 +311,22 @@ class RunnerControlClient:
                 "Controller did not resolve Model credentials: " + ", ".join(missing)
             )
         return {ref: str(credentials[ref]) for ref in refs}
+
+    async def _validate_capability(self, request: protocol.CapabilityValidationRequest) -> None:
+        try:
+            if self._compiler is None:
+                raise ValueError("This Runner is not compiler-capable.")
+            async with asyncio.timeout(90):
+                credentials = await self._model_credentials(request.configuration, request.credential_lease_id)
+                result = await validate_capability(request, credentials)
+        except Exception as error:
+            result = protocol.CapabilityValidationResult(request_id=request.request_id,
+                message=f"Rail validation could not complete ({type(error).__name__}). Check Runner availability and retry.")
+        await self._send_capability_result(result)
+
+    async def _send_capability_result(self, result: protocol.CapabilityValidationResult) -> None:
+        await self._send(protocol.RunnerMessage(message_id=str(uuid.uuid4()), sent_at_unix_ms=_now_ms(),
+                                              capability_validation_result=result))
 
     async def _compile(self, request: protocol.CompileRequest) -> None:
         if self._compiler is None:
@@ -393,8 +449,12 @@ class RunnerControlClient:
                 private_key=self._required(self._settings.client_key_path).read_bytes(),
                 certificate_chain=self._required(self._settings.client_certificate_path).read_bytes(),
             )
-            return grpc.aio.secure_channel(self._settings.controller_target, credentials)
-        return grpc.aio.insecure_channel(self._settings.controller_target)
+            return grpc.aio.secure_channel(
+                self._settings.controller_target, credentials, options=CONTROL_CHANNEL_OPTIONS,
+            )
+        return grpc.aio.insecure_channel(
+            self._settings.controller_target, options=CONTROL_CHANNEL_OPTIONS,
+        )
 
     @staticmethod
     def _required(path: Path | None) -> Path:

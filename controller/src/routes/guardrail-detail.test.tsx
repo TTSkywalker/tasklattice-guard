@@ -9,7 +9,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { defaultGuardrailDraft, DEFAULT_GUARDRAIL_ID } from "../../server/domain/defaults";
 import { PolicyCatalog } from "../../server/policy-catalog/catalog";
 
-import { DeleteGuardrailSheet, DraftReleaseView, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
+import { DeleteGuardrailSheet, DraftReleaseView, EditGuardrailSheet, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
+
+const VERSION_ID = "20260813-080000.000Z";
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
@@ -38,7 +40,7 @@ const deployment: Deployment = {
   id: "deployment-observed",
   name: "Observed traffic",
   guardrail_id: "guardrail-observed",
-  guardrail_version: 2,
+  guardrail_version: VERSION_ID,
   integration_id: "integration-observed",
   route_order: 1,
   traffic_scope: { combinator: "and", conditions: [{ field: "protocol", operator: "equals", value: "litellm" }] },
@@ -51,7 +53,6 @@ const deployment: Deployment = {
 const deletableGuardrail = {
   id: "guardrail-live",
   name: "Live Finance Guardrail",
-  purpose: "Protect live Finance traffic.",
   allowed_topics: [],
   restricted_topics: [],
   policy_bindings: [],
@@ -99,14 +100,14 @@ describe("Guardrail detail information hierarchy", () => {
         intervention_rate: 12.5,
         error_rate: 2.5,
         p95_latency_ms: 86,
-        guardrail_versions: [2],
+        guardrail_versions: [VERSION_ID],
       }],
     } as Metrics;
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><GuardrailRuntimeView guardrailId="guardrail-observed" metrics={metrics} loading={false} error={null} deployments={[deployment]} versions={[{
       guardrail_id: "guardrail-observed",
-      version: 2,
+      version: VERSION_ID,
       source_draft_version: 3,
       compiler_version: "tasklattice-nemo-config-v7",
       plan_checksum: "plan-checksum",
@@ -120,7 +121,7 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("Observed LiteLLM")).toBeTruthy();
     expect(screen.getByText("Observed traffic")).toBeTruthy();
     expect(screen.getByText("Observed traffic scope")).toBeTruthy();
-    expect(screen.getByText("20260813-080000Z")).toBeTruthy();
+    expect(screen.getByText(VERSION_ID)).toBeTruthy();
     expect(screen.getByText("runtime-chart")).toBeTruthy();
   });
 
@@ -133,7 +134,7 @@ describe("Guardrail detail information hierarchy", () => {
         trace_id: "trace-playground",
         created_at: "2026-08-16T09:46:46Z",
         guardrail_id: "guardrail-observed",
-        guardrail_version: 4,
+        guardrail_version: "20260816-094646.000Z",
         deployment_id: null,
         integration_id: null,
         protocol: "playground",
@@ -159,10 +160,50 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("99%")).toBeTruthy();
   });
 
+  it("removes findings with repeated local ids when filtering to an empty severity", () => {
+    const repeatedFinding = {
+      id: "model/content-safety",
+      created_at: "2026-08-16T09:46:46Z",
+      guardrail_id: "guardrail-observed",
+      guardrail_version: "20260816-094646.000Z",
+      deployment_id: null,
+      integration_id: null,
+      protocol: "http",
+      phase: "output" as const,
+      severity: "medium" as const,
+      risk: "content_safety",
+      verdict: "unsafe",
+      confidence: null,
+      recommended_action: "reject",
+      policy_id: "builtin-content-safety",
+      rule_id: "model/content-safety",
+      detail: "Runner reported an unsafe content-safety finding.",
+    };
+    const data: GuardrailFindingPage = {
+      count: 2,
+      summary: { total: 2, critical: 0, high: 0, medium: 2, low: 0, affected_traces: 2, latest_at: repeatedFinding.created_at },
+      items: [
+        { ...repeatedFinding, trace_id: "trace-one" },
+        { ...repeatedFinding, trace_id: "trace-two" },
+      ],
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { container } = render(<QueryClientProvider client={client}><GuardrailFindingsView data={data} loading={false} error={null} policies={[]} deployments={[]} integrations={[]} window="24h" onWindowChange={() => undefined} /></QueryClientProvider>);
+
+    expect(container.querySelectorAll("article")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "deploymentDetail.severity.critical0" }));
+    expect(container.querySelectorAll("article")).toHaveLength(0);
+    expect(screen.getByText("guardrails.noMatchingFindings")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "deploymentDetail.severity.medium2" }));
+    expect(container.querySelectorAll("article")).toHaveLength(2);
+  });
+
   it("shows immutable configuration before the unified compiled runtime", () => {
     const version: GuardrailVersion = {
       guardrail_id: "guardrail-observed",
-      version: 2,
+      version: VERSION_ID,
       source_draft_version: 3,
       compiler_version: "tasklattice-nemo-config-v6",
       plan_checksum: "plan-checksum",
@@ -191,7 +232,7 @@ describe("Guardrail detail information hierarchy", () => {
     const client = new QueryClient();
     render(<QueryClientProvider client={client}><TooltipProvider><ImmutableVersionView detail={detail} selectedVersion={version} versions={[version]} loading={false} comparisonActive={false} comparisonLoading={false} compareOptions={[]} guardrailId="guardrail-observed" validation={null} onChanged={async () => undefined} onOpenDraft={() => undefined} onSelectVersion={() => undefined} onStartCompare={() => undefined} onCompareBaseChange={() => undefined} onCloseCompare={() => undefined} /></TooltipProvider></QueryClientProvider>);
 
-    const configuration = screen.getAllByText("20260813-080000Z")[1];
+    const configuration = screen.getAllByText(VERSION_ID)[1];
     const compiledRuntime = screen.getByText("guardrails.compiledRuntime");
     expect(configuration.compareDocumentPosition(compiledRuntime) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("pii@1.95.0")).toBeTruthy();
@@ -211,8 +252,8 @@ describe("Guardrail detail information hierarchy", () => {
       { policy_id: "policy-two", policy_version: "2.0.0", enabled_rule_ids: ["rule-3"], enabled_rails: ["input"] },
     ] as GuardrailPolicyBinding[];
     const policies = [
-      { id: "policy-one", name: "First Policy" },
-      { id: "policy-two", name: "Second Policy" },
+      { id: "policy-one", version: "1.0.0", name: "First Policy" },
+      { id: "policy-two", version: "2.0.0", name: "Second Policy" },
     ] as Policy[];
     const baseCase = {
       guardrail_id: "guardrail-observed",
@@ -270,7 +311,6 @@ describe("Guardrail detail information hierarchy", () => {
     const validatedGuardrail = {
       id: "guardrail-release",
       name: "Release Guardrail",
-      purpose: "Protect the release workflow.",
       allowed_topics: [],
       restricted_topics: [],
       policy_bindings: [{ policy_id: "policy-one", policy_version: "1.0.0", parameter_values: {}, enabled_rule_ids: ["rule-1"], rule_actions: {}, enabled_rails: ["input"] }],
@@ -281,7 +321,7 @@ describe("Guardrail detail information hierarchy", () => {
       latest_validation_run: {
         id: "validation-release",
         guardrail_id: "guardrail-release",
-        guardrail_version: null,
+        guardrail_version: "20260814-080000.000Z",
         source_draft_version: 2,
         status: "passed",
         created_at: "2026-08-14T08:00:00Z",
@@ -311,7 +351,7 @@ describe("Guardrail detail information hierarchy", () => {
     fireEvent.click(screen.getByRole("button", { name: "guardrails.openValidation" }));
     expect(onOpenValidation).toHaveBeenCalledWith(validatedGuardrail.latest_validation_run);
 
-    view.rerender(<QueryClientProvider client={client}><DraftReleaseView {...props} guardrail={{ ...validatedGuardrail, published_current: true }} activeVersion={{ guardrail_id: validatedGuardrail.id, version: 1, source_draft_version: 2, compiler_version: "compiler", plan_checksum: "plan", config_checksum: "config", created_at: "2026-08-14T08:00:00Z", active: true, runtime_engine: "llmrails", execution_mode: "nemo_only" }} /></QueryClientProvider>);
+    view.rerender(<QueryClientProvider client={client}><DraftReleaseView {...props} guardrail={{ ...validatedGuardrail, published_current: true }} activeVersion={{ guardrail_id: validatedGuardrail.id, version: "20260814-080000.000Z", source_draft_version: 2, compiler_version: "compiler", plan_checksum: "plan", config_checksum: "config", created_at: "2026-08-14T08:00:00Z", active: true, runtime_engine: "llmrails", execution_mode: "nemo_only" }} /></QueryClientProvider>);
     expect(screen.queryByRole("button", { name: "guardrails.publishVersion" })).toBeNull();
     expect(screen.getByRole("button", { name: "guardrails.createDeployment" })).toBeTruthy();
   });
@@ -320,7 +360,6 @@ describe("Guardrail detail information hierarchy", () => {
     const defaultGuardrail = {
       id: "guardrail-default",
       name: "Default Guardrail",
-      purpose: "Protect unmatched traffic.",
       allowed_topics: [],
       restricted_topics: [],
       policy_bindings: [{ policy_id: "builtin-secrets", policy_version: "1", parameter_values: {}, enabled_rule_ids: [], rule_actions: {}, enabled_rails: ["input", "output"] }],
@@ -352,6 +391,48 @@ describe("Guardrail detail information hierarchy", () => {
     fireEvent.click(screen.getByRole("button", { name: "common.edit" }));
     expect(onEdit).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "guardrails.createDeployment" })).toBeNull();
+  });
+
+  it("edits Topic Control without requiring a Guardrail business purpose", () => {
+    const topicGuardrail = {
+      ...deletableGuardrail,
+      allowed_topics: [],
+      restricted_topics: ["legacy restricted topic"],
+      policy_bindings: [{
+        policy_id: "builtin-topic-safety",
+        policy_version: "1.0.0",
+        action: "redirect",
+        parameter_values: {},
+        enabled_rule_ids: ["model/topic-control"],
+        rule_actions: {},
+        enabled_rails: ["input"],
+        reasoning_policy: null,
+      }],
+    } satisfies Guardrail;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><TooltipProvider><EditGuardrailSheet guardrail={topicGuardrail} policies={[]} open onOpenChange={vi.fn()} onSaved={vi.fn()} /></TooltipProvider></QueryClientProvider>);
+
+    expect(screen.queryByText("guardrails.businessPurpose")).toBeNull();
+    expect(screen.queryByDisplayValue("Support account operations.")).toBeNull();
+    expect(screen.queryByText("guardrails.businessPurposeLocked")).toBeNull();
+    expect(screen.getByText("guardrails.topicAllowlist")).toBeTruthy();
+    expect(screen.getByText("guardrails.topicAllowlistRequired")).toBeTruthy();
+    expect(screen.queryByText("guardrails.restrictedDomains")).toBeNull();
+    expect(screen.queryByText("legacy restricted topic")).toBeNull();
+    expect(screen.getByRole("button", { name: "common.save" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("shows validation setup failure instead of recommending test exclusions", () => {
+    const run = { id: "failed-run", status: "failed", failure_reason: "No Evaluator Binding is available for content_safety.", metrics: { compliance_rate: 0 } } as NonNullable<Guardrail["latest_validation_run"]>;
+    const guardrail = { ...deletableGuardrail, tested_current: false, published_current: false, latest_validation_run: run };
+    const onOpenValidation = vi.fn();
+    render(<QueryClientProvider client={new QueryClient()}><DraftReleaseView guardrail={guardrail} policies={[]} cases={[]} casesLoading={false} deployments={[]} onOpenValidation={onOpenValidation} onEdit={vi.fn()} onAddCase={vi.fn()} onCreateDeployment={vi.fn()} onChanged={async () => undefined} /></QueryClientProvider>);
+    expect(screen.getByText(run.failure_reason!)).toBeTruthy();
+    expect(screen.queryByText(/guardrails.lastValidationFailedDetail/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "guardrails.openValidation" }));
+    expect(onOpenValidation).toHaveBeenCalledWith(run);
+    expect(screen.queryByRole("button", { name: "guardrails.publishVersion" })).toBeNull();
   });
 
   it("shows every complete Default Policy with its identity, version, and full Rule count", () => {
@@ -386,6 +467,22 @@ describe("Guardrail detail information hierarchy", () => {
       expect(link!.textContent).toContain(`guardrails.ruleCount count:${policy.rules.length}`);
       expect(link!.textContent).toContain("guardrails.policyBehavior");
     }
+  });
+
+  it("blocks saving incomplete Policy-owned phrases and recovers when filled", () => {
+    const policy = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list().find(item => item.id === "configured-phrase-filter")!;
+    const guardrail: Guardrail = { ...deletableGuardrail, policy_bindings: [{
+      policy_id: policy.id, policy_version: policy.version, action: null,
+      parameter_values: { phrase_entries: JSON.stringify([{ id: "entry", phrase: "", action: "reject" }]) },
+      enabled_rule_ids: ["configured/phrases"], rule_actions: {}, enabled_rails: ["input", "output"], reasoning_policy: null,
+    }] };
+    const client = new QueryClient();
+    render(<QueryClientProvider client={client}><TooltipProvider><EditGuardrailSheet guardrail={guardrail} policies={[policy]} open onOpenChange={vi.fn()} onSaved={vi.fn()} /></TooltipProvider></QueryClientProvider>);
+    expect(screen.getByRole("button", { name: "common.save" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("alert").textContent).toContain("Phrases and actions");
+    fireEvent.change(screen.getByRole("textbox", { name: "protection.phrases.match index:1" }), { target: { value: "confidential" } });
+    expect(screen.getByRole("button", { name: "common.save" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("deletes directly after impact review when there was no recent incoming traffic", () => {

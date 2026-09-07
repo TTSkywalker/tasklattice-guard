@@ -10,9 +10,11 @@ import { z } from "zod";
 
 import type { ControllerAuth } from "../auth.js";
 import type { ControllerConfig } from "../config.js";
-import { OpenAICompatibleIntentAnalyzer, type IntentAnalyzer } from "../control-plane-ai/intent-analyzer.js";
+import { IntentAnalysisError, OpenAICompatibleIntentAnalyzer, type IntentAnalyzer } from "../control-plane-ai/intent-analyzer.js";
+import { recommendationCatalog } from "../control-plane-ai/recommendation-catalog.js";
 import { ConflictError, ControllerError, NotFoundError, ValidationError } from "../domain/errors.js";
 import { enforcementActions } from "../domain/guardrail-plan.js";
+import { deriveRunnerFleetStatus } from "../domain/platform-status.js";
 import type { RunnerControlServer } from "../control-channel/control-server.js";
 import type { ControlPlaneService } from "../services/control-plane.js";
 import type { ControllerMetrics } from "../metrics.js";
@@ -21,16 +23,22 @@ import { actionCatalog } from "../action-catalog/catalog.js";
 import { createProgrammablePolicySchema, updateProgrammablePolicySchema } from "../policy-studio/model.js";
 import { extractDocuments } from "../control-plane-ai/document-ingestion.js";
 import type { ModelConfigurationService } from "../model-config/service.js";
-import { modelInputSchema, providerInputSchema, providerUpdateSchema } from "../model-config/domain.js";
+import { modelAssignmentTargetSchema, modelInputSchema, providerInputSchema, providerRegistrationSchema, providerUpdateSchema } from "../model-config/domain.js";
 import {
   OpenAICompatiblePlaygroundModel,
   PlaygroundDraftPreviewStore,
   type RunnerPlaygroundClient,
   runPlaygroundInteraction,
 } from "../playground/service.js";
+import { isGuardrailVersionId } from "../../shared/guardrail-version.js";
+import type { PlatformStatusSnapshot } from "../../shared/platform-status.js";
+import { protectionDirectories } from "../../shared/protection-map.js";
+import { protectionPresets } from "../../shared/protection-presets.js";
+import { expandProtectionPreset } from "../policy-catalog/presets.js";
 
 type Actor = { id: string; role: string };
 type Variables = { actor: Actor };
+const guardrailVersionInput = z.string().refine(isGuardrailVersionId, "Guardrail Version must be a canonical UTC timestamp.");
 
 const guardrailPolicyBindingInput = z.object({
   policyId: z.string().trim().min(1).max(256),
@@ -54,31 +62,15 @@ const guardrailPolicyBindingInput = z.object({
     confidenceThreshold: z.number().min(0).max(1).default(0.8),
   }).nullable().default(null),
 });
-const guardrailDraftInput = z.object({
-  purposeDetails: z.object({
-    audience: z.string().trim().max(500).default(""),
-    tasks: z.string().trim().max(2_000).default(""),
-    protect: z.string().trim().max(2_000).default(""),
-    outOfScope: z.string().trim().max(2_000).default(""),
-  }).default({ audience: "", tasks: "", protect: "", outOfScope: "" }),
+const guardrailDraftInput = z.strictObject({
   allowedTopics: z.array(z.string().trim().min(1).max(500)).max(256).default([]),
-  restrictedTopics: z.array(z.string().trim().min(1).max(500)).max(256).default([]),
+  restrictedTopics: z.array(z.never()).max(0, "Topic Control is allowlist-only; restricted topics are not accepted.").default([]),
   policyBindings: z.array(guardrailPolicyBindingInput).min(1).max(128),
   safetyLevel: z.enum(["balanced", "strict"]).default("balanced"),
   outputDelivery: z.enum(["interruptible", "window_buffered", "full_buffered"]).default("full_buffered"),
-  customContentRules: z.array(z.object({
-    id: z.string().trim().min(1).max(160),
-    phases: z.array(z.enum(["input", "output"])).min(1).max(2),
-    detector: z.enum(["keyword", "regex"]),
-    keywords: z.array(z.string().trim().min(1).max(240)).max(50).optional(),
-    expression: z.string().trim().max(500).optional(),
-    action: z.enum(enforcementActions),
-    replacement: z.string().trim().max(240).optional(),
-  })).max(50).default([]),
 });
-const guardrailInput = z.object({
+const guardrailInput = z.strictObject({
   name: z.string().trim().min(1).max(160),
-  description: z.string().trim().max(4_000).default(""),
   draftConfig: guardrailDraftInput,
   runtimeProfile: z.enum(["auto", "llmrails_colang1_standard", "llmrails_colang2_programmable", "iorails_native"]).default("auto"),
 });
@@ -104,7 +96,7 @@ const testCaseInput = z.object({
 const validationScopeInput = z.object({ caseId: z.string().min(1), excluded: z.boolean() });
 const validationRunInput = z.object({ guardrailId: z.string().min(1) });
 const playgroundInteractionInput = z.object({
-  guardrail_version: z.number().int().positive(),
+  guardrail_version: guardrailVersionInput,
   model_id: z.string().trim().min(1).max(256),
   message: z.string().trim().min(1).max(32_000),
   history: z.array(z.object({
@@ -160,7 +152,7 @@ const runtimeEventInput = z.object({
   requestId: z.string().min(1),
   runnerId: z.string().min(1),
   guardrailId: z.string().optional(),
-  guardrailVersion: z.number().int().positive().optional(),
+  guardrailVersion: guardrailVersionInput.optional(),
   integrationId: z.string().optional(),
   deploymentId: z.string().optional(),
   direction: z.enum(["incoming", "outgoing"]),
@@ -177,7 +169,7 @@ const runtimeEventBatchInput = z.object({
     context.addIssue({ code: "custom", path: ["runnerId"], message: "runnerId is required for an empty telemetry batch." });
   }
 });
-const modelCredentialRefsInput = z.object({ refs: z.array(z.string().uuid()).max(64) });
+const modelCredentialRefsInput = z.object({ refs: z.array(z.string().uuid()).max(64), leaseId: z.string().uuid().optional() });
 
 export function createHttpApp(input: {
   config: ControllerConfig;
@@ -233,16 +225,72 @@ export function createHttpApp(input: {
     { "content-type": input.metrics.registry.contentType },
   ));
   app.get("/api/v1/system/status", async (context) => {
+    const desiredGeneration = await input.service.desiredGeneration();
     const pools = await input.service.listRunnerPoolsWithCapacity();
+    const observedAt = new Date();
     const defaultPool = pools.find((pool) => pool.isDefault);
-    const defaultRunnerReady = Boolean(defaultPool && defaultPool.capacity.readyRunners > 0);
-    return context.json({
-      status: defaultRunnerReady ? "ready" : "degraded",
-      deploymentComplete: defaultRunnerReady,
-      desiredGeneration: await input.service.desiredGeneration(),
-      defaultRunnerReady,
-      modelConnections: input.models ? await input.models.statusSummary() : input.config.modelConnections,
-    }, defaultRunnerReady ? 200 : 503);
+    const { reasons: runnerReasons, ...runnerFleet } = deriveRunnerFleetStatus(defaultPool, {
+      observedAt, offlineAfterSeconds: input.config.offlineAfterSeconds, desiredGeneration,
+    });
+    const configuredProtection = await input.service.defaultGuardrailReadiness();
+    const configuredModels = input.models ? await input.models.statusSummary() : {
+      controlPlane: {
+        status: input.config.modelConnections.controlPlane.model === "not-configured" ? "unconfigured" as const : "configured" as const,
+        provider: input.config.modelConnections.controlPlane.model === "not-configured" ? null : input.config.modelConnections.controlPlane.provider,
+        model: input.config.modelConnections.controlPlane.model === "not-configured" ? null : input.config.modelConnections.controlPlane.model,
+      },
+      dataPlane: {
+        status: input.config.modelConnections.dataPlane.models.length > 0 ? "configured" as const : "unconfigured" as const,
+        ...input.config.modelConnections.dataPlane,
+      },
+    };
+    const assignedBindings = new Set(configuredModels.dataPlane.models.map((model) => model.id));
+    const missingBindings = configuredProtection.coverage?.requiredModelBindings.filter((id) => !assignedBindings.has(id)) ?? [];
+    const basicProtection = {
+      ...configuredProtection,
+      status: configuredProtection.status !== "ready" ? configuredProtection.status
+        : missingBindings.length || runnerFleet.status === "unavailable" ? "unavailable" as const
+          : runnerFleet.servingRunners === 0 ? "initializing" as const : "ready" as const,
+    };
+    const basicProtectionReason = configuredProtection.status === "initializing"
+      ? "default_guardrail_initializing" as const
+      : configuredProtection.status === "unavailable"
+        ? "default_guardrail_unavailable" as const
+        : null;
+    const status = basicProtection.status === "unavailable"
+      ? "unavailable" as const
+      : runnerFleet.status === "unavailable"
+        ? "unavailable" as const
+        : basicProtection.status === "initializing"
+          ? "initializing" as const
+          : configuredProtection.coverage?.hasUnknownDependencies && runnerFleet.status === "healthy"
+            ? "degraded" as const : runnerFleet.status;
+    const reasons: PlatformStatusSnapshot["reasons"] = [
+      ...(basicProtectionReason ? [basicProtectionReason] : []),
+      ...(missingBindings.length ? ["default_model_bindings_missing" as const] : []),
+      ...(configuredProtection.coverage?.hasUnknownDependencies ? ["default_dependencies_unknown" as const] : []),
+      ...runnerReasons.filter((reason) => reason !== "all_required_components_ready"),
+    ];
+    if (reasons.length === 0) reasons.push("all_required_components_ready");
+    const snapshot = {
+      status,
+      reasons,
+      observedAt: observedAt.toISOString(),
+      desiredGeneration,
+      components: {
+        controller: { status: "operational" as const },
+        basicProtection,
+        runnerFleet,
+        controlPlaneModel: configuredModels.controlPlane,
+        runtimeModels: {
+          // Active assignments are configuration evidence, not a live model call.
+          status: configuredModels.dataPlane.status,
+          provider: configuredModels.dataPlane.provider,
+          models: configuredModels.dataPlane.models,
+        },
+      },
+    } satisfies PlatformStatusSnapshot;
+    return context.json(snapshot, ["healthy", "degraded"].includes(snapshot.status) ? 200 : 503);
   });
 
   app.on(["GET", "POST"], "/api/auth/*", (context) => input.auth.handler(context.req.raw));
@@ -270,6 +318,14 @@ export function createHttpApp(input: {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     return context.json(await input.models.updateProvider(context.req.param("id"), providerUpdateSchema.parse(await context.req.json()), context.get("actor").id));
   });
+  app.post("/api/v1/model-providers/discover", authenticated, administrator, async (context) => {
+    if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
+    return context.json(await input.models.discoverProviderDraft(providerInputSchema.parse(await context.req.json())));
+  });
+  app.post("/api/v1/model-providers/register", authenticated, administrator, async (context) => {
+    if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
+    return context.json(await input.models.registerProviderModels(providerRegistrationSchema.parse(await context.req.json()), context.get("actor").id), 201);
+  });
   app.post("/api/v1/model-providers/:id/validate", authenticated, administrator, async (context) => {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     return context.json(await input.models.revalidateProvider(context.req.param("id"), context.get("actor").id));
@@ -291,6 +347,14 @@ export function createHttpApp(input: {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     return context.json(await input.models.revalidateModel(context.req.param("id"), context.get("actor").id));
   });
+  app.post("/api/v1/models/:id/test-connection", authenticated, administrator, async (context) => {
+    if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
+    return context.json(await input.models.testModelConnection(context.req.param("id"), context.get("actor").id));
+  });
+  app.put("/api/v1/models/:id/protocol", authenticated, administrator, async (context) => {
+    if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
+    return context.json(await input.models.configureModel(context.req.param("id"), await context.req.json(), context.get("actor").id));
+  });
   app.delete("/api/v1/models/:id", authenticated, administrator, async (context) => {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     await input.models.deleteModel(context.req.param("id"), context.get("actor").id);
@@ -299,6 +363,17 @@ export function createHttpApp(input: {
   app.put("/api/v1/model-configuration/draft", authenticated, administrator, async (context) => {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     return context.json(await input.models.updateDraft(await context.req.json(), context.get("actor").id));
+  });
+  app.put("/api/v1/model-configuration/draft/assignments/:target", authenticated, administrator, async (context) => {
+    if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
+    const target = modelAssignmentTargetSchema.parse(context.req.param("target"));
+    const body = z.object({ modelId: z.string().uuid().nullable() }).parse(await context.req.json());
+    return context.json(await input.models.updateAssignment(target, body.modelId, context.get("actor").id));
+  });
+  app.post("/api/v1/model-configuration/draft/assignments/:target/validate", authenticated, administrator, async (context) => {
+    if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
+    const target = modelAssignmentTargetSchema.parse(context.req.param("target"));
+    return context.json(await input.models.validateAssignment(target, context.get("actor").id));
   });
   app.post("/api/v1/model-configuration/validate", authenticated, administrator, async (context) => {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
@@ -330,6 +405,12 @@ export function createHttpApp(input: {
   app.get("/api/v1/policies", authenticated, async (context) => {
     const items = await input.service.listPolicies();
     return context.json({ items, count: items.length });
+  });
+  app.get("/api/v1/protection-presets", authenticated, (context) => {
+    const policies = policyCatalog.list();
+    const items = protectionPresets.map((preset) => ({ ...preset, policyBindings: expandProtectionPreset(preset, policies) }));
+    // This is a preview, not a save/activation or evidence that runtime checks passed.
+    return context.json({ directories: protectionDirectories, items, count: items.length });
   });
   app.get("/api/v1/policies/:id", authenticated, async (context) => context.json(await input.service.getPolicy(context.req.param("id"))));
   app.post("/api/v1/policies", authenticated, administrator, async (context) => {
@@ -394,12 +475,12 @@ export function createHttpApp(input: {
     const language = form.get("language") === "zh-CN" ? "zh-CN" : "en";
     const files = form.getAll("files").filter((item): item is File => item instanceof File);
     const documents = await extractDocuments(files);
-    const policies = (await input.service.listPolicies()).map((item) => ({
-      id: item.id,
-      name: item.name,
-      description: item.description,
-    }));
+    const policies = recommendationCatalog(await input.service.listPolicies());
     const analysis = await intentAnalyzer.analyzeDocuments({ documents, policies, language });
+    const allowedIds = new Set(policies.map((policy) => policy.id));
+    if (analysis.recommended_policy_ids.some((id) => !allowedIds.has(id))) {
+      throw new IntentAnalysisError("The control-plane assistant recommended a Policy outside the current selectable catalog. Retry the analysis.");
+    }
     return context.json({
       ...analysis,
       sources: documents.map(({ sections: _sections, ...source }) => source),
@@ -535,7 +616,7 @@ export function createHttpApp(input: {
     }), 202);
   });
   app.post("/api/v1/guardrails/:id/rollback/:version", authenticated, administrator, async (context) => {
-    const version = z.coerce.number().int().positive().parse(context.req.param("version"));
+    const version = guardrailVersionInput.parse(context.req.param("version"));
     const result = await input.service.rollbackGuardrail({
       guardrailId: context.req.param("id"), version, actorId: context.get("actor").id,
     });
@@ -747,7 +828,7 @@ export function createHttpApp(input: {
   app.post("/api/internal/v1/model-credentials/resolve", runnerAuthentication(input.config.runnerToken), async (context) => {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     const body = modelCredentialRefsInput.parse(await context.req.json());
-    return context.json({ credentials: await input.models.resolveCredentials(body.refs) });
+    return context.json({ credentials: await input.models.resolveCredentials(body.refs, body.leaseId) });
   });
 
   app.notFound((context) => {
@@ -778,7 +859,12 @@ export function createHttpApp(input: {
 
 function authentication(auth: ControllerAuth): MiddlewareHandler<{ Variables: Variables }> {
   return async (context, next) => {
-    const session = await auth.api.getSession({ headers: context.req.raw.headers });
+    // Cookie-cached identity is suitable for rendering the shell, not for API
+    // authority: revocation, expiry and role changes must use current DB state.
+    const session = await auth.api.getSession({
+      headers: context.req.raw.headers,
+      query: { disableCookieCache: true },
+    });
     if (!session) return context.json({ error: { code: "unauthenticated", message: "Authentication is required." } }, 401);
     context.set("actor", { id: session.user.id, role: session.user.role ?? "user" });
     await next();

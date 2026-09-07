@@ -23,6 +23,7 @@ from .draft_preview import DraftPreviewRuntime
 from .http_metrics import instrument_http_metrics
 from .metrics import RunnerMetrics
 from .observability import configure_observability
+from .output_streaming import RedisOutputStreamSessionStore
 from .providers import runtime_action_providers
 from .telemetry import RuntimeTelemetryExporter
 
@@ -62,17 +63,23 @@ def create_app(settings: RunnerSettings | None = None) -> FastAPI:
         configured.runner_id,
         metrics,
     )
+    compiler = DefaultRunnerCompiler(configured) if configured.compiler_capable else None
     draft_previews = DraftPreviewRuntime(
-        DefaultRunnerCompiler(configured),
+        compiler,
         providers,
         max_concurrency_per_guardrail=min(configured.max_concurrency, 8),
-    ) if configured.compiler_capable else None
+    ) if compiler is not None else None
     control = RunnerControlClient(
         configured,
         store,
         metrics,
-        providers,
-        draft_previews.replace_providers if draft_previews is not None else None,
+        providers=providers,
+        provider_observer=(
+            draft_previews.replace_providers
+            if draft_previews is not None
+            else None
+        ),
+        compiler=compiler,
     )
     metrics.set_control_state(synchronized=control.synchronized)
     runtime_api = RunnerAPI(
@@ -84,12 +91,23 @@ def create_app(settings: RunnerSettings | None = None) -> FastAPI:
         configured.controller_token,
         configured.runtime_log_encryption_key,
         draft_previews,
+        (
+            RedisOutputStreamSessionStore(configured.call_context_redis_url)
+            if configured.call_context_redis_url
+            else None
+        ),
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        async def retire_runtimes():
+            while True:
+                await asyncio.sleep(30)
+                await registry.collect_retired()
+
         control_task = asyncio.create_task(control.run(), name="runner-control")
         telemetry_task = asyncio.create_task(telemetry.run(), name="runtime-telemetry")
+        retirement_task = asyncio.create_task(retire_runtimes(), name="runtime-retirement")
         try:
             yield
         finally:
@@ -97,7 +115,8 @@ def create_app(settings: RunnerSettings | None = None) -> FastAPI:
             await telemetry.stop()
             control_task.cancel()
             telemetry_task.cancel()
-            await asyncio.gather(control_task, telemetry_task, return_exceptions=True)
+            retirement_task.cancel()
+            await asyncio.gather(control_task, telemetry_task, retirement_task, return_exceptions=True)
             if draft_previews is not None:
                 await draft_previews.shutdown()
             try:

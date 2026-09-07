@@ -4,19 +4,15 @@ import { defaultTestCaseOverrides } from "./default-expectations.js";
 
 export const DEFAULT_GUARDRAIL_ID = "guardrail-default";
 export const DEFAULT_GUARDRAIL_NAME = "Default Guardrail";
-export const DEFAULT_GUARDRAIL_DESCRIPTION = (
-  "Protect unmatched traffic with complete local Policies for PII, credentials, pattern matching, "
-  + "abusive or discriminatory language, harmful content, and prompt injection. "
-  + "Policies retain their Rules, scope, and actions; Default supplies explicit local ordering and reviewed composition expectations. No external model is called."
-);
 export const DEFAULT_DEPLOYMENT_ID = "deployment-default";
 export const DEFAULT_DEPLOYMENT_NAME = "Default Deployment";
 
 // Default is a composition of complete, model-free Policies, not a separate
 // Rule collection. Policy definitions own their Rules, phases, and actions.
-// Baseline PII retains credential rejection and spaced Australian tax IDs;
-// Pattern Matching supplies broader PII coverage. Do not also bind Advanced
-// PII: it substantially duplicates this pair and adds composition conflicts.
+// Focused bindings replace the three mixed legacy collections. Credentials
+// precede numeric redaction; complete payment values precede broad tax formats;
+// contextual bank/travel/government identifiers precede broad contact formats.
+// This is an authored Policy order, never an action/severity ranking.
 const DEFAULT_POLICY_IDS = [
   "filter-denied-insults",
   "filter-harm-toxic-abuse",
@@ -28,14 +24,28 @@ const DEFAULT_POLICY_IDS = [
   "filter-bias-racial",
   "filter-bias-religious",
   "filter-bias-sexual-orientation",
-  "prompt-injection-protection",
+  "local-prompt-manipulation",
+  "local-sql-injection",
+  "local-code-injection",
+  "local-rendered-content-injection",
   "filter-prompt-injection-jailbreak",
   "filter-prompt-injection-data-exfiltration",
   "filter-prompt-injection-sql",
   "filter-prompt-injection-malicious-code",
   "filter-prompt-injection-system-prompt",
-  "baseline-pii-protection",
-  "pattern-matching",
+  "local-credentials",
+  "local-payment-data",
+  "local-australian-tax-health-identifiers",
+  "local-bank-account-formats",
+  "local-travel-identifiers",
+  "local-government-identifiers",
+  "local-passport-formats",
+  "local-regional-contact-formats",
+  "local-contact-data",
+  "local-passports",
+  "local-network-addresses",
+  "local-sensitive-attribute-terms",
+  "local-risk-content-terms",
 ] as const;
 
 /**
@@ -51,6 +61,10 @@ export function defaultGuardrailDraft(policies: readonly PolicyDto[]): Guardrail
     const policy = byId.get(policyId);
     if (!policy) throw new Error(`Default Guardrail Policy ${policyId} is missing from the Runner catalog.`);
     if (!policy.rules.length) throw new Error(`Default Guardrail Policy ${policyId} has no Rules.`);
+    if (policy.protection.execution !== "local" || policy.protection.modelCapabilities.length
+      || policy.rules.some((rule) => rule.form === "colang_flow")) {
+      throw new Error(`Default Guardrail Policy ${policyId} must execute locally without a Model or an unverified custom flow.`);
+    }
     return {
       policyId: policy.id,
       policyVersion: policy.version,
@@ -59,7 +73,7 @@ export function defaultGuardrailDraft(policies: readonly PolicyDto[]): Guardrail
         parameter.default === null || parameter.default === undefined ? [] : [[parameter.name, parameter.default]]
       ))),
       enabledRuleIds: policy.rules.map((rule) => rule.id),
-      ruleOrder: defaultRuleOrder(policy),
+      ruleOrder: [],
       testCaseOverrides: defaultTestCaseOverrides(policy.id),
       ruleActions: {},
       enabledRails: [...policy.rails],
@@ -67,31 +81,13 @@ export function defaultGuardrailDraft(policies: readonly PolicyDto[]): Guardrail
     };
   });
   return {
-    purposeDetails: { audience: "", tasks: "", protect: "", outOfScope: "" },
     allowedTopics: [],
     restrictedTopics: [],
     policyBindings: selected,
     safetyLevel: "balanced",
-    outputDelivery: "window_buffered",
+    // The local PII transformations need the complete response. Make the
+    // configured behavior agree with the runtime contract instead of asking
+    // for incremental delivery that can only fall back to full buffering.
+    outputDelivery: "full_buffered",
   };
-}
-
-function defaultRuleOrder(policy: PolicyDto): string[] {
-  // Authored Default choices, not an engine severity/action sort. Credentials
-  // must be inspected before number redaction can break their signature.
-  if (policy.id === "baseline-pii-protection") return [
-    ...policy.rules.filter((rule) => rule.id.startsWith("credentials-api-keys/")).map((rule) => rule.id),
-    "financial-pii/amex", "financial-pii/visa", "financial-pii/mastercard", "financial-pii/discover", "financial-pii/credit_card",
-  ];
-  if (policy.id === "pattern-matching") return [
-    "pattern/aws_access_key", "pattern/aws_secret_key", "pattern/github_token", "pattern/slack_token", "pattern/generic_api_key",
-    "pattern/uae_emirates_id", "pattern/ca_on_drivers_licence", "pattern/ca_immigration_doc",
-    "pattern/ca_bank_account", "pattern/fr_nir", "pattern/uoft_tcard", "pattern/sg_uen",
-    "pattern/ca_ohip", "pattern/ca_sin", "pattern/sg_bank_account",
-    "pattern/eu_vat", "pattern/skywards_number", "pattern/nl_bsn_contextual",
-    "pattern/passport_singapore", "pattern/passport_china",
-    "pattern/visa", "pattern/mastercard", "pattern/amex", "pattern/discover", "pattern/credit_card", "pattern/iban",
-    "pattern/sg_phone", "pattern/uae_phone", "pattern/fr_phone", "pattern/br_phone_mobile",
-  ];
-  return [];
 }

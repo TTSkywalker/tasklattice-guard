@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
-import { ChevronDown, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { parsePhraseEntries } from "../../shared/phrase-policy";
+import { PhrasePolicyEditor } from "./phrase-policy-editor";
+import { boundPolicy } from "@/lib/bound-policy";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +28,14 @@ export function PolicyBindingEditor({
 }) {
   const { t } = useTranslation();
   const selectedIds = value.map((binding) => binding.policy_id);
-  const options = useMemo<MultiSelectOption[]>(() => policies.map((policy) => {
+  const options = useMemo<MultiSelectOption[]>(() => policies.map((catalogPolicy) => {
+    const binding = value.find((item) => item.policy_id === catalogPolicy.id);
+    const policy = binding ? boundPolicy(policies, binding) : catalogPolicy;
+    if (!policy) return {
+      value: catalogPolicy.id,
+      label: `${catalogPolicy.id}@${binding!.policy_version}`,
+      description: t("guardrailWizard.nextBlocked.policyUnavailable", { name: `${catalogPolicy.id}@${binding!.policy_version}` }),
+    };
     const bindable = policy.source === "built_in" || policy.version !== "0";
     const frameworkLabels = policy.tags
       .filter((tag) => tag.namespace === "framework")
@@ -47,7 +58,7 @@ export function PolicyBindingEditor({
         ...(!bindable ? [t("guardrailWizard.publishPolicyFirst")] : []),
       ].join(" · "),
     };
-  }), [policies, t]);
+  }), [policies, value, t]);
 
   function selectPolicies(nextIds: string[]) {
     onChange(nextIds.map((policyId) => {
@@ -90,8 +101,11 @@ export function PolicyBindingEditor({
           </header>
           <div className="divide-y">
             {value.map((binding) => {
-              const policy = policies.find((item) => item.id === binding.policy_id);
-              if (!policy) return null;
+              const policy = boundPolicy(policies, binding);
+              if (!policy) return <div key={binding.policy_id} role="alert" className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4 text-sm text-destructive">
+                <p className="min-w-0 flex-1 break-words">{t("guardrailWizard.nextBlocked.policyUnavailable", { name: `${binding.policy_id}@${binding.policy_version}` })}</p>
+                <Button variant="outline" className="min-h-11" onClick={() => onChange(value.filter((item) => item.policy_id !== binding.policy_id))}>{t("common.remove")}</Button>
+              </div>;
               const validation = getPolicyBindingValidation(binding, policy);
               const validationLabel = validation.missingRequiredParameters.length
                 ? t("guardrailWizard.missingRequiredFieldCount", { count: validation.missingRequiredParameters.length })
@@ -99,7 +113,17 @@ export function PolicyBindingEditor({
                   ? t("guardrailWizard.reasoningConfigurationRequired")
                   : validation.missingRules
                     ? t("guardrailWizard.noEnabledRules")
+                    : validation.missingRails
+                      ? t("protection.selectDirection")
                     : null;
+              const orderedRuleIds = [...new Set([...(binding.rule_order ?? []), ...policy.rules.map((rule) => rule.id)])];
+              const orderedRules = orderedRuleIds.flatMap((id) => policy.rules.filter((rule) => rule.id === id));
+              function moveRule(index: number, offset: number) {
+                const ids = orderedRules.map((rule) => rule.id);
+                const [moved] = ids.splice(index, 1);
+                ids.splice(index + offset, 0, moved!);
+                update(binding.policy_id, { rule_order: ids });
+              }
               return (
                 <AutoOpenDetails key={binding.policy_id} className="group" autoOpen={Boolean(validationLabel)}>
                   <summary
@@ -151,9 +175,12 @@ export function PolicyBindingEditor({
                           </Select>
                         </Field>
                         <div>
-                          <Label>{t("guardrailWizard.enabledRails")}</Label>
+                          <Label>{t("protection.inspectDirection")}</Label>
                           <div className="mt-2 flex min-h-11 flex-wrap items-center gap-2">
-                            {policy.rails.map((rail) => <Badge key={rail} variant="outline" className="font-mono uppercase">{rail}</Badge>)}
+                            {policy.rails.filter((rail) => rail === "input" || rail === "output").map((rail) => <label key={rail} className="flex min-h-11 items-center gap-2 rounded-md border bg-card px-3 text-xs">
+                              <Checkbox aria-label={`${policy.name}: ${t(`protection.${rail}`)}`} checked={binding.enabled_rails.includes(rail)} onCheckedChange={(enabled) => update(binding.policy_id, { enabled_rails: enabled ? [...new Set([...binding.enabled_rails, rail])] : binding.enabled_rails.filter((item) => item !== rail) })} />
+                              {t(`protection.${rail}`)}
+                            </label>)}
                           </div>
                         </div>
                       </div>
@@ -167,7 +194,10 @@ export function PolicyBindingEditor({
                         </div>
                         {policy.parameters.length ? (
                           <div className="grid gap-4 sm:grid-cols-2">
-                            {policy.parameters.map((parameter) => (
+                            {policy.parameters.map((parameter) => parameter.kind === "phrase_entries" ? (
+                              <PhrasePolicyEditor key={parameter.name} value={binding.parameter_values[parameter.name] ?? ""}
+                                onChange={(value) => update(binding.policy_id, { parameter_values: { ...binding.parameter_values, [parameter.name]: value } })} />
+                            ) : (
                               <Field key={parameter.name} label={`${parameter.label ?? parameter.name}${parameter.required ? " *" : ""}`} hint={parameter.description}>
                                 {parameter.kind === "textarea" ? (
                                   <Textarea
@@ -206,16 +236,22 @@ export function PolicyBindingEditor({
                         <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.coverageDescription")}</p>
                       </div>
                       <div className="divide-y rounded-lg border bg-card">
-                        {policy.rules.map((rule) => {
+                        {orderedRules.map((rule, ruleIndex) => {
                           const enabled = binding.enabled_rule_ids.includes(rule.id);
                           return (
-                            <div key={rule.id} className="grid gap-3 p-3 sm:grid-cols-[2rem_minmax(0,1fr)_10rem] sm:items-center">
-                              <Checkbox checked={enabled} onCheckedChange={(next) => update(binding.policy_id, { enabled_rule_ids: next ? [...binding.enabled_rule_ids, rule.id] : binding.enabled_rule_ids.filter((id) => id !== rule.id) })} />
+                            <div key={rule.id} className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-3 p-3 lg:grid-cols-[1.25rem_minmax(0,1fr)_10rem_auto]">
+                              <Checkbox aria-label={`${policy.name}: ${rule.name}`} checked={enabled} onCheckedChange={(next) => update(binding.policy_id, { enabled_rule_ids: next ? [...binding.enabled_rule_ids, rule.id] : binding.enabled_rule_ids.filter((id) => id !== rule.id) })} />
                               <span className="min-w-0"><strong className="block truncate text-xs">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.id}</span></span>
+                              <div className="col-start-2 min-w-0 lg:col-auto">
                               <Select value={binding.rule_actions[rule.id] ?? "policy_default"} disabled={!enabled} onValueChange={(selected) => { const next = { ...binding.rule_actions }; if (selected === "policy_default") delete next[rule.id]; else next[rule.id] = selected as EnforcementAction; update(binding.policy_id, { rule_actions: next }); }}>
-                                <SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger>
-                                <SelectContent><SelectItem value="policy_default">{rule.effect}</SelectItem>{enforcementActions.map((action) => <SelectItem key={action} value={action}>{action}</SelectItem>)}</SelectContent>
+                                <SelectTrigger aria-label={t("protection.ruleAction", { name: rule.name })} className="min-h-11"><SelectValue /></SelectTrigger>
+                                <SelectContent><SelectItem value="policy_default">{rule.implementation?.detector === "configured_phrases" ? t("protection.phrases.useEntryActions") : rule.effect}</SelectItem>{enforcementActions.map((action) => <SelectItem key={action} value={action}>{action}</SelectItem>)}</SelectContent>
                               </Select>
+                              </div>
+                              <div className="col-start-2 flex justify-end gap-1 lg:col-auto">
+                                <Button variant="ghost" size="icon" disabled={ruleIndex === 0} aria-label={t("protection.moveRuleUp", { name: rule.name, policy: policy.name })} onClick={() => moveRule(ruleIndex, -1)}><ArrowUp /></Button>
+                                <Button variant="ghost" size="icon" disabled={ruleIndex === orderedRules.length - 1} aria-label={t("protection.moveRuleDown", { name: rule.name, policy: policy.name })} onClick={() => moveRule(ruleIndex, 1)}><ArrowDown /></Button>
+                              </div>
                             </div>
                           );
                         })}
@@ -248,14 +284,19 @@ export function defaultPolicyBinding(policy: Policy): GuardrailPolicyBinding {
 }
 
 export function getPolicyBindingValidation(binding: GuardrailPolicyBinding, policy: Policy) {
-  const missingRequiredParameters = policy.parameters.filter((parameter) => (
-    parameter.required && !(binding.parameter_values[parameter.name] ?? parameter.default ?? "").trim()
-  ));
+  const missingRequiredParameters = policy.parameters.filter((parameter) => {
+    const value = binding.parameter_values[parameter.name] ?? parameter.default ?? "";
+    if (parameter.kind === "phrase_entries") {
+      try { parsePhraseEntries(value); return false; } catch { return true; }
+    }
+    return parameter.required && !value.trim();
+  });
   return {
     missingRequiredParameters,
     missingReasoningPolicy: binding.policy_id === "builtin-automated-reasoning"
       && !(binding.reasoning_policy?.policy_id.trim() && binding.reasoning_policy.policy_version.trim()),
     missingRules: binding.enabled_rule_ids.length === 0,
+    missingRails: binding.enabled_rails.length === 0,
   };
 }
 

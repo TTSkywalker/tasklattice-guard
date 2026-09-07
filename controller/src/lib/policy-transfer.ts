@@ -1,4 +1,6 @@
 import type { ProgrammablePolicy, ProgrammablePolicyDraft } from "@/lib/api";
+import { isGuardrailCategoryId } from "../../shared/guardrail-catalog";
+import { protectionDirectoryIds } from "../../shared/protection-map";
 
 export const POLICY_PACKAGE_FORMAT = "tasklattice.policy";
 export const POLICY_PACKAGE_SCHEMA_VERSION = 1;
@@ -70,6 +72,12 @@ export function parsePolicyPackage(raw: string): PolicyImport {
   const draft = objectValue(policy.draft, "missingDraft", "The Policy package does not contain a draft.");
   if (draft.colang_version !== "2.x") {
     throw new PolicyPackageError("unsupportedColang", "Imported custom Policies must use the Colang 2.x programmable runtime.");
+  }
+  if (typeof draft.guardrail_category !== "string" || !isGuardrailCategoryId(draft.guardrail_category)) {
+    throw new PolicyPackageError("invalidDraft", "The Policy package draft has an invalid Guardrail category.");
+  }
+  if (draft.protection_directory !== undefined && !(protectionDirectoryIds as readonly unknown[]).includes(draft.protection_directory)) {
+    throw new PolicyPackageError("invalidDraft", "The Policy package draft has an invalid protection directory.");
   }
   for (const field of ["sources", "rail_bindings", "parameter_schema", "action_references", "evaluation_contracts", "prompt_dependencies", "execution_contract", "test_cases"] as const) {
     if (!Array.isArray(draft[field])) {

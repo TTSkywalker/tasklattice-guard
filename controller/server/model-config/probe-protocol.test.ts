@@ -30,12 +30,12 @@ describe("replaceable model probe protocols", () => {
       response: "on-topic",
     },
     {
-      model: "nvidia/nvidia-nemotron-nano-9b-v2",
-      profile: "tali.nemotron-nano-jailbreak.v1" as const,
+      model: "example/jailbreak-judge",
+      profile: "tali.openai-compatible-jailbreak.v1" as const,
       marker: "SAFE or JAILBREAK",
       response: "SAFE",
     },
-  ])("validates the exact NVIDIA protocol for $model", ({ model, profile, marker, response }) => {
+  ])("validates the configured protocol for $model", ({ model, profile, marker, response }) => {
     const request = probeRequest({ model, profile, maxTokens: 128 });
     expect(JSON.stringify(request.messages)).toContain(marker);
     expect(() => validateProbeContent(profile, response)).not.toThrow();
@@ -52,5 +52,21 @@ describe("replaceable model probe protocols", () => {
       "tali.qwen3guard.v1",
       "Safety: Unsafe\nCategories: Jailbreak",
     )).not.toThrow();
+  });
+
+  it("uses NVIDIA's constrained inference shape for TopicControl", () => {
+    const request = probeRequest({
+      model: "nvidia/llama-3.1-nemoguard-8b-topic-control",
+      profile: "tali.nemoguard-topic-control.v1",
+      maxTokens: 512,
+    });
+    expect(request).toMatchObject({
+      max_tokens: 20,
+      top_p: 1,
+      n: 1,
+      stream: false,
+      frequency_penalty: 0,
+    });
+    expect(request.messages[0]?.content).toMatch(/You must respond with "on-topic" or "off-topic"\.$/);
   });
 });

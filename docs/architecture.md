@@ -80,6 +80,82 @@ code.
 Runner never receives database credentials. Controller never loads NeMo or
 serves a protection request.
 
+## Rail and model-binding boundary
+
+Provider connectivity, physical Model callability, and Rail behavior are three
+different facts. Controller stores them separately and exposes Rail assignment
+through a versioned Guardrail Catalog revision. Each assignment is a stable
+`capability.rail` binding, for example `content_safety.input` or
+`content_safety.output`, rather than an implicit capability attached to a Model.
+
+Guardrails are named, versioned compositions of Policy bindings. There is no
+Guardrail-level description, business-purpose field, or immutable-purpose lock.
+The selected Policies, Rule ordering and overrides define protection behavior.
+Optional natural-language or document input helps author Policies; it is not
+stored as a Guardrail identity or injected into runtime prompts. Topic Control
+uses its configured allowed topics. Migration `0003_remove_guardrail_purpose`
+deletes the obsolete description column and draft purpose details. It advances
+draft revisions so old validation results cannot authorize a changed draft;
+historical signed artifacts are not rewritten.
+
+The shared binding manifest currently executes Input and Output Rails. It also
+reserves Retrieval, Dialog, and Execution as future Rail types, so later support
+adds new manifest entries and runtime implementations without changing Provider,
+Model, Policy, or Guardrail identity. Policy order and Rule order still determine
+execution; a reject terminates the sequence, while a transformation continues
+with transformed content.
+
+Control-plane-only Provider kinds are enforced when a Model is registered,
+assigned, validated, activated, and serialized into desired state. In particular,
+DeepSeek may power Controller authoring and intent understanding but cannot be
+bound to a Data Plane Rail. Controller sends Runner only the models referenced by
+active Data Plane bindings and resolves only those credentials.
+
+Catalog validation is an isolated `CapabilityValidationRequest` on the existing
+typed control channel. The Default Runner compiles a single binding with the
+production NeMo compiler and exercises safe and unsafe samples through its actual
+Input or Output Rail. Evidence is scoped to `capability.rail` and every advertised
+contract; a shared Model cannot transfer evidence between Rails. Provider
+credentials are fetched with a 95-second, candidate-scoped lease, never embedded
+in commands or artifacts. Validation neither activates a revision nor emits
+customer traffic. Old connection/profile probes do not authorize activation.
+These samples verify execution and protocol semantics, not comprehensive model
+quality. Grounding and formal reasoning require Policy-specific sources or formal
+policy references; generic probes deliberately cannot certify those bindings.
+
+### Effective releases and streaming
+
+The Runner pins an **effective release**, derived from desired-state generation,
+signed artifact checksums, and the complete model configuration. Redis call
+contexts carry both that identity and the Model revision. Old materialized NeMo
+runtimes remain leased across updates; they are retired only after leases and
+in-flight evaluations drain. Output never silently switches to newer models.
+On a fresh replica that cannot serve an old release, the call fails closed and
+must restart. Redis context sharing alone does not replicate historical runtime
+clients; uninterrupted in-flight migration across cold rollouts is not promised.
+
+The HTTP/A2A output-stream endpoint accepts ordered chunks. It is **not** an
+upstream generation proxy or an SSE endpoint. The integration must use a stable
+`call_id` and `stream_id`, serialize increasing `sequence` values, await each
+result, and forward only `released_text`. It must send `final=true` on completion
+and cancel generation on `terminate=true` or transport failure. A lost response
+must not cause speculative raw-text delivery or sequence advancement.
+
+`full_buffered` checks the whole response before releasing text. Incremental
+content-safety checks evaluate accumulated output, and `window_buffered` retains
+one window across chunk boundaries. `interruptible` checks each chunk before
+releasing it, with previous output as context. Neither incremental mode can recall
+earlier text if later context changes the verdict. Pattern/PII, transformations,
+grounding, and arbitrary Policy programs therefore use complete-response checks;
+the immutable plan determines this fallback, not model callability. The API
+returns requested/effective delivery modes, the reason, and effective release ID.
+Timeouts do not consume sequences or duplicate accumulated text on retry.
+
+Integration UI distinguishes Input checks, Output checks, and final Stream checks
+observed in retained telemetry. These observations are not proof that the caller
+forwarded transformations or cancelled its upstream. A LiteLLM pre/post callback
+or an endpoint connectivity test alone never proves incremental stream protection.
+
 ## Control protocol
 
 Runner initiates a long-lived gRPC connection to Controller. Production uses a
@@ -255,8 +331,9 @@ Integration lifecycle.
 
 ## NeMo evaluation boundary
 
-NeMo Guardrails remains the Runner's core rail and Action runtime. Product
-capabilities do not require one NeMo Action class per risk. New artifacts bind
+NeMo Guardrails remains the Runner's core rail and Action runtime. The product-facing
+Guardrail Catalog classifies business protections separately from low-level execution
+capabilities, so categories do not require one NeMo Action class per risk. New artifacts bind
 PII, content-safety, and jailbreak Evaluation Contracts to one versioned Action:
 
 ```text
@@ -302,9 +379,10 @@ binding when its Profile does not declare the requested contract.
 Model-family semantics and transport are separate plugins. A
 `ConfiguredSafetyModelProvider` composes one `ModelProtocolAdapter` (prompt and
 response parsing) with one `ModelClient` (I/O). The built-in deployment client
-uses OpenAI Chat Completions, while tests and non-OpenAI/local runtimes can
-inject a different client without changing the Qwen, Llama, or taxonomy
-adapters.
+is selected from the Evaluator Profile's explicit transport metadata. Most
+Profiles use OpenAI Chat Completions; the dedicated JailbreakDetect Profile uses
+its native classification client. Tests and non-OpenAI/local runtimes can inject
+a different client without changing the Qwen, Llama, or taxonomy adapters.
 
 A model PII hit cannot claim span-level precision: because the generation
 protocol returns no trustworthy offsets, the runtime conservatively redacts the

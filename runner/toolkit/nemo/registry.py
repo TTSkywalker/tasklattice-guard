@@ -6,12 +6,19 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Protocol
 
 import yaml
 from nemoguardrails import Guardrails, RailsConfig
 
 from ..compiler.domain import PlanCompilationError
+from ..evaluation.contracts import (
+    MODEL_SAFETY_CAPABILITY_BY_CONTRACT,
+    CONTRACT_TOPIC_SEMANTIC,
+    CONTRACT_COMPANY_POLICY,
+    CONTRACT_CONTEXTUAL_GROUNDING,
+    CONTRACT_AUTOMATED_REASONING,
+)
 from ..runtime.contracts import GuardrailPlanSnapshot, NeMoConfigSnapshot
 from .action_registry import (
     ACTION_CUSTOMER_IDENTIFIER,
@@ -24,6 +31,17 @@ from .action_registry import (
 )
 from .artifacts import config_checksum
 from .actions.model_call import instrument_nemo_models
+from .actions.names import (
+    ACTION_RECORD_OWNED_POLICY, ACTION_TOPIC_JUDGE, ACTION_GROUNDING,
+    ACTION_AUTOMATED_REASONING,
+)
+from .actions.strict_topic_safety import install_strict_topic_safety_action
+from .native_models import (
+    NativeRailModel,
+    TOPIC_CONTROL_MODEL_TYPE,
+    TOPIC_CONTROL_PROFILE,
+    materialize_model_configs,
+)
 
 
 logger = logging.getLogger("uvicorn.error.tasklattice.nemo.registry")
@@ -37,17 +55,24 @@ _PROFILE_RUNTIME = {
 _EXECUTOR_ACTION_VERSIONS = {
     ACTION_CUSTOMER_IDENTIFIER: "1.0.0",
     ACTION_RECORD_POLICY: "1.0.0",
+    ACTION_RECORD_OWNED_POLICY: "1.0.0",
     ACTION_RECORD_NATIVE: "1.0.0",
     ACTION_RESOLVE: "1.0.0",
+}
+_DECLARED_DEDICATED_CONTRACTS = {
+    CONTRACT_TOPIC_SEMANTIC: (ACTION_TOPIC_JUDGE, "topic_control"),
+    CONTRACT_COMPANY_POLICY: (ACTION_TOPIC_JUDGE, "company_policy"),
+    CONTRACT_CONTEXTUAL_GROUNDING: (ACTION_GROUNDING, "contextual_grounding"),
+    CONTRACT_AUTOMATED_REASONING: (ACTION_AUTOMATED_REASONING, "automated_reasoning"),
 }
 
 
 class NeMoConfigStore(Protocol):
-    def plan(self, guardrail_id: str, version: int) -> GuardrailPlanSnapshot: ...
+    def plan(self, guardrail_id: str, version: str) -> GuardrailPlanSnapshot: ...
 
-    def nemo_config(self, guardrail_id: str, version: int) -> NeMoConfigSnapshot: ...
+    def nemo_config(self, guardrail_id: str, version: str) -> NeMoConfigSnapshot: ...
 
-    def active_plan_keys(self) -> tuple[tuple[str, int], ...]: ...
+    def active_plan_keys(self) -> tuple[tuple[str, str], ...]: ...
 
 
 @dataclass(slots=True)
@@ -56,6 +81,7 @@ class NeMoRuntimeInstance:
     plan: GuardrailPlanSnapshot
     rails: Guardrails
     admission: asyncio.BoundedSemaphore
+    native_models: tuple[NativeRailModel, ...] = ()
     active_requests: int = 0
     waiting_requests: int = 0
 
@@ -70,29 +96,41 @@ class NeMoRuntimeRegistry:
         *,
         max_entries: int = 128,
         max_concurrency_per_guardrail: int = 64,
-        execution_surface: Literal[
-            "standalone_check", "owned_generation"
-        ] = "standalone_check",
+        native_models: tuple[NativeRailModel, ...] = (),
     ) -> None:
         self._store = store
         self._providers = providers
         self._max_entries = max(1, max_entries)
         self._max_concurrency_per_guardrail = max(1, max_concurrency_per_guardrail)
-        self._execution_surface = execution_surface
-        self._items: OrderedDict[tuple[str, int, str], NeMoRuntimeInstance] = OrderedDict()
+        self._native_models = native_models
+        self._items: OrderedDict[tuple[str, str, str], NeMoRuntimeInstance] = OrderedDict()
         self._retired: list[Guardrails] = []
+        self._retired_instances: dict[int, NeMoRuntimeInstance] = {}
+        # A call pins both the artifact and its materialized provider/model set.
+        # Retain leases longer than the input/output context timeout (300s).
+        self._releases: dict[str, tuple[dict[tuple[str, str], NeMoRuntimeInstance], float]] = {}
+        self._release_ttl_seconds = 600.0
+        self._current_release_id: str | None = None
         self._lock = threading.RLock()
         self._hits = 0
         self._misses = 0
-        self._last_missing_versions: tuple[tuple[str, int], ...] | None = None
+        self._last_missing_versions: tuple[tuple[str, str], ...] | None = None
         self.reload()
 
     def get(self, plan: GuardrailPlanSnapshot) -> NeMoRuntimeInstance:
         return self.acquire(plan)[0]
 
     def acquire(
-        self, plan: GuardrailPlanSnapshot
+        self, plan: GuardrailPlanSnapshot, *, release_id: str | None = None,
     ) -> tuple[NeMoRuntimeInstance, bool, int]:
+        if release_id is not None:
+            with self._lock:
+                self.retain_release(release_id)
+                item = self._releases[release_id][0].get((plan.guardrail_id, plan.guardrail_version))
+                if item is None or item.plan != plan:
+                    raise LookupError("The pinned effective release does not contain this execution plan.")
+                self._hits += 1
+                return item, True, 0
         config = self._store.nemo_config(plan.guardrail_id, plan.guardrail_version)
         key = (plan.guardrail_id, plan.guardrail_version, config_checksum(config))
         waiting_started = time.perf_counter()
@@ -107,6 +145,32 @@ class NeMoRuntimeRegistry:
                 return item, True, queue_latency_ms
             self._misses += 1
             return self._build_with_logging(plan, config, key), False, queue_latency_ms
+
+    def retain_release(self, release_id: str) -> None:
+        with self._lock:
+            entry = self._releases.get(release_id)
+            if entry is None or (release_id != self._current_release_id and entry[1] <= time.monotonic()):
+                raise LookupError("Pinned effective release is unavailable on this Runner. Start a new call; no fallback to newer models is allowed.")
+            self._releases[release_id] = (entry[0], time.monotonic() + self._release_ttl_seconds)
+
+    def publish_release(self, release_id: str, candidates: tuple[tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot], ...]) -> None:
+        with self._lock:
+            now = time.monotonic()
+            if self._current_release_id in self._releases:
+                previous = self._releases[self._current_release_id]
+                self._releases[self._current_release_id] = (previous[0], now + self._release_ttl_seconds)
+            self._releases = {key: entry for key, entry in self._releases.items()
+                              if entry[1] > now or any(item.active_requests or item.waiting_requests for item in entry[0].values())}
+            instances = {}
+            for plan, config in candidates:
+                key = (plan.guardrail_id, plan.guardrail_version, config_checksum(config))
+                instances[key[:2]] = self._items[key]
+            # Replayed desired state must not silently rebind a release ID.
+            if release_id not in self._releases:
+                self._releases[release_id] = (instances, now + self._release_ttl_seconds)
+            else:
+                self.retain_release(release_id)
+            self._current_release_id = release_id
 
     def validate(
         self, plan: GuardrailPlanSnapshot, config: NeMoConfigSnapshot
@@ -142,14 +206,18 @@ class NeMoRuntimeRegistry:
         self,
         providers: ActionProviders,
         candidates: tuple[tuple[GuardrailPlanSnapshot, NeMoConfigSnapshot], ...],
+        native_models: tuple[NativeRailModel, ...] | None = None,
     ) -> None:
         """Prewarm against a new registry, then swap it in as one atomic unit."""
 
         with self._lock:
             previous_providers = self._providers
+            previous_native_models = self._native_models
             previous_items = self._items
             previous_retired = list(self._retired)
             self._providers = providers
+            if native_models is not None:
+                self._native_models = native_models
             self._items = OrderedDict()
             try:
                 for plan, config in candidates:
@@ -159,6 +227,7 @@ class NeMoRuntimeRegistry:
             except Exception:
                 rejected = [item.rails for item in self._items.values()]
                 self._providers = previous_providers
+                self._native_models = previous_native_models
                 self._items = previous_items
                 self._retired = [*previous_retired, *rejected]
                 raise
@@ -166,6 +235,23 @@ class NeMoRuntimeRegistry:
                 *previous_retired,
                 *(item.rails for item in previous_items.values()),
             ]
+            self._retired_instances.update((id(item.rails), item) for item in previous_items.values())
+
+    async def collect_retired(self) -> None:
+        """Close expired runtime clients only after all call leases and work drain."""
+        with self._lock:
+            now = time.monotonic()
+            self._releases = {key: entry for key, entry in self._releases.items()
+                              if key == self._current_release_id or entry[1] > now
+                              or any(item.active_requests or item.waiting_requests for item in entry[0].values())}
+            retained = {id(item.rails) for item in self._items.values()}
+            retained.update(id(item.rails) for entry in self._releases.values() for item in entry[0].values())
+            retained.update(key for key, item in self._retired_instances.items() if item.active_requests or item.waiting_requests)
+            closing = {id(item): item for item in self._retired if id(item) not in retained}
+            self._retired = [item for item in self._retired if id(item) not in closing]
+            for key in closing:
+                self._retired_instances.pop(key, None)
+        await asyncio.gather(*(item.shutdown() for item in closing.values()), return_exceptions=True)
 
     def stats(self) -> dict[str, int]:
         with self._lock:
@@ -241,6 +327,8 @@ class NeMoRuntimeRegistry:
             )
             self._items.clear()
             self._retired.clear()
+            self._retired_instances.clear()
+            self._releases.clear()
         await asyncio.gather(
             *(item.shutdown() for item in rails), return_exceptions=True
         )
@@ -249,17 +337,33 @@ class NeMoRuntimeRegistry:
         self,
         plan: GuardrailPlanSnapshot,
         config: NeMoConfigSnapshot,
-        key: tuple[str, int, str],
+        key: tuple[str, str, str],
     ) -> NeMoRuntimeInstance:
         from .runtime import NeMoActionBridge
 
         self._validate_runtime_profile(config)
-        self._validate_bindings(config)
+        self._validate_bindings(config, plan)
+        self._validate_native_model_dependencies(config)
+        materialized_yaml = materialize_model_configs(
+            config.config_yaml,
+            config.required_models,
+            self._native_models,
+        )
+        if TOPIC_CONTROL_MODEL_TYPE in config.required_models:
+            install_strict_topic_safety_action()
         rails_config = RailsConfig.from_content(
-            yaml_content=config.config_yaml,
+            yaml_content=materialized_yaml,
             colang_content=config.colang_content or None,
         )
         use_iorails = config.runtime_profile == "iorails_native"
+        if use_iorails:
+            from nemoguardrails.guardrails.iorails import IORails
+
+            reason = IORails.unsupported_reason(rails_config)
+            if reason is not None:
+                raise PlanCompilationError(
+                    f"NeMo IORails cannot serve the compiled manifest: {reason}."
+                )
         rails = Guardrails(
             rails_config,
             use_iorails=use_iorails,
@@ -282,6 +386,11 @@ class NeMoRuntimeRegistry:
             plan,
             rails,
             asyncio.BoundedSemaphore(self._max_concurrency_per_guardrail),
+            native_models=tuple(
+                item
+                for item in self._native_models
+                if item.type in config.required_models
+            ),
         )
         self._items[key] = item
         self._items.move_to_end(key)
@@ -295,17 +404,18 @@ class NeMoRuntimeRegistry:
                 continue
             retired = self._items.pop(candidate)
             self._retired.append(retired.rails)
+            self._retired_instances[id(retired.rails)] = retired
         return item
 
     def _build_with_logging(
         self,
         plan: GuardrailPlanSnapshot,
         config: NeMoConfigSnapshot,
-        key: tuple[str, int, str],
+        key: tuple[str, str, str],
     ) -> NeMoRuntimeInstance:
         started = time.perf_counter()
         logger.info(
-            "Prewarming NeMo runtime: guardrail_id=%s version=%d profile=%s.",
+            "Prewarming NeMo runtime: guardrail_id=%s version=%s profile=%s.",
             plan.guardrail_id,
             plan.guardrail_version,
             config.runtime_profile,
@@ -314,14 +424,14 @@ class NeMoRuntimeRegistry:
             item = self._build(plan, config, key)
         except Exception:
             logger.exception(
-                "NeMo runtime prewarm failed: guardrail_id=%s version=%d profile=%s.",
+                "NeMo runtime prewarm failed: guardrail_id=%s version=%s profile=%s.",
                 plan.guardrail_id,
                 plan.guardrail_version,
                 config.runtime_profile,
             )
             raise
         logger.info(
-            "NeMo runtime prewarm completed: guardrail_id=%s version=%d duration_ms=%d.",
+            "NeMo runtime prewarm completed: guardrail_id=%s version=%s duration_ms=%d.",
             plan.guardrail_id,
             plan.guardrail_version,
             max(0, round((time.perf_counter() - started) * 1_000)),
@@ -364,12 +474,6 @@ class NeMoRuntimeRegistry:
             )
 
         if config.runtime_profile == "iorails_native":
-            if self._execution_surface != "owned_generation":
-                raise PlanCompilationError(
-                    "The iorails_native profile requires an owned-generation host; "
-                    "publish a new llmrails_colang1_standard version before using "
-                    "the standalone check service."
-                )
             action_dependencies = tuple(
                 item
                 for item in config.dependency_manifest
@@ -398,16 +502,52 @@ class NeMoRuntimeRegistry:
             and tracing_enabled
         ):
             raise PlanCompilationError(
-                "NeMo 0.23 requires tracing to be disabled for the "
+                "Tracing must be disabled for the "
                 "llmrails_colang2_programmable profile."
             )
         if config.runtime_profile != "iorails_native" and metrics_enabled:
             raise PlanCompilationError(
-                f"NeMo 0.23 requires metrics to be disabled for the "
+                f"Metrics must be disabled for the "
                 f"{config.runtime_profile} profile."
             )
 
-    def _validate_bindings(self, config: NeMoConfigSnapshot) -> None:
+    def _validate_native_model_dependencies(
+        self,
+        config: NeMoConfigSnapshot,
+    ) -> None:
+        manifest_models = {
+            name: version
+            for kind, name, version in config.dependency_manifest
+            if kind == "model"
+        }
+        undeclared = set(config.required_models) - manifest_models.keys()
+        if undeclared:
+            raise PlanCompilationError(
+                "Native model requirements are missing from the artifact manifest: "
+                + ", ".join(sorted(undeclared))
+                + "."
+            )
+        if (
+            TOPIC_CONTROL_MODEL_TYPE in config.required_models
+            and manifest_models.get(TOPIC_CONTROL_MODEL_TYPE) != TOPIC_CONTROL_PROFILE
+        ):
+            raise PlanCompilationError(
+                "Official Topic Safety requires the dedicated Model profile "
+                f"{TOPIC_CONTROL_PROFILE!r}."
+            )
+        active_models = {item.type: item for item in self._native_models}
+        for model_type in config.required_models:
+            active = active_models.get(model_type)
+            if active is None:
+                continue
+            expected_profile = manifest_models[model_type]
+            if active.profile_ref != expected_profile:
+                raise PlanCompilationError(
+                    f"Native model {model_type!r} uses profile {active.profile_ref!r}; "
+                    f"artifact requires {expected_profile!r}."
+                )
+
+    def _validate_bindings(self, config: NeMoConfigSnapshot, plan: GuardrailPlanSnapshot | None = None) -> None:
         result_vars = tuple(
             binding.result_var
             for binding in config.action_bindings
@@ -516,15 +656,67 @@ class NeMoRuntimeRegistry:
             )
         evaluation = self._providers.get((ACTION_EVALUATE, "1.0.0"))
         route_keys = frozenset(getattr(evaluation, "route_keys", ()))
+        route_rail_keys = frozenset(getattr(evaluation, "route_rail_keys", ()))
+        declared_phases: dict[str, set[str]] = {}
+        for policy in plan.policy_versions if plan is not None else ():
+            phases = {phase for binding in config.action_bindings
+                if binding.policy_id == policy.policy_id and binding.policy_version == policy.version
+                for phase in binding.phases}
+            for contract in policy.evaluation_contracts:
+                declared_phases.setdefault(contract, set()).update(phases)
+        # Custom flows can declare a model dependency that is not their first
+        # binding contract (or only call it on an untested branch). Enforce the
+        # signed declaration before constructing NeMo, independently of calls
+        # observed in a particular test. Local PII does not satisfy semantic PII.
+        missing_declared_models = sorted({
+            contract
+            for kind, contract, _version in config.dependency_manifest
+            if kind == "evaluation_contract"
+            and contract in MODEL_SAFETY_CAPABILITY_BY_CONTRACT
+            and (MODEL_SAFETY_CAPABILITY_BY_CONTRACT[contract], contract) not in route_keys
+        })
+        if missing_declared_models:
+            raise PlanCompilationError(
+                "Declared model Evaluator Bindings are unavailable for: "
+                + ", ".join(missing_declared_models) + "."
+            )
+        missing_declared_rails = sorted(f"{contract} ({phase})"
+            for contract, phases in declared_phases.items()
+            if contract in MODEL_SAFETY_CAPABILITY_BY_CONTRACT
+            for phase in phases
+            if (MODEL_SAFETY_CAPABILITY_BY_CONTRACT[contract], contract, phase) not in route_rail_keys)
+        if missing_declared_rails:
+            raise PlanCompilationError("Declared model Evaluator Bindings are unavailable for Rails: "
+                + ", ".join(missing_declared_rails) + ".")
+        missing_dedicated = []
+        for kind, contract, _version in config.dependency_manifest:
+            if kind != "evaluation_contract" or contract not in _DECLARED_DEDICATED_CONTRACTS:
+                continue
+            # Official native Topic Safety does not register a Guard Action.
+            # Its signed model requirement is checked/materialized separately.
+            if (contract == CONTRACT_TOPIC_SEMANTIC and TOPIC_CONTROL_MODEL_TYPE in config.required_models
+                and declared_phases.get(contract, set()).issubset({"input"})):
+                continue
+            name, capability = _DECLARED_DEDICATED_CONTRACTS[contract]
+            provider = self._providers.get((name, "1.0.0"))
+            if provider is None or capability not in provider.capabilities:
+                missing_dedicated.append(contract)
+            elif not declared_phases.get(contract, set()).issubset(provider.rails):
+                missing_dedicated.append(f"{contract} ({', '.join(sorted(declared_phases[contract] - provider.rails))})")
+        if missing_dedicated:
+            raise PlanCompilationError(
+                "Declared dedicated Evaluator Bindings are unavailable for: "
+                + ", ".join(sorted(set(missing_dedicated))) + "."
+            )
         unmapped_contracts = tuple(
             binding
             for binding in config.action_bindings
             if binding.action_name == ACTION_EVALUATE
-            and (binding.capability, binding.contract_ref) not in route_keys
+            and any((binding.capability, binding.contract_ref, phase) not in route_rail_keys for phase in binding.phases)
         )
         if unmapped_contracts:
             details = ", ".join(
-                f"{item.capability} -> {item.contract_ref}"
+                f"{item.capability} -> {item.contract_ref} ({', '.join(item.phases)})"
                 for item in unmapped_contracts
             )
             raise PlanCompilationError(

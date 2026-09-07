@@ -15,7 +15,9 @@ export type IdentityUser = {
 export type AuthStatus = { authenticated: boolean; user: IdentityUser | null };
 
 export const getAuthStatus = async (): Promise<AuthStatus> => {
-  const result = await authClient.getSession();
+  // Recovery must agree with the API's current database-backed authority, not
+  // the identity stored in the short-lived signed session cookie cache.
+  const result = await authClient.getSession({ query: { disableCookieCache: true } });
   if (result.error) throw new Error(result.error.message || "Authentication status is unavailable.");
   return { authenticated: Boolean(result.data), user: result.data ? identityUser(result.data.user) : null };
 };

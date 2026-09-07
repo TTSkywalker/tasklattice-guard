@@ -18,6 +18,9 @@ _ASSET_DIR = Path(__file__).resolve().parent / "assets"
 _ASSET_PATHS = (
     _ASSET_DIR / "builtin_policies.json",
     _ASSET_DIR / "local_content_filters.json",
+    _ASSET_DIR / "model_capability_policies.json",
+    _ASSET_DIR / "focused_policies.json",
+    _ASSET_DIR / "configurable_policies.json",
 )
 
 

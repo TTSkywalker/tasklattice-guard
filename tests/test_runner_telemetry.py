@@ -29,6 +29,28 @@ async def test_runtime_events_remain_in_wal_until_controller_accepts_them(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_legacy_null_optional_fields_are_omitted_when_draining_wal(tmp_path):
+    exporter = RuntimeTelemetryExporter("http://controller/events", "token", tmp_path, 100, "runner-0")
+    await exporter.emit({
+        "id": "event-1",
+        "requestId": "playground-call",
+        "integrationId": None,
+        "decision": "allow",
+    })
+    received = []
+    transport = httpx.MockTransport(lambda request: (
+        received.append(json.loads(request.content))
+        or httpx.Response(202, json={"accepted": 1})
+    ))
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        assert await exporter._flush_once(client) is False
+
+    assert "integrationId" not in received[0]["events"][0]
+    assert not (tmp_path / "runtime-events.wal").read_text()
+
+
+@pytest.mark.asyncio
 async def test_zero_traffic_watermark_proves_the_export_channel_is_fresh(tmp_path):
     exporter = RuntimeTelemetryExporter("http://controller/events", "token", tmp_path, 100, "runner-0")
     received = []

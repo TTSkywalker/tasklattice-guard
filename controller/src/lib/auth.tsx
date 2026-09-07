@@ -35,19 +35,43 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+  const clearChangedIdentity = useCallback(async (next: AuthStatus) => {
+    const previous = queryClient.getQueryData<AuthStatus>(queryKeys.auth);
+    if (
+      previous?.authenticated === next.authenticated
+      && previous?.user?.id === next.user?.id
+      && previous?.user?.role === next.user?.role
+      && previous?.user?.enabled === next.user?.enabled
+    ) return;
+
+    // Keep the session query itself alive; all other cached resources belong
+    // to the prior authority, including the separate identity/users query.
+    const resources = { predicate: (query: { queryKey: readonly unknown[] }) =>
+      query.queryKey.length !== queryKeys.auth.length
+      || query.queryKey.some((part, index) => part !== queryKeys.auth[index]) };
+    await queryClient.cancelQueries(resources);
+    queryClient.removeQueries(resources);
+    queryClient.getMutationCache().clear();
+  }, [queryClient]);
+
   const statusQuery = useQuery({
     queryKey: queryKeys.auth,
-    queryFn: getAuthStatus,
+    queryFn: async ({ signal }) => {
+      const next = await getAuthStatus();
+      if (signal.aborted) throw new Error("Session refresh cancelled.");
+      await clearChangedIdentity(next);
+      return next;
+    },
     staleTime: 30_000,
     retry: false,
   });
 
-  const setAuthenticatedUser = useCallback((user: IdentityUser) => {
-    queryClient.setQueryData<AuthStatus>(queryKeys.auth, {
-      authenticated: true,
-      user,
-    });
-  }, [queryClient]);
+  const setAuthenticatedUser = useCallback(async (user: IdentityUser) => {
+    await queryClient.cancelQueries({ queryKey: queryKeys.auth, exact: true });
+    const next: AuthStatus = { authenticated: true, user };
+    await clearChangedIdentity(next);
+    queryClient.setQueryData<AuthStatus>(queryKeys.auth, next);
+  }, [clearChangedIdentity, queryClient]);
 
   const loginMutation = useMutation({
     mutationFn: loginRequest,
@@ -84,14 +108,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     const result = await updateMe({ preferred_language: language });
-    setAuthenticatedUser(result.user);
+    await setAuthenticatedUser(result.user);
     await setApplicationLanguage(result.user.preferred_language);
   }, [setAuthenticatedUser, user]);
 
   const updateProfile = useCallback(async (input: ProfileInput) => {
     if (!user) return;
     const result = await updateMe(input);
-    setAuthenticatedUser(result.user);
+    await setAuthenticatedUser(result.user);
     if (
       input.preferred_language
       && result.user.preferred_language !== i18n.language

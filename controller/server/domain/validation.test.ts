@@ -5,21 +5,31 @@ import { PolicyCatalog } from "../policy-catalog/catalog.js";
 import { applyValidationOverrides, generatedTestCases, validationMetrics } from "./validation.js";
 import { defaultGuardrailDraft } from "./defaults.js";
 import type { ValidationExpectationOverride } from "./guardrail-plan.js";
+import { protectionPresets } from "../../shared/protection-presets.js";
+import { expandProtectionPreset } from "../policy-catalog/presets.js";
 
 describe("Guardrail Validation contract", () => {
+  it("does not generate Output assertions after the user selects Input-only protection", () => {
+    const policies = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
+    const binding = expandProtectionPreset(protectionPresets[0]!, policies)[0]!;
+    binding.enabledRails = ["input"];
+    const cases = generatedTestCases("input-only", { allowedTopics: [], restrictedTopics: [], safetyLevel: "balanced", outputDelivery: "full_buffered", policyBindings: [binding] }, policies);
+    expect(cases.length).toBeGreaterThan(0);
+    expect(cases.every((item) => item.phase === "input")).toBe(true);
+  });
   it("preserves template assertions while applying version-pinned local composition expectations", () => {
     const policies = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
     const draft = defaultGuardrailDraft(policies);
     const cases = generatedTestCases("guardrail-1", draft, policies);
     const original = structuredClone(cases);
     const reviewed = applyValidationOverrides(cases, draft);
-    const credential = reviewed.find((item) => item.sourcePolicyId === "pattern-matching" && item.sourceCaseId === "accept/slack_token")!;
-    expect(credential.expectedDecision).toBe("transform");
-    expect(credential.expectationOverride).toMatchObject({
-      sourcePolicyVersion: "1.95.0", expectedDecision: "block", expectedOutputContent: "",
-      expectedMatches: [{ policyId: "baseline-pii-protection", ruleId: "credentials-api-keys/slack_token" }],
+    const overlap = reviewed.find((item) => item.sourcePolicyId === "local-risk-content-terms" && item.sourceCaseId === "accept/weapons_firearms/input")!;
+    expect(overlap.expectedDecision).toBe("transform");
+    expect(overlap.expectationOverride).toMatchObject({
+      sourcePolicyVersion: "2.0.0", expectedDecision: "block", expectedOutputContent: "",
+      expectedMatches: [{ policyId: "filter-harmful-illegal-weapons", ruleId: "category/harmful_illegal_weapons" }],
     });
-    expect(reviewed).toHaveLength(140);
+    expect(reviewed).toHaveLength(321);
     expect(reviewed.every((item) => item.required)).toBe(true);
     expect(cases).toEqual(original);
   });
@@ -36,17 +46,16 @@ describe("Guardrail Validation contract", () => {
     ];
     for (const [mutate, message] of changes) {
       const draft = defaultGuardrailDraft(policies);
-      mutate(draft.policyBindings.find((item) => item.policyId === "pattern-matching")!.testCaseOverrides!["accept/uae_emirates_id"]!);
+      mutate(draft.policyBindings.find((item) => item.policyId === "local-government-identifiers")!.testCaseOverrides!["accept/uae_emirates_id/input"]!);
       expect(() => applyValidationOverrides(generatedTestCases("guardrail-1", draft, policies), draft)).toThrow(message);
     }
     const draft = defaultGuardrailDraft(policies);
-    const cases = generatedTestCases("guardrail-1", draft, policies).filter((item) => item.sourceCaseId !== "accept/uae_emirates_id");
+    const cases = generatedTestCases("guardrail-1", draft, policies).filter((item) => item.sourceCaseId !== "accept/uae_emirates_id/input");
     expect(() => applyValidationOverrides(cases, draft)).toThrow(/unavailable Test Case/);
   });
   it("inherits only enabled catalog Rule cases and materializes binding parameters", () => {
     const policies = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
     const cases = generatedTestCases("guardrail-1", {
-      purposeDetails: { audience: "", tasks: "", protect: "", outOfScope: "" },
       allowedTopics: [], restrictedTopics: [], safetyLevel: "balanced", outputDelivery: "full_buffered",
       policyBindings: [{
         policyId: "keyword-blocking", policyVersion: "1.95.0", action: "reject",

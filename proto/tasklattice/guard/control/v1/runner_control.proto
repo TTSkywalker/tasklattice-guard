@@ -29,6 +29,7 @@ message RunnerMessage {
     CompileResult compile_result = 13;
     ValidationResult validation_result = 14;
     DesiredStateResult desired_state_result = 15;
+    CapabilityValidationResult capability_validation_result = 16;
   }
 }
 
@@ -44,6 +45,7 @@ message ControllerMessage {
     CompileRequest compile_request = 12;
     DrainRequest drain_request = 13;
     ValidationRequest validation_request = 14;
+    CapabilityValidationRequest capability_validation_request = 15;
   }
 }
 

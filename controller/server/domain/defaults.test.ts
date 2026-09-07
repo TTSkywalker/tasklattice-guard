@@ -19,30 +19,68 @@ const expectedPolicyIds = [
   "filter-bias-racial",
   "filter-bias-religious",
   "filter-bias-sexual-orientation",
-  "prompt-injection-protection",
+  "local-prompt-manipulation",
+  "local-sql-injection",
+  "local-code-injection",
+  "local-rendered-content-injection",
   "filter-prompt-injection-jailbreak",
   "filter-prompt-injection-data-exfiltration",
   "filter-prompt-injection-sql",
   "filter-prompt-injection-malicious-code",
   "filter-prompt-injection-system-prompt",
-  "baseline-pii-protection",
-  "pattern-matching",
+  "local-credentials",
+  "local-payment-data",
+  "local-australian-tax-health-identifiers",
+  "local-bank-account-formats",
+  "local-travel-identifiers",
+  "local-government-identifiers",
+  "local-passport-formats",
+  "local-regional-contact-formats",
+  "local-contact-data",
+  "local-passports",
+  "local-network-addresses",
+  "local-sensitive-attribute-terms",
+  "local-risk-content-terms",
 ];
 
 describe("Default Guardrail baseline", () => {
-  it("unbinds Advanced PII only from Default while preserving the catalog and retained Policies", () => {
+  it("requires no external Model and explicitly buffers complete output for PII transformations", () => {
+    const draft = defaultGuardrailDraft(policies);
+    expect(draft.outputDelivery).toBe("full_buffered");
+    for (const binding of draft.policyBindings) {
+      const policy = policies.find((item) => item.id === binding.policyId)!;
+      expect(policy.protection.execution).toBe("local");
+      expect(policy.protection.modelCapabilities).toEqual([]);
+    }
+  });
+
+  it("rejects a catalog change that introduces a Model or an unverifiable custom flow into Default", () => {
+    for (const change of ["model", "local_then_model", "custom", "hidden-model", "flow"] as const) {
+      const catalog = structuredClone(policies);
+      const policy = catalog.find((item) => item.id === "local-government-identifiers")!;
+      if (change === "hidden-model") policy.protection.modelCapabilities = ["content_safety"];
+      else if (change === "flow") policy.rules[0]!.form = "colang_flow";
+      else policy.protection.execution = change;
+      expect(() => defaultGuardrailDraft(catalog)).toThrow(/must execute locally without a Model/);
+    }
+  });
+
+  it("replaces mixed collections with focused Policies without editing the source catalog", () => {
     const originalCatalog = structuredClone(policies);
     const draft = defaultGuardrailDraft(policies);
     const cases = generatedTestCases(DEFAULT_GUARDRAIL_ID, draft, policies);
 
-    expect(draft.policyBindings).toHaveLength(18);
-    expect(draft.policyBindings.slice(-2).map((binding) => binding.policyId)).toEqual([
-      "baseline-pii-protection", "pattern-matching",
-    ]);
-    expect(draft.policyBindings.some((binding) => binding.policyId === "advanced-au-pii-protection")).toBe(false);
-    expect(cases).toHaveLength(140);
-    expect(cases.some((item) => item.sourcePolicyId === "advanced-au-pii-protection")).toBe(false);
-    expect(policies.find((item) => item.id === "advanced-au-pii-protection")?.rules).toHaveLength(47);
+    expect(draft.policyBindings).toHaveLength(32);
+    expect(cases).toHaveLength(321);
+    for (const [id, ruleCount] of [
+      ["advanced-au-pii-protection", 47], ["prompt-injection-protection", 29],
+      ["baseline-pii-protection", 14], ["pattern-matching", 82],
+    ] as const) {
+      expect(draft.policyBindings.some((binding) => binding.policyId === id)).toBe(false);
+      expect(cases.some((item) => item.sourcePolicyId === id)).toBe(false);
+      expect(policies.find((item) => item.id === id)?.rules).toHaveLength(ruleCount);
+    }
+    expect(draft.policyBindings.every((binding) => !policies.find((item) => item.id === binding.policyId)!.protection.legacyCollection)).toBe(true);
     expect(policies).toEqual(originalCatalog);
   });
 
@@ -58,7 +96,7 @@ describe("Default Guardrail baseline", () => {
         action: null,
         parameterValues: {},
         enabledRuleIds: policy.rules.map((rule) => rule.id),
-        ruleOrder: binding.ruleOrder,
+        ruleOrder: [],
         testCaseOverrides: binding.testCaseOverrides,
         ruleActions: {},
         enabledRails: policy.rails,
@@ -101,7 +139,7 @@ describe("Default Guardrail baseline", () => {
   it("includes new Policy Rules and Test Cases when rebuilding from an updated catalog", () => {
     const originalDraft = defaultGuardrailDraft(policies);
     const updatedPolicies = structuredClone(policies);
-    const policy = updatedPolicies.find((item) => item.id === "pattern-matching")!;
+    const policy = updatedPolicies.find((item) => item.id === "local-contact-data")!;
     const ruleId = "pattern/new-policy-rule";
     const caseId = "new-policy-acceptance-case";
     policy.version = "next-catalog-version";
@@ -125,18 +163,17 @@ describe("Default Guardrail baseline", () => {
   });
 
   it("fails explicitly when an entire selected Policy is missing or empty", () => {
-    expect(() => defaultGuardrailDraft(policies.filter((policy) => policy.id !== "pattern-matching")))
-      .toThrow("Default Guardrail Policy pattern-matching is missing");
-    expect(() => defaultGuardrailDraft(policies.map((policy) => policy.id === "pattern-matching" ? { ...policy, rules: [] } : policy)))
-      .toThrow("Default Guardrail Policy pattern-matching has no Rules");
+    expect(() => defaultGuardrailDraft(policies.filter((policy) => policy.id !== "local-government-identifiers")))
+      .toThrow("Default Guardrail Policy local-government-identifiers is missing");
+    expect(() => defaultGuardrailDraft(policies.map((policy) => policy.id === "local-government-identifiers" ? { ...policy, rules: [] } : policy)))
+      .toThrow("Default Guardrail Policy local-government-identifiers has no Rules");
   });
 
   it("compiles locally while retaining every Policy binding for runtime inspection", () => {
     const draft = defaultGuardrailDraft(policies);
     const plan = buildGuardrailPlan({
       guardrailId: DEFAULT_GUARDRAIL_ID,
-      guardrailVersion: 1,
-      purpose: "Protect unmatched traffic with complete local Policies.",
+      guardrailVersion: "20260904-010000.001Z",
       draft,
       policies,
     });
@@ -153,7 +190,7 @@ describe("Default Guardrail baseline", () => {
       const parameters = Object.fromEntries(step.parameters);
       expect(parameters.policy_ids).toBe(binding.policyId);
       expect(JSON.parse(parameters.enabled_rules_json!)).toEqual({ [binding.policyId]: binding.enabledRuleIds });
-      expect(JSON.parse(parameters.custom_rules_json!)).toEqual([]);
+      expect(parameters).not.toHaveProperty("custom_rules_json");
     });
     expect(plan.policy_bindings).toEqual(draft.policyBindings.map((binding) => ({
       policy_id: binding.policyId,
@@ -161,7 +198,7 @@ describe("Default Guardrail baseline", () => {
       action: binding.action,
       parameter_values: Object.entries(binding.parameterValues),
       enabled_rule_ids: binding.enabledRuleIds,
-      ...(binding.ruleOrder?.length ? { rule_order: binding.ruleOrder } : {}),
+      rule_order: binding.ruleOrder ?? [],
       rule_actions: [],
       enabled_rails: binding.enabledRails,
     })));

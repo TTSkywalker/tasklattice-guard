@@ -15,15 +15,19 @@ import type { ControllerConfig } from "../config.js";
 import type { RunnerLoad } from "../db/schema.js";
 import type { CompileResult__Output } from "../generated/control-protocol/tasklattice/guard/control/v1/CompileResult.js";
 import type { ControllerMessage } from "../generated/control-protocol/tasklattice/guard/control/v1/ControllerMessage.js";
+import type { CapabilityValidationRequest } from "../generated/control-protocol/tasklattice/guard/control/v1/CapabilityValidationRequest.js";
+import type { RailValidationEvidence } from "../model-config/service.js";
 import type { RunnerHeartbeat__Output } from "../generated/control-protocol/tasklattice/guard/control/v1/RunnerHeartbeat.js";
 import type { RunnerMessage__Output } from "../generated/control-protocol/tasklattice/guard/control/v1/RunnerMessage.js";
 import type { RunnerControlHandlers } from "../generated/control-protocol/tasklattice/guard/control/v1/RunnerControl.js";
 import type { ValidationResult__Output } from "../generated/control-protocol/tasklattice/guard/control/v1/ValidationResult.js";
 import type { ProtoGrpcType } from "../generated/control-protocol/runner_control.js";
 import type { ControllerMetrics } from "../metrics.js";
-import { assignmentContracts, type ModelRole } from "../model-config/domain.js";
+import { capabilityBindingContracts } from "../model-config/domain.js";
+import { capabilityBindingDefinitions } from "../../shared/guardrail-catalog.js";
 import type { ModelConfigurationService } from "../model-config/service.js";
 import type { ControlPlaneService } from "../services/control-plane.js";
+import { controlChannelOptions } from "./transport.js";
 import {
   artifactFromWire,
   artifactToWire,
@@ -51,9 +55,10 @@ type Connection = {
 };
 
 export class RunnerControlServer {
-  private readonly grpc = new Server();
+  private readonly grpc = new Server(controlChannelOptions);
   private readonly connections = new Map<string, Connection>();
   private timers: NodeJS.Timeout[] = [];
+  private readonly railValidations = new Map<string, { runnerId: string; bootId: string; finish: (result: RailValidationEvidence) => void }>();
 
   constructor(
     private readonly config: ControllerConfig,
@@ -74,6 +79,21 @@ export class RunnerControlServer {
       Connect: (stream: RunnerStream) => this.connect(stream),
     };
     this.grpc.addService(descriptor.tasklattice.guard.control.v1.RunnerControl.service, handlers);
+    this.models.setRailValidator?.((request) => this.validateRail(request));
+  }
+
+  async validateRail(request: CapabilityValidationRequest): Promise<RailValidationEvidence> {
+    const runner = [...this.connections.values()].find((item) => item.poolId === "default" && item.compilerCapable);
+    if (!runner || !request.requestId) return { passed: false, message: "No connected Default Runner can validate this Rail.", latencyMs: 0 };
+    const requestId = request.requestId;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => finish({ passed: false, message: "Runner Rail validation timed out. No configuration was activated.", latencyMs: 95_000 }), 95_000);
+      timer.unref();
+      const finish = (result: RailValidationEvidence) => { clearTimeout(timer); this.railValidations.delete(requestId); resolve(result); };
+      this.railValidations.set(requestId, { runnerId: runner.runnerId, bootId: runner.bootId, finish });
+      try { this.write(runner.stream, { capabilityValidationRequest: request }); }
+      catch { finish({ passed: false, message: "Runner disconnected before Rail validation could start.", latencyMs: 0 }); }
+    });
   }
 
   async start(): Promise<void> {
@@ -95,6 +115,7 @@ export class RunnerControlServer {
   }
 
   async stop(): Promise<void> {
+    for (const validation of this.railValidations.values()) validation.finish({ passed: false, message: "Controller stopped during Rail validation.", latencyMs: 0 });
     for (const timer of this.timers) clearInterval(timer);
     this.timers = [];
     for (const connection of this.connections.values()) connection.stream.end();
@@ -168,6 +189,10 @@ export class RunnerControlServer {
     });
     const disconnected = () => {
       if (!connection) return;
+      for (const validation of this.railValidations.values()) {
+        if (validation.runnerId === connection.runnerId && validation.bootId === connection.bootId)
+          validation.finish({ passed: false, message: "Runner disconnected during Rail validation.", latencyMs: 0 });
+      }
       const current = this.connections.get(connection.runnerId);
       if (current?.bootId === connection.bootId) {
         this.connections.delete(connection.runnerId);
@@ -255,6 +280,16 @@ export class RunnerControlServer {
       if (result.runnerId !== current.runnerId) throw new Error("Validation result identity does not match the registered stream.");
       this.metrics.observeJob("validation", result.accepted);
       await this.handleValidationResult(result);
+    } else if (message.capabilityValidationResult) {
+      const result = message.capabilityValidationResult;
+      const pending = this.railValidations.get(result.requestId);
+      if (pending && pending.runnerId === current.runnerId && pending.bootId === current.bootId) {
+        const passed = result.passed && Boolean(result.runtimeProfile)
+          && result.cases.some((item) => item.expectedDecision === "allow")
+          && result.cases.some((item) => item.expectedDecision === "block")
+          && result.cases.every((item) => item.passed && item.expectedDecision === item.actualDecision);
+        pending.finish({ passed, message: result.message, latencyMs: result.latencyMs });
+      }
     } else if (message.artifactResult) {
       // The following heartbeat advances applied_generation after an atomic
       // activation. NACK keeps the prior last-known-good generation in place.
@@ -300,7 +335,7 @@ export class RunnerControlServer {
       await this.service.rejectCompile({
         compileId: result.compileId,
         guardrailId: artifact?.guardrailId ?? "",
-        guardrailVersion: artifact?.guardrailVersion ?? 0,
+        guardrailVersion: artifact?.guardrailVersion ?? "",
         reason: result.reason || "GuardRails 0 rejected the Guardrail plan.",
       });
       return;
@@ -310,7 +345,7 @@ export class RunnerControlServer {
     await this.service.acceptCompiledArtifact({
       compileId: result.compileId,
       guardrailId: string(content.guardrailId),
-      guardrailVersion: number(content.guardrailVersion),
+      guardrailVersion: string(content.guardrailVersion),
       generation: number(content.generation),
       compilerVersion: string(content.compilerVersion),
       nemoVersion: string(content.nemoVersion),
@@ -359,19 +394,22 @@ export class RunnerControlServer {
         this.metrics.observeReconcile(connection.poolId, "noop", (performance.now() - started) / 1_000);
         return;
       }
-      const dataAssignments = modelConfiguration ? dataPlaneRoles.flatMap((role) => {
-        const modelRef = modelConfiguration.assignments[role];
+      const dataBindings = modelConfiguration ? capabilityBindingDefinitions.flatMap((binding) => {
+        const modelRef = modelConfiguration.assignments.bindings[binding.id];
         if (!modelRef) return [];
         const model = modelConfiguration.models.find((item) => item.id === modelRef);
         if (!model) return [];
         return [{
-          role,
+          bindingId: binding.id,
+          capabilityRef: binding.capabilityRef,
+          railType: binding.railType === "input" ? "RAIL_TYPE_INPUT" as const : "RAIL_TYPE_OUTPUT" as const,
+          implementationRef: binding.implementationRef,
           modelRef,
           profileRef: model.profile,
-          contractRefs: [...assignmentContracts(role, model.profile, modelConfiguration.assignments)],
+          contractRefs: [...capabilityBindingContracts(binding.id, model.profile)],
         }];
       }) : [];
-      const dataModelIds = new Set(dataAssignments.map((item) => item.modelRef));
+      const dataModelIds = new Set(dataBindings.map((item) => item.modelRef));
       this.write(connection.stream, {
       desiredState: {
         generation: String(desired.generation),
@@ -401,12 +439,13 @@ export class RunnerControlServer {
             providerName: model.providerName,
             baseUrl: model.baseUrl,
             credentialRef: model.credentialRef,
+            skipTlsVerify: model.skipTlsVerify ?? false,
             model: model.model,
             profileRef: model.profile,
             timeoutSeconds: model.timeoutSeconds,
             maxTokens: model.maxTokens,
           })),
-          assignments: dataAssignments,
+          bindings: dataBindings,
         } : null,
       },
       });
@@ -428,7 +467,7 @@ export class RunnerControlServer {
         compileRequest: {
           compileId: string(payload.compileId),
           guardrailId: string(payload.guardrailId),
-          guardrailVersion: number(payload.guardrailVersion),
+          guardrailVersion: string(payload.guardrailVersion),
           generation: String(number(payload.generation)),
           plan: planToWire(payload.plan ?? {}),
           runtimeProfile: string(payload.runtimeProfile),
@@ -451,7 +490,7 @@ export class RunnerControlServer {
         validationRequest: {
           runId: string(payload.runId),
           guardrailId: string(payload.guardrailId),
-          candidateVersion: number(payload.candidateVersion),
+          candidateVersion: string(payload.candidateVersion),
           sourceDraftRevision: number(payload.sourceDraftRevision),
           plan: planToWire(payload.plan ?? {}),
           runtimeProfile: string(payload.runtimeProfile),
@@ -493,14 +532,6 @@ export class RunnerControlServer {
     return ServerCredentials.createInsecure();
   }
 }
-
-const dataPlaneRoles: ModelRole[] = [
-  "safety_evaluator",
-  "jailbreak_evaluator",
-  "topic_policy_judge",
-  "grounding_judge",
-  "automated_reasoning",
-];
 
 function normalizeLoad(load: RunnerHeartbeat__Output["load"]): RunnerLoad {
   return {

@@ -1,0 +1,19 @@
+{
+  "adapter": "litellm-generic-guardrail",
+  "artifact_id": "fixture-artifact-jailbreak-v1",
+  "checksum": "7e9a0cdb86fd21ca2c310fb65b1d774ab464fc8af97f3aadef67708c82f5660e",
+  "compiler_version": "tasklattice-nemo-config-v18-selected-policy-dependencies",
+  "expected": {
+    "safe_input": "NONE",
+    "safe_output": "NONE",
+    "unsafe_input": "BLOCKED"
+  },
+  "fixture": "jailbreak-v1",
+  "format": "tasklattice.guard.control.v1.DesiredState/base64",
+  "generation": 1,
+  "guardrail_id": "fixture-secrets",
+  "guardrail_version": "20260904-010000.001Z",
+  "integration_id": "fixture-integration",
+  "nemo_version": "0.24.0",
+  "runtime_profile": "llmrails_colang1_standard"
+}

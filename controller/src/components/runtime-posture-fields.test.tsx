@@ -18,7 +18,7 @@ vi.mock("react-i18next", () => ({
       "guardrailWizard.outputDelivery": "Output delivery",
       "guardrailWizard.outputDeliveryHelpLabel": "How output delivery works",
       "guardrailWizard.outputDeliveryHelp": "Controls output buffering.",
-      "guardrailWizard.outputDeliveryOptions.interruptible": "Interruptible · Release immediately",
+      "guardrailWizard.outputDeliveryOptions.interruptible": "Interruptible · Check each chunk",
       "guardrailWizard.outputDeliveryOptions.window_buffered": "Window buffered · Check in segments",
       "guardrailWizard.outputDeliveryOptions.full_buffered": "Full buffered · Check before release",
       "guardrailWizard.outputDeliveryDescriptions.interruptible": "Already released content cannot be recalled.",

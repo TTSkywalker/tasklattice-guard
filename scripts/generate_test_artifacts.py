@@ -34,6 +34,20 @@ OUTPUT = ROOT / "tests" / "fixtures" / "artifacts"
 FIXTURE_NAME = "local-secrets-v1"
 ORDERED_FIXTURE_NAME = "ordered-local-v1"
 DEFAULT_FIXTURE_NAME = "default-local-v1"
+JAILBREAK_FIXTURE_NAME = "jailbreak-v1"
+PHRASE_FIXTURE_NAME = "configured-phrases-v1"
+CUSTOM_SYMBOL_FIXTURE_NAME = "custom-symbol-ownership-v1"
+CUSTOM_PARAMETER_FIXTURE_NAME = "custom-literal-parameters-v1"
+STREAM_SAFETY_FIXTURES = {
+    f"stream-safety-{mode}-v1": mode for mode in ("window_buffered", "interruptible", "full_buffered")
+}
+PRESET_FIXTURES = {
+    f"preset-{name}-v1": name for name in (
+        "common-baseline", "banking-assistant", "securities-assistant",
+        "internet-customer-support", "singapore-financial-assistant",
+    )
+}
+FIXTURE_NAMES = (FIXTURE_NAME, ORDERED_FIXTURE_NAME, DEFAULT_FIXTURE_NAME, JAILBREAK_FIXTURE_NAME, PHRASE_FIXTURE_NAME, CUSTOM_SYMBOL_FIXTURE_NAME, CUSTOM_PARAMETER_FIXTURE_NAME, *PRESET_FIXTURES, *STREAM_SAFETY_FIXTURES)
 TEST_CREDENTIAL = "fixture-runtime-secret"
 _PRIVATE_KEY_BYTES = bytes(range(1, 33))
 
@@ -48,7 +62,7 @@ class FixtureFiles:
 def _plan() -> dict[str, object]:
     return {
         "guardrail_id": "fixture-secrets",
-        "guardrail_version": 1,
+        "guardrail_version": "20260904-010000.001Z",
         "compiler_version": "tasklattice-controller-plan-v3",
         "safety_level": "balanced",
         "output_delivery": "full_buffered",
@@ -117,6 +131,20 @@ def _ordered_plan() -> dict[str, object]:
     return plan
 
 
+def _jailbreak_plan() -> dict[str, object]:
+    # The artifact declares only the capability, never a model or transport.
+    plan = _plan()
+    plan["steps"] = [{
+        **plan["steps"][0], "id": "jailbreak:primary", "capability": "jailbreak",
+        "contract_ref": "tali.guard.jailbreak.v1", "phases": ["input"],
+    }]
+    plan["modules"] = [{
+        **plan["modules"][0], "id": "interaction_safety:input", "module": "interaction_safety",
+        "step_ids": ["jailbreak:primary"], "timeout_ms": 5_000,
+    }]
+    return plan
+
+
 def _default_plan() -> dict[str, object]:
     # Control-plane generation only. Runner-only tests never import the builder.
     source = """
@@ -124,7 +152,7 @@ def _default_plan() -> dict[str, object]:
       import {buildGuardrailPlan} from './server/domain/guardrail-plan.ts';
       import {PolicyCatalog} from './server/policy-catalog/catalog.ts';
       const policies = PolicyCatalog.load('../runner/toolkit/policy_library/assets').list();
-      console.log(JSON.stringify(buildGuardrailPlan({guardrailId:'fixture-secrets', guardrailVersion:1,
+      console.log(JSON.stringify(buildGuardrailPlan({guardrailId:'fixture-secrets', guardrailVersion:"20260904-010000.001Z",
         draft:defaultGuardrailDraft(policies), policies})));
     """
     return json.loads(subprocess.run(
@@ -133,18 +161,140 @@ def _default_plan() -> dict[str, object]:
     ).stdout)
 
 
+def _phrase_plan() -> dict[str, object]:
+    source = """
+      import {buildGuardrailPlan} from './server/domain/guardrail-plan.ts';
+      import {PolicyCatalog} from './server/policy-catalog/catalog.ts';
+      const policies = PolicyCatalog.load('../runner/toolkit/policy_library/assets').list();
+      const phrase_entries = JSON.stringify([
+        {id:'mask', phrase:'internal-name', action:'redact', replacement:'public-name'},
+        {id:'block-original', phrase:'internal-name', action:'reject'},
+        {id:'block', phrase:'confidential', action:'reject'},
+        {id:'mask-zh', phrase:'内部代号', action:'redact', replacement:'公开名称'},
+      ]);
+      console.log(JSON.stringify(buildGuardrailPlan({guardrailId:'fixture-secrets', guardrailVersion:'20260904-010000.001Z', policies,
+        draft:{allowedTopics:[], restrictedTopics:[], safetyLevel:'balanced', outputDelivery:'full_buffered', policyBindings:[{
+          policyId:'configured-phrase-filter', policyVersion:'1.0.0', action:null,
+          parameterValues:{phrase_entries}, enabledRuleIds:['configured/phrases'], ruleActions:{}, enabledRails:['input','output'], reasoningPolicy:null,
+        }]}})));
+    """
+    return json.loads(subprocess.run(
+        ["node", "--import", "tsx", "--input-type=module", "-e", source],
+        cwd=ROOT / "controller", capture_output=True, text=True, check=True, timeout=30,
+    ).stdout)
+
+
+def _preset_payload(preset_id: str) -> dict:
+    # Generate once outside the data plane. Frozen fixtures include the reviewed
+    # cases so Runner-only tests need neither Controller nor Policy expansion.
+    source = """
+      import {protectionPresets} from './shared/protection-presets.ts';
+      import {expandProtectionPreset} from './server/policy-catalog/presets.ts';
+      import {buildGuardrailPlan} from './server/domain/guardrail-plan.ts';
+      import {generatedTestCases} from './server/domain/validation.ts';
+      import {PolicyCatalog} from './server/policy-catalog/catalog.ts';
+      const policies = PolicyCatalog.load('../runner/toolkit/policy_library/assets').list();
+      const preset = protectionPresets.find(item => item.id === process.argv[1]);
+      if (!preset) throw new Error('Unknown preset');
+      const draft = {allowedTopics:[], restrictedTopics:[], policyBindings:expandProtectionPreset(preset, policies),
+        safetyLevel:'balanced', outputDelivery:'full_buffered'};
+      console.log(JSON.stringify({
+        plan:buildGuardrailPlan({guardrailId:'fixture-secrets', guardrailVersion:'20260904-010000.001Z', draft, policies}),
+        cases:generatedTestCases('fixture-secrets', draft, policies).map(item => ({
+          id:item.id, name:item.name, phase:item.phase, content:item.content, expectedDecision:item.expectedDecision,
+          sourcePolicyId:item.sourcePolicyId, sourcePolicyVersion:item.sourcePolicyVersion,
+        })),
+      }));
+    """
+    return json.loads(subprocess.run(
+        ["node", "--import", "tsx", "--input-type=module", "-e", source, preset_id],
+        cwd=ROOT / "controller", capture_output=True, text=True, check=True, timeout=30,
+    ).stdout)
+
+
+def _stream_safety_plan(mode: str) -> dict:
+    # The actual Controller builder chooses the Policy's Output step and pins
+    # its version. The data plane receives only the generated signed artifact.
+    source = """
+      import {buildGuardrailPlan} from './server/domain/guardrail-plan.ts';
+      import {PolicyCatalog} from './server/policy-catalog/catalog.ts';
+      const policies = PolicyCatalog.load('../runner/toolkit/policy_library/assets').list();
+      console.log(JSON.stringify(buildGuardrailPlan({guardrailId:'fixture-secrets', guardrailVersion:'20260904-010000.001Z', policies,
+        draft:{allowedTopics:[], restrictedTopics:[], safetyLevel:'balanced', outputDelivery:process.argv[1], policyBindings:[{
+          policyId:'builtin-content-safety', policyVersion:'1.0.0', action:null,
+          parameterValues:{}, enabledRuleIds:['model/content-safety'], ruleActions:{}, enabledRails:['output'], reasoningPolicy:null,
+        }]}})));
+    """
+    return json.loads(subprocess.run(
+        ["node", "--import", "tsx", "--input-type=module", "-e", source, mode],
+        cwd=ROOT / "controller", capture_output=True, text=True, check=True, timeout=30,
+    ).stdout)
+
+
+def _custom_symbol_plan() -> dict:
+    plan = _plan()
+    plan.update(steps=[], modules=[], policy_versions=[], policy_bindings=[])
+    for policy_id, marker, action in [("policy-a", "check", "redact"), ("policy_a", "check reviewed", "reject")]:
+        source = '\n'.join(f'flow {phase}_check $text\n  await check($text, "{phase}_check")\n' for phase in ("input", "output"))
+        source += f'''\nflow check $text $flow_name
+  $check = $text
+  if $check == "{marker}"
+    $r = await GuardRecordPolicyAction(flow_name=$flow_name, safe=False, text=$check, replacement="check reviewed")
+  else
+    $r = await GuardRecordPolicyAction(flow_name=$flow_name, safe=True, text=$check)
+'''
+        plan["policy_versions"].append({
+            "policy_id": policy_id, "version": "1", "name": policy_id, "source": "custom",
+            "colang_version": "2.x", "sources": [{"path": "checks.co", "content": source}],
+            "rail_bindings": [{"rail_type": phase, "flow_name": f"{phase}_check", "execution_mode": "mutate", "on_unsafe": action}
+                for phase in ("input", "output")],
+            "action_references": [{"name": "GuardRecordPolicyAction", "version": "1.0.0"}],
+            "checksum": hashlib.sha256(source.encode()).hexdigest(),
+        })
+        plan["policy_bindings"].append({"policy_id": policy_id, "policy_version": "1", "enabled_rails": ["input", "output"]})
+    return plan
+
+
+def _custom_parameter_plan() -> dict:
+    plan = _custom_symbol_plan()
+    plan["policy_versions"] = plan["policy_versions"][:1]
+    plan["policy_bindings"] = plan["policy_bindings"][:1]
+    source = '\n'.join(f'''flow {phase}_check $text
+  $label = "${{label}}"
+  $safe = $label != $text
+  $r = await GuardRecordPolicyAction(flow_name="{phase}_check", safe=$safe, text=$text)
+''' for phase in ("input", "output"))
+    version = plan["policy_versions"][0]
+    version.update(sources=[{"path": "checks.co", "content": source}], checksum=hashlib.sha256(source.encode()).hexdigest())
+    for binding in version["rail_bindings"]:
+        binding.update(execution_mode="detect", on_unsafe="reject")
+    plan["policy_bindings"][0]["parameter_values"] = [["label", 'ordinary"\n  $text = "safe"\n  $other = "ordinary']]
+    return plan
+
+
 def generate(fixture_name: str = FIXTURE_NAME) -> FixtureFiles:
     private_key = Ed25519PrivateKey.from_private_bytes(_PRIVATE_KEY_BYTES)
     public_key = private_key.public_key().public_bytes(
         serialization.Encoding.PEM,
         serialization.PublicFormat.SubjectPublicKeyInfo,
     )
+    preset = _preset_payload(PRESET_FIXTURES[fixture_name]) if fixture_name in PRESET_FIXTURES else None
+    plan = preset["plan"] if preset else {
+        DEFAULT_FIXTURE_NAME: _default_plan,
+        ORDERED_FIXTURE_NAME: _ordered_plan,
+        JAILBREAK_FIXTURE_NAME: _jailbreak_plan,
+        PHRASE_FIXTURE_NAME: _phrase_plan,
+        CUSTOM_SYMBOL_FIXTURE_NAME: _custom_symbol_plan,
+        CUSTOM_PARAMETER_FIXTURE_NAME: _custom_parameter_plan,
+    }.get(fixture_name, _plan)()
+    if fixture_name in STREAM_SAFETY_FIXTURES:
+        plan = _stream_safety_plan(STREAM_SAFETY_FIXTURES[fixture_name])
     artifact = DefaultRunnerCompiler().compile(protocol.CompileRequest(
         compile_id="fixture-compile-local-secrets-v1",
         guardrail_id="fixture-secrets",
-        guardrail_version=1,
+        guardrail_version="20260904-010000.001Z",
         generation=1,
-        plan=plan_to_proto(_default_plan() if fixture_name == DEFAULT_FIXTURE_NAME else _ordered_plan() if fixture_name == ORDERED_FIXTURE_NAME else _plan()),
+        plan=plan_to_proto(plan),
         runtime_profile="auto",
     ))
     artifact.artifact_id = f"fixture-artifact-{fixture_name}"
@@ -200,6 +350,18 @@ def generate(fixture_name: str = FIXTURE_NAME) -> FixtureFiles:
     if fixture_name in {ORDERED_FIXTURE_NAME, DEFAULT_FIXTURE_NAME}:
         manifest["expected"]["redacted_input"] = "GUARDRAIL_INTERVENED"
         manifest["expected"]["redacted_output"] = "GUARDRAIL_INTERVENED"
+    if preset:
+        manifest["preset_id"] = PRESET_FIXTURES[fixture_name]
+        manifest["regression_cases"] = preset["cases"]
+        manifest["policy_ids"] = [item["policy_id"] for item in plan["policy_bindings"]]
+    if fixture_name in STREAM_SAFETY_FIXTURES:
+        manifest["expected"] = {"safe_output": "allow", "unsafe_output": "block",
+            "output_delivery": STREAM_SAFETY_FIXTURES[fixture_name]}
+        manifest["scope"] = "Frozen output-only model Policy; transport responses in tests are synthetic, not model quality evidence."
+    if fixture_name == CUSTOM_SYMBOL_FIXTURE_NAME:
+        manifest["expected"] = {"safe": "ordinary", "first_policy_marker": "check", "second_policy_marker": "check reviewed",
+            "policy_order": ["policy-a", "policy_a"], "output_delivery": "full_buffered"}
+        manifest["scope"] = "Synthetic custom Colang symbol and result ownership; real NeMo, no models."
     return FixtureFiles(
         desired_state=base64.b64encode(desired_state.SerializeToString()).decode() + "\n",
         public_key=public_key.decode(),
@@ -217,9 +379,10 @@ def _write(directory: Path, files: FixtureFiles) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--fixture", choices=FIXTURE_NAMES)
     args = parser.parse_args()
     mismatches = []
-    for fixture_name in (FIXTURE_NAME, ORDERED_FIXTURE_NAME, DEFAULT_FIXTURE_NAME):
+    for fixture_name in (args.fixture,) if args.fixture else FIXTURE_NAMES:
         files = generate(fixture_name)
         destination = OUTPUT / fixture_name
         if not args.check:

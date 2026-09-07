@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { boundPolicy } from "@/lib/bound-policy";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -18,7 +19,11 @@ import { toast } from "sonner";
 import { ComplianceDocumentImport } from "@/components/compliance-document-import";
 import { CreationFlow } from "@/components/creation-flow";
 import { EntitySheet } from "@/components/entity-sheet";
-import { PolicyBindingEditor, defaultPolicyBinding, getPolicyBindingValidation } from "@/components/policy-binding-editor";
+import { defaultPolicyBinding, getPolicyBindingValidation } from "@/components/policy-binding-editor";
+import { ProtectionDirectoryEditor, ProtectionOrderEditor, ProtectionPresetPicker } from "@/components/protection-workspace";
+import { ProtectionDependencies } from "@/components/protection-dependencies";
+import { protectionDirectories } from "../../shared/protection-map";
+import { completeResponsePolicies, mergeDirectoryBindings, mergePresetBindings, policyDirectory } from "@/lib/protection-composition";
 import { ErrorNotice, InfoNotice } from "@/components/product-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,11 +34,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { queryKeys } from "@/features/query-keys";
 import { useAuth } from "@/lib/auth";
+import { policyRequiresTopicAllowlist } from "@/lib/protection-requirements";
 import {
   analyzeGuardrailIntent,
   createGuardrail,
   getIntentAnalysisStatus,
   getPolicies,
+  getProtectionPresets,
   previewGuardrailCandidate,
   type ComplianceDocumentAnalysis,
   type GuardrailPolicyBinding,
@@ -43,7 +50,8 @@ import {
 } from "@/lib/api";
 
 const EMPTY_POLICIES: Policy[] = [];
-const FULL_BUFFERED_POLICY_IDS = new Set(["builtin-system-prompt-leakage", "builtin-automated-reasoning"]);
+const DELIVERY_STEP = protectionDirectories.length + 1;
+const REVIEW_STEP = DELIVERY_STEP + 1;
 type PolicyWorkspace = "main" | "intent" | "documents";
 type BoundarySource = "intent" | "documents" | null;
 
@@ -59,32 +67,37 @@ export function CreateGuardrailWizard({
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const policiesQuery = useQuery({ queryKey: queryKeys.policies, queryFn: getPolicies, enabled: open });
+  const presetsQuery = useQuery({ queryKey: queryKeys.protectionPresets, queryFn: getProtectionPresets, enabled: open, retry: false });
   const intentStatusQuery = useQuery({ queryKey: queryKeys.intentAnalysisStatus, queryFn: getIntentAnalysisStatus, enabled: open, retry: false });
   const policies = policiesQuery.data?.items ?? EMPTY_POLICIES;
   const [step, setStep] = useState(0);
   const [policyWorkspace, setPolicyWorkspace] = useState<PolicyWorkspace>("main");
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [purposeAudience, setPurposeAudience] = useState("");
-  const [purposeTasks, setPurposeTasks] = useState("");
-  const [purposeProtect, setPurposeProtect] = useState("");
-  const [purposeOutOfScope, setPurposeOutOfScope] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState("blank");
+  const [presetFeedback, setPresetFeedback] = useState("");
   const [intentText, setIntentText] = useState("");
   const [intentProposal, setIntentProposal] = useState<IntentAnalysis | null>(null);
   const [allowed, setAllowed] = useState("");
-  const [restricted, setRestricted] = useState("");
   const [boundarySource, setBoundarySource] = useState<BoundarySource>(null);
   const [bindings, setBindings] = useState<GuardrailPolicyBinding[]>([]);
   const [outputDelivery, setOutputDelivery] = useState<OutputDelivery>("window_buffered");
-  const [customRules, setCustomRules] = useState<CustomRuleRow[]>([]);
   const [showBoundaries, setShowBoundaries] = useState(false);
   const [documentImportReset, setDocumentImportReset] = useState(0);
   const nextBlockedReasonId = useId();
 
+  const directory = protectionDirectories[step - 1];
+  const directoryPolicies = directory ? policies.filter((policy) => policyDirectory(policy) === directory.id) : [];
+  const directoryIds = new Set(directoryPolicies.map((policy) => policy.id));
+  const directoryBindings = bindings.filter((binding) => directoryIds.has(binding.policy_id));
   const steps = [
-    { label: t("guardrailWizard.steps.details"), description: t("guardrailWizard.steps.detailsDescription") },
-    { label: t("guardrailWizard.steps.policies"), description: t("guardrailWizard.steps.policiesDescription") },
-    { label: t("guardrailWizard.steps.review"), description: t("guardrailWizard.steps.reviewDescription") },
+    { label: t("protection.start"), description: t("protection.startDescription") },
+    ...protectionDirectories.map((item) => {
+      const selected = bindings.filter((binding) => policies.some((policy) => policy.id === binding.policy_id && policyDirectory(policy) === item.id));
+      const needsSetup = selected.length > 0 && getPolicyBindingsBlocker(selected, policies, allowed);
+      return { label: t(`protection.directories.${item.id}`), description: t(needsSetup ? "protection.needsSetup" : selected.length ? "protection.selected" : "protection.optional", { count: selected.length }) };
+    }),
+    { label: t("protection.delivery"), description: t("protection.order") },
+    { label: t("protection.review"), description: t("guardrailWizard.steps.reviewDescription") },
   ];
 
   useEffect(() => {
@@ -92,17 +105,12 @@ export function CreateGuardrailWizard({
     setStep(0);
     setPolicyWorkspace("main");
     setName("");
-    setDescription("");
-    setPurposeAudience("");
-    setPurposeTasks("");
-    setPurposeProtect("");
-    setPurposeOutOfScope("");
-    setCustomRules([]);
+    setSelectedPreset("blank");
+    setPresetFeedback("");
     setShowBoundaries(false);
     setIntentText("");
     setIntentProposal(null);
     setAllowed("");
-    setRestricted("");
     setBoundarySource(null);
     setBindings([]);
     setOutputDelivery("window_buffered");
@@ -116,38 +124,39 @@ export function CreateGuardrailWizard({
     onError: (error) => notifyError(error, t("guardrailWizard.operationFailed")),
   });
 
+  const fullResponsePolicies = completeResponsePolicies(bindings, policies);
+  const effectiveDelivery = fullResponsePolicies.length ? "full_buffered" : outputDelivery;
+
   const payload = useMemo(() => ({
     name: name.trim(),
-    purpose: description.trim(),
-    purpose_details: {
-      audience: purposeAudience.trim(),
-      tasks: purposeTasks.trim(),
-      protect: purposeProtect.trim(),
-      out_of_scope: purposeOutOfScope.trim(),
-    },
-    custom_content_rules: customRulesToDraft(customRules),
     allowed_topics: lines(allowed),
-    restricted_topics: lines(restricted),
     policy_bindings: bindings,
     safety_level: "balanced" as const,
-    output_delivery: outputDelivery,
-  }), [allowed, bindings, customRules, description, name, outputDelivery, purposeAudience, purposeTasks, purposeProtect, purposeOutOfScope, restricted]);
+    output_delivery: effectiveDelivery,
+  }), [allowed, bindings, name, effectiveDelivery]);
 
-  const preview = useMutation({ mutationFn: () => previewGuardrailCandidate(payload) });
-  useEffect(() => {
-    if (step === 2 && bindings.length && bindingsValid(bindings, policies)) preview.mutate();
-    // The preview is a point-in-time review; edits happen on previous steps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  const preview = useQuery({
+    queryKey: ["guardrail-candidate-preview", payload],
+    queryFn: () => previewGuardrailCandidate(payload),
+    enabled: open && step === REVIEW_STEP && Boolean(name.trim()) && bindingsValid(bindings, policies, allowed),
+    retry: false,
+  });
 
   const create = useMutation({
     mutationFn: () => createGuardrail(payload),
+    // Creation is an explicit write, not a queued offline task. Surface a
+    // network failure now rather than silently submitting after reconnection.
+    networkMode: "always",
+    retry: false,
     onSuccess: (guardrail) => {
       toast.success(t("guardrailWizard.created", { name: guardrail.name }));
       onCreated(guardrail.id);
     },
-    onError: (error) => notifyError(error, t("guardrailWizard.operationFailed")),
+    // The persistent footer owns this error; a second toast obscures the
+    // sheet heading on narrow screens and disappears before recovery.
   });
+  const resetCreate = create.reset;
+  useEffect(() => { if (open) resetCreate(); }, [open, resetCreate]);
 
   function addPolicies(policyIds: string[]) {
     setBindings((current) => {
@@ -163,14 +172,7 @@ export function CreateGuardrailWizard({
 
   function applyIntentProposal() {
     if (!intentProposal) return;
-    if (intentProposal.structured_purpose) {
-      setPurposeAudience(intentProposal.structured_purpose.audience);
-      setPurposeTasks(intentProposal.structured_purpose.tasks);
-      setPurposeProtect(intentProposal.structured_purpose.protect);
-      setPurposeOutOfScope(intentProposal.structured_purpose.out_of_scope);
-    }
     setAllowed(intentProposal.allowed_topics.join("\n"));
-    setRestricted(intentProposal.restricted_topics.join("\n"));
     setBoundarySource("intent");
     const topicPolicy = recommendedTopicPolicy(policies);
     if (topicPolicy) addPolicies([topicPolicy.id]);
@@ -180,7 +182,6 @@ export function CreateGuardrailWizard({
 
   function applyDocumentAnalysis(analysis: ComplianceDocumentAnalysis) {
     setAllowed(analysis.allowed_topics.join("\n"));
-    setRestricted(analysis.restricted_topics.join("\n"));
     setBoundarySource("documents");
     addPolicies(analysis.recommended_policy_ids);
     setPolicyWorkspace("main");
@@ -193,19 +194,15 @@ export function CreateGuardrailWizard({
   }
 
   const hasOutputPolicy = bindings.some((binding) => binding.enabled_rails.includes("output"));
-  const fullBufferedMismatch = bindings.some((binding) => FULL_BUFFERED_POLICY_IDS.has(binding.policy_id)) && outputDelivery !== "full_buffered";
-  const policyBlocker = getPolicyBindingsBlocker(bindings, policies);
-  const policyBlockedReason = policyBlocker ? t(policyBlocker.key, policyBlocker.values)
-    : fullBufferedMismatch ? t("guardrailWizard.fullBufferedRequiredDescription") : null;
-  const stepValid = [
-    Boolean(name.trim()),
-    !policyBlockedReason,
-    Boolean(preview.data && !preview.error),
-  ];
-  const nextBlockedReason = step === 0 && !stepValid[0]
+  const policyBlocker = getPolicyBindingsBlocker(bindings, policies, allowed);
+  const policyBlockedReason = policyBlocker ? t(policyBlocker.key, policyBlocker.values) : null;
+  const localBlocker = directoryBindings.length ? getPolicyBindingsBlocker(directoryBindings, policies, allowed) : null;
+  const nextBlockedReason = step === 0 && !name.trim()
     ? t("guardrailWizard.nextBlocked.name")
-    : step === 1 ? policyBlockedReason : null;
-  const inPolicyWorkspace = step === 1 && policyWorkspace !== "main";
+    : directory && localBlocker ? t(localBlocker.key, localBlocker.values)
+    : step === REVIEW_STEP ? !name.trim() ? t("protection.missingName") : policyBlockedReason : null;
+  const inPolicyWorkspace = directory?.id === "business_topics" && policyWorkspace !== "main";
+  const canCreate = Boolean(name.trim() && !policyBlockedReason && preview.data && !preview.error && !preview.isFetching);
 
   return (
     <EntitySheet
@@ -214,13 +211,18 @@ export function CreateGuardrailWizard({
       eyebrow={t("guardrailWizard.eyebrow")}
       title={t("guardrailWizard.title")}
       description={t("guardrailWizard.description")}
-      width="xl"
-      bodyClassName="p-0 sm:p-0"
+      width="workflow"
+      bodyClassName="overflow-hidden p-0 sm:p-0"
       footer={inPolicyWorkspace ? (
         <Button className="mr-auto" variant="outline" onClick={() => setPolicyWorkspace("main")}>
           <ArrowLeft />{t("guardrailWizard.backToPolicies")}
         </Button>
       ) : (
+        <div className="w-full space-y-3">
+          {create.error ? <div className="space-y-2 [overflow-wrap:anywhere]">
+            <ErrorNotice error={create.error} />
+            <p className="text-xs leading-5 text-muted-foreground">{t("protection.createRecovery")}</p>
+          </div> : null}
         <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
           {nextBlockedReason ? (
             <p id={nextBlockedReasonId} role="status" className="mr-auto flex min-w-0 flex-1 items-start gap-2 text-left text-xs leading-5 text-amber-800">
@@ -235,59 +237,48 @@ export function CreateGuardrailWizard({
             {step < steps.length - 1 ? (
               <Button
                 aria-describedby={nextBlockedReason ? nextBlockedReasonId : undefined}
-                disabled={!stepValid[step]}
+                disabled={Boolean(nextBlockedReason)}
                 title={nextBlockedReason ?? undefined}
                 onClick={() => changeStep(step + 1)}
               >
-                {t("common.next")}<ArrowRight />
+                {t(directory && !directoryBindings.length ? "protection.skip" : "common.next")}<ArrowRight />
               </Button>
             ) : (
-              <Button disabled={!stepValid.every(Boolean) || create.isPending} onClick={() => create.mutate()}>
+              <Button disabled={!canCreate || create.isPending} onClick={() => create.mutate()}>
                 {create.isPending ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}
                 {t(create.isPending ? "guardrailWizard.creatingDraft" : "guardrailWizard.createDraft")}
               </Button>
             )}
           </div>
         </div>
+        </div>
       )}
     >
-      <CreationFlow orientation="sidebar" currentStep={step} onStepChange={changeStep} progressLabel={t("guardrailWizard.title")} steps={steps}>
+      <CreationFlow orientation="sidebar" freelyNavigable contained currentStep={step} onStepChange={changeStep} progressLabel={t("protection.overview")} steps={steps}>
         {step === 0 ? (
-          <WizardSection title={t("guardrailWizard.detailsTitle")} description={t("guardrailWizard.detailsDescription")}>
+          <WizardSection title={t("protection.startTitle")} description={t("protection.startHint")}>
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
               <Field label={`${t("guardrailWizard.name")} *`}>
                 <Input autoFocus className="min-h-11 bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("guardrailWizard.namePlaceholder")} />
               </Field>
-              <Field label={t("guardrailWizard.descriptionLabel")} hint={t("guardrailWizard.descriptionHint")}>
-                <Textarea className="min-h-28 bg-card" value={description} onChange={(event) => setDescription(event.target.value)} placeholder={t("guardrailWizard.descriptionPlaceholder")} />
-              </Field>
-              <details className="rounded-xl border bg-card p-4">
-                <summary className="min-h-11 cursor-pointer text-sm font-semibold">{t("guardrailWizard.purposeStructuredTitle")}</summary>
-                <p className="mb-4 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.purposeStructuredDescription")}</p>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label={t("guardrailWizard.purposeAudience")} hint={t("guardrailWizard.purposeAudienceHint")}>
-                      <Input className="min-h-11 bg-card" value={purposeAudience} onChange={(event) => setPurposeAudience(event.target.value)} placeholder={t("guardrailWizard.purposeAudiencePlaceholder")} />
-                    </Field>
-                    <Field label={t("guardrailWizard.purposeTasks")} hint={t("guardrailWizard.purposeTasksHint")}>
-                      <Textarea className="min-h-24 bg-card" value={purposeTasks} onChange={(event) => setPurposeTasks(event.target.value)} placeholder={t("guardrailWizard.purposeTasksPlaceholder")} />
-                    </Field>
-                    <Field label={t("guardrailWizard.purposeProtect")} hint={t("guardrailWizard.purposeProtectHint")}>
-                      <Textarea className="min-h-24 bg-card" value={purposeProtect} onChange={(event) => setPurposeProtect(event.target.value)} placeholder={t("guardrailWizard.purposeProtectPlaceholder")} />
-                    </Field>
-                    <Field label={t("guardrailWizard.purposeOutOfScope")} hint={t("guardrailWizard.purposeOutOfScopeHint")}>
-                      <Textarea className="min-h-24 bg-card" value={purposeOutOfScope} onChange={(event) => setPurposeOutOfScope(event.target.value)} placeholder={t("guardrailWizard.purposeOutOfScopePlaceholder")} />
-                    </Field>
-                  </div>
-              </details>
               <InfoNotice title={t("guardrailWizard.draftOnlyTitle")}>{t("guardrailWizard.draftOnlyDescription")}</InfoNotice>
+              {presetsQuery.isLoading ? <Skeleton className="h-32" /> : presetsQuery.error ? <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("protection.presetUnavailable")}</p><Button variant="outline" onClick={() => void presetsQuery.refetch()}>{t("common.retry")}</Button></div> : (
+                <ProtectionPresetPicker presets={presetsQuery.data?.items ?? []} policies={policies} selected={selectedPreset} onSelect={setSelectedPreset}
+                  onApply={(preset) => {
+                    const next = mergePresetBindings(bindings, preset.bindings);
+                    setBindings(next);
+                    setPresetFeedback(t("protection.applied", { count: next.length }));
+                  }} />
+              )}
+              {presetFeedback ? <p role="status" className="text-sm font-medium text-primary">{presetFeedback}</p> : null}
             </div>
           </WizardSection>
         ) : null}
 
-        {step === 1 && policyWorkspace === "main" ? (
-          <WizardSection title={t("guardrailWizard.policiesTitle")} description={t("guardrailWizard.policiesDescription")}>
+        {directory && policyWorkspace === "main" ? (
+          <WizardSection title={t(`protection.directories.${directory.id}`)} description={t("protection.directoryHint")}>
             <div className="space-y-6">
-              <section className="rounded-xl border bg-muted/15 p-4">
+              {directory.id === "business_topics" ? <section className="rounded-xl border bg-muted/15 p-4">
                 <header className="mb-4">
                   <h4 className="text-sm font-semibold">{t("guardrailWizard.policyAssistantTitle")}</h4>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.policyAssistantDescription")}</p>
@@ -311,88 +302,25 @@ export function CreateGuardrailWizard({
                 {!intentStatusQuery.isLoading && !intentStatusQuery.data?.available ? (
                   <p className="mt-3 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.policyAssistantUnavailable")}</p>
                 ) : null}
-              </section>
+              </section> : null}
 
-              {showBoundaries || boundarySource || allowed.trim() || restricted.trim() ? (
+              {hasTopicControlBinding(directoryBindings, policies) || (directory.id === "business_topics" && (showBoundaries || boundarySource || allowed.trim())) ? (
                 <TopicBoundaryEditor
                   allowed={allowed}
-                  restricted={restricted}
                   source={boundarySource}
                   onAllowedChange={setAllowed}
-                  onRestrictedChange={setRestricted}
                 />
-              ) : <Button variant="outline" onClick={() => setShowBoundaries(true)}>{t("guardrailWizard.addBoundaries")}</Button>}
+              ) : directory.id === "business_topics" ? <Button variant="outline" onClick={() => setShowBoundaries(true)}>{t("guardrailWizard.addBoundaries")}</Button> : null}
 
               {policiesQuery.isLoading ? <Skeleton className="h-80 rounded-xl" /> : policiesQuery.error ? <ErrorNotice error={policiesQuery.error} /> : (
-                <PolicyBindingEditor policies={policies} value={bindings} onChange={setBindings} />
+                <><ProtectionDirectoryEditor directory={directory.id} policies={policies} bindings={directoryBindings} onChange={(next) => setBindings((current) => mergeDirectoryBindings(current, directoryIds, next))} /><ProtectionDependencies bindings={directoryBindings} policies={policies} /></>
               )}
 
-              <section className="space-y-4 rounded-xl border bg-card p-4">
-                <header className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-sm font-semibold">Custom phrase rules</h4>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Add deterministic input rules for exact phrases. `Transform` replaces the matched phrase; `Block` rejects the request when the phrase appears.
-                    </p>
-                  </div>
-                  <Button variant="outline" onClick={() => setCustomRules((current) => [...current, blankCustomRuleRow(current.length + 1)])}>
-                    Add rule
-                  </Button>
-                </header>
-                <div className="space-y-3">
-                  {customRules.map((rule, index) => (
-                    <div key={rule.id} className="grid gap-3 rounded-lg border bg-muted/15 p-3 sm:grid-cols-[minmax(0,1.2fr)_140px_minmax(0,1fr)_auto]">
-                      <Field label="Match phrase">
-                        <Input
-                          className="min-h-11 bg-card"
-                          value={rule.phrase}
-                          onChange={(event) => setCustomRules((current) => replaceCustomRule(current, index, { ...rule, phrase: event.target.value }))}
-                          placeholder="mama"
-                        />
-                      </Field>
-                      <Field label="Action">
-                        <Select value={rule.mode} onValueChange={(value) => setCustomRules((current) => replaceCustomRule(current, index, { ...rule, mode: value as "transform" | "block" }))}>
-                          <SelectTrigger className="min-h-11 bg-card">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="transform">Transform</SelectItem>
-                            <SelectItem value="block">Block</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <Field label="Replacement">
-                        <Input
-                          className="min-h-11 bg-card"
-                          disabled={rule.mode !== "transform"}
-                          value={rule.replacement}
-                          onChange={(event) => setCustomRules((current) => replaceCustomRule(current, index, { ...rule, replacement: event.target.value }))}
-                          placeholder={rule.mode === "transform" ? "niulai" : "Not used for block"}
-                        />
-                      </Field>
-                      <div className="flex items-end">
-                        <Button variant="ghost" onClick={() => setCustomRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {!customRules.length ? (
-                    <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-3">
-                      <p className="text-sm font-medium">No custom phrase rules yet.</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">Add exact phrase rules here if you want transform or block behavior from the first draft.</p>
-                    </div>
-                  ) : null}
-                </div>
-              </section>
-
-              {fullBufferedMismatch ? <InfoNotice title={t("guardrailWizard.fullBufferedRequiredTitle")}>{t("guardrailWizard.fullBufferedRequiredDescription")}</InfoNotice> : null}
-              {hasOutputPolicy ? <OutputDeliveryField value={outputDelivery} onChange={setOutputDelivery} /> : null}
             </div>
           </WizardSection>
         ) : null}
 
-        {step === 1 && policyWorkspace === "intent" ? (
+        {directory?.id === "business_topics" && policyWorkspace === "intent" ? (
           <IntentPolicyWorkspace
             available={Boolean(intentStatusQuery.data?.available)}
             intent={intentText}
@@ -409,7 +337,7 @@ export function CreateGuardrailWizard({
           />
         ) : null}
 
-        {step === 1 && policyWorkspace === "documents" ? (
+        {directory?.id === "business_topics" && policyWorkspace === "documents" ? (
           <ComplianceDocumentImport
             available={Boolean(intentStatusQuery.data?.document_analysis_available)}
             analystProvider={intentStatusQuery.data?.provider}
@@ -421,25 +349,45 @@ export function CreateGuardrailWizard({
           />
         ) : null}
 
-        {step === 2 ? (
+        {step === DELIVERY_STEP ? (
+          <WizardSection title={t("protection.delivery")} description={t("protection.deliveryHint")}>
+            <div className="space-y-5">
+              {hasOutputPolicy ? <OutputDeliveryField value={effectiveDelivery} onChange={setOutputDelivery} requiredComplete={fullResponsePolicies} /> : <InfoNotice title={t("protection.output")}>{t("protection.noOutput")}</InfoNotice>}
+              {fullResponsePolicies.length ? <InfoNotice title={t("protection.completeResponse")}>
+                {t("protection.bufferSummary", { count: fullResponsePolicies.length })}
+                <details className="mt-2"><summary className="min-h-11 cursor-pointer rounded-sm py-3 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("protection.included")}</summary><ul className="mt-2 list-disc space-y-1 pl-4">{fullResponsePolicies.map((policy) => <li key={policy}>{policy}</li>)}</ul></details>
+              </InfoNotice> : hasOutputPolicy && effectiveDelivery !== "full_buffered" ? <InfoNotice title={t("protection.effectiveDelivery")}>{t("protection.incrementalHint")}</InfoNotice> : null}
+              <ProtectionOrderEditor bindings={bindings} policies={policies} onChange={setBindings} />
+            </div>
+          </WizardSection>
+        ) : null}
+
+        {step === REVIEW_STEP ? (
           <WizardSection title={t("guardrailWizard.reviewTitle")} description={t("guardrailWizard.reviewDescription")}>
             <InfoNotice title={t("guardrailWizard.reviewDraftTitle")}>{t("guardrailWizard.reviewDraftDescription")}</InfoNotice>
             <section className="mt-4 overflow-hidden rounded-xl border bg-card">
               <ReviewRow label={t("guardrailWizard.name")} value={name} />
-              <ReviewRow label={t("guardrailWizard.descriptionLabel")} value={description || t("guardrailWizard.notProvided")} />
-              <ReviewRow label={t("guardrailWizard.purposeAudience")} value={purposeAudience} />
-              <ReviewRow label={t("guardrailWizard.purposeTasks")} value={purposeTasks} />
-              <ReviewRow label={t("guardrailWizard.purposeProtect")} value={purposeProtect} />
-              <ReviewRow label={t("guardrailWizard.purposeOutOfScope")} value={purposeOutOfScope} />
-              {customRules.length ? <ReviewRow label="Custom phrase rules" value={customRules.map((rule) => rule.mode === "transform" ? `${rule.phrase} → ${rule.replacement || "[REDACTED]"}` : `${rule.phrase} → block`).join(", ")} /> : null}
-              <ReviewRow label={t("guardrailWizard.policies")} value={bindings.map((binding) => policies.find((policy) => policy.id === binding.policy_id)?.name ?? binding.policy_id).join(", ")} />
+              <ReviewRow label={t("guardrailWizard.policies")} value={t("protection.selected", { count: bindings.length })} />
               <ReviewRow label={t("guardrailWizard.policyRules")} value={String(bindings.reduce((total, binding) => total + binding.enabled_rule_ids.length, 0))} />
-              {boundarySource || allowed.trim() || restricted.trim() ? <ReviewRow label={t("guardrailWizard.topicControl")} value={t("guardrailWizard.topicControlSummary", { allowed: lines(allowed).length, restricted: lines(restricted).length })} /> : null}
-              {hasOutputPolicy ? <ReviewRow label={t("guardrailWizard.outputDelivery")} value={t(`guardrailWizard.outputDeliveryOptions.${outputDelivery}`)} /> : null}
+              {boundarySource || allowed.trim() ? <ReviewRow label={t("guardrailWizard.topicControl")} value={t("guardrailWizard.topicControlSummary", { allowed: lines(allowed).length })} /> : null}
+              {hasOutputPolicy ? <ReviewRow label={t("protection.effectiveDelivery")} value={t(`guardrailWizard.outputDeliveryOptions.${effectiveDelivery}`)} /> : null}
             </section>
 
-            {preview.isPending ? <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{t("guardrailWizard.validatingPlan")}</div> : null}
-            {preview.error ? <div className="mt-4"><ErrorNotice error={preview.error} /></div> : null}
+            <section className="mt-4 divide-y overflow-hidden rounded-xl border bg-card">
+              {protectionDirectories.map((item, index) => {
+                const selected = bindings.filter((binding) => policies.some((policy) => policy.id === binding.policy_id && policyDirectory(policy) === item.id));
+                return <button key={item.id} type="button" className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onClick={() => changeStep(index + 1)}>
+                  <span>{t(`protection.directories.${item.id}`)}</span><span className="text-muted-foreground">{selected.length ? t("protection.selected", { count: selected.length }) : t("protection.unset")}</span>
+                </button>;
+              })}
+            </section>
+            <p className="mt-4 text-sm leading-6 text-muted-foreground">{t("protection.selectedNotValidated")}</p>
+            <div className="mt-4"><ProtectionDependencies bindings={bindings} policies={policies} /></div>
+            {!hasOutputPolicy ? <p className="mt-3 text-sm text-amber-800">{t("protection.noOutput")}</p> : null}
+            {!bindings.some((binding) => binding.enabled_rails.includes("input")) ? <p className="mt-3 text-sm text-amber-800">{t("protection.noInput")}</p> : null}
+
+            {preview.isFetching ? <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{t("guardrailWizard.validatingPlan")}</div> : null}
+            {preview.error ? <div className="mt-4 space-y-3"><ErrorNotice error={preview.error} /><Button className="min-h-11" variant="outline" onClick={() => void preview.refetch()}>{t("protection.retryPreview")}</Button></div> : null}
             {preview.data ? (
               <details className="mt-4 overflow-hidden rounded-xl border bg-card">
                 <summary className="min-h-11 cursor-pointer list-none px-4 py-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -524,7 +472,6 @@ function IntentPolicyWorkspace({
                 <ReviewRow label={t("guardrailWizard.purposeOutOfScope")} value={proposal.structured_purpose.out_of_scope} />
               </div> : null}
               <BoundaryPreview label={t("guardrailWizard.allowedDomains")} values={proposal.allowed_topics} />
-              <BoundaryPreview label={t("guardrailWizard.restrictedDomains")} values={proposal.restricted_topics} />
               {proposal.review_notes.length ? <InfoNotice title={t("guardrailWizard.documentReviewNotes")}>{proposal.review_notes.join(" · ")}</InfoNotice> : null}
               <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs leading-5 text-muted-foreground">{t("guardrailWizard.intentApplyDescription")}</p>
@@ -540,16 +487,12 @@ function IntentPolicyWorkspace({
 
 function TopicBoundaryEditor({
   allowed,
-  restricted,
   source,
   onAllowedChange,
-  onRestrictedChange,
 }: {
   allowed: string;
-  restricted: string;
   source: BoundarySource;
   onAllowedChange: (value: string) => void;
-  onRestrictedChange: (value: string) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -561,30 +504,30 @@ function TopicBoundaryEditor({
         </div>
         {source ? <Badge variant="secondary"><Sparkles />{t(`guardrailWizard.boundarySources.${source}`)}</Badge> : null}
       </header>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("guardrailWizard.allowedDomains")}><Textarea className="min-h-28 bg-card" value={allowed} onChange={(event) => onAllowedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></Field>
-        <Field label={t("guardrailWizard.restrictedDomains")}><Textarea className="min-h-28 bg-card" value={restricted} onChange={(event) => onRestrictedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></Field>
-      </div>
+      <Field label={t("guardrailWizard.allowedDomains")} hint={t("guardrailWizard.topicAllowlistHint")}><Textarea aria-label={t("guardrailWizard.allowedDomains")} className="min-h-32 bg-card" value={allowed} onChange={(event) => onAllowedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></Field>
     </section>
   );
 }
 
-function OutputDeliveryField({ value, onChange }: { value: OutputDelivery; onChange: (value: OutputDelivery) => void }) {
+function OutputDeliveryField({ value, onChange, requiredComplete = [] }: { value: OutputDelivery; onChange: (value: OutputDelivery) => void; requiredComplete?: string[] }) {
   const { t } = useTranslation();
   const id = useId();
   return (
     <section className="rounded-xl border bg-card p-4">
       <Label htmlFor={id}>{t("guardrailWizard.outputDelivery")}</Label>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.outputDeliveryConditionalDescription")}</p>
-      <Select value={value} onValueChange={(next) => onChange(next as OutputDelivery)}>
-        <SelectTrigger id={id} className="mt-3 min-h-11 bg-card"><SelectValue /></SelectTrigger>
+      <Select value={value} disabled={requiredComplete.length > 0} onValueChange={(next) => onChange(next as OutputDelivery)}>
+        <SelectTrigger id={id} aria-describedby={`${id}-description`} className="mt-3 min-h-11 bg-card"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="interruptible">{t("guardrailWizard.outputDeliveryOptions.interruptible")}</SelectItem>
           <SelectItem value="window_buffered">{t("guardrailWizard.outputDeliveryOptions.window_buffered")}</SelectItem>
           <SelectItem value="full_buffered">{t("guardrailWizard.outputDeliveryOptions.full_buffered")}</SelectItem>
         </SelectContent>
       </Select>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{t(`guardrailWizard.outputDeliveryDescriptions.${value}`)}</p>
+      <p id={`${id}-description`} aria-live="polite" className="mt-2 text-xs leading-5 text-muted-foreground">
+        {t(`guardrailWizard.outputDeliveryDescriptions.${value}`)}
+        {requiredComplete.length > 0 ? <span className="sr-only"> {t("protection.bufferReason", { policies: requiredComplete.join(", ") })}</span> : null}
+      </p>
     </section>
   );
 }
@@ -629,12 +572,13 @@ function isBindablePolicy(policy: Policy | undefined): policy is Policy {
   return Boolean(policy && (policy.source === "built_in" || policy.version !== "0"));
 }
 
-function getPolicyBindingsBlocker(bindings: GuardrailPolicyBinding[], policies: Policy[]) {
+function getPolicyBindingsBlocker(bindings: GuardrailPolicyBinding[], policies: Policy[], allowedTopics: string) {
   if (!bindings.length) return { key: "guardrailWizard.nextBlocked.selectPolicy" };
   for (const binding of bindings) {
-    const policy = policies.find((item) => item.id === binding.policy_id);
-    if (!policy) return { key: "guardrailWizard.nextBlocked.policyUnavailable", values: { name: binding.policy_id } };
+    const policy = boundPolicy(policies, binding);
+    if (!policy) return { key: "guardrailWizard.nextBlocked.policyUnavailable", values: { name: `${binding.policy_id}@${binding.policy_version}` } };
     const validation = getPolicyBindingValidation(binding, policy);
+    if (validation.missingRails) return { key: "protection.selectDirection" };
     if (validation.missingRules) return { key: "guardrailWizard.nextBlocked.enableRules", values: { name: policy.name } };
     if (validation.missingRequiredParameters.length) {
       return {
@@ -647,11 +591,18 @@ function getPolicyBindingsBlocker(bindings: GuardrailPolicyBinding[], policies: 
     }
     if (validation.missingReasoningPolicy) return { key: "guardrailWizard.nextBlocked.reasoningPolicy", values: { name: policy.name } };
   }
+  if (hasTopicControlBinding(bindings, policies) && !lines(allowedTopics).length) {
+    return { key: "guardrailWizard.nextBlocked.allowedTopics" };
+  }
   return null;
 }
 
-function bindingsValid(bindings: GuardrailPolicyBinding[], policies: Policy[]) {
-  return !getPolicyBindingsBlocker(bindings, policies);
+function bindingsValid(bindings: GuardrailPolicyBinding[], policies: Policy[], allowedTopics: string) {
+  return !getPolicyBindingsBlocker(bindings, policies, allowedTopics);
+}
+
+function hasTopicControlBinding(bindings: GuardrailPolicyBinding[], policies: Policy[]): boolean {
+  return bindings.some((binding) => policyRequiresTopicAllowlist(boundPolicy(policies, binding) ?? { id: binding.policy_id }));
 }
 
 function WizardSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {
@@ -668,36 +619,3 @@ function ReviewRow({ label, value, mono = false }: { label: string; value: strin
 
 function lines(value: string) { return value.split("\n").map((item) => item.trim()).filter(Boolean); }
 function notifyError(error: unknown, fallback: string) { toast.error(error instanceof Error ? error.message : fallback); }
-
-type CustomRuleRow = {
-  id: string;
-  phrase: string;
-  mode: "transform" | "block";
-  replacement: string;
-};
-
-function blankCustomRuleRow(index: number): CustomRuleRow {
-  return {
-    id: `custom-rule-${index}`,
-    phrase: "",
-    mode: "transform",
-    replacement: "",
-  };
-}
-
-function replaceCustomRule(rows: CustomRuleRow[], index: number, next: CustomRuleRow): CustomRuleRow[] {
-  return rows.map((row, rowIndex) => rowIndex === index ? next : row);
-}
-
-function customRulesToDraft(rows: CustomRuleRow[]) {
-  return rows
-    .map((rule, index) => ({
-      id: rule.id || `custom-rule-${index + 1}`,
-      phases: ["input"] as Array<"input">,
-      detector: "keyword" as const,
-      keywords: [rule.phrase.trim()].filter(Boolean),
-      action: rule.mode === "block" ? "reject" as const : "redact" as const,
-      ...(rule.mode === "transform" && rule.replacement.trim() ? { replacement: rule.replacement.trim() } : {}),
-    }))
-    .filter((rule) => rule.keywords.length);
-}

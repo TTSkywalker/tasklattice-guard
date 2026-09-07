@@ -10,7 +10,10 @@ vi.mock("react-i18next", () => ({
       "dashboard.healthFailClosed": "Fail-closed decisions were detected.",
       "dashboard.healthLatency": "Runtime latency is elevated.",
       "dashboard.healthIntegration": `${values?.count ?? 0} integrations need attention.`,
-      "dashboard.healthSystem": "A required runtime capability needs attention.",
+      "dashboard.healthSystem": "Check platform readiness; missing model capability is not established.",
+      "dashboard.platformAttention": "Platform needs attention",
+      "platformStatus.reason.runner_capacity_below_desired": "Serving capacity is below the desired replica count.",
+      "platformStatus.reason.runner_configuration_syncing": "Runners are applying configuration.",
     }[key] ?? key),
   }),
 }));
@@ -49,6 +52,13 @@ describe("RuntimeHealthAlert", () => {
   it("covers a degraded system without a more specific metric anomaly", () => {
     render(<RuntimeHealthAlert metrics={{ ...healthy, system_status: "degraded" }} />);
 
-    expect(screen.getByRole("alert").textContent).toContain("A required runtime capability needs attention.");
+    expect(screen.getByRole("alert").textContent).toContain("Check platform readiness");
+  });
+  it("preserves capacity and convergence reasons without claiming missing model capabilities", () => {
+    render(<RuntimeHealthAlert metrics={{ ...healthy, system_status: "degraded", system_reasons: ["runner_capacity_below_desired", "runner_configuration_syncing"] }} />);
+    expect(screen.getByRole("alert").textContent).toContain("Platform needs attention");
+    expect(screen.getByRole("alert").textContent).toContain("Serving capacity is below");
+    expect(screen.getByRole("alert").textContent).toContain("Runners are applying");
+    expect(screen.getByRole("alert").textContent).not.toContain("missing model");
   });
 });

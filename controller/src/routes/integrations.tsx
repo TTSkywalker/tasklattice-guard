@@ -96,7 +96,7 @@ export function IntegrationsPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.integrations, exact: true }),
         queryClient.invalidateQueries({ queryKey: queryKeys.deployments }),
         queryClient.invalidateQueries({ queryKey: queryKeys.metrics }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.evidence }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.auditEvents }),
         queryClient.invalidateQueries({ queryKey: queryKeys.systemStatus }),
       ]);
     },
@@ -778,6 +778,8 @@ function SetupConfiguration({ integration }: { integration: Integration }) {
         </div>
         <div className="p-4">
           <LiteLLMProviderSetup endpoint={integration.setup.api_base_url} detail />
+          <p className="mt-4 text-sm leading-6 text-muted-foreground">{t("integrations.streamNotVerified")}</p>
+          <div className="mt-4"><SetupFacts integration={integration} /></div>
         </div>
       </section>
     );
@@ -791,6 +793,8 @@ function SetupConfiguration({ integration }: { integration: Integration }) {
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 p-4">
         <CopyField label={t("integrations.apiBaseUrl")} value={integration.setup.api_base_url} />
         <CopyField label={t("integrations.callbackUrl")} value={integration.setup.callback_url} />
+        {integration.setup.stream_callback_url ? <CopyField label={t("integrations.streamCallbackUrl")} value={integration.setup.stream_callback_url} /> : null}
+        <p className="text-sm leading-6 text-muted-foreground">{t(integration.setup.stream_callback_url ? "integrations.streamContract" : "integrations.streamNotVerified")}</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <CopyField label={t("integrations.authHeader")} value={integration.setup.auth_header} />
           <CopyField label={t("integrations.credentialEnvironmentVariable")} value={integration.setup.credential_env_var} />
@@ -807,11 +811,13 @@ function SetupFacts({ integration }: { integration: Integration }) {
   const { t } = useTranslation();
   const setup = integration.setup;
   return (
-    <dl className="grid gap-3 rounded-lg bg-muted/30 p-3 text-xs sm:grid-cols-3">
+    <div className="space-y-3"><dl className="grid gap-3 rounded-lg bg-muted/30 p-3 text-xs sm:grid-cols-3">
       <div><dt className="text-muted-foreground">{t("integrations.modes")}</dt><dd className="mt-1 font-medium">{setup.recommended_modes.join(" + ")}</dd></div>
       <div><dt className="text-muted-foreground">{t("integrations.defaultBehavior")}</dt><dd className="mt-1 font-medium">{t(setup.default_on ? "integrations.defaultOn" : "integrations.requestSelected")}</dd></div>
       <div><dt className="text-muted-foreground">{t("integrations.failureBehavior")}</dt><dd className="mt-1 font-medium">{t(setup.unreachable_fallback === "fail_closed" ? "integrations.failClosed" : "integrations.failOpen")} · {t(setup.fail_on_error ? "integrations.blockOnError" : "integrations.allowOnError")}</dd></div>
-    </dl>
+    </dl><dl className="grid gap-3 border-t pt-3 text-xs sm:grid-cols-3">
+      {[{ label: "Input", seen: integration.input_seen_at }, { label: "Output", seen: integration.output_seen_at }, { label: "Stream", seen: integration.stream_final_check_seen_at }].map(({ label, seen }) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="mt-1"><StateBadge state={seen ? "ready" : "unknown"} label={t(seen ? (label === "Stream" ? "integrations.streamFinalObserved" : "integrations.railObserved") : "integrations.railNotObserved")} /></dd></div>)}
+    </dl></div>
   );
 }
 
