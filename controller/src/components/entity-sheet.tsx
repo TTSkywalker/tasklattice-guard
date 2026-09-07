@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const widthClasses = {
+  workflow: "!w-full !max-w-none sm:!w-[min(96vw,90rem)] sm:!max-w-[90rem]",
   md: "!w-full !max-w-none sm:!w-[min(92vw,40rem)] sm:!max-w-[40rem]",
   lg: "!w-full !max-w-none sm:!w-[min(92vw,48rem)] sm:!max-w-[48rem]",
   xl: "!w-full !max-w-none sm:!w-[min(92vw,56rem)] sm:!max-w-[56rem]",

@@ -6,8 +6,36 @@ from unittest.mock import AsyncMock
 import pytest
 
 from runner.control_client import RunnerControlClient
+from runner.control_transport import CONTROL_CHANNEL_OPTIONS
 from runner import generated as protocol
 from tests.capability_binding import capability_binding
+
+
+@pytest.mark.parametrize("tls", [False, True])
+def test_both_controller_transports_use_finite_message_limits(monkeypatch, tmp_path, tls):
+    from unittest.mock import Mock
+
+    certificate = tmp_path / "certificate.pem"
+    certificate.write_bytes(b"test-certificate")
+    settings = SimpleNamespace(
+        **vars(_settings()), controller_target="127.0.0.1:9090",
+        controller_ca_path=certificate if tls else None,
+        client_key_path=certificate, client_certificate_path=certificate,
+    )
+    secure = Mock()
+    insecure = Mock()
+    credentials = Mock(return_value="test-credentials")
+    monkeypatch.setattr("grpc.aio.secure_channel", secure)
+    monkeypatch.setattr("grpc.aio.insecure_channel", insecure)
+    monkeypatch.setattr("grpc.ssl_channel_credentials", credentials)
+    client = RunnerControlClient(settings, Store(), Metrics())
+    client._channel()
+    if tls:
+        secure.assert_called_once_with(settings.controller_target, "test-credentials", options=CONTROL_CHANNEL_OPTIONS)
+        insecure.assert_not_called()
+    else:
+        insecure.assert_called_once_with(settings.controller_target, options=CONTROL_CHANNEL_OPTIONS)
+        secure.assert_not_called()
 
 
 class Store:

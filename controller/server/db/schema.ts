@@ -213,7 +213,6 @@ export const policyValidationRuns = pgTable("policy_validation_run", {
 export const guardrails = pgTable("guardrail", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  description: text("description").notNull().default(""),
   draftConfig: jsonb("draft_config").$type<GuardrailDraftConfig>().notNull(),
   draftRevision: integer("draft_revision").notNull().default(1),
   excludedTestCaseIds: jsonb("excluded_test_case_ids").$type<string[]>().notNull().default([]),
@@ -293,7 +292,8 @@ export const validationRuns = pgTable("guardrail_validation_run", {
   results: jsonb("results").$type<ValidationCaseResult[]>().notNull().default([]),
   excludedCaseIds: jsonb("excluded_case_ids").$type<string[]>().notNull().default([]),
   failureReason: text("failure_reason"),
-  createdBy: text("created_by").notNull().references(() => user.id),
+  // Null identifies the audited system-baseline validation, not a human user.
+  createdBy: text("created_by").references(() => user.id),
   createdAt,
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [index("guardrail_validation_run_guardrail_idx").on(table.guardrailId, table.createdAt)]);

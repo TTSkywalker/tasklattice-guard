@@ -34,8 +34,8 @@ describe("Policy catalog HTTP compatibility", () => {
     const collection = await listResponse.json() as { count: number; items: Array<{ id: string; test_count: number }> };
 
     expect(listResponse.status).toBe(200);
-    expect(collection.count).toBe(45);
-    expect(collection.items).toHaveLength(45);
+    expect(collection.count).toBe(69);
+    expect(collection.items).toHaveLength(69);
     expect(collection.items.find((item) => item.id === "pattern-matching")?.test_count).toBeGreaterThan(0);
 
     const detailResponse = await app.request("/api/v1/policies/pattern-matching");
@@ -43,6 +43,19 @@ describe("Policy catalog HTTP compatibility", () => {
     expect(detailResponse.status).toBe(200);
     expect(detail).toMatchObject({ id: "pattern-matching", implementation: "rules" });
     expect(detail.tags).toEqual(expect.arrayContaining([expect.objectContaining({ id: "framework:owasp-llm-2025" })]));
+  });
+
+  it("provides authenticated preset previews with pinned ordinary Policy bindings", async () => {
+    expect((await appWithSession(null).request("/api/v1/protection-presets")).status).toBe(401);
+    const response = await appWithSession({ user: { id: "member-1", role: "user" } }).request("/api/v1/protection-presets");
+    expect(response.status).toBe(200);
+    const data = await response.json() as { directories: unknown[]; items: Array<{ id: string; policies: unknown[]; policyBindings: Array<{ policyId: string; policyVersion: string }> }> };
+    expect(data.directories).toHaveLength(8);
+    expect(data.items).toHaveLength(5);
+    for (const preset of data.items) {
+      expect(preset.policyBindings).toHaveLength(preset.policies.length);
+      expect(preset.policyBindings.every((binding) => binding.policyVersion.length > 0)).toBe(true);
+    }
   });
 
   it("returns the standard not-found envelope and the Runner action catalog", async () => {

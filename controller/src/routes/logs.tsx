@@ -5,6 +5,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Clock3,
+  ChevronRight,
   FileCode2,
   Filter,
   LockKeyhole,
@@ -31,6 +32,7 @@ import {
   getGuardrails,
   metricWindowMilliseconds,
   runtimeLogInteractions,
+  type DeploymentTraceStep,
   type MetricWindow,
   type RuntimeLogContentBlock,
   type RuntimeLogEntry,
@@ -214,7 +216,7 @@ function RuntimeFact({ label, value }: { label: string; value: string }) {
 function RuntimeLogSheet({ interaction, admin, guardrailName, deploymentName, open, onOpenChange }: { interaction: RuntimeLogInteraction | null; admin: boolean; guardrailName: (id: string | null) => string; deploymentName: (id: string | null) => string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t, i18n } = useTranslation();
   if (!interaction) return null;
-  return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("logs.interactionDetailEyebrow")} title={t("logs.detailTitle")} description={interaction.id} width="xl" footer={<Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.close")}</Button>}>
+  return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("logs.interactionDetailEyebrow")} title={t("logs.detailTitle")} description={<span className="break-all font-mono text-xs">{interaction.id}</span>} width="xl" footer={<Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.close")}</Button>}>
     <div className="grid gap-5">
       <dl className="grid overflow-hidden rounded-lg border sm:grid-cols-2"><Fact label={t("logs.time")} value={new Date(interaction.created_at).toLocaleString(i18n.language)} /><Fact label={t("logs.outcome")} value={interaction.outcome} /><Fact label={t("logs.guardrail")} value={`${guardrailName(interaction.guardrail_id)} · ${interaction.guardrail_version ?? "—"}`} /><Fact label={t("logs.context")} value={`${deploymentName(interaction.deployment_id)} · ${interaction.protocol}`} /></dl>
       {!admin && interaction.entries.some((entry) => entry.content_available) ? <div className="flex gap-3 rounded-lg border bg-muted/25 p-4"><LockKeyhole className="mt-0.5 size-4 shrink-0" /><div><p className="text-sm font-medium">{t("logs.adminContentTitle")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("logs.adminContentDescription")}</p></div></div> : null}
@@ -223,23 +225,80 @@ function RuntimeLogSheet({ interaction, admin, guardrailName, deploymentName, op
   </EntitySheet>;
 }
 
-function RuntimeCheckpoint({ entry, admin }: { entry: RuntimeLogEntry; admin: boolean }) {
+export function RuntimeCheckpoint({ entry, admin }: { entry: RuntimeLogEntry; admin: boolean }) {
   const { t } = useTranslation();
   const Icon = entry.phase === "input" ? ArrowDownToLine : ArrowUpFromLine;
-  return <section className="overflow-hidden rounded-lg border"><header className="flex flex-wrap items-center gap-3 border-b bg-muted/25 px-4 py-3"><span className="grid size-8 place-items-center rounded-md bg-primary/10 text-primary"><Icon className="size-4" /></span><div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">{t(entry.phase === "input" ? "logs.inboundCheckpoint" : "logs.outboundCheckpoint")}</h3><p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{entry.trace_id}</p></div><StateBadge state={entry.outcome} /><span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground"><Clock3 className="size-3" />{entry.latency_ms} ms</span></header>
+  return <section className="overflow-hidden rounded-lg border"><header className="flex flex-wrap items-center gap-3 border-b bg-muted/25 px-4 py-3"><span className="grid size-8 place-items-center rounded-md bg-primary/10 text-primary"><Icon className="size-4" /></span><div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">{t(entry.phase === "input" ? "logs.inboundCheckpoint" : "logs.outboundCheckpoint")}</h3><p className="mt-0.5 break-all font-mono text-[10px] text-muted-foreground">{entry.trace_id}</p></div><StateBadge state={entry.outcome} /><span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground"><Clock3 className="size-3" />{entry.latency_ms} ms</span></header>
     <div className="grid gap-4 p-4">
-      {admin ? <ContentPanel title={t("logs.originalContent")} blocks={entry.content_before} available={entry.content_available} /> : null}
-      {admin && entry.outcome === "transform" ? <ContentPanel title={t("logs.transformedContent")} blocks={entry.content_after} available={entry.content_available} transformed /> : null}
+      {admin ? <ContentPanel title={t(entry.phase === "output" ? "logs.modelOutput" : "logs.requestContent")} description={t(entry.phase === "output" ? "logs.modelOutputDescription" : "logs.requestContentDescription")} blocks={entry.content_before} available={entry.content_available} /> : null}
+      {admin && entry.outcome === "transform" ? <ContentPanel title={t("logs.transformedContent")} description={t("logs.transformedDescription")} blocks={entry.content_after} available={entry.content_available} transformed /> : null}
       <p className="text-xs leading-5 text-muted-foreground">{entry.detail}</p>
       {entry.findings.length ? <div><h4 className="text-xs font-semibold">{t("logs.findings")}</h4><div className="mt-2 grid gap-2">{entry.findings.map((finding) => <div key={finding.id} className="rounded-md border p-3 text-xs"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{finding.severity}</Badge><strong>{finding.policy_id ?? finding.risk}</strong>{finding.rule_id ? <code className="text-[10px] text-muted-foreground">{finding.rule_id}</code> : null}</div><p className="mt-2 leading-5 text-muted-foreground">{finding.detail}</p></div>)}</div></div> : null}
-      {entry.steps.length ? <div><h4 className="text-xs font-semibold">{t("logs.executionTrace")}</h4><ol className="mt-2 divide-y rounded-md border">{entry.steps.map((step) => <li key={step.id} className="flex min-h-11 items-center gap-3 px-3 py-2 text-xs"><span className="text-primary">{step.kind === "rail" ? <Workflow className="size-3.5" /> : <FileCode2 className="size-3.5" />}</span><span className="min-w-0 flex-1 truncate">{step.name}</span><StateBadge state={step.outcome} /><span className="font-mono text-[10px] text-muted-foreground">{step.latency_ms} ms</span></li>)}</ol></div> : null}
+      <ExecutionTrace steps={entry.steps} />
     </div>
   </section>;
 }
 
-function ContentPanel({ title, blocks, available, transformed = false }: { title: string; blocks: RuntimeLogContentBlock[] | null; available: boolean; transformed?: boolean }) {
+function ContentPanel({ title, description, blocks, available, transformed = false }: { title: string; description: string; blocks: RuntimeLogContentBlock[] | null; available: boolean; transformed?: boolean }) {
   const { t } = useTranslation();
-  return <div><div className="mb-2 flex items-center justify-between gap-2"><h4 className="text-xs font-semibold">{title}</h4>{transformed ? <Badge variant="outline">{t("logs.transformation")}</Badge> : null}</div>{blocks?.length ? <div className="grid gap-2">{blocks.map((block) => <div key={block.id} className="overflow-hidden rounded-md border bg-muted/15"><div className="flex items-center justify-between gap-3 border-b px-3 py-2 text-[10px] text-muted-foreground"><span>{block.role} · {block.source}</span>{block.truncated ? <span>{t("logs.truncated")}</span> : null}</div><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 font-sans text-xs leading-5">{block.text}</pre></div>)}</div> : <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">{t(available ? "logs.contentUnavailable" : "logs.contentNotCaptured")}</div>}</div>;
+  return <section className="min-w-0 rounded-md border bg-card">
+    <header className="border-b px-4 py-3"><h4 className="text-sm font-semibold">{title}</h4><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p></header>
+    {blocks?.length ? <div className="divide-y">{blocks.map((block) => <div key={block.id} className="min-w-0">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/30 px-4 py-2 text-xs text-muted-foreground"><span>{t("logs.contentRole")}: <span className="font-medium text-foreground">{block.role}</span></span>{block.source !== block.role ? <span className="break-all">{t("logs.contentSource")}: {block.source}</span> : null}{block.truncated ? <span>{t("logs.truncated")}</span> : null}</div>
+      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words px-4 py-4 font-sans text-sm leading-7 text-foreground">{block.text}</pre>
+    </div>)}</div> : <div className="px-4 py-5 text-sm text-muted-foreground">{t(available ? "logs.contentUnavailable" : "logs.contentNotCaptured")}</div>}
+    {transformed ? <p className="border-t px-4 py-2 text-xs text-muted-foreground">{t("logs.transformation")}</p> : null}
+  </section>;
+}
+
+export type TraceNode = { step: DeploymentTraceStep; children: TraceNode[] };
+
+// Only recorded parent links establish hierarchy. Break cycles and keep orphaned spans visible.
+export function buildTraceForest(steps: DeploymentTraceStep[]): TraceNode[] {
+  const nodes = steps.map((step) => ({ step, children: [] as TraceNode[] }));
+  const byId = new Map(nodes.map((node) => [node.step.id, node]));
+  const roots: TraceNode[] = [];
+  for (const node of nodes) {
+    const parent = node.step.parent_id ? byId.get(node.step.parent_id) : undefined;
+    const visited = new Set([node.step.id]);
+    let ancestor = parent;
+    while (ancestor && !visited.has(ancestor.step.id)) {
+      visited.add(ancestor.step.id);
+      ancestor = ancestor.step.parent_id ? byId.get(ancestor.step.parent_id) : undefined;
+    }
+    if (parent && !ancestor) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+function ExecutionTrace({ steps }: { steps: DeploymentTraceStep[] }) {
+  const { t } = useTranslation();
+  const roots = useMemo(() => buildTraceForest(steps), [steps]);
+  const hasHierarchy = roots.some((node) => node.children.length > 0);
+  return <section className="min-w-0 border-t pt-4">
+    <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-semibold">{t("logs.executionTrace")}</h4><span className="text-xs text-muted-foreground">{t("logs.traceSpans", { count: steps.length })}</span></div>
+    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(!steps.length ? "logs.traceEmpty" : hasHierarchy ? "logs.traceTreeDescription" : "logs.traceFlatDescription")}</p>
+    <ol className="mt-3">{roots.map((node, index) => <TraceBranch key={`${node.step.id}:${index}`} node={node} />)}</ol>
+  </section>;
+}
+
+function TraceBranch({ node }: { node: TraceNode }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(true);
+  const [showDetails, setShowDetails] = useState(false);
+  const { step, children } = node;
+  return <li className="relative min-w-0">
+    <div className="flex min-h-11 items-start gap-1 rounded-md py-1 hover:bg-muted/30">
+      {children.length ? <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-expanded={expanded} aria-label={t(expanded ? "logs.collapseSpan" : "logs.expandSpan", { name: step.name })} onClick={() => setExpanded(!expanded)}><ChevronRight className={`size-4 ${expanded ? "rotate-90" : ""}`} /></Button> : <span className="grid size-11 shrink-0 place-items-center text-muted-foreground">{step.kind === "rail" ? <Workflow className="size-4" /> : <FileCode2 className="size-4" />}</span>}
+      <button type="button" aria-label={t("logs.inspectSpan", { name: step.name })} aria-expanded={showDetails} className="min-h-11 min-w-0 flex-1 rounded-sm py-2 text-left focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setShowDetails(!showDetails)}>
+        <span className="block break-all text-xs font-medium leading-5">{step.name}</span><span className="block text-[11px] text-muted-foreground">{step.kind}{step.parallel_group ? ` · ${t("logs.parallelGroup")}: ${step.parallel_group}` : ""}</span>
+      </button>
+      <div className="flex shrink-0 flex-col items-end gap-1 px-2 py-2"><StateBadge state={step.outcome} /><span className="font-mono text-[11px] tabular-nums text-muted-foreground">{step.latency_ms} ms</span></div>
+    </div>
+    {showDetails ? <dl className="mb-3 ml-3 grid gap-2 border-l-2 px-3 py-2 text-xs"><RuntimeFact label={t("logs.spanId")} value={step.id} /><div><dt className="text-muted-foreground">{t("logs.checkpointDetail")}</dt><dd className="mt-1 break-words leading-5">{step.detail || t("logs.noSpanDetail")}</dd></div>{step.parent_id ? <div><dt className="text-muted-foreground">{t("logs.parentSpan")}</dt><dd className="mt-1 break-all font-mono">{step.parent_id}</dd></div> : null}</dl> : null}
+    {children.length && expanded ? <ol className="ml-3 border-l border-border pl-2 sm:ml-5 sm:pl-3 [&>li]:before:absolute [&>li]:before:top-6 [&>li]:before:-left-2 [&>li]:before:w-2 [&>li]:before:border-t [&>li]:before:border-border sm:[&>li]:before:-left-3 sm:[&>li]:before:w-3">{children.map((child, index) => <TraceBranch key={`${child.step.id}:${index}`} node={child} />)}</ol> : null}
+  </li>;
 }
 
 function Fact({ label, value }: { label: string; value: string }) { return <div className="border-b p-4 last:border-b-0 sm:border-r sm:[&:nth-child(even)]:border-r-0 sm:[&:nth-last-child(-n+2)]:border-b-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 break-all text-sm font-medium">{value}</dd></div>; }

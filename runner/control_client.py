@@ -19,6 +19,7 @@ from .artifact_store import ArtifactStore
 from .compiler import DefaultRunnerCompiler
 from .capability_validation import validate_capability
 from .config import RunnerSettings
+from .control_transport import CONTROL_CHANNEL_OPTIONS
 from . import generated as protocol
 from .generated import runner_control_pb2_grpc as services
 from .metrics import RunnerMetrics
@@ -105,8 +106,13 @@ class RunnerControlClient:
         stub = services.RunnerControlStub(channel)
         heartbeat = asyncio.create_task(self._heartbeats())
         metadata = (("authorization", f"Bearer {self._settings.controller_token}"),)
+        # Own the sender task explicitly. gRPC's iterator consumer can remain
+        # blocked on our empty queue after the server has closed the RPC.
+        response_stream = stub.Connect(metadata=metadata)
+        sender = asyncio.create_task(
+            self._write_messages(response_stream), name="guard-control-writer",
+        )
         try:
-            response_stream = stub.Connect(self._messages(self._registration()), metadata=metadata)
             async for message in response_stream:
                 self._connected.set()
                 self._metrics.set_control_state(connected=True)
@@ -118,6 +124,8 @@ class RunnerControlClient:
                     self._metrics.observe_control_message("received", message_type, "error")
                     raise
         finally:
+            response_stream.cancel()
+            sender.cancel()
             self._connected.clear()
             self._metrics.set_control_state(connected=False)
             heartbeat.cancel()
@@ -125,8 +133,12 @@ class RunnerControlClient:
                 task.cancel()
             await asyncio.gather(*self._capability_tasks, return_exceptions=True)
             self._capability_tasks.clear()
-            await asyncio.gather(heartbeat, return_exceptions=True)
+            await asyncio.gather(heartbeat, sender, return_exceptions=True)
             await channel.close()
+
+    async def _write_messages(self, stream) -> None:
+        async for message in self._messages(self._registration()):
+            await stream.write(message)
 
     async def _messages(self, registration: protocol.RunnerMessage):
         self._metrics.observe_control_message("sent", "registration")
@@ -437,8 +449,12 @@ class RunnerControlClient:
                 private_key=self._required(self._settings.client_key_path).read_bytes(),
                 certificate_chain=self._required(self._settings.client_certificate_path).read_bytes(),
             )
-            return grpc.aio.secure_channel(self._settings.controller_target, credentials)
-        return grpc.aio.insecure_channel(self._settings.controller_target)
+            return grpc.aio.secure_channel(
+                self._settings.controller_target, credentials, options=CONTROL_CHANNEL_OPTIONS,
+            )
+        return grpc.aio.insecure_channel(
+            self._settings.controller_target, options=CONTROL_CHANNEL_OPTIONS,
+        )
 
     @staticmethod
     def _required(path: Path | None) -> Path:

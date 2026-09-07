@@ -138,27 +138,15 @@ class TopicJudgeActionProvider:
 
 def topic_judge_prompt(parameters: tuple[tuple[str, str], ...]) -> str:
     configured = dict(parameters)
-    structured_lines = tuple(
-        line
-        for line in (
-            f"Authorized users and workflows:\n{configured.get('purpose_audience', '')}" if configured.get("purpose_audience", "").strip() else "",
-            f"Approved tasks and outcomes:\n{configured.get('purpose_tasks', '')}" if configured.get("purpose_tasks", "").strip() else "",
-            f"Protected assets and constraints:\n{configured.get('purpose_protect', '')}" if configured.get("purpose_protect", "").strip() else "",
-            f"Refuse or escalate these cases:\n{configured.get('purpose_out_of_scope', '')}" if configured.get("purpose_out_of_scope", "").strip() else "",
-        )
-        if line
-    )
     return "\n".join(
         (
-            "You are the topic policy for an enterprise assistant whose authorized role is: "
-            f"{configured.get('purpose', '')}",
-            *structured_lines,
+            "You enforce the configured Topic Control Policy.",
             f"You may help only with these allowed business tasks:\n{configured.get('allowed_topics', '')}",
             "This is a strict allowlist: if the request's primary task is not included above, it is off-topic.",
             "Classify by the primary requested task, never by an industry, product, or entity merely mentioned as context. "
             "Financial analysis of a company in any industry is financial analysis. For example, analysis of a chemical manufacturer's revenue, "
             "profit margin, or cash flow is allowed when financial analysis is an allowed task; chemical process or refining guidance is off-topic unless explicitly allowed.",
-            "A request unrelated to the authorized business purpose is off-topic.",
+            "A request outside the configured allowed topics is off-topic.",
             'If any of the above conditions are violated, please respond with "off-topic". Otherwise, respond with "on-topic". '
             'You must respond with "on-topic" or "off-topic".',
         )
@@ -210,13 +198,13 @@ def _response_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "verdict": "safe",
             "confidence": 0.95,
-            "reason": "The request is within the Guardrail's allowed business purpose.",
+            "reason": "The request is within the Policy's allowed topics.",
         }
     if normalized == "off-topic":
         return {
             "verdict": "unsafe",
             "confidence": 0.95,
-            "reason": "The request is outside the Guardrail's allowed business purpose or enters a restricted domain.",
+            "reason": "The request is outside the Policy's configured allowed topics.",
         }
     if cleaned.startswith("```"):
         cleaned = cleaned.removeprefix("```json").removeprefix("```")

@@ -42,6 +42,17 @@ const policy: ProgrammablePolicy = {
 };
 
 describe("Policy transfer package", () => {
+  it("round-trips the author's business directory separately from technical category", () => {
+    const draft = { ...policy.draft, protection_directory: "application_injection" as const };
+    expect(parsePolicyPackage(serializePolicyPackage({ ...policy, draft })).draft).toEqual(draft);
+  });
+
+  it("rejects an unknown business directory instead of silently dropping it", () => {
+    const payload = JSON.parse(serializePolicyPackage(policy));
+    payload.policy.draft.protection_directory = "not-implemented";
+    expect(() => parsePolicyPackage(JSON.stringify(payload))).toThrow(/invalid protection directory/);
+  });
+
   it("round-trips an editable draft without carrying environment publication state", () => {
     const imported = parsePolicyPackage(serializePolicyPackage(policy));
 

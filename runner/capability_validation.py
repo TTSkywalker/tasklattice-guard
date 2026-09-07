@@ -60,7 +60,7 @@ async def validate_capability(
             capability = "pii" if binding.capability_ref == "pii_semantic" else "company_policy" if contract.endswith("company-policy.v1") else binding.capability_ref
             step = GuardrailPlanStep(id="candidate", capability=capability, contract_ref=contract,
                                      phases=(phase,), on_unsafe="reject",
-                                     parameters=(("allowed_topics", "Product support and password reset"), ("purpose", "Provide product support only."), ("topic_mode", "allowlist")) if binding.capability_ref == "topic_control" else ())
+                                     parameters=(("allowed_topics", "Product support and password reset"), ("topic_mode", "allowlist")) if binding.capability_ref == "topic_control" else ())
             plan = GuardrailPlanSnapshot(
                 guardrail_id=f"rail-validation:{request.request_id}", guardrail_version="20260905-000000.000Z",
                 compiler_version="rail-validation-v1", safety_level="balanced", output_delivery="full_buffered", steps=(step,),

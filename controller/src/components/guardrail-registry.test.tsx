@@ -34,14 +34,10 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-const longPurpose = "Protect unmatched traffic with complete local Policies for PII, credentials, pattern matching, abusive language, harmful content, and prompt injection without calling an external model.";
 
 const guardrail = {
   id: "guardrail-default",
   name: "Default Guardrail",
-  purpose: longPurpose,
-  purpose_details: { audience: "", tasks: "", protect: "", out_of_scope: "" },
-  custom_content_rules: [],
   allowed_topics: [],
   restricted_topics: [],
   policy_bindings: [],
@@ -65,7 +61,7 @@ const guardrail = {
 describe("GuardrailRegistry", () => {
   afterEach(cleanup);
 
-  it("keeps registry metadata visible while constraining a long purpose", () => {
+  it("shows Policy-based registry metadata without a purpose", () => {
     render(<GuardrailRegistry guardrails={[guardrail]} onOpen={vi.fn()} />);
 
     expect(screen.getByRole("table").className).toContain("table-fixed");
@@ -73,8 +69,6 @@ describe("GuardrailRegistry", () => {
     expect(screen.getByRole("columnheader", { name: "Policies" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Validation Run" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Updated" })).toBeTruthy();
-    expect(screen.getByText(longPurpose).className).toContain("whitespace-normal");
-    expect(screen.getByText(longPurpose).className).toContain("line-clamp-2");
   });
 
   it("supports a real detail link and whole-row pointer navigation", () => {

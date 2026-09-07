@@ -10,6 +10,7 @@ import type { RunnerControlServer } from "../control-channel/control-server.js";
 import type { ControllerMetrics } from "../metrics.js";
 import type { ControlPlaneService } from "../services/control-plane.js";
 import { createHttpApp } from "./app.js";
+import { PolicyCatalog } from "../policy-catalog/catalog.js";
 
 const config = loadConfig({
   NODE_ENV: "test",
@@ -33,6 +34,27 @@ const analysis = {
 };
 
 describe("Intent analysis HTTP API", () => {
+  it.each([
+    ["baseline-pii-protection", 502], ["unknown-policy", 502], ["local-contact-data", 200],
+  ] as const)("enforces the current catalog for recommendation %s", async (policyId, status) => {
+    const analyzer = fakeAnalyzer();
+    vi.mocked(analyzer.analyzeDocuments).mockResolvedValue({ ...analysis, requirements: [{ title: "Privacy", description: "Protect identifiers", effect: "transform", source_refs: ["document-1:lines-1-1"] }], recommended_policy_ids: [policyId] });
+    const policies = PolicyCatalog.load(config.policyCatalogDir).list();
+    const response = await appWith({ user: { id: "admin-1", role: "admin" } }, analyzer, policies)
+      .request("/api/v1/compliance-document-analyses", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=regression-boundary" },
+        body: '--regression-boundary\r\nContent-Disposition: form-data; name="files"; filename="privacy.txt"\r\nContent-Type: text/plain\r\n\r\nProtect identifiers.\r\n--regression-boundary--\r\n',
+      });
+    expect(response.status).toBe(status);
+    if (status === 502) expect(await response.json()).toMatchObject({ error: { code: "intent_analysis_failed" } });
+    else expect(await response.json()).toMatchObject({ recommended_policy_ids: [policyId] });
+    const supplied = vi.mocked(analyzer.analyzeDocuments).mock.calls[0]![0].policies;
+    expect(supplied.length).toBeGreaterThan(0);
+    expect(supplied.some((policy) => policy.id === "baseline-pii-protection")).toBe(false);
+    expect(supplied.every((policy) => "directory" in policy)).toBe(true);
+  });
+
   it("reports the configured authoring model with document analysis", async () => {
     const analyzer = fakeAnalyzer();
     const response = await appWith({ user: { id: "member-1", role: "user" } }, analyzer)
@@ -146,6 +168,7 @@ function fakeAnalyzer(): IntentAnalyzer {
 function appWith(
   session: { user: { id: string; role: string } } | null,
   intentAnalyzer: IntentAnalyzer | null,
+  policies: Awaited<ReturnType<ControlPlaneService["listPolicies"]>> = [],
 ) {
   const auth = {
     api: { getSession: vi.fn().mockResolvedValue(session) },
@@ -154,7 +177,7 @@ function appWith(
   return createHttpApp({
     config,
     auth,
-    service: { listPolicies: vi.fn().mockResolvedValue([]) } as unknown as ControlPlaneService,
+    service: { listPolicies: vi.fn().mockResolvedValue(policies) } as unknown as ControlPlaneService,
     runnerControl: {} as RunnerControlServer,
     metrics: {} as ControllerMetrics,
     intentAnalyzer,

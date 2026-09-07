@@ -12,6 +12,13 @@ import yaml
 from nemoguardrails import Guardrails, RailsConfig
 
 from ..compiler.domain import PlanCompilationError
+from ..evaluation.contracts import (
+    MODEL_SAFETY_CAPABILITY_BY_CONTRACT,
+    CONTRACT_TOPIC_SEMANTIC,
+    CONTRACT_COMPANY_POLICY,
+    CONTRACT_CONTEXTUAL_GROUNDING,
+    CONTRACT_AUTOMATED_REASONING,
+)
 from ..runtime.contracts import GuardrailPlanSnapshot, NeMoConfigSnapshot
 from .action_registry import (
     ACTION_CUSTOMER_IDENTIFIER,
@@ -24,6 +31,10 @@ from .action_registry import (
 )
 from .artifacts import config_checksum
 from .actions.model_call import instrument_nemo_models
+from .actions.names import (
+    ACTION_RECORD_OWNED_POLICY, ACTION_TOPIC_JUDGE, ACTION_GROUNDING,
+    ACTION_AUTOMATED_REASONING,
+)
 from .actions.strict_topic_safety import install_strict_topic_safety_action
 from .native_models import (
     NativeRailModel,
@@ -44,8 +55,15 @@ _PROFILE_RUNTIME = {
 _EXECUTOR_ACTION_VERSIONS = {
     ACTION_CUSTOMER_IDENTIFIER: "1.0.0",
     ACTION_RECORD_POLICY: "1.0.0",
+    ACTION_RECORD_OWNED_POLICY: "1.0.0",
     ACTION_RECORD_NATIVE: "1.0.0",
     ACTION_RESOLVE: "1.0.0",
+}
+_DECLARED_DEDICATED_CONTRACTS = {
+    CONTRACT_TOPIC_SEMANTIC: (ACTION_TOPIC_JUDGE, "topic_control"),
+    CONTRACT_COMPANY_POLICY: (ACTION_TOPIC_JUDGE, "company_policy"),
+    CONTRACT_CONTEXTUAL_GROUNDING: (ACTION_GROUNDING, "contextual_grounding"),
+    CONTRACT_AUTOMATED_REASONING: (ACTION_AUTOMATED_REASONING, "automated_reasoning"),
 }
 
 
@@ -324,7 +342,7 @@ class NeMoRuntimeRegistry:
         from .runtime import NeMoActionBridge
 
         self._validate_runtime_profile(config)
-        self._validate_bindings(config)
+        self._validate_bindings(config, plan)
         self._validate_native_model_dependencies(config)
         materialized_yaml = materialize_model_configs(
             config.config_yaml,
@@ -529,7 +547,7 @@ class NeMoRuntimeRegistry:
                     f"artifact requires {expected_profile!r}."
                 )
 
-    def _validate_bindings(self, config: NeMoConfigSnapshot) -> None:
+    def _validate_bindings(self, config: NeMoConfigSnapshot, plan: GuardrailPlanSnapshot | None = None) -> None:
         result_vars = tuple(
             binding.result_var
             for binding in config.action_bindings
@@ -638,15 +656,67 @@ class NeMoRuntimeRegistry:
             )
         evaluation = self._providers.get((ACTION_EVALUATE, "1.0.0"))
         route_keys = frozenset(getattr(evaluation, "route_keys", ()))
+        route_rail_keys = frozenset(getattr(evaluation, "route_rail_keys", ()))
+        declared_phases: dict[str, set[str]] = {}
+        for policy in plan.policy_versions if plan is not None else ():
+            phases = {phase for binding in config.action_bindings
+                if binding.policy_id == policy.policy_id and binding.policy_version == policy.version
+                for phase in binding.phases}
+            for contract in policy.evaluation_contracts:
+                declared_phases.setdefault(contract, set()).update(phases)
+        # Custom flows can declare a model dependency that is not their first
+        # binding contract (or only call it on an untested branch). Enforce the
+        # signed declaration before constructing NeMo, independently of calls
+        # observed in a particular test. Local PII does not satisfy semantic PII.
+        missing_declared_models = sorted({
+            contract
+            for kind, contract, _version in config.dependency_manifest
+            if kind == "evaluation_contract"
+            and contract in MODEL_SAFETY_CAPABILITY_BY_CONTRACT
+            and (MODEL_SAFETY_CAPABILITY_BY_CONTRACT[contract], contract) not in route_keys
+        })
+        if missing_declared_models:
+            raise PlanCompilationError(
+                "Declared model Evaluator Bindings are unavailable for: "
+                + ", ".join(missing_declared_models) + "."
+            )
+        missing_declared_rails = sorted(f"{contract} ({phase})"
+            for contract, phases in declared_phases.items()
+            if contract in MODEL_SAFETY_CAPABILITY_BY_CONTRACT
+            for phase in phases
+            if (MODEL_SAFETY_CAPABILITY_BY_CONTRACT[contract], contract, phase) not in route_rail_keys)
+        if missing_declared_rails:
+            raise PlanCompilationError("Declared model Evaluator Bindings are unavailable for Rails: "
+                + ", ".join(missing_declared_rails) + ".")
+        missing_dedicated = []
+        for kind, contract, _version in config.dependency_manifest:
+            if kind != "evaluation_contract" or contract not in _DECLARED_DEDICATED_CONTRACTS:
+                continue
+            # Official native Topic Safety does not register a Guard Action.
+            # Its signed model requirement is checked/materialized separately.
+            if (contract == CONTRACT_TOPIC_SEMANTIC and TOPIC_CONTROL_MODEL_TYPE in config.required_models
+                and declared_phases.get(contract, set()).issubset({"input"})):
+                continue
+            name, capability = _DECLARED_DEDICATED_CONTRACTS[contract]
+            provider = self._providers.get((name, "1.0.0"))
+            if provider is None or capability not in provider.capabilities:
+                missing_dedicated.append(contract)
+            elif not declared_phases.get(contract, set()).issubset(provider.rails):
+                missing_dedicated.append(f"{contract} ({', '.join(sorted(declared_phases[contract] - provider.rails))})")
+        if missing_dedicated:
+            raise PlanCompilationError(
+                "Declared dedicated Evaluator Bindings are unavailable for: "
+                + ", ".join(sorted(set(missing_dedicated))) + "."
+            )
         unmapped_contracts = tuple(
             binding
             for binding in config.action_bindings
             if binding.action_name == ACTION_EVALUATE
-            and (binding.capability, binding.contract_ref) not in route_keys
+            and any((binding.capability, binding.contract_ref, phase) not in route_rail_keys for phase in binding.phases)
         )
         if unmapped_contracts:
             details = ", ".join(
-                f"{item.capability} -> {item.contract_ref}"
+                f"{item.capability} -> {item.contract_ref} ({', '.join(item.phases)})"
                 for item in unmapped_contracts
             )
             raise PlanCompilationError(

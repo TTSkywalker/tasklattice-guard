@@ -77,6 +77,8 @@ export function runtimeFindings(event: controllerApi.RuntimeEvent): DeploymentTr
 export function runtimeTraceSteps(event: controllerApi.RuntimeEvent): DeploymentRuntimeTrace["steps"] {
   return arrayOfRecords(event.metadata.trace).map((step, index) => ({
     id: stringValue(step.id) ?? `${event.id}:step:${index + 1}`,
+    parent_id: stringValue(step.parentId) ?? stringValue(step.parent_id),
+    detail: stringValue(step.detail),
     trace_id: event.requestId,
     created_at: event.occurredAt,
     guardrail_id: event.guardrailId ?? "",

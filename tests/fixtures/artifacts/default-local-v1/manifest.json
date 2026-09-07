@@ -1,8 +1,8 @@
 {
   "adapter": "litellm-generic-guardrail",
   "artifact_id": "fixture-artifact-default-local-v1",
-  "checksum": "8ce620dba3a14f8f2730933cacfdab91c9a10c4c94f20de11f9917a004a90aa4",
-  "compiler_version": "tasklattice-nemo-config-v14-iorails-check",
+  "checksum": "ffd239fdd94d1972a53c30dbb2e14f510ad19ddebacd0949c0eef8e5de289a2b",
+  "compiler_version": "tasklattice-nemo-config-v18-selected-policy-dependencies",
   "expected": {
     "redacted_input": "GUARDRAIL_INTERVENED",
     "redacted_output": "GUARDRAIL_INTERVENED",

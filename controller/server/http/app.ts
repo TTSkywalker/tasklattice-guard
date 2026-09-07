@@ -10,7 +10,8 @@ import { z } from "zod";
 
 import type { ControllerAuth } from "../auth.js";
 import type { ControllerConfig } from "../config.js";
-import { OpenAICompatibleIntentAnalyzer, type IntentAnalyzer } from "../control-plane-ai/intent-analyzer.js";
+import { IntentAnalysisError, OpenAICompatibleIntentAnalyzer, type IntentAnalyzer } from "../control-plane-ai/intent-analyzer.js";
+import { recommendationCatalog } from "../control-plane-ai/recommendation-catalog.js";
 import { ConflictError, ControllerError, NotFoundError, ValidationError } from "../domain/errors.js";
 import { enforcementActions } from "../domain/guardrail-plan.js";
 import { deriveRunnerFleetStatus } from "../domain/platform-status.js";
@@ -31,6 +32,9 @@ import {
 } from "../playground/service.js";
 import { isGuardrailVersionId } from "../../shared/guardrail-version.js";
 import type { PlatformStatusSnapshot } from "../../shared/platform-status.js";
+import { protectionDirectories } from "../../shared/protection-map.js";
+import { protectionPresets } from "../../shared/protection-presets.js";
+import { expandProtectionPreset } from "../policy-catalog/presets.js";
 
 type Actor = { id: string; role: string };
 type Variables = { actor: Actor };
@@ -58,31 +62,15 @@ const guardrailPolicyBindingInput = z.object({
     confidenceThreshold: z.number().min(0).max(1).default(0.8),
   }).nullable().default(null),
 });
-const guardrailDraftInput = z.object({
-  purposeDetails: z.object({
-    audience: z.string().trim().max(500).default(""),
-    tasks: z.string().trim().max(2_000).default(""),
-    protect: z.string().trim().max(2_000).default(""),
-    outOfScope: z.string().trim().max(2_000).default(""),
-  }).default({ audience: "", tasks: "", protect: "", outOfScope: "" }),
+const guardrailDraftInput = z.strictObject({
   allowedTopics: z.array(z.string().trim().min(1).max(500)).max(256).default([]),
   restrictedTopics: z.array(z.never()).max(0, "Topic Control is allowlist-only; restricted topics are not accepted.").default([]),
   policyBindings: z.array(guardrailPolicyBindingInput).min(1).max(128),
   safetyLevel: z.enum(["balanced", "strict"]).default("balanced"),
   outputDelivery: z.enum(["interruptible", "window_buffered", "full_buffered"]).default("full_buffered"),
-  customContentRules: z.array(z.object({
-    id: z.string().trim().min(1).max(160),
-    phases: z.array(z.enum(["input", "output"])).min(1).max(2),
-    detector: z.enum(["keyword", "regex"]),
-    keywords: z.array(z.string().trim().min(1).max(240)).max(50).optional(),
-    expression: z.string().trim().max(500).optional(),
-    action: z.enum(enforcementActions),
-    replacement: z.string().trim().max(240).optional(),
-  })).max(50).default([]),
 });
-const guardrailInput = z.object({
+const guardrailInput = z.strictObject({
   name: z.string().trim().min(1).max(160),
-  description: z.string().trim().min(1, "Business purpose is required.").max(4_000),
   draftConfig: guardrailDraftInput,
   runtimeProfile: z.enum(["auto", "llmrails_colang1_standard", "llmrails_colang2_programmable", "iorails_native"]).default("auto"),
 });
@@ -237,10 +225,14 @@ export function createHttpApp(input: {
     { "content-type": input.metrics.registry.contentType },
   ));
   app.get("/api/v1/system/status", async (context) => {
+    const desiredGeneration = await input.service.desiredGeneration();
     const pools = await input.service.listRunnerPoolsWithCapacity();
+    const observedAt = new Date();
     const defaultPool = pools.find((pool) => pool.isDefault);
-    const { reasons: runnerReasons, ...runnerFleet } = deriveRunnerFleetStatus(defaultPool);
-    const basicProtection = await input.service.defaultGuardrailReadiness();
+    const { reasons: runnerReasons, ...runnerFleet } = deriveRunnerFleetStatus(defaultPool, {
+      observedAt, offlineAfterSeconds: input.config.offlineAfterSeconds, desiredGeneration,
+    });
+    const configuredProtection = await input.service.defaultGuardrailReadiness();
     const configuredModels = input.models ? await input.models.statusSummary() : {
       controlPlane: {
         status: input.config.modelConnections.controlPlane.model === "not-configured" ? "unconfigured" as const : "configured" as const,
@@ -252,14 +244,17 @@ export function createHttpApp(input: {
         ...input.config.modelConnections.dataPlane,
       },
     };
-    const runtimeModelStatus = configuredModels.dataPlane.status === "unconfigured"
-      ? "unconfigured" as const
-      : runnerFleet.servingRunners > 0
-        ? "ready" as const
-        : "unavailable" as const;
-    const basicProtectionReason = basicProtection.status === "initializing"
+    const assignedBindings = new Set(configuredModels.dataPlane.models.map((model) => model.id));
+    const missingBindings = configuredProtection.coverage?.requiredModelBindings.filter((id) => !assignedBindings.has(id)) ?? [];
+    const basicProtection = {
+      ...configuredProtection,
+      status: configuredProtection.status !== "ready" ? configuredProtection.status
+        : missingBindings.length || runnerFleet.status === "unavailable" ? "unavailable" as const
+          : runnerFleet.servingRunners === 0 ? "initializing" as const : "ready" as const,
+    };
+    const basicProtectionReason = configuredProtection.status === "initializing"
       ? "default_guardrail_initializing" as const
-      : basicProtection.status === "unavailable"
+      : configuredProtection.status === "unavailable"
         ? "default_guardrail_unavailable" as const
         : null;
     const status = basicProtection.status === "unavailable"
@@ -268,24 +263,28 @@ export function createHttpApp(input: {
         ? "unavailable" as const
         : basicProtection.status === "initializing"
           ? "initializing" as const
-          : runnerFleet.status;
-    const reasons = [
+          : configuredProtection.coverage?.hasUnknownDependencies && runnerFleet.status === "healthy"
+            ? "degraded" as const : runnerFleet.status;
+    const reasons: PlatformStatusSnapshot["reasons"] = [
       ...(basicProtectionReason ? [basicProtectionReason] : []),
-      ...runnerReasons.filter((reason) => reason !== "all_required_components_ready" || basicProtection.status !== "ready"),
+      ...(missingBindings.length ? ["default_model_bindings_missing" as const] : []),
+      ...(configuredProtection.coverage?.hasUnknownDependencies ? ["default_dependencies_unknown" as const] : []),
+      ...runnerReasons.filter((reason) => reason !== "all_required_components_ready"),
     ];
     if (reasons.length === 0) reasons.push("all_required_components_ready");
     const snapshot = {
       status,
       reasons,
-      observedAt: new Date().toISOString(),
-      desiredGeneration: await input.service.desiredGeneration(),
+      observedAt: observedAt.toISOString(),
+      desiredGeneration,
       components: {
         controller: { status: "operational" as const },
         basicProtection,
         runnerFleet,
         controlPlaneModel: configuredModels.controlPlane,
         runtimeModels: {
-          status: runtimeModelStatus,
+          // Active assignments are configuration evidence, not a live model call.
+          status: configuredModels.dataPlane.status,
           provider: configuredModels.dataPlane.provider,
           models: configuredModels.dataPlane.models,
         },
@@ -407,6 +406,12 @@ export function createHttpApp(input: {
     const items = await input.service.listPolicies();
     return context.json({ items, count: items.length });
   });
+  app.get("/api/v1/protection-presets", authenticated, (context) => {
+    const policies = policyCatalog.list();
+    const items = protectionPresets.map((preset) => ({ ...preset, policyBindings: expandProtectionPreset(preset, policies) }));
+    // This is a preview, not a save/activation or evidence that runtime checks passed.
+    return context.json({ directories: protectionDirectories, items, count: items.length });
+  });
   app.get("/api/v1/policies/:id", authenticated, async (context) => context.json(await input.service.getPolicy(context.req.param("id"))));
   app.post("/api/v1/policies", authenticated, administrator, async (context) => {
     const body = createProgrammablePolicySchema.parse(await context.req.json());
@@ -470,12 +475,12 @@ export function createHttpApp(input: {
     const language = form.get("language") === "zh-CN" ? "zh-CN" : "en";
     const files = form.getAll("files").filter((item): item is File => item instanceof File);
     const documents = await extractDocuments(files);
-    const policies = (await input.service.listPolicies()).map((item) => ({
-      id: item.id,
-      name: item.name,
-      description: item.description,
-    }));
+    const policies = recommendationCatalog(await input.service.listPolicies());
     const analysis = await intentAnalyzer.analyzeDocuments({ documents, policies, language });
+    const allowedIds = new Set(policies.map((policy) => policy.id));
+    if (analysis.recommended_policy_ids.some((id) => !allowedIds.has(id))) {
+      throw new IntentAnalysisError("The control-plane assistant recommended a Policy outside the current selectable catalog. Retry the analysis.");
+    }
     return context.json({
       ...analysis,
       sources: documents.map(({ sections: _sections, ...source }) => source),
@@ -854,7 +859,12 @@ export function createHttpApp(input: {
 
 function authentication(auth: ControllerAuth): MiddlewareHandler<{ Variables: Variables }> {
   return async (context, next) => {
-    const session = await auth.api.getSession({ headers: context.req.raw.headers });
+    // Cookie-cached identity is suitable for rendering the shell, not for API
+    // authority: revocation, expiry and role changes must use current DB state.
+    const session = await auth.api.getSession({
+      headers: context.req.raw.headers,
+      query: { disableCookieCache: true },
+    });
     if (!session) return context.json({ error: { code: "unauthenticated", message: "Authentication is required." } }, 401);
     context.set("actor", { id: session.user.id, role: session.user.role ?? "user" });
     await next();

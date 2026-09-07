@@ -37,6 +37,11 @@ export function HealthPage() {
   const requestUnavailable = Boolean(query.data?.error) || (!query.isLoading && !snapshot);
   const overallState: PlatformDisplayStatus = requestUnavailable ? "unknown" : snapshot?.status ?? "unknown";
   const basicProtection = snapshot?.components.basicProtection;
+  const coverage = basicProtection?.coverage;
+  const execution = !coverage ? "unknown" : !coverage.inputChecks && !coverage.outputChecks ? "empty"
+    : basicProtection?.modelIndependent === true ? "modelFree" : basicProtection?.modelIndependent === false ? "modelBacked" : "unknown";
+  const draft = basicProtection?.draft;
+  const unpublishedDraft = draft && draft.revision !== draft.activeRevision;
   const basicState: BasicDisplayStatus = requestUnavailable ? "unknown" : basicProtection?.status ?? "unknown";
   const observedAt = snapshot?.observedAt ? Date.parse(snapshot.observedAt) : query.dataUpdatedAt;
   const lastChecked = observedAt
@@ -121,15 +126,25 @@ export function HealthPage() {
                     basicState === "ready" ? "border-emerald-200 bg-emerald-50/40" : "bg-muted/20",
                   )}>
                     <ShieldCheck className={cn("mt-0.5 size-5 shrink-0", basicState === "ready" ? "text-emerald-700" : "text-muted-foreground")} />
-                    <div>
-                      <p className="text-sm font-semibold">{t("platformStatus.minimum.modelFreeTitle")}</p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">{t("platformStatus.minimum.modelFreeDescription")}</p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{t(`platformStatus.minimum.${execution}Title`)}</p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">{t(`platformStatus.minimum.${execution}Description`)}</p>
                     </div>
                   </div>
                   <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <StatusDatum label={t("platformStatus.minimum.input")} value={coverage ? t("platformStatus.minimum.checks", { count: coverage.inputChecks }) : t("platformStatus.state.unknown")} />
+                    <StatusDatum label={t("platformStatus.minimum.output")} value={coverage ? t("platformStatus.minimum.checks", { count: coverage.outputChecks }) : t("platformStatus.state.unknown")} />
+                    <StatusDatum label={t("platformStatus.minimum.policies")} value={coverage ? String(coverage.policyCount) : t("platformStatus.state.unknown")} />
                     <StatusDatum label={t("platformStatus.defaultRoute")} value={t(`platformStatus.state.${basicProtection?.deploymentStatus ?? "unknown"}`)} />
-                    <StatusDatum label={t("platformStatus.desiredGeneration")} value={String(snapshot.desiredGeneration)} mono />
                   </dl>
+                  <p className="mt-3 text-xs leading-5 text-muted-foreground">{t("platformStatus.minimum.evidence", { generation: snapshot.desiredGeneration })}</p>
+                  {unpublishedDraft ? (
+                    <div className="mt-4 rounded-lg border bg-muted/20 p-3 text-sm" role="note">
+                      <p className="font-medium">{t(draft.validationStatus === "failed"
+                        ? "platformStatus.minimum.draftFailed" : "platformStatus.minimum.draftPending", { revision: draft.revision })}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("platformStatus.minimum.draftNotActive")}</p>
+                    </div>
+                  ) : null}
                   <Button asChild variant="outline" className="mt-4 min-h-11">
                     <Link to="/guardrails/$guardrailId" params={{ guardrailId: "guardrail-default" }}>
                       {t("platformStatus.minimum.openDefault")}<ArrowRight />
@@ -144,17 +159,20 @@ export function HealthPage() {
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">{t("platformStatus.models.description")}</p>
                 </div>
                 <div className="divide-y">
-                  <ModelCoverageRow icon={Bot} title={t("platformStatus.models.controlPlane")} status={snapshot.components.controlPlaneModel.status} detail={snapshot.components.controlPlaneModel.model ?? t("platformStatus.models.notConfiguredDetail")} />
+                  <ModelCoverageRow icon={Bot} title={t("platformStatus.models.controlPlane")} status={snapshot.components.controlPlaneModel.status} detail={snapshot.components.controlPlaneModel.model ?? t("platformStatus.models.authoringNotConfigured")} />
                   <ModelCoverageRow
                     icon={Route}
                     title={t("platformStatus.models.dataPlane")}
                     status={snapshot.components.runtimeModels.status}
-                    detail={snapshot.components.runtimeModels.models.length ? t("platformStatus.models.modelCount", { count: snapshot.components.runtimeModels.models.length }) : t("platformStatus.models.notConfiguredDetail")}
+                    detail={snapshot.components.runtimeModels.models.length ? t("platformStatus.models.bindingCount", { count: snapshot.components.runtimeModels.models.length }) : t("platformStatus.models.noBindings")}
                   />
                 </div>
+                <p className="border-t px-5 py-4 text-xs leading-5 text-muted-foreground">{t(basicProtection?.modelIndependent === true
+                  ? "platformStatus.models.optionalForRelease" : basicProtection?.modelIndependent === false
+                    ? "platformStatus.models.requiredForRelease" : "platformStatus.models.dependenciesUnknown")}</p>
                 <div className="flex flex-wrap gap-2 border-t p-4">
-                  <Button asChild variant="outline" size="sm" className="min-h-10"><Link to="/settings/models">{t("platformStatus.models.configure")}<ArrowRight /></Link></Button>
-                  <Button asChild variant="ghost" size="sm" className="min-h-10"><Link to="/settings/guardrail-catalog">{t("platformStatus.models.assign")}<ArrowRight /></Link></Button>
+                  <Button asChild variant="outline" size="sm" className="min-h-11"><Link to="/settings/models">{t("platformStatus.models.configure")}<ArrowRight /></Link></Button>
+                  <Button asChild variant="ghost" size="sm" className="min-h-11"><Link to="/settings/guardrail-catalog">{t("platformStatus.models.assign")}<ArrowRight /></Link></Button>
                 </div>
               </section>
             </div>
@@ -198,7 +216,7 @@ function Requirement({ icon: Icon, label, value, ready }: { icon: typeof Activit
   return (
     <div className="flex min-w-0 items-start gap-3 border-b px-5 py-4 last:border-b-0 sm:border-b-0">
       <span className={cn("grid size-8 shrink-0 place-items-center rounded-md", ready ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>{ready ? <CheckCircle2 className="size-4" /> : <Icon className="size-4" />}</span>
-      <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-0.5 truncate text-sm font-semibold" title={value}>{value}</p></div>
+      <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-0.5 break-words text-sm font-semibold" title={value}>{value}</p></div>
     </div>
   );
 }
@@ -207,13 +225,13 @@ function StatusDatum({ label, value, mono = false }: { label: string; value: str
   return <div className="rounded-lg border bg-muted/20 px-4 py-3"><dt className="text-xs text-muted-foreground">{label}</dt><dd className={cn("mt-1 text-sm font-semibold", mono && "font-mono tabular-nums")}>{value}</dd></div>;
 }
 
-function ModelCoverageRow({ icon: Icon, title, status, detail }: { icon: typeof Bot; title: string; status: "configured" | "unconfigured" | "ready" | "unavailable"; detail: string }) {
+function ModelCoverageRow({ icon: Icon, title, status, detail }: { icon: typeof Bot; title: string; status: "configured" | "unconfigured"; detail: string }) {
   const { t } = useTranslation();
-  const badgeState = status === "ready" ? "healthy" : status === "unavailable" ? "offline" : status === "configured" ? "neutral" : "pending";
+  const badgeState = status === "configured" ? "neutral" : "pending";
   return (
     <div className="flex items-start gap-3 px-5 py-4">
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><Icon className="size-4" /></span>
-      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{title}</p><StateBadge state={badgeState} label={t(`platformStatus.state.${status}`)} /></div><p className="mt-1 truncate text-xs text-muted-foreground" title={detail}>{detail}</p></div>
+      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{title}</p><StateBadge state={badgeState} label={t(`platformStatus.state.${status}`)} /></div><p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{detail}</p></div>
     </div>
   );
 }

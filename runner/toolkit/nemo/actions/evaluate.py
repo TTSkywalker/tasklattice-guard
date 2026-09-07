@@ -66,6 +66,14 @@ class EvaluationActionProvider:
         return tuple(self._routes)
 
     @property
+    def route_rail_keys(self) -> tuple[tuple[str, str, str], ...]:
+        """Exact directional readiness, not the union of unrelated routes."""
+        return tuple((capability, contract, rail)
+            for (capability, contract), evaluator in self._routes.items()
+            for rail in sorted(evaluator.supported_rails(capability, contract)
+                if callable(getattr(evaluator, "supported_rails", None)) else evaluator.rails))
+
+    @property
     def route_evaluators(self) -> tuple[tuple[str, str, str], ...]:
         """Expose capability, contract, and evaluator IDs for readiness evidence."""
 
@@ -89,7 +97,7 @@ class EvaluationActionProvider:
                     f"{request.binding.contract_ref!r}."
                 ),
             )
-        if request.rail_type not in evaluator.rails:
+        if (request.capability, request.binding.contract_ref, request.rail_type) not in self.route_rail_keys:
             return evaluation_result(
                 request,
                 "error",

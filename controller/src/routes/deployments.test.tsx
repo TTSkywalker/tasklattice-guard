@@ -75,7 +75,6 @@ const integrations = [
 const guardrail = {
   id: "guardrail-finance",
   name: "Finance Guardrail",
-  purpose: "Protect regional finance traffic.",
   allowed_topics: [],
   restricted_topics: [],
   safety_level: "balanced",

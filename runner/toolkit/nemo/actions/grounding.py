@@ -64,12 +64,12 @@ class GroundingActionProvider:
         queries = tuple(
             block
             for block in view.blocks
-            if "query" in block.qualifiers
+            if "query" in block.qualifiers and block.text.strip()
         )
         sources = tuple(
             block
             for block in view.blocks
-            if "grounding_source" in block.qualifiers
+            if "grounding_source" in block.qualifiers and block.text.strip()
         )
         if not queries or not sources:
             missing = "query and grounding source"

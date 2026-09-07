@@ -237,7 +237,9 @@ async def test_deepseek_control_plane_and_split_guard_models_execute_as_one_repl
     ]
     assert '"User Safety"' in requests[0]["messages"][0]["content"]
     assert "SAFE or JAILBREAK" in requests[1]["messages"][0]["content"]
-    assert "authorized role" in requests[2]["messages"][0]["content"]
+    assert "configured Topic Control Policy" in requests[2]["messages"][0]["content"]
+    assert "Kubernetes" in requests[2]["messages"][0]["content"]
+    assert "authorized role" not in requests[2]["messages"][0]["content"]
 
 
 @pytest.mark.asyncio
@@ -635,7 +637,6 @@ def _topic_request() -> ActionRequest:
         content_blocks=(),
         deadline=time.monotonic() + 5,
         parameters=(
-            ("purpose", "Kubernetes support"),
             ("allowed_topics", "Kubernetes administration"),
             ("restricted_topics", "Celebrity gossip"),
         ),

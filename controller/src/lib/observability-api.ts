@@ -523,6 +523,7 @@ export async function getMetrics(filters: {
       })),
     },
     system_status: status.status === "healthy" ? "healthy" : "degraded",
+    system_reasons: status.reasons,
   };
 }
 

@@ -27,6 +27,7 @@ import { capabilityBindingContracts } from "../model-config/domain.js";
 import { capabilityBindingDefinitions } from "../../shared/guardrail-catalog.js";
 import type { ModelConfigurationService } from "../model-config/service.js";
 import type { ControlPlaneService } from "../services/control-plane.js";
+import { controlChannelOptions } from "./transport.js";
 import {
   artifactFromWire,
   artifactToWire,
@@ -54,7 +55,7 @@ type Connection = {
 };
 
 export class RunnerControlServer {
-  private readonly grpc = new Server();
+  private readonly grpc = new Server(controlChannelOptions);
   private readonly connections = new Map<string, Connection>();
   private timers: NodeJS.Timeout[] = [];
   private readonly railValidations = new Map<string, { runnerId: string; bootId: string; finish: (result: RailValidationEvidence) => void }>();

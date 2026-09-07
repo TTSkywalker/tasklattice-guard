@@ -74,7 +74,7 @@ export type ModelValidationReport = {
     evidenceKind?: "model-probe" | "nemo-rail-v1";
   }>;
   contractCoverage: Array<{ contract: string; bindingId: CapabilityBindingId | null; railType: ImplementedGuardrailRailType | null; source: "local" | "model"; modelId: string | null }>;
-  policies: Array<{ id: string; name: string; status: "ready" | "blocked"; missingContracts: string[] }>;
+  policies: Array<{ id: string; name: string; status: "ready" | "blocked" | "unknown"; dependenciesComplete: boolean; missingContracts: string[] }>;
 };
 
 export type ModelConfigurationRevision = {
@@ -101,12 +101,6 @@ export type ModelConfigurationView = {
 };
 
 export type GuardrailDraftConfig = {
-  purposeDetails: {
-    audience: string;
-    tasks: string;
-    protect: string;
-    outOfScope: string;
-  };
   allowedTopics: string[];
   restrictedTopics: string[];
   policyBindings: Array<{
@@ -128,21 +122,11 @@ export type GuardrailDraftConfig = {
   }>;
   safetyLevel: "balanced" | "strict";
   outputDelivery: "interruptible" | "window_buffered" | "full_buffered";
-  customContentRules?: Array<{
-    id: string;
-    phases: Array<"input" | "output">;
-    detector: "keyword" | "regex";
-    keywords?: string[];
-    expression?: string;
-    action: "pass" | "redact" | "rewrite" | "regenerate" | "redirect" | "reject" | "fallback" | "clarify";
-    replacement?: string;
-  }>;
 };
 
 export type Guardrail = {
   id: string;
   name: string;
-  description: string;
   draftConfig: GuardrailDraftConfig;
   runtimeProfile: string;
   status: GuardrailLifecycleState;
@@ -360,7 +344,9 @@ export async function requestController<T>(path: string, init?: RequestInit): Pr
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({})) as { error?: { message?: string; detail?: unknown }; detail?: unknown; message?: string };
   if (!response.ok) {
-    if (response.status === 401) window.dispatchEvent(new CustomEvent("tasklattice:unauthorized"));
+    // A forbidden write may mean the user's role changed. Recheck identity,
+    // without treating every 403 as a logout or retrying the rejected write.
+    if (response.status === 401 || response.status === 403) window.dispatchEvent(new CustomEvent("tasklattice:unauthorized"));
     throw new Error(formatApiError(payload.error?.detail ?? payload.error?.message ?? payload.detail ?? payload.message, response.status));
   }
   return payload as T;
@@ -428,9 +414,9 @@ export const activateModelConfiguration = (revisionId: string) => requestControl
 export const rollbackModelConfiguration = () => requestController<ModelConfigurationView & { distribution: { desiredGeneration: number; distributionStatus: "ready" | "syncing" } }>("/api/v1/model-configuration/rollback", json("POST"));
 export const listControllerGuardrails = () => requestController<Collection<Guardrail>>("/api/v1/guardrails");
 export const getControllerGuardrail = (id: string) => requestController<GuardrailDetail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
-export const createControllerGuardrail = (input: Pick<Guardrail, "name" | "description" | "draftConfig" | "runtimeProfile">) => requestController<Guardrail>("/api/v1/guardrails", json("POST", input));
-export const previewControllerGuardrailPlan = (input: Pick<Guardrail, "name" | "description" | "draftConfig" | "runtimeProfile">) => requestController<GuardrailPlanPreview>("/api/v1/guardrail-plan-previews", json("POST", input));
-export const updateControllerGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "description" | "draftConfig" | "runtimeProfile">>) => requestController<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, json("PATCH", input));
+export const createControllerGuardrail = (input: Pick<Guardrail, "name" | "draftConfig" | "runtimeProfile">) => requestController<Guardrail>("/api/v1/guardrails", json("POST", input));
+export const previewControllerGuardrailPlan = (input: Pick<Guardrail, "name" | "draftConfig" | "runtimeProfile">) => requestController<GuardrailPlanPreview>("/api/v1/guardrail-plan-previews", json("POST", input));
+export const updateControllerGuardrail = (id: string, input: Partial<Pick<Guardrail, "name" | "draftConfig" | "runtimeProfile">>) => requestController<Guardrail>(`/api/v1/guardrails/${encodeURIComponent(id)}`, json("PATCH", input));
 export const publishControllerGuardrail = (id: string) => requestController<{ status: string; version: string }>(`/api/v1/guardrails/${encodeURIComponent(id)}/publish`, json("POST"));
 export const rollbackControllerGuardrail = (id: string, version: string) => requestController<GuardrailVersion>(`/api/v1/guardrails/${encodeURIComponent(id)}/rollback/${encodeURIComponent(version)}`, json("POST"));
 export const getControllerGuardrailDeletionImpact = (id: string) => requestController<DeletionImpact>(`/api/v1/guardrails/${encodeURIComponent(id)}/deletion-impact`);

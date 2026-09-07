@@ -3,10 +3,13 @@ import { join } from "node:path";
 
 import { z } from "zod";
 import { guardrailCategoryIds } from "../../shared/guardrail-catalog.js";
+import type { PolicyProtection } from "../../shared/protection-map.js";
+import { policyProtection, protectionContractsSchema, type ProtectionContracts } from "./protection.js";
 
 const railTypeSchema = z.enum(["input", "retrieval", "dialog", "execution", "output"]);
 const ruleFormSchema = z.enum(["regex", "keyword", "category", "code_block", "competitor_intent", "colang_flow"]);
 const policyTagNamespaceSchema = z.enum([
+  "protection",
   "guardrail_category",
   "collection",
   "domain",
@@ -116,12 +119,15 @@ export type PolicyDto = {
   test_count: number;
   safety_level: "balanced" | "strict";
   output_delivery: "interruptible" | "window_buffered" | "full_buffered";
+  protection: PolicyProtection;
 };
 
 export const POLICY_CATALOG_FILE_NAMES = [
   "builtin_policies.json",
   "local_content_filters.json",
   "model_capability_policies.json",
+  "focused_policies.json",
+  "configurable_policies.json",
 ] as const;
 
 const RAIL_ORDER: PolicyDto["rails"] = ["input", "retrieval", "dialog", "execution", "output"];
@@ -162,12 +168,19 @@ export class PolicyCatalog {
 
   static load(directory: string): PolicyCatalog {
     const merged = new Map<string, PolicyDto>();
+    const contractPath = join(directory, "protection-contracts.json");
+    let contracts: ProtectionContracts;
+    try {
+      contracts = protectionContractsSchema.parse(JSON.parse(readFileSync(contractPath, "utf8")));
+    } catch (error) {
+      throw new Error(`Unable to load protection contract ${contractPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     for (const fileName of POLICY_CATALOG_FILE_NAMES) {
       const path = join(directory, fileName);
       for (const policy of readPolicyAssets(path)) {
         // The focused local-filter collection intentionally replaces a legacy
         // definition when it reuses a public Policy ID.
-        merged.set(policy.id, normalizePolicy(policy));
+        merged.set(policy.id, normalizePolicy(policy, contracts));
       }
     }
     return new PolicyCatalog(merged);
@@ -192,7 +205,7 @@ function readPolicyAssets(path: string): PolicyAsset[] {
   }
 }
 
-function normalizePolicy(policy: PolicyAsset): PolicyDto {
+function normalizePolicy(policy: PolicyAsset, contracts: ProtectionContracts): PolicyDto {
   const tags = new Map<string, PolicyTag>();
   if (OWASP_LLM_2025_POLICY_IDS.has(policy.id)) {
     const tag = policyTag("framework", "owasp-llm-2025", "OWASP LLM 2025", "declared");
@@ -223,6 +236,7 @@ function normalizePolicy(policy: PolicyAsset): PolicyDto {
     test_count: policy.test_cases.length,
     safety_level: policy.safety_level,
     output_delivery: policy.output_delivery,
+    protection: policyProtection({ ...policy, rails: [...configuredRails] }, contracts),
   };
 }
 

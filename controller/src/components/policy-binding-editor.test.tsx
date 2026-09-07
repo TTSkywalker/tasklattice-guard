@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { GuardrailPolicyBinding, Policy } from "@/lib/api";
 
-import { PolicyBindingEditor } from "./policy-binding-editor";
+import { PolicyBindingEditor, defaultPolicyBinding } from "./policy-binding-editor";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -28,6 +28,11 @@ vi.mock("react-i18next", () => ({
         "guardrailWizard.policyAction": "Policy action",
         "guardrailWizard.usePolicyBehavior": "Use Policy behavior",
         "guardrailWizard.enabledRails": "Enabled Rails",
+        "protection.input": "Requests",
+        "protection.output": "Responses",
+        "protection.selectDirection": "Select requests, responses or both.",
+        "protection.moveRuleUp": "Move {{name}} earlier in {{policy}}",
+        "protection.moveRuleDown": "Move {{name}} later in {{policy}}",
         "guardrailWizard.policyRules": "Policy Rules",
         "guardrailWizard.noPolicies": "No Policies",
         "guardrailWizard.noPoliciesDescription": "Select a Policy.",
@@ -109,11 +114,45 @@ const requiredPolicy = {
 
 function Harness({ policies = [policy] }: { policies?: Policy[] }) {
   const [bindings, setBindings] = useState<GuardrailPolicyBinding[]>([]);
-  return <PolicyBindingEditor policies={policies} value={bindings} onChange={setBindings} />;
+  return <><PolicyBindingEditor policies={policies} value={bindings} onChange={setBindings} /><output aria-label="Binding configuration">{JSON.stringify(bindings)}</output></>;
 }
 
 describe("PolicyBindingEditor", () => {
   afterEach(cleanup);
+
+  it("renders and edits the pinned version's required parameters, not the latest version", () => {
+    const old: Policy = { ...policy, source: "custom", name: "Published old", parameters: [{ name: "old_parameter", label: "Old required value", kind: "string", required: true, description: "" }] };
+    const latest: Policy = { ...old, version: "2", name: "Published new", rules: [], parameters: [], published_versions: [old] };
+    const onChange = vi.fn();
+    render(<PolicyBindingEditor policies={[latest]} value={[defaultPolicyBinding(old)]} onChange={onChange} />);
+    expect(screen.getAllByText("Published old").length).toBe(2);
+    expect(screen.getByRole("button", { name: "Remove Published old" })).toBeTruthy();
+    expect(screen.queryByText("Published new")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Old required value *"), { target: { value: "reviewed value" } });
+    expect(onChange.mock.calls[0]?.[0][0]).toMatchObject({ policy_version: "1", parameter_values: { old_parameter: "reviewed value" } });
+  });
+
+  it("offers the latest version only after explicitly removing the old binding", () => {
+    const old: Policy = { ...policy, name: "Published old", source: "custom" };
+    const latest: Policy = { ...old, version: "2", name: "Published new", published_versions: [old] };
+    const onChange = vi.fn();
+    const { rerender } = render(<PolicyBindingEditor policies={[latest]} value={[defaultPolicyBinding(old)]} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Published old" }));
+    expect(onChange).toHaveBeenLastCalledWith([]);
+    rerender(<PolicyBindingEditor policies={[latest]} value={[]} onChange={onChange} />);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Select Policies" }), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Published new/ }));
+    expect(onChange.mock.calls.at(-1)?.[0][0]).toMatchObject({ policy_id: old.id, policy_version: "2" });
+  });
+
+  it("shows a missing pinned version instead of substituting latest and allows explicit removal", () => {
+    const onChange = vi.fn();
+    render(<PolicyBindingEditor policies={[{ ...policy, version: "2" }]} value={[defaultPolicyBinding(policy)]} onChange={onChange} />);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("Protect account IDs")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "common.remove" }));
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
 
   it("keeps a newly bound Policy collapsed until the user opens its Rule details", () => {
     render(<Harness />);
@@ -189,5 +228,36 @@ describe("PolicyBindingEditor", () => {
       "Review Rule details for Aviation Operations Security",
     );
     expect(details!.open).toBe(true);
+  });
+
+  it("edits request/response scope and flags an empty direction without changing the source Policy", () => {
+    const both: Policy = { ...policy, rails: ["input", "output"] };
+    render(<Harness policies={[both]} />);
+    fireEvent.focus(screen.getByRole("combobox", { name: "Select Policies" }));
+    fireEvent.click(screen.getByRole("option", { name: /Customer data Policy/ }));
+    fireEvent.click(document.querySelector("summary")!);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Customer data Policy: Responses" }));
+    let bindings = JSON.parse(screen.getByLabelText("Binding configuration").textContent!);
+    expect(bindings[0].enabled_rails).toEqual(["input"]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Customer data Policy: Requests" }));
+    expect(screen.getByText("Select requests, responses or both.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Customer data Policy: Responses" }));
+    bindings = JSON.parse(screen.getByLabelText("Binding configuration").textContent!);
+    expect(bindings[0].enabled_rails).toEqual(["output"]);
+    expect(both.rails).toEqual(["input", "output"]);
+  });
+
+  it("persists local Rule order and disabling independently of source Rule order", () => {
+    const rules = [policy.rules[0]!, { ...policy.rules[0]!, id: "another-rule", name: "Reject credentials" }];
+    render(<Harness policies={[{ ...policy, rules }]} />);
+    fireEvent.focus(screen.getByRole("combobox", { name: "Select Policies" }));
+    fireEvent.click(screen.getByRole("option", { name: /Customer data Policy/ }));
+    fireEvent.click(document.querySelector("summary")!);
+    fireEvent.click(screen.getByRole("button", { name: "Move Reject credentials earlier in Customer data Policy" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Customer data Policy: Protect account IDs" }));
+    const bindings = JSON.parse(screen.getByLabelText("Binding configuration").textContent!);
+    expect(bindings[0].rule_order).toEqual(["another-rule", policy.rules[0]!.id]);
+    expect(bindings[0].enabled_rule_ids).toEqual(["another-rule"]);
+    expect(rules.map((rule) => rule.id)).toEqual([policy.rules[0]!.id, "another-rule"]);
   });
 });

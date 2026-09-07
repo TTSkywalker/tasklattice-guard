@@ -206,15 +206,7 @@ export function providerAcceptsProfile(providerKind: ModelProviderKind, profile:
   return isDataPlaneProviderKindAllowed(providerKind) || profile === "generic-chat";
 }
 
-export const localGuardrailContracts = [
-  "tali.guard.secrets.exact.v1",
-  "tali.guard.pii.exact.v1",
-  "tali.guard.content-filter.rules.v1",
-  "tali.guard.prompt-injection.v1",
-  "tali.guard.indirect-prompt-injection.v1",
-  "tali.guard.system-prompt-leakage.v1",
-  "tali.guard.topic-control.rules.v1",
-] as const;
+export { localGuardrailContracts } from "../../shared/protection-dependencies.js";
 
 export type ModelValidationCheck = {
   id: string;
@@ -228,7 +220,8 @@ export type ModelValidationCheck = {
 export type PolicyCoverage = {
   id: string;
   name: string;
-  status: "ready" | "blocked";
+  status: "ready" | "blocked" | "unknown";
+  dependenciesComplete: boolean;
   missingContracts: string[];
 };
 

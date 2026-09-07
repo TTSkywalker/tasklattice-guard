@@ -88,6 +88,16 @@ through a versioned Guardrail Catalog revision. Each assignment is a stable
 `capability.rail` binding, for example `content_safety.input` or
 `content_safety.output`, rather than an implicit capability attached to a Model.
 
+Guardrails are named, versioned compositions of Policy bindings. There is no
+Guardrail-level description, business-purpose field, or immutable-purpose lock.
+The selected Policies, Rule ordering and overrides define protection behavior.
+Optional natural-language or document input helps author Policies; it is not
+stored as a Guardrail identity or injected into runtime prompts. Topic Control
+uses its configured allowed topics. Migration `0003_remove_guardrail_purpose`
+deletes the obsolete description column and draft purpose details. It advances
+draft revisions so old validation results cannot authorize a changed draft;
+historical signed artifacts are not rewritten.
+
 The shared binding manifest currently executes Input and Output Rails. It also
 reserves Retrieval, Dialog, and Execution as future Rail types, so later support
 adds new manifest entries and runtime implementations without changing Provider,

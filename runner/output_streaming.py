@@ -5,9 +5,11 @@ import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass, field, replace
-from typing import Awaitable, Callable, Protocol
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Awaitable, Callable, Protocol
 
 from redis.asyncio import Redis
+from redis.asyncio.lock import Lock
 
 from runner.toolkit.runtime.contracts import (
     GuardContentBlock,
@@ -19,6 +21,24 @@ from runner.toolkit.runtime.contracts import (
 
 
 StreamEvaluator = Callable[[ProtectionRequest], Awaitable[ProtectionDecision]]
+
+
+class OutputStreamEvaluationError(RuntimeError):
+    """A failed/invalid check is not a successful Policy rejection."""
+
+    def __init__(self, message: str, *, timed_out: bool = False) -> None:
+        super().__init__(message)
+        self.timed_out = timed_out
+
+# Checking ownership separately from SET leaves a lease-expiry race between the
+# two commands. Commit the state and its idle TTL only while this token owns the
+# lock, in one Redis operation. A stale evaluator must never overwrite a newer
+# replica, even though releasing its expired lock would subsequently fail.
+_COMMIT_OWNED_STREAM = """
+if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3])
+return 1
+"""
 
 
 class OutputStreamProcessor(Protocol):
@@ -57,6 +77,7 @@ class _OutputStreamSession:
     released_text: str = ""
     complete: bool = False
     expires_at: float = 0.0
+    active_users: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -96,8 +117,7 @@ class OutputStreamSessionStore:
         request: ProtectionRequest,
         evaluate: StreamEvaluator,
     ) -> OutputStreamResult:
-        session = await self._session(stream_key, mode, request)
-        async with session.lock:
+        async with self._session(stream_key, mode, request) as session, session.lock:
             _check_identity(session.request, request)
             if session.complete:
                 raise ValueError("The output stream is already complete.")
@@ -123,31 +143,37 @@ class OutputStreamSessionStore:
             session.expires_at = time.monotonic() + self._ttl_seconds
             return result
 
+    @asynccontextmanager
     async def _session(
         self,
         key: str,
         mode: OutputDeliveryMode,
         request: ProtectionRequest,
-    ) -> _OutputStreamSession:
+    ) -> AsyncIterator[_OutputStreamSession]:
         async with self._index_lock:
             self._prune()
             session = self._sessions.get(key)
-            if session is not None:
-                return session
-            if len(self._sessions) >= self._max_sessions:
-                raise ValueError("Output stream capacity reached; retry after an existing stream expires.")
-            session = _OutputStreamSession(
-                mode=mode,
-                request=request,
-                expires_at=time.monotonic() + self._ttl_seconds,
-            )
-            self._sessions[key] = session
-            return session
+            if session is None:
+                if len(self._sessions) >= self._max_sessions:
+                    raise ValueError("Output stream capacity reached; retry after an existing stream expires.")
+                session = _OutputStreamSession(
+                    mode=mode,
+                    request=request,
+                    expires_at=time.monotonic() + self._ttl_seconds,
+                )
+                self._sessions[key] = session
+            # Pin both the current evaluator and callers queued on its lock.
+            # A TTL is an idle expiry, not permission to fork in-flight state.
+            session.active_users += 1
+        try:
+            yield session
+        finally:
+            session.active_users -= 1
 
     def _prune(self) -> None:
         now = time.monotonic()
         for key, session in list(self._sessions.items()):
-            if session.expires_at <= now:
+            if session.expires_at <= now and session.active_users == 0:
                 self._sessions.pop(key, None)
 
     @staticmethod
@@ -208,7 +234,8 @@ class RedisOutputStreamSessionStore:
             f"{key}:lock",
             timeout=120,
             blocking_timeout=15,
-        ):
+            raise_on_release_error=False,
+        ) as lock:
             raw = await self._redis.get(key)
             state = json.loads(raw) if isinstance(raw, str) else self._new_state(mode, request)
             _check_identity(_request_from_dict(state["request"]), request)
@@ -221,7 +248,7 @@ class RedisOutputStreamSessionStore:
                 raise ValueError("The Guardrail output-delivery mode changed during one stream.")
             if len(str(state["all_text"])) + len(text) > self._max_characters:
                 state["complete"] = True
-                await self._save(key, state)
+                await self._save(key, state, lock)
                 raise ValueError("The output stream exceeded the configured maximum size.")
 
             session = _OutputStreamSession(
@@ -234,7 +261,7 @@ class RedisOutputStreamSessionStore:
             state.update(next_sequence=session.next_sequence, all_text=session.all_text,
                          pending_text=session.pending_text, released_text=session.released_text,
                          complete=session.complete)
-            await self._save(key, state)
+            await self._save(key, state, lock)
             return result
 
     def _new_state(self, mode: OutputDeliveryMode, request: ProtectionRequest) -> dict[str, object]:
@@ -248,8 +275,13 @@ class RedisOutputStreamSessionStore:
             "complete": False,
         }
 
-    async def _save(self, key: str, state: dict[str, object]) -> None:
-        await self._redis.set(key, json.dumps(state, separators=(",", ":")), ex=self._ttl_seconds)
+    async def _save(self, key: str, state: dict[str, object], lock: Lock) -> None:
+        committed = await self._redis.eval(
+            _COMMIT_OWNED_STREAM, 2, lock.name, key, lock.local.token,
+            json.dumps(state, separators=(",", ":")), self._ttl_seconds,
+        )
+        if committed != 1:
+            raise RuntimeError("Output stream lease expired before commit; unchecked output was withheld.")
 
     @staticmethod
     def _key(stream_key: str) -> str:
@@ -326,9 +358,7 @@ async def _advance(
     if not terminate and not checked.startswith(session.released_text):
         # A later check changed already released text. Never slice transformed
         # output using original offsets or pretend earlier bytes can be recalled.
-        decision = replace(decision, decision="block", action="reject", texts=(),
-                           reason="Output changed an already released prefix; use full-buffered delivery.")
-        terminate = True
+        raise OutputStreamEvaluationError("Output changed an already released prefix; use full-buffered delivery.")
     end = len(checked)
     if session.mode == "window_buffered" and not final:
         end = max(len(session.released_text), end - window_characters)
@@ -343,8 +373,17 @@ async def _advance(
 
 
 def _release_after_evaluation(text: str, decision: ProtectionDecision) -> tuple[str, bool]:
+    if decision.usage is not None and decision.usage.fail_closed:
+        raise OutputStreamEvaluationError(
+            "Output protection could not complete; unchecked output was withheld.",
+            timed_out=any(step.timed_out for step in decision.trace),
+        )
     if decision.decision == "block":
         return "", True
-    if decision.decision == "transform" and decision.texts:
+    if decision.decision == "transform":
+        if len(decision.texts) != 1 or not isinstance(decision.texts[0], str):
+            raise OutputStreamEvaluationError("Output protection returned an invalid transformation; unchecked output was withheld.")
         return decision.texts[0], False
+    if decision.decision != "allow":
+        raise OutputStreamEvaluationError("Output protection returned an invalid decision; unchecked output was withheld.")
     return text, False

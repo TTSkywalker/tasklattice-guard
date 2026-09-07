@@ -157,6 +157,7 @@ function Stepper({
 interface StepperItemProps extends React.HTMLAttributes<HTMLDivElement> {
   step: number
   completed?: boolean
+  autoCompletePrevious?: boolean
   disabled?: boolean
   loading?: boolean
 }
@@ -164,6 +165,7 @@ interface StepperItemProps extends React.HTMLAttributes<HTMLDivElement> {
 function StepperItem({
   step,
   completed = false,
+  autoCompletePrevious = true,
   disabled = false,
   loading = false,
   className,
@@ -173,7 +175,7 @@ function StepperItem({
   const { activeStep } = useStepper()
 
   const state: StepState =
-    completed || step < activeStep
+    completed || (autoCompletePrevious && step < activeStep)
       ? "completed"
       : activeStep === step
         ? "active"

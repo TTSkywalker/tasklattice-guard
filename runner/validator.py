@@ -138,6 +138,12 @@ class DefaultRunnerValidator:
         )
         output_content = decision.texts[0] if decision.texts else "" if decision.decision == "block" else content
         assertion_failures = []
+        runtime_failed = (
+            (decision.usage is not None and decision.usage.fail_closed)
+            or any(item.get("kind") == "runtime" and item.get("status") == "error" for item in trace)
+        )
+        if runtime_failed and actual_failure is None:
+            assertion_failures.append("Runtime failed closed without a classified infrastructure failure; this is not a Policy match.")
         if override:
             actual_matches = {
                 (item.get("policy_id"), item.get("rule_id")) for item in findings

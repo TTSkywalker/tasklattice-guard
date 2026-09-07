@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { boundPolicy } from "@/lib/bound-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Activity, ArrowLeft, ArrowUpRight, Ban, Check, ChevronDown, Circle, CircleAlert, FlaskConical, GitCompareArrows, History, LoaderCircle, LockKeyhole, Pencil, Plus, RefreshCw, Rocket, RotateCcw, Save, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
@@ -15,7 +16,8 @@ import { CopyableChecksum } from "@/components/copyable-checksum";
 import { EntitySheet } from "@/components/entity-sheet";
 import { GuardrailVersionComparison, GuardrailVersionNavigator } from "@/components/guardrail-version-workspace";
 import { GuardrailRegistry } from "@/components/guardrail-registry";
-import { PolicyBindingEditor } from "@/components/policy-binding-editor";
+import { getPolicyBindingValidation, PolicyBindingEditor } from "@/components/policy-binding-editor";
+import { ProtectionDependencies } from "@/components/protection-dependencies";
 import { ProtectedDeleteSheet } from "@/components/protected-delete-sheet";
 import { EmptyState, ErrorNotice, InfoNotice, PageHeader, StateBadge } from "@/components/product-shell";
 import { RuntimePostureFields } from "@/components/runtime-posture-fields";
@@ -34,6 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { queryKeys } from "@/features/query-keys";
 import { guardrailQueries } from "@/features/guardrail-queries";
 import { useAuth } from "@/lib/auth";
+import { policyRequiresTopicAllowlist } from "@/lib/protection-requirements";
 import {
   createValidationRun,
   deleteGuardrail,
@@ -250,7 +253,6 @@ export function GuardrailDetailPage() {
             {deployments.length ? <StateBadge state="protected" /> : activeVersion ? <StateBadge state="ready" /> : null}
             {guardrail.is_default ? <Badge variant="outline">{t("guardrails.defaultBadge")}</Badge> : guardrail.system_managed ? <Badge variant="outline">{t("guardrails.systemManaged")}</Badge> : null}
           </div>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{guardrail.purpose}</p>
           {hasUnpublishedDraft ? <button type="button" className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-md bg-amber-50 px-3 text-xs font-medium text-amber-800 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setSection("draft")}><Circle className="size-2.5 fill-current" />{t("guardrails.unpublishedDraft")}</button> : null}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -688,7 +690,7 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
   const [publishOpen, setPublishOpen] = useState(false);
   const [scopeChange, setScopeChange] = useState<{ caseId: string; action: "exclude" | "restore" } | null>(null);
   const releaseId = activeVersion?.version ?? "";
-  const draftConfigured = Boolean(guardrail.purpose && guardrail.policy_bindings.length);
+  const draftConfigured = Boolean(guardrail.policy_bindings.length);
   const validated = guardrail.tested_current;
   const published = guardrail.published_current;
   const currentRelease = versions?.find((item) => item.source_draft_version === guardrail.draft_revision);
@@ -714,7 +716,7 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
   });
   const steps = [
     { label: t("guardrails.releaseStepDraft"), complete: draftConfigured, current: !draftConfigured, detail: t("guardrails.policyCheckDetail", { count: guardrail.policy_bindings.length }) },
-    { label: validated ? t("guardrails.flowValidationPassed") : t("guardrails.flowValidationRequired"), complete: validated, current: draftConfigured && !validated, detail: validated && guardrail.latest_validation_run ? t("guardrails.validationEvidenceDetail", { rate: guardrail.latest_validation_run.metrics.compliance_rate }) : guardrail.latest_validation_run?.status === "failed" ? t("guardrails.lastValidationFailedDetail", { rate: guardrail.latest_validation_run.metrics.compliance_rate }) : guardrail.latest_validation_run ? t("guardrails.validationEvidenceStale") : t("guardrails.noValidationEvidence") },
+    { label: validated ? t("guardrails.flowValidationPassed") : t("guardrails.flowValidationRequired"), complete: validated, current: draftConfigured && !validated, detail: validated && guardrail.latest_validation_run ? t("guardrails.validationEvidenceDetail", { rate: guardrail.latest_validation_run.metrics.compliance_rate }) : guardrail.latest_validation_run?.status === "failed" ? (guardrail.latest_validation_run.failure_reason || t("guardrails.lastValidationFailedDetail", { rate: guardrail.latest_validation_run.metrics.compliance_rate })) : guardrail.latest_validation_run ? t("guardrails.validationEvidenceStale") : t("guardrails.noValidationEvidence") },
     { label: published ? t("guardrails.releaseStepPublished") : compiling ? t("guardrails.releaseStepCompiling") : compileFailed ? t("guardrails.releaseStepCompileFailed") : t("guardrails.releaseStepPublish"), complete: published, current: validated && !published, detail: published && releaseId ? t("guardrails.publishedVersionDetail", { version: releaseId }) : compiling ? t("guardrails.compilationPendingDetail") : compileFailed ? (currentRelease?.failure_reason ?? t("guardrails.compilationFailedDetail")) : t("guardrails.publishStepDetail") },
   ];
   const stateTitle = published ? t("guardrails.releasePublished") : compiling ? t("guardrails.releaseCompiling") : compileFailed ? t("guardrails.releaseCompileFailed") : validated ? t("guardrails.releaseReadyToPublish") : t("guardrails.releaseNeedsValidation");
@@ -734,7 +736,7 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
           <ol className="divide-y">
             {steps.map((step, index) => <li key={step.label} className={`grid grid-cols-[2rem_minmax(0,1fr)] gap-3 px-5 py-3.5 ${step.current ? "bg-primary/[0.025]" : ""}`}>
               <span className={`mt-0.5 grid size-7 place-items-center rounded-full border text-xs font-semibold ${step.complete ? "border-emerald-200 bg-emerald-50 text-emerald-700" : step.current ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground"}`}>{step.complete ? <Check className="size-3.5" /> : index + 1}</span>
-              <span className="min-w-0"><span className="block text-sm font-medium">{step.label}</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{step.detail}</span></span>
+              <span className="min-w-0"><span className="block text-sm font-medium">{step.label}</span><span className="mt-0.5 block break-words text-xs leading-5 text-muted-foreground">{step.detail}</span></span>
             </li>)}
           </ol>
           <aside className="border-t bg-muted/20 p-5 lg:border-t-0 lg:border-l">
@@ -746,7 +748,7 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
               {canManageDraft && validated && !published && !compiling ? <Button className="min-h-11" disabled={publish.isPending} onClick={() => setPublishOpen(true)}>{publish.isPending ? <LoaderCircle className="animate-spin" /> : compileFailed ? <RotateCcw /> : <ShieldCheck />}{t(publish.isPending ? "guardrails.requestingCompilation" : compileFailed ? "guardrails.retryCompilation" : "guardrails.publishVersion")}</Button> : null}
               {canManageDraft && published && !guardrail.is_default ? <Button className="min-h-11" onClick={onCreateDeployment}><Rocket />{t("guardrails.createDeployment")}</Button> : null}
               {canManageDraft ? <Button className="min-h-11" variant="outline" onClick={onEdit}><Pencil />{t("common.edit")}</Button> : null}
-              {validated && guardrail.latest_validation_run ? <Button className="min-h-11" variant="outline" onClick={() => onOpenValidation(guardrail.latest_validation_run!)}><FlaskConical />{t("guardrails.openValidation")}</Button> : null}
+              {guardrail.latest_validation_run ? <Button className="min-h-11" variant="outline" onClick={() => onOpenValidation(guardrail.latest_validation_run!)}><FlaskConical />{t("guardrails.openValidation")}</Button> : null}
             </div>
           </aside>
         </div>
@@ -756,6 +758,7 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
     <section>
       <div className="mb-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("guardrails.releaseInputEyebrow")}</p><h2 className="mt-1 text-base font-semibold">{t("guardrails.draftConfiguration")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("guardrails.draftConfigurationDescription")}</p></div>
       <PolicyBindings bindings={guardrail.policy_bindings} policies={policies} />
+      <div className="mt-4"><ProtectionDependencies bindings={guardrail.policy_bindings} policies={policies} /></div>
     </section>
     <section>
       <div className="mb-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("guardrails.releaseEvidenceEyebrow")}</p><h2 className="mt-1 text-base font-semibold">{t("guardrails.validationInputs")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("guardrails.validationInputsDescription")}</p></div>
@@ -799,13 +802,13 @@ export function DraftReleaseView({ guardrail, policies, cases, casesLoading, act
 function PolicyBindings({ bindings, policies }: { bindings: GuardrailPolicyBinding[]; policies: Policy[] }) {
   const { t } = useTranslation();
   return bindings.length ? <div className="grid gap-3 lg:grid-cols-2">{bindings.map((binding) => {
-    const policy = policies.find((item) => item.id === binding.policy_id);
+    const policy = boundPolicy(policies, binding);
     const name = policy?.name ?? binding.policy_id;
     const enabledRuleCount = binding.enabled_rule_ids.length || policy?.rules.length || 0;
     return <Link
       key={`${binding.policy_id}@${binding.policy_version}`}
       to="/policy-library"
-      search={{ policy: binding.policy_id }}
+      search={{ policy: binding.policy_id, version: binding.policy_version }}
       aria-label={t("guardrails.inspectPolicyAria", { name })}
       className="group rounded-lg border bg-card p-4 shadow-xs outline-none transition-colors hover:border-primary/35 hover:bg-primary/[0.025] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
     >
@@ -833,7 +836,7 @@ function groupTestCasesBySource(cases: TestCase[], bindings: GuardrailPolicyBind
   const boundPolicyIds = new Set(bindings.map((binding) => binding.policy_id));
   const policyGroups = bindings.map((binding) => {
     const items = cases.filter((item) => item.origin !== "custom" && item.source_policy_id === binding.policy_id);
-    const policy = policies.find((item) => item.id === binding.policy_id);
+    const policy = boundPolicy(policies, binding);
     return {
       id: `policy:${binding.policy_id}`,
       kind: "policy" as const,
@@ -909,7 +912,6 @@ export function TestCases({ cases, bindings, policies, loading, onAdd, onExclude
 export function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, onSaved }: { guardrail: Guardrail; policies: Policy[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
   const { t } = useTranslation();
   const [name, setName] = useState(guardrail.name);
-  const [customRules, setCustomRules] = useState(() => customRuleRowsFromGuardrail(guardrail));
   const [allowed, setAllowed] = useState(guardrail.allowed_topics.join("\n"));
   const [bindings, setBindings] = useState(guardrail.policy_bindings);
   const [level, setLevel] = useState(guardrail.safety_level);
@@ -917,7 +919,6 @@ export function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, on
   useEffect(() => {
     if (open) {
       setName(guardrail.name);
-      setCustomRules(customRuleRowsFromGuardrail(guardrail));
       setAllowed(guardrail.allowed_topics.join("\n"));
       setBindings(guardrail.policy_bindings);
       setLevel(guardrail.safety_level);
@@ -927,7 +928,6 @@ export function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, on
   const mutation = useMutation({
     mutationFn: () => updateGuardrail(guardrail.id, {
       name,
-      custom_content_rules: customRulesToDraft(customRules),
       allowed_topics: lines(allowed),
       policy_bindings: bindings,
       safety_level: level,
@@ -938,50 +938,15 @@ export function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, on
   });
   const topicControlEnabled = hasTopicControlBinding(bindings, policies);
   const allowedTopicsMissing = topicControlEnabled && !lines(allowed).length;
-  return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("guardrails.editEyebrow")} title={t("guardrails.editTitle", { name: guardrail.name })} description={t("guardrails.editDescription")} width="xl" footer={<><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!name.trim() || !bindings.length || allowedTopicsMissing || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? <LoaderCircle className="animate-spin" /> : <Save />}{t(mutation.isPending ? "common.saving" : "common.save")}</Button></>}>
+  const parameterErrors = bindings.flatMap((binding) => {
+    const policy = boundPolicy(policies, binding);
+    if (!policy) return [t("guardrailWizard.nextBlocked.policyUnavailable", { name: `${binding.policy_id}@${binding.policy_version}` })];
+    const { missingRequiredParameters } = getPolicyBindingValidation(binding, policy);
+    return missingRequiredParameters.length ? [t("guardrailWizard.nextBlocked.requiredFields", { name: policy.name, fields: missingRequiredParameters.map((parameter) => parameter.label).join(", ") })] : [];
+  });
+  return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("guardrails.editEyebrow")} title={t("guardrails.editTitle", { name: guardrail.name })} description={t("guardrails.editDescription")} width="xl" footer={<><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!name.trim() || !bindings.length || allowedTopicsMissing || parameterErrors.length > 0 || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? <LoaderCircle className="animate-spin" /> : <Save />}{t(mutation.isPending ? "common.saving" : "common.save")}</Button></>}>
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
       <Field label={t("guardrails.guardrailName")}><Input className="min-h-11" value={name} onChange={(event) => setName(event.target.value)} /></Field>
-      <section className="rounded-xl border bg-muted/20 p-4" aria-labelledby="guardrail-business-purpose">
-        <div className="flex items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground"><LockKeyhole className="size-4" /></span>
-          <div className="min-w-0">
-            <h3 id="guardrail-business-purpose" className="text-sm font-semibold">{t("guardrails.businessPurpose")}</h3>
-            <p className={`mt-1 whitespace-pre-wrap text-sm leading-6 ${guardrail.purpose ? "text-foreground" : "text-muted-foreground"}`}>{guardrail.purpose || t("guardrails.businessPurposeLegacyMissing")}</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("guardrails.businessPurposeLocked")}</p>
-          </div>
-        </div>
-      </section>
-      <section className="rounded-xl border bg-card p-4">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold">Custom phrase rules</h3>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">Use deterministic input rules for exact phrases. `Transform` replaces the matched phrase; `Block` rejects the request when the phrase appears.</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setCustomRules((current) => [...current, blankCustomRuleRow(current.length + 1)])}>Add rule</Button>
-        </div>
-        <div className="space-y-3">
-          {customRules.map((rule, index) => (
-            <div key={rule.id} className="grid gap-3 rounded-lg border bg-muted/15 p-3 sm:grid-cols-[minmax(0,1.2fr)_140px_minmax(0,1fr)_auto]">
-              <Field label="Match phrase">
-                <Input className="min-h-11" value={rule.phrase} onChange={(event) => setCustomRules((current) => replaceCustomRule(current, index, { ...rule, phrase: event.target.value }))} />
-              </Field>
-              <Field label="Action">
-                <Select value={rule.mode} onValueChange={(value) => setCustomRules((current) => replaceCustomRule(current, index, { ...rule, mode: value as "transform" | "block" }))}>
-                  <SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="transform">Transform</SelectItem><SelectItem value="block">Block</SelectItem></SelectContent>
-                </Select>
-              </Field>
-              <Field label="Replacement">
-                <Input className="min-h-11" disabled={rule.mode !== "transform"} value={rule.replacement} onChange={(event) => setCustomRules((current) => replaceCustomRule(current, index, { ...rule, replacement: event.target.value }))} placeholder={rule.mode === "transform" ? "niulai" : "Not used for block"} />
-              </Field>
-              <div className="flex items-end">
-                <Button variant="ghost" size="sm" onClick={() => setCustomRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</Button>
-              </div>
-            </div>
-          ))}
-          {!customRules.length ? <p className="text-xs text-muted-foreground">No custom phrase rules yet.</p> : null}
-        </div>
-      </section>
       <section className="rounded-xl border bg-card p-4">
         <h3 className="text-sm font-semibold">{t("guardrails.topicAllowlist")}</h3>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrails.topicAllowlistDescription")}</p>
@@ -989,50 +954,17 @@ export function EditGuardrailSheet({ guardrail, policies, open, onOpenChange, on
         {allowedTopicsMissing ? <p role="alert" className="mt-2 flex items-start gap-2 text-xs leading-5 text-destructive"><CircleAlert className="mt-0.5 size-4 shrink-0" />{t("guardrails.topicAllowlistRequired")}</p> : null}
       </section>
       <RuntimePostureFields safetyLevel={level} outputDelivery={delivery} onSafetyLevelChange={setLevel} onOutputDeliveryChange={setDelivery} />
-      <section className="min-w-0"><h3 className="mb-3 text-sm font-semibold">{t("guardrails.policyBindings")}</h3><PolicyBindingEditor policies={policies} value={bindings} onChange={setBindings} /></section>
+      <section className="min-w-0"><h3 className="mb-3 text-sm font-semibold">{t("guardrails.policyBindings")}</h3><PolicyBindingEditor policies={policies} value={bindings} onChange={setBindings} />{parameterErrors.length ? <p role="alert" className="mt-3 text-sm text-destructive">{parameterErrors.join(" ")}</p> : null}</section>
+      <ProtectionDependencies bindings={bindings} policies={policies} />
     </div>
   </EntitySheet>;
 }
 
 function hasTopicControlBinding(bindings: GuardrailPolicyBinding[], policies: Policy[]): boolean {
-  return bindings.some((binding) => binding.policy_id === "builtin-topic-safety" || policies.find((policy) => policy.id === binding.policy_id)?.tags.some((tag) => tag.namespace === "guardrail_category" && tag.value === "topic_control"));
+  return bindings.some((binding) => policyRequiresTopicAllowlist(boundPolicy(policies, binding) ?? { id: binding.policy_id }));
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="grid gap-2"><Label>{label}</Label>{children}</label>; }
 function lines(value: string) { return value.split("\n").map((item) => item.trim()).filter(Boolean); }
 function notifyError(error: unknown, fallback: string) { toast.error(error instanceof Error ? error.message : fallback); }
 function isGuardrailDraftManageable(guardrail: Pick<Guardrail, "is_default" | "system_managed">) { return guardrail.is_default || !guardrail.system_managed; }
-
-type CustomRuleRow = { id: string; phrase: string; mode: "transform" | "block"; replacement: string };
-
-function customRuleRowsFromGuardrail(guardrail: Guardrail): CustomRuleRow[] {
-  return guardrail.custom_content_rules
-    .filter((rule) => rule.detector === "keyword" && rule.phases.includes("input"))
-    .map((rule, index) => ({
-      id: rule.id || `custom-rule-${index + 1}`,
-      phrase: rule.keywords?.[0] ?? "",
-      mode: rule.action === "reject" ? "block" : "transform",
-      replacement: rule.replacement ?? "",
-    }));
-}
-
-function customRulesToDraft(rows: CustomRuleRow[]): Guardrail["custom_content_rules"] {
-  return rows
-    .map((rule, index) => ({
-      id: rule.id || `custom-rule-${index + 1}`,
-      phases: ["input"] as Array<"input">,
-      detector: "keyword" as const,
-      keywords: [rule.phrase.trim()].filter(Boolean),
-      action: rule.mode === "block" ? "reject" as const : "redact" as const,
-      ...(rule.mode === "transform" && rule.replacement.trim() ? { replacement: rule.replacement.trim() } : {}),
-    }))
-    .filter((rule) => rule.keywords.length);
-}
-
-function blankCustomRuleRow(index: number): CustomRuleRow {
-  return { id: `custom-rule-${index}`, phrase: "", mode: "block", replacement: "" };
-}
-
-function replaceCustomRule(rows: CustomRuleRow[], index: number, next: CustomRuleRow): CustomRuleRow[] {
-  return rows.map((row, itemIndex) => itemIndex === index ? next : row);
-}

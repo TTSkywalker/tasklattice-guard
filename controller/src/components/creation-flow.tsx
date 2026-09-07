@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Check } from "lucide-react";
 
 import {
@@ -28,6 +28,8 @@ export function CreationFlow({
   progressLabel,
   steps,
   orientation = "horizontal",
+  freelyNavigable = false,
+  contained = false,
 }: {
   children: ReactNode;
   currentStep: number;
@@ -35,44 +37,55 @@ export function CreationFlow({
   progressLabel: string;
   steps: readonly CreationStep[];
   orientation?: "horizontal" | "sidebar";
+  /** Optional protection steps can be visited without implying validation. */
+  freelyNavigable?: boolean;
+  contained?: boolean;
 }) {
   const sidebar = orientation === "sidebar";
   const vertical = sidebar && !useIsMobile();
   const activeValue = currentStep + 1;
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (vertical || !freelyNavigable) return;
+    root.current?.querySelector<HTMLElement>('[aria-current="step"]')?.scrollIntoView?.({ block: "nearest", inline: "center" });
+  }, [currentStep, vertical, freelyNavigable]);
 
   function changeStep(value: number) {
     const next = value - 1;
-    if (next <= currentStep) onStepChange(next);
+    if (next >= 0 && next < steps.length && (freelyNavigable || next <= currentStep)) onStepChange(next);
   }
 
   return (
+    <div ref={root} className={cn("min-w-0", contained && "h-full min-h-0")}>
     <Stepper
       value={activeValue}
       onValueChange={changeStep}
       orientation={vertical ? "vertical" : "horizontal"}
       indicators={{ completed: <Check className="size-3.5" /> }}
       className={cn(
-        "min-h-full",
-        vertical ? "grid grid-cols-[13.5rem_minmax(0,1fr)]" : "flex flex-col",
+        contained ? "h-full min-h-0" : "min-h-full",
+        vertical ? freelyNavigable ? "grid grid-cols-[18rem_minmax(0,1fr)]" : "grid grid-cols-[13.5rem_minmax(0,1fr)]" : "flex flex-col",
       )}
     >
       <StepperNav
         aria-label={progressLabel}
         className={cn(
           vertical
-            ? "sticky top-0 min-h-full w-full self-start border-r bg-muted/15 px-4 py-4"
-            : "w-full gap-0 overflow-x-auto border-b bg-muted/20 px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            ? "w-full border-r bg-muted/15 px-4 py-3"
+            : "w-full shrink-0 items-start gap-0 overflow-x-auto border-b bg-muted/20 px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          vertical && (contained ? "h-full overflow-y-auto" : "sticky top-0 min-h-full self-start"),
         )}
       >
         {steps.map((step, index) => (
           <StepperItem
             key={step.label}
             step={index + 1}
-            disabled={index > currentStep}
+            disabled={!freelyNavigable && index > currentStep}
+            autoCompletePrevious={!freelyNavigable}
             className={cn(
               "relative justify-start",
               vertical
-                ? "min-h-[3.75rem] w-full items-start not-last:flex-none last:min-h-11"
+                ? freelyNavigable ? "min-h-11 w-full items-start not-last:flex-none" : "min-h-[3.75rem] w-full items-start not-last:flex-none last:min-h-11"
                 : "min-w-28 items-center",
             )}
           >
@@ -96,7 +109,7 @@ export function CreationFlow({
                 {index + 1}
               </StepperIndicator>
               <span className={cn("min-w-0", !vertical && "max-w-28")}>
-                <StepperTitle className="truncate text-sm data-[state=active]:text-primary data-[state=inactive]:text-muted-foreground">
+                <StepperTitle className={cn(freelyNavigable ? "text-xs" : "text-sm", "data-[state=active]:text-primary data-[state=inactive]:text-muted-foreground")}>
                   {step.label}
                 </StepperTitle>
                 {vertical ? (
@@ -120,12 +133,13 @@ export function CreationFlow({
         ))}
       </StepperNav>
 
-      <StepperPanel className="min-w-0 bg-background">
+      <StepperPanel key={activeValue} className={cn("min-w-0 bg-background", contained && "min-h-0 flex-1 overflow-y-auto overscroll-contain")}>
         <StepperContent value={activeValue} className={cn("min-w-0", sidebar ? "p-4 sm:p-6" : "pt-6")}>
           {children}
         </StepperContent>
       </StepperPanel>
     </Stepper>
+    </div>
   );
 }
 

@@ -19,12 +19,29 @@ def output_stream_contract(plan: GuardrailPlanSnapshot) -> OutputStreamContract:
     # programs have no finite-prefix safety guarantee. Do not invent one from
     # chunk size, model callability, or an operator's preferred delivery mode.
     steps = plan.steps_for("output")
-    custom_output = any(
-        binding.rail_type == "output"
-        for version in plan.policy_versions
-        for binding in version.rail_bindings
-    )
-    incremental = not custom_output and all(
+    versions = {(version.policy_id, version.version): version for version in plan.policy_versions}
+    complete_response_policy = False
+    for selected in plan.policy_bindings:
+        version = versions.get((selected.policy_id, selected.policy_version))
+        if version is None or "output" not in selected.enabled_rails:
+            # Declarative local Policies are represented by the executable
+            # steps below. Unselected snapshots are not part of execution.
+            continue
+        enabled = set(selected.enabled_rule_ids)
+        output_enabled = any(
+            rail.rail_type == "output"
+            and (not enabled or f"flow/output/{rail.flow_name}" in enabled)
+            for rail in version.rail_bindings
+        )
+        if output_enabled and (
+            version.source != "built-in"
+            or dict(version.execution_contract).get("output_delivery") == "full_buffered"
+        ):
+            complete_response_policy = True
+            break
+    # Built-in native flows are compiled to the same steps as catalog model
+    # assignments; their mere presence is not evidence of arbitrary Colang.
+    incremental = not complete_response_policy and all(
         step.capability == "content_safety" and step.on_unsafe in {"reject", "report", "pass"}
         for step in steps
     )

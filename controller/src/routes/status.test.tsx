@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -56,11 +56,23 @@ const translations: Record<string, string> = {
   "platformStatus.minimum.modelFreeTitle": "Local, model-free Policies",
   "platformStatus.minimum.modelFreeDescription": "No external model is called.",
   "platformStatus.minimum.openDefault": "Inspect Default Guardrail",
-  "platformStatus.models.title": "Optional model coverage",
+  "platformStatus.models.title": "Active model configuration",
   "platformStatus.models.description": "Models are optional.",
   "platformStatus.models.controlPlane": "Control Plane",
   "platformStatus.models.dataPlane": "Data Plane",
-  "platformStatus.models.notConfiguredDetail": "Not configured · not required for the local baseline",
+  "platformStatus.models.authoringNotConfigured": "Authoring is not configured; runtime does not require it.",
+  "platformStatus.models.noBindings": "No active Input or Output model bindings.",
+  "platformStatus.models.optionalForRelease": "Models are optional for this local release.",
+  "platformStatus.models.requiredForRelease": "This release requires data-plane models.",
+  "platformStatus.models.dependenciesUnknown": "Model dependencies cannot be fully confirmed.",
+  "platformStatus.minimum.modelBackedTitle": "Model-backed protection",
+  "platformStatus.minimum.unknownTitle": "Dependencies not fully verified",
+  "platformStatus.minimum.emptyTitle": "No protection checks enabled",
+  "platformStatus.minimum.input": "Input checks",
+  "platformStatus.minimum.output": "Output checks",
+  "platformStatus.minimum.policies": "Executing Policies",
+  "platformStatus.minimum.draftFailed": "Draft did not pass validation",
+  "platformStatus.minimum.draftNotActive": "Draft changes do not affect the published release.",
   "platformStatus.models.configure": "Configure models",
   "platformStatus.models.assign": "Assign capabilities",
   "platformStatus.attention": "What needs attention",
@@ -87,7 +99,8 @@ vi.mock("react-i18next", () => ({
       ? `Last checked ${values?.time}`
       : key === "platformStatus.activeVersion" ? `Active · ${values?.version}`
         : key === "platformStatus.servingRunners" ? `${values?.count} serving`
-          : key === "platformStatus.models.modelCount" ? `${values?.count} runtime model(s) configured`
+          : key === "platformStatus.models.bindingCount" ? `${values?.count} active detector binding(s)`
+            : key === "platformStatus.minimum.checks" ? `${values?.count} configured`
       : translations[key] ?? key,
     i18n: { language: "en" },
   }),
@@ -106,6 +119,8 @@ const readyStatus: SystemStatus = {
       deploymentStatus: "active",
       activeVersion: "20260904-093000.000Z",
       modelIndependent: true,
+      coverage: { policyCount: 3, inputChecks: 3, outputChecks: 2, requiredModelBindings: [], hasUnknownDependencies: false },
+      draft: { revision: 1, activeRevision: 1, validationStatus: "passed", validationFailureReason: null },
     },
     runnerFleet: {
       status: "healthy",
@@ -118,7 +133,7 @@ const readyStatus: SystemStatus = {
     },
     controlPlaneModel: { status: "configured", provider: "Qwen", model: "Qwen/Qwen3.5-9B" },
     runtimeModels: {
-      status: "ready",
+      status: "configured",
       provider: "Runner",
       models: [
         { id: "qwen3guard", model: "Qwen/Qwen3Guard-Gen-8B" },
@@ -151,7 +166,11 @@ describe("HealthPage", () => {
     expect(screen.getByText("Operational")).toBeTruthy();
     expect(screen.getByText("Active · 20260904-093000.000Z")).toBeTruthy();
     expect(screen.getByText("2 serving")).toBeTruthy();
-    expect(screen.getByText("Optional model coverage")).toBeTruthy();
+    expect(screen.getByText("Active model configuration")).toBeTruthy();
+    expect(screen.getByText("3 configured")).toBeTruthy();
+    expect(screen.getByText("2 configured")).toBeTruthy();
+    expect(screen.getByText("2 active detector binding(s)")).toBeTruthy();
+    expect(screen.getAllByText("Configured")).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "Health", level: 1 })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Runner capacity" })).toBeNull();
     expect(screen.getByText("Qwen/Qwen3.5-9B")).toBeTruthy();
@@ -170,7 +189,8 @@ describe("HealthPage", () => {
 
     expect(await screen.findByText("Basic protection is available")).toBeTruthy();
     expect(screen.getAllByText("Not configured")).toHaveLength(2);
-    expect(screen.getAllByText("Not configured · not required for the local baseline")).toHaveLength(2);
+    expect(screen.getByText("Models are optional for this local release.")).toBeTruthy();
+    expect(screen.getByText("No active Input or Output model bindings.")).toBeTruthy();
   });
 
   it("explains initialization while connected Runners are still converging", async () => {
@@ -193,7 +213,7 @@ describe("HealthPage", () => {
           servingRunners: 0,
           convergedRunners: 0,
         },
-        runtimeModels: { ...readyStatus.components.runtimeModels, status: "unavailable" },
+        runtimeModels: { ...readyStatus.components.runtimeModels, status: "configured" },
       },
     });
     renderPage();
@@ -211,5 +231,51 @@ describe("HealthPage", () => {
     expect(screen.getByText("Live status is unavailable")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh health" })).toBeTruthy();
     expect(screen.getAllByText("Unknown").length).toBeGreaterThan(1);
+  });
+
+  it("does not call a customized model-dependent release model-free or optional", async () => {
+    vi.mocked(getControllerSystemStatus).mockResolvedValue({ ...readyStatus, components: { ...readyStatus.components,
+      basicProtection: { ...readyStatus.components.basicProtection, modelIndependent: false,
+        coverage: { ...readyStatus.components.basicProtection.coverage!, requiredModelBindings: ["content_safety.output"] } },
+    } });
+    renderPage();
+    expect(await screen.findByText("Model-backed protection")).toBeTruthy();
+    expect(screen.getByText("This release requires data-plane models.")).toBeTruthy();
+    expect(screen.queryByText("Local, model-free Policies")).toBeNull();
+    expect(screen.queryByText("Models are optional for this local release.")).toBeNull();
+  });
+
+  it("separates an unsuccessful newer draft from the serving published release", async () => {
+    vi.mocked(getControllerSystemStatus).mockResolvedValue({ ...readyStatus, components: { ...readyStatus.components,
+      basicProtection: { ...readyStatus.components.basicProtection,
+        draft: { revision: 2, activeRevision: 1, validationStatus: "failed", validationFailureReason: "Probe failed" } },
+    } });
+    renderPage();
+    expect(await screen.findByText("Basic protection is available")).toBeTruthy();
+    expect(screen.getByText("Draft did not pass validation")).toBeTruthy();
+    expect(screen.getByText("Draft changes do not affect the published release.")).toBeTruthy();
+  });
+
+  it("does not present missing published evidence as zero dependencies", async () => {
+    vi.mocked(getControllerSystemStatus).mockResolvedValue({ ...readyStatus, status: "unavailable", components: { ...readyStatus.components,
+      basicProtection: { ...readyStatus.components.basicProtection, status: "unavailable", modelIndependent: null, coverage: null },
+    } });
+    renderPage();
+    expect(await screen.findByText("Dependencies not fully verified")).toBeTruthy();
+    expect(screen.getByText("Model dependencies cannot be fully confirmed.")).toBeTruthy();
+    expect(screen.queryByText("Local, model-free Policies")).toBeNull();
+  });
+
+  it("recovers from a failed refresh without keeping a stale green result", async () => {
+    vi.mocked(getControllerSystemStatus).mockResolvedValueOnce(readyStatus)
+      .mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(readyStatus);
+    renderPage();
+    await screen.findByText("Basic protection is available");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh health" }));
+    await screen.findByText("Basic protection cannot be confirmed");
+    expect(screen.queryByText("Basic protection is available")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh health" }));
+    await screen.findByText("Basic protection is available");
+    await waitFor(() => expect(getControllerSystemStatus).toHaveBeenCalledTimes(3));
   });
 });

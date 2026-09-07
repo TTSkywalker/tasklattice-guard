@@ -3,11 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from typing import Any
 
 import yaml
 from nemoguardrails import RailsConfig
+from nemoguardrails.colang.v2_x.lang.colang_ast import Spec, SpecOp, SpecType
+from nemoguardrails.colang.v2_x.lang.parser import parse_colang_file
 from nemoguardrails.guardrails.iorails import IORails
 
 from ..nemo.action_registry import (
@@ -23,6 +25,7 @@ from ..nemo.action_registry import (
     action_name_for,
 )
 from ..nemo.artifacts import config_checksum
+from ..nemo.actions.names import ACTION_RECORD_OWNED_POLICY
 from ..nemo.native_models import TOPIC_CONTROL_MODEL_TYPE, TOPIC_CONTROL_PROFILE
 from ..runtime.contracts import (
     GuardrailPhase,
@@ -30,12 +33,14 @@ from ..runtime.contracts import (
     NeMoActionBinding,
     NeMoConfigSnapshot,
     NeMoRuntimeProfile,
+    PolicyVersionSnapshot,
     flow_rule_id,
 )
 from .domain import PolicyDraft, PlanCompilationError, RailBinding
+from .policy_sources import expand_policy_parameters, link_policy_source, parse_source_tree, symbol_name
 
 
-NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v14-iorails-check"
+NEMO_COMPILER_VERSION = "tasklattice-nemo-config-v18-selected-policy-dependencies"
 
 _COLANG1_STANDARD_ACTIONS = {
     ACTION_EVALUATE,
@@ -81,6 +86,16 @@ class NeMoConfigCompiler:
 
     def compile(self, plan: GuardrailPlanSnapshot) -> NeMoConfigSnapshot:
         _validate_execution_order(plan)
+        selected = {(item.policy_id, item.policy_version): item for item in plan.policy_bindings}
+        for version in plan.policy_versions:
+            binding = selected.get((version.policy_id, version.version))
+            if binding is not None and version.source != "built-in":
+                # Validate parameter-expanded author source independently for
+                # each immutable Policy version, before executable namespacing.
+                self.validate_policy(version.policy_id, replace(version, sources=tuple(
+                    replace(source, content=_expand_policy_parameters(source.content, binding.parameter_values))
+                    for source in version.sources
+                )))
         flows: dict[GuardrailPhase, list[str]] = {"input": [], "output": []}
         native_steps: dict[tuple[GuardrailPhase, str], str] = {}
         binding_phases: dict[str, list[GuardrailPhase]] = {}
@@ -208,7 +223,7 @@ class NeMoConfigCompiler:
         return snapshot
 
     @staticmethod
-    def validate_policy(policy_id: str, draft: PolicyDraft) -> None:
+    def validate_policy(policy_id: str, draft: PolicyDraft | PolicyVersionSnapshot) -> None:
         if draft.colang_version != "2.x":
             raise PlanCompilationError(
                 f"Custom Policy {policy_id!r} must use Colang 2.x; "
@@ -216,12 +231,19 @@ class NeMoConfigCompiler:
                 "Action contracts rather than user-authored Policy source."
             )
         declarations: dict[str, tuple[str, int]] = {}
+        parsed_sources = []
         for source in draft.sources:
-            for match in re.finditer(
-                r"(?m)^flow\s+([A-Za-z_][A-Za-z0-9_]*)\b", source.content
-            ):
-                flow_name = match.group(1)
-                line = source.content.count("\n", 0, match.start()) + 1
+            try:
+                parsed = parse_colang_file(source.path, source.content)
+            except Exception as error:
+                raise PlanCompilationError(
+                    f"Policy {policy_id!r} Colang is invalid in {source.path}: "
+                    f"{type(error).__name__}: {error}"
+                ) from error
+            parsed_sources.append((source.path, parsed))
+            for flow in parsed["flows"]:
+                flow_name = flow.name
+                line = flow._source.line if flow._source else 1
                 if flow_name in declarations:
                     previous_path, previous_line = declarations[flow_name]
                     raise PlanCompilationError(
@@ -246,39 +268,21 @@ class NeMoConfigCompiler:
                 + ", ".join(missing)
                 + "."
             )
-        allowed_imports = {"core"}
-        for source in draft.sources:
-            for match in re.finditer(r"(?m)^\s*import\s+([^\s#]+)", source.content):
-                imported = match.group(1)
-                if imported not in allowed_imports:
-                    line = source.content.count("\n", 0, match.start()) + 1
-                    raise PlanCompilationError(
-                        f"Policy {policy_id!r} uses forbidden import {imported!r} "
-                        f"at {source.path}:{line}."
-                    )
-            for match in re.finditer(
-                r"\b(?:await|start)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-                source.content,
-            ):
-                called = match.group(1)
-                line = source.content.count("\n", 0, match.start()) + 1
-                if called[0].islower() and called not in declared:
-                    raise PlanCompilationError(
-                        f"Policy {policy_id!r} calls undefined Flow {called!r} "
-                        f"at {source.path}:{line}."
-                    )
         referenced_actions = {item.name for item in draft.action_references}
-        for source in draft.sources:
-            for match in re.finditer(
-                r"\b(?:await|start)\s+([A-Z][A-Za-z0-9_]*Action)\s*\(",
-                source.content,
-            ):
-                action_name = match.group(1)
-                if action_name not in referenced_actions:
-                    line = source.content.count("\n", 0, match.start()) + 1
+        for path, parsed in parsed_sources:
+            for imported in parsed["import_paths"]:
+                if imported != "core":
                     raise PlanCompilationError(
-                        f"Policy {policy_id!r} calls unreferenced Action "
-                        f"{action_name!r} at {source.path}:{line}."
+                        f"Policy {policy_id!r} uses forbidden import {imported!r} at {path}."
+                    )
+            for spec, line in _policy_specs(parsed["flows"]):
+                if spec.spec_type == SpecType.FLOW and spec.name not in declared:
+                    raise PlanCompilationError(
+                        f"Policy {policy_id!r} calls undefined Flow {spec.name!r} at {path}:{line}."
+                    )
+                if spec.spec_type == SpecType.ACTION and spec.name not in referenced_actions:
+                    raise PlanCompilationError(
+                        f"Policy {policy_id!r} calls unreferenced Action {spec.name!r} at {path}:{line}."
                     )
         binding_names = {item.flow_name for item in draft.rail_bindings}
         for binding in draft.rail_bindings:
@@ -374,7 +378,6 @@ class NeMoConfigCompiler:
                     "content": "\n".join(
                         (
                             "You are the topic policy evaluator for an enterprise assistant.",
-                            f"Authorized purpose: {parameters.get('purpose', '')}",
                             "Allowed topics (strict allowlist):",
                             parameters.get("allowed_topics", ""),
                             "Anything whose primary task is not listed above is off-topic.",
@@ -528,8 +531,8 @@ def _is_colang1_standard_compatible(
     if native_flows and builtin_bindings:
         return False
 
-    # Sequential NeMo subflows thread user_message/bot_message, so any number
-    # of modifiers is safe. No capability regrouping or mutation-priority sort.
+    # Sequential NeMo subflows thread user_message/bot_message. No capability
+    # regrouping or mutation-priority sort is allowed.
     return True
 def _with_result_var(binding: NeMoActionBinding) -> NeMoActionBinding:
     return replace(
@@ -548,11 +551,7 @@ def _colang_v1_flow_lists(
     return {
         phase: [
             *native_flows[phase],
-            *(
-                _colang_v1_flow_name(binding, phase)
-                for binding in bindings
-                if phase in binding.phases
-            ),
+            *([f"tasklattice ordered {phase} rails"] if any(phase in binding.phases for binding in bindings) else []),
         ]
         for phase in ("input", "output")
     }
@@ -566,6 +565,17 @@ def _colang_v1_standard(
         '  "The interaction was blocked by the active Guardrail."',
         "",
     ]
+    # One entry flow per phase avoids NeMo's per-rail dispatch bookkeeping
+    # exhausting Colang 1's event limit on ordinary larger Policy collections.
+    # Individual subflows/actions and their bound Policy identity remain intact;
+    # NeMo still executes every check sequentially, including stop/redaction.
+    # Do not raise or patch the upstream runtime's event safety limit.
+    for phase in ("input", "output"):
+        phase_bindings = tuple(binding for binding in bindings if phase in binding.phases)
+        if phase_bindings:
+            lines.append(f"define subflow tasklattice ordered {phase} rails")
+            lines.extend(f"  do {_colang_v1_flow_name(binding, phase)}" for binding in phase_bindings)
+            lines.append("")
     for binding in bindings:
         if not binding.action_name or not binding.result_var:
             raise PlanCompilationError(
@@ -890,11 +900,6 @@ def _custom_action_bindings(
                 "Colang 2.x in an LLMRails Guardrail."
             )
         delivery = dict(version.execution_contract).get("output_delivery")
-        if delivery == "full_buffered" and plan.output_delivery != "full_buffered":
-            raise PlanCompilationError(
-                f"Policy {version.policy_id}@{version.version} requires "
-                "full-buffered output delivery."
-            )
         action = next(
             (
                 item
@@ -921,6 +926,11 @@ def _custom_action_bindings(
             rule_id = flow_rule_id(rail.rail_type, rail.flow_name)
             if enabled_rules and rule_id not in enabled_rules:
                 continue
+            if rail.rail_type == "output" and delivery == "full_buffered" and plan.output_delivery != "full_buffered":
+                raise PlanCompilationError(
+                    f"Policy {version.policy_id}@{version.version} requires "
+                    "full-buffered output delivery."
+                )
             binding_id = (
                 f"tl.{version.policy_id}.v{version.version}.{rail.flow_name}"
             )
@@ -967,32 +977,47 @@ def _compiled_policy_sources(plan: GuardrailPlanSnapshot) -> str:
             continue
         if version.source == "built-in":
             continue
-        declared = tuple(
-            dict.fromkeys(
-                match.group(1)
-                for source in version.sources
-                for match in re.finditer(
-                    r"(?m)^flow\s+([A-Za-z_][A-Za-z0-9_]*)\b",
-                    source.content,
-                )
-            )
-        )
+        sources = [(source.path, *parse_source_tree(_expand_policy_parameters(source.content, binding.parameter_values)))
+            for source in version.sources]
+        declared = [symbol_name(next(child for child in node.children
+                if getattr(child, "data", None) == "spec_name"))
+            for _, _, tree in sources for node in tree.find_data("flow_def")]
         replacements = {
             name: _namespaced_flow_name(version.policy_id, version.version, name)
             for name in declared
         }
-        parameters = dict(binding.parameter_values)
-        for source in version.sources:
-            content = re.sub(r"(?m)^\s*import\s+core\s*$", "", source.content)
-            for name, replacement in replacements.items():
-                content = re.sub(rf"\b{re.escape(name)}\b", replacement, content)
-            for name, value in parameters.items():
-                content = content.replace("${" + name + "}", value)
+        for path, content, tree in sources:
+            content = link_policy_source(content, tree, replacements, policy_id=version.policy_id, version=version.version)
             output.append(
-                f"# Policy {version.policy_id}@{version.version}: {source.path}\n"
+                f"# Policy {version.policy_id}@{version.version}: {path}\n"
                 + content.strip()
             )
     return "\n\n".join(output)
+
+
+def _expand_policy_parameters(content: str, parameters: tuple[tuple[str, str], ...]) -> str:
+    return expand_policy_parameters(content, parameters)
+
+
+def _policy_specs(node: Any, line: int = 1):
+    """Walk NeMo's parsed statements, never scan comments or expression strings.
+
+    This checks statically named references, not arbitrary expression effects or
+    dynamic event dispatch; it is not a sandbox for untrusted Policy authors.
+    """
+    if isinstance(node, SpecOp) and node._source:
+        line = node._source.line
+    if isinstance(node, Spec):
+        yield node, line
+    if is_dataclass(node):
+        for field in fields(node):
+            yield from _policy_specs(getattr(node, field.name), line)
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from _policy_specs(value, line)
+    elif isinstance(node, (list, tuple)):
+        for value in node:
+            yield from _policy_specs(value, line)
 
 
 def _compiled_flow_name(binding: NeMoActionBinding) -> str:
@@ -1005,16 +1030,18 @@ def _compiled_flow_name(binding: NeMoActionBinding) -> str:
     )
 
 
-def _namespaced_flow_name(policy_id: str, version: int, flow_name: str) -> str:
+def _namespaced_flow_name(policy_id: str, version: str | int, flow_name: str) -> str:
     # Colang 2.x does not accept dots in flow identifiers. The immutable
     # artifact retains the canonical dotted binding ID while executable Colang
     # uses the equivalent collision-free underscore form.
+    identity = hashlib.sha256(json.dumps([policy_id, str(version), flow_name], ensure_ascii=False).encode()).hexdigest()[:32]
     return "_".join(
         (
             "tl",
             _flow_identifier(policy_id),
             f"v{version}",
             _flow_identifier(flow_name),
+            identity,
         )
     )
 
@@ -1065,7 +1092,13 @@ def _dependency_manifest(
     has_native_flows: bool,
 ) -> tuple[tuple[str, str, str], ...]:
     entries: set[tuple[str, str, str]] = set()
+    selected = {(item.policy_id, item.policy_version) for item in plan.policy_bindings}
+    selected.update((item.policy_id, item.policy_version) for item in bindings if item.policy_id is not None)
     for version in plan.policy_versions:
+        # Retained catalog snapshots are not executable selections. Their
+        # models, Actions and prompts must not become runtime prerequisites.
+        if (version.policy_id, version.version) not in selected:
+            continue
         entries.add(("policy", version.policy_id, f"v{version.version}:{version.checksum}"))
         for source in version.sources:
             digest = hashlib.sha256(source.content.encode()).hexdigest()
@@ -1091,6 +1124,9 @@ def _dependency_manifest(
             entries.add(("action", ACTION_RECORD_NATIVE, "1.0.0"))
         if any(item.policy_id is not None for item in bindings):
             entries.add(("action", ACTION_RECORD_POLICY, "1.0.0"))
+        if any(version.source != "built-in" and any(item.policy_id == version.policy_id
+            and item.policy_version == version.version for item in plan.policy_bindings) for version in plan.policy_versions):
+            entries.add(("action", ACTION_RECORD_OWNED_POLICY, "1.0.0"))
     entries.update(
         ("model", item, TOPIC_CONTROL_PROFILE)
         for item in required_models

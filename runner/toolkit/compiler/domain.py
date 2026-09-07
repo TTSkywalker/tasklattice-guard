@@ -184,7 +184,6 @@ class AutomatedReasoningPolicyBinding:
 class Guardrail:
     id: str
     name: str
-    purpose: str
     allowed_topics: tuple[str, ...]
     restricted_topics: tuple[str, ...]
     safety_level: SafetyLevel

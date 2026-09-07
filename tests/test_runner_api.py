@@ -42,6 +42,7 @@ class Runtime:
             ),),
             trace=(RuntimeTraceStep(
                 id="action-1",
+                parent_id="rail-1",
                 kind="action",
                 name="Secrets detector",
                 status="complete",
@@ -260,23 +261,29 @@ async def test_runtime_authenticates_locally_and_emits_content_free_telemetry():
     }]
     assert telemetry.events[0]["metadata"]["usage"]["action_invocations"] == 1
     assert telemetry.events[0]["metadata"]["trace"][0]["actionName"] == "GuardSecretsAction"
+    assert telemetry.events[0]["metadata"]["trace"][0]["parentId"] == "rail-1"
     assert "texts" not in telemetry.events[0]
     assert "secret prompt" not in str(telemetry.events[0])
 
 
 @pytest.mark.asyncio
-async def test_output_stream_endpoint_holds_full_response_until_final_chunk():
+@pytest.mark.parametrize("protocol,integration", [("http", "integration-http"), ("litellm", "integration-1")])
+async def test_output_stream_endpoint_holds_full_response_until_final_chunk(protocol, integration):
     runtime = StreamingRuntime()
     app = FastAPI()
     app.include_router(RunnerAPI(runtime, Store(), Metrics(), Telemetry(), "runner-1", "controller-token").router)  # type: ignore[arg-type]
     headers = {"x-api-key": "valid-secret"}
-    url = "/runtime/v1/integrations/integration-http/guardrails/output-stream"
+    url = f"/runtime/v1/integrations/{integration}/guardrails/output-stream"
+    context = {"protocol": protocol, "request_data": {"user_api_key_team_id": "team-1"},
+               "request_headers": {"x-api-key": "never-forward", "x-original-uri": "/chat/completions"}}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
         first = await client.post(url, headers=headers, json={
+            **context,
             "stream_id": "stream-1", "call_id": "call-1", "sequence": 0,
             "text": "hello ", "final": False,
         })
         final = await client.post(url, headers=headers, json={
+            **context,
             "stream_id": "stream-1", "call_id": "call-1", "sequence": 1,
             "text": "world", "final": True,
         })
@@ -288,6 +295,55 @@ async def test_output_stream_endpoint_holds_full_response_until_final_chunk():
     assert final.json()["status"] == "completed"
     assert final.json()["released_text"] == "hello world"
     assert runtime.requests[0].texts == ("hello world",)
+    assert runtime.requests[0].context.protocol == protocol
+    if protocol == "litellm":
+        assert runtime.requests[0].call_id == "integration-1:call-1"
+        assert runtime.requests[0].context.value("field", "litellm.team_id") == "team-1"
+        assert runtime.requests[0].context.value("field", "http.path") == "/chat/completions"
+        assert runtime.requests[0].context.value("header", "x-api-key") is None
+
+
+@pytest.mark.asyncio
+async def test_litellm_stream_rejects_wrong_adapter_and_credentials():
+    app = FastAPI()
+    app.include_router(RunnerAPI(StreamingRuntime(), Store(), Metrics(), Telemetry(), "runner-1", "token").router)
+    body = {"protocol": "litellm", "stream_id": "stream", "sequence": 0, "text": "hello", "final": True}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        mismatch = await client.post("/runtime/v1/integrations/integration-http/guardrails/output-stream",
+                                     headers={"x-api-key": "valid-secret"}, json=body)
+        unauthorized = await client.post("/runtime/v1/integrations/integration-1/guardrails/output-stream", json=body)
+    assert mismatch.status_code == 409
+    assert unauthorized.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("protocol,integration", [("http", "integration-http"), ("litellm", "integration-1")])
+@pytest.mark.parametrize("kind,expected", [("provider_failure", 502), ("timeout", 504), ("missing_transform", 502), ("policy_block", 200)])
+async def test_stream_distinguishes_failed_checks_from_policy_rejection(protocol, integration, kind, expected):
+    runtime = StreamingRuntime()
+
+    async def evaluate(_request):
+        return ProtectionDecision(
+            decision="transform" if kind == "missing_transform" else "block", action="reject",
+            reason="private upstream body must not appear in HTTP errors",
+            usage=RuntimeUsage(fail_closed=kind in {"provider_failure", "timeout"}),
+            trace=(RuntimeTraceStep(id="check", kind="action", name="Check", status="failed", detail="private detail", timed_out=kind == "timeout"),),
+        )
+
+    runtime.evaluate = evaluate
+    app = FastAPI()
+    app.include_router(RunnerAPI(runtime, Store(), Metrics(), Telemetry(), "runner-1", "token").router)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://runner") as client:
+        response = await client.post(f"/runtime/v1/integrations/{integration}/guardrails/output-stream",
+            headers={"x-api-key": "valid-secret"}, json={"protocol": protocol, "stream_id": "failed-check",
+                "sequence": 0, "text": "private content", "final": True})
+    assert response.status_code == expected
+    if kind == "policy_block":
+        assert response.json()["status"] == "blocked"
+        assert response.json()["released_text"] == "" and response.json()["terminate"]
+    else:
+        assert "private" not in response.text
+        assert "released_text" not in response.json()
 
 
 @pytest.mark.asyncio

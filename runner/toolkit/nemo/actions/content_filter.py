@@ -301,6 +301,37 @@ class BuiltinContentFilter:
             )
             if action == "pass":
                 continue
+            if rule.implementation.detector == "configured_phrases":
+                entries = json.loads(parameters.get("phrase_entries", "[]"))
+                if not isinstance(entries, list) or not 1 <= len(entries) <= 50:
+                    raise ValueError("Phrase filters requires 1–50 configured entries")
+                ids: set[str] = set()
+                for entry in entries:
+                    if not isinstance(entry, dict) or set(entry) - {"id", "phrase", "action", "replacement"}:
+                        raise ValueError("Invalid phrase entry")
+                    entry_id, phrase = entry.get("id"), entry.get("phrase")
+                    if not isinstance(entry_id, str) or not 1 <= len(entry_id.strip()) <= 100 or entry_id.strip() in ids:
+                        raise ValueError("Phrase IDs must be nonempty and unique")
+                    ids.add(entry_id.strip())
+                    if not isinstance(phrase, str) or not 1 <= len(phrase.strip()) <= 240:
+                        raise ValueError("Enter a phrase of at most 240 characters")
+                    if entry.get("action") not in ("redact", "reject"):
+                        raise ValueError("Phrase action must be redact or reject")
+                    if not isinstance(entry.get("replacement", "[REDACTED]"), str) or len(entry.get("replacement", "")) > 240:
+                        raise ValueError("Invalid phrase replacement")
+                for entry in entries:
+                    phrase = entry["phrase"].strip()
+                    spans = tuple((match.start(), match.end()) for match in _keyword_regex(phrase).finditer(text))
+                    if not spans:
+                        continue
+                    entry_action = policy_actions.get(rule.id, flat_actions.get(rule.id, entry["action"]))
+                    matched = [_Detection(definition.id, f"phrase entry {entry['id']}", rule.id,
+                                          entry_action, phrase, spans, entry.get("replacement", "[REDACTED]"))]
+                    detections.extend(matched)
+                    text = self._apply_effect(text, matched)
+                    if entry_action == "reject":
+                        return text, detections
+                continue
             start = len(detections)
             if rule.form == "category":
                 match = self._category_match(rule, text)

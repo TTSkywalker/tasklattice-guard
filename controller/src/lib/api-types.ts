@@ -1,5 +1,6 @@
 import type { EnforcementAction } from "../../shared/enforcement-action.generated";
 import type { GuardrailCategoryId } from "../../shared/guardrail-catalog";
+import type { PlatformStatusReason } from "../../shared/platform-status";
 import type {
   GuardrailReadinessState,
   IntegrationSetupState,
@@ -166,6 +167,7 @@ export type ValidationRun = {
   guardrail_version: string;
   source_draft_version: number;
   status: "passed" | "failed" | "incomplete";
+  failure_reason?: string | null;
   metrics: ValidationMetrics;
   results: TestCaseResult[];
   excluded_case_ids: string[];
@@ -359,6 +361,8 @@ export type GuardrailFindingPage = {
 
 export type DeploymentTraceStep = {
   id: string;
+  parent_id?: string | null;
+  detail?: string | null;
   trace_id: string;
   created_at: string;
   guardrail_id: string;
@@ -425,21 +429,11 @@ export type TrafficScopeExpression = {
   conditions: Array<TrafficCondition | TrafficScopeExpression>;
 };
 
-export type GuardrailPurposeDetails = {
+export type PolicyIntentDetails = {
   audience: string;
   tasks: string;
   protect: string;
   out_of_scope: string;
-};
-
-export type GuardrailCustomContentRule = {
-  id: string;
-  phases: Array<"input" | "output">;
-  detector: "keyword" | "regex";
-  keywords?: string[];
-  expression?: string;
-  action: "pass" | "redact" | "rewrite" | "regenerate" | "redirect" | "reject" | "fallback" | "clarify";
-  replacement?: string;
 };
 
 export type TrafficScopeField = {
@@ -455,9 +449,6 @@ export type TrafficScopeField = {
 export type Guardrail = {
   id: string;
   name: string;
-  purpose: string;
-  purpose_details: GuardrailPurposeDetails;
-  custom_content_rules: GuardrailCustomContentRule[];
   allowed_topics: string[];
   restricted_topics: string[];
   policy_bindings: GuardrailPolicyBinding[];
@@ -550,6 +541,7 @@ export type GuardrailVersionDetail = GuardrailVersion & {
 };
 
 export type PolicyTagNamespace =
+  | "protection"
   | "guardrail_category"
   | "collection"
   | "domain"
@@ -639,10 +631,12 @@ export type Policy = {
   test_count: number;
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
+  protection?: import("../../shared/protection-map").PolicyProtection;
   draft_revision?: number;
   owner?: string;
   updated_at?: string;
   implementation_detail?: ProgrammablePolicy;
+  published_versions?: Policy[];
 };
 
 export type NativeRailType = "input" | "output" | "retrieval" | "dialog" | "execution";
@@ -690,6 +684,7 @@ export type PolicyDraftTestCase = {
 };
 export type ProgrammablePolicyDraft = {
   guardrail_category: GuardrailCategoryId;
+  protection_directory?: import("../../shared/protection-map").ProtectionDirectoryId;
   colang_version: "1.0" | "2.x";
   sources: PolicySourceFile[];
   parameter_schema: PolicyDraftParameter[];
@@ -739,6 +734,9 @@ export type ActionDefinition = {
 };
 export type PolicyValidation = {
   valid: boolean;
+  metadata_valid: boolean;
+  validation_status: "not_run" | "stale" | "queued" | "running" | "passed" | "failed" | "cancelled";
+  requires_runner_validation: boolean;
   policy_id: string;
   draft_revision: number;
   colang_version: string;
@@ -1090,6 +1088,8 @@ export type Metrics = {
     guardrail: MetricTrendSeries[];
   };
   system_status: "healthy" | "degraded";
+  /** Platform-wide observations, not evidence that this Guardrail lacks a capability. */
+  system_reasons?: PlatformStatusReason[];
 };
 
 export type RuntimeComponentMetric = {
@@ -1137,7 +1137,7 @@ export type IntentAnalysisStatus = {
 };
 export type IntentAnalysis = {
   summary: string;
-  structured_purpose: GuardrailPurposeDetails;
+  structured_purpose: PolicyIntentDetails;
   allowed_topics: string[];
   review_notes: string[];
 };

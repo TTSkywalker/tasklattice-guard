@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ControllerDatabase } from "../db/client.js";
-import { controllerState, outboxEvents, modelConfigurationRevisions, modelDefinitions, modelProviders } from "../db/schema.js";
+import { controllerState, outboxEvents, modelConfigurationRevisions, modelDefinitions, modelProviders, policyVersions } from "../db/schema.js";
 import { emptyModelAssignments } from "./domain.js";
 import { ModelConfigurationService } from "./service.js";
 import { jailbreakDetectAttackInput, jailbreakDetectProfile, jailbreakDetectSafeInput } from "./jailbreak-detect.js";
@@ -45,6 +45,23 @@ function setup(state = "draft", assigned = false, failProbe = false) {
 }
 
 describe("Capability configuration after registration", () => {
+  it("keeps undeclared custom dependencies unknown in the actual setup report", async () => {
+    const { service, rows, fetcher, railValidator } = setup();
+    rows.set(policyVersions, [
+      { policyId: "custom-local-claim", version: 1, snapshot: { name: "Custom local claim", evaluation_contracts: [],
+        rail_bindings: [{ rail_type: "input" }] } },
+      { policyId: "custom-model", version: 1, snapshot: { name: "Custom model", evaluation_contracts: ["tali.guard.content-safety.v1"],
+        rail_bindings: [{ rail_type: "output" }] } },
+    ]);
+    const report = (await service.validateDraft("admin")).validationReport!;
+    expect(report.valid).toBe(true); // Empty model setup is valid, not proof that every Policy can run.
+    expect(report.policies.find(item => item.id === "custom-local-claim"))
+      .toMatchObject({ status: "unknown", dependenciesComplete: false, missingContracts: [] });
+    expect(report.policies.find(item => item.id === "custom-model"))
+      .toMatchObject({ status: "blocked", dependenciesComplete: false, missingContracts: ["output:tali.guard.content-safety.v1"] });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(railValidator).not.toHaveBeenCalled();
+  });
   it("leases only the candidate Provider credential and revokes it after Rail validation", async () => {
     const { service, fetcher } = setup("draft", true);
     let leaseId = "";

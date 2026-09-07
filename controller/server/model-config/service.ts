@@ -931,7 +931,7 @@ export class ModelConfigurationService {
     for (const version of custom) if (!latestCustom.has(version.policyId)) latestCustom.set(version.policyId, version);
     return [
       ...catalog.map((policy) => coverageForCatalogPolicy(policy, available)),
-      ...[...latestCustom.values()].map((version) => coverage(
+      ...[...latestCustom.values()].map((version) => policyContractCoverage(
         version.policyId,
         version.snapshot.name,
         version.snapshot.evaluation_contracts.flatMap((contract) =>
@@ -939,6 +939,7 @@ export class ModelConfigurationService {
             .filter((binding) => binding.rail_type === "input" || binding.rail_type === "output")
             .map((binding) => contractRailKey(contract, binding.rail_type))),
         available,
+        false,
       )),
     ].sort((left, right) => left.name.localeCompare(right.name));
   }
@@ -1390,7 +1391,7 @@ const nativePolicyRequirements: Record<string, string[]> = {
 
 function coverageForCatalogPolicy(policy: PolicyDto, available: Set<string>): PolicyCoverage {
   const implementedRails = policy.rails.filter((rail): rail is "input" | "output" => rail === "input" || rail === "output");
-  return coverage(
+  return policyContractCoverage(
     policy.id,
     policy.name,
     (nativePolicyRequirements[policy.id] ?? ["tali.guard.content-filter.rules.v1"])
@@ -1399,9 +1400,11 @@ function coverageForCatalogPolicy(policy: PolicyDto, available: Set<string>): Po
   );
 }
 
-function coverage(id: string, name: string, requirements: readonly string[], available: Set<string>): PolicyCoverage {
-  const missingContracts = requirements.filter((contract) => !available.has(contract));
-  return { id, name, status: missingContracts.length ? "blocked" : "ready", missingContracts };
+/** Contract availability is not runtime validation. Arbitrary custom flows may
+ * have undeclared dependencies even when every declared contract is available. */
+export function policyContractCoverage(id: string, name: string, requirements: readonly string[], available: Set<string>, dependenciesComplete = true): PolicyCoverage {
+  const missingContracts = [...new Set(requirements.filter((contract) => !available.has(contract)))];
+  return { id, name, status: missingContracts.length ? "blocked" : dependenciesComplete ? "ready" : "unknown", missingContracts, dependenciesComplete };
 }
 
 function contractRailKey(contract: string, railType: "input" | "output" | null): string {

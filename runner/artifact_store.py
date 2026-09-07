@@ -68,6 +68,8 @@ class ArtifactStore:
         self._nemo_version = importlib.metadata.version("nemoguardrails")
         self._state_path = state_path
         self._lock = threading.RLock()
+        # Serialize writers without holding the reader lock during NeMo work.
+        self._apply_lock = threading.Lock()
         self._registry: NeMoRuntimeRegistry | None = None
         self._generation = 0
         self._release_id: str | None = None
@@ -248,6 +250,17 @@ class ArtifactStore:
         providers: ActionProviders | None = None,
         native_models: tuple[NativeRailModel, ...] | None = None,
     ) -> None:
+        with self._apply_lock:
+            self._apply(desired_state, persist=persist, providers=providers, native_models=native_models)
+
+    def _apply(
+        self,
+        desired_state: Any,
+        *,
+        persist: bool,
+        providers: ActionProviders | None,
+        native_models: tuple[NativeRailModel, ...] | None,
+    ) -> None:
         generation = int(desired_state.generation)
         with self._lock:
             if generation < self._generation:
@@ -290,14 +303,17 @@ class ArtifactStore:
                 tuple((artifact.plan, artifact.config) for artifact in staged.values()),
                 native_models,
             )
+        candidates = tuple((artifact.plan, artifact.config) for artifact in staged.values())
+        release_id = hashlib.sha256(
+            str(generation).encode() + b":"
+            + desired_state.model_configuration.SerializeToString(deterministic=True)
+            + ":".join(sorted(artifact.checksum for artifact in staged.values())).encode()
+        ).hexdigest()
+        # Publish materialized instances before exposing their routing identity.
+        # Registry observers acquire registry -> store; never take those locks
+        # in the reverse order here. Existing requests keep their old release.
+        registry.publish_release(release_id, candidates)
         with self._lock:
-            candidates = tuple((artifact.plan, artifact.config) for artifact in staged.values())
-            release_id = hashlib.sha256(
-                str(generation).encode() + b":"
-                + desired_state.model_configuration.SerializeToString(deterministic=True)
-                + ":".join(sorted(artifact.checksum for artifact in staged.values())).encode()
-            ).hexdigest()
-            registry.publish_release(release_id, candidates)
             self._artifacts = staged
             self._routes = routes
             self._integrations = integrations

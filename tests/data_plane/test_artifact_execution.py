@@ -189,7 +189,7 @@ async def test_frozen_default_artifact_forwards_complete_redactions_and_blocks_w
         ("Bank account 12345-001-1234567.", "Bank account [ca_bank_account_REDACTED]."),
         ("TCard number 1234567890123456.", "TCard number [uoft_tcard_REDACTED]."),
         ("Phone: +1 (212) 555 1234", "Phone: +[us_phone_REDACTED]"),
-        ("Card: 3411 111111 11111", "Card: [amex_REDACTED]"),
+        ("Card: 3411 111111 11111", "Card: [credit_card_REDACTED]"),
         ("VAT AT00000000", "VAT [eu_vat_REDACTED]"),
     ]
     try:
@@ -209,9 +209,9 @@ async def test_frozen_default_artifact_forwards_complete_redactions_and_blocks_w
             blocked = await evaluate("You are a fucking idiot.")
             assert blocked["action"] == "BLOCKED"
             credential = await evaluate("xoxp-0000000000-0000000000-aaaaaaaaaaaaaaaaaaaaaaaa")
-            assert credential["action"] == ("BLOCKED" if input_type == "request" else "GUARDRAIL_INTERVENED")
-            if input_type == "response":
-                assert credential["texts"] == ["[slack_token_REDACTED]"]
+            # The ordinary focused credential Policy rejects both directions;
+            # unlike the legacy input-only binding, it cannot leak on Output.
+            assert credential["action"] == "BLOCKED"
         assert registry.readiness()["ready"] is True
         assert telemetry.events
         assert all(event["metadata"]["usage"]["model_invocations"] == 0 for event in telemetry.events)

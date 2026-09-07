@@ -115,7 +115,6 @@ def _semantic_input(
         on_unsafe="reject",
         trigger=trigger,
         parameters=(
-            ("purpose", "Support product questions"),
             ("topic_mode", "allowlist"),
             ("allowed_topics", "Product support"),
         ),
@@ -135,6 +134,9 @@ def test_pure_dedicated_topic_input_compiles_to_valid_iorails_manifest() -> None
         TOPIC_CONTROL_PROFILE,
     ) in snapshot.dependency_manifest
     assert "topic safety check input $model=topic_control" in snapshot.config_yaml
+    assert "Allowed topics (strict allowlist)" in snapshot.config_yaml
+    assert "Product support" in snapshot.config_yaml
+    assert "Authorized purpose" not in snapshot.config_yaml
     assert "leased-secret" not in snapshot.config_yaml
 
     runtime_yaml = materialize_model_configs(
@@ -175,7 +177,8 @@ def test_mixed_topic_plan_uses_official_input_action_and_custom_output_action() 
     assert "import nemoguardrails.library.topic_safety" in snapshot.colang_content
     assert "TopicSafetyCheckInputAction" in snapshot.colang_content
     assert f'binding_id="{semantic.id}"' in snapshot.colang_content
-    assert "Support product questions" in snapshot.config_yaml
+    assert "Support product questions" not in snapshot.config_yaml
+    assert "Product support" in snapshot.config_yaml
     assert "strict allowlist" in snapshot.config_yaml
     assert "Restricted topics" not in snapshot.config_yaml
     assert {binding.id for binding in snapshot.action_bindings} == {
@@ -267,6 +270,8 @@ async def test_real_iorails_registry_uses_live_model_and_rejects_bad_label() -> 
     )
     plan = _plan(_semantic_input())
     config = NeMoConfigCompiler(models=(model.compiler_config(),)).compile(plan)
+    config = replace(config, dependency_manifest=(*config.dependency_manifest,
+        ("evaluation_contract", "tali.guard.topic-control.semantic.v1", "required")))
 
     class Store:
         def plan(self, _guardrail_id, _version):

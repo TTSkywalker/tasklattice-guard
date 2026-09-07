@@ -1,4 +1,5 @@
 import * as controllerApi from "@/lib/controller-api";
+import type { ProtectionPreset } from "../../shared/protection-map";
 import {
   arrayOfRecords,
   arrayOfStrings,
@@ -16,7 +17,6 @@ import type {
   GuardrailDeletionImpact,
   GuardrailLoggingSettings,
   GuardrailPolicyBinding,
-  GuardrailPurposeDetails,
   GuardrailVersion,
   GuardrailVersionDetail,
   IntentAnalysis,
@@ -118,14 +118,6 @@ function mapGuardrail(
   return {
     id: value.id,
     name: value.name,
-    purpose: value.description,
-    purpose_details: {
-      audience: value.draftConfig.purposeDetails?.audience ?? "",
-      tasks: value.draftConfig.purposeDetails?.tasks ?? "",
-      protect: value.draftConfig.purposeDetails?.protect ?? "",
-      out_of_scope: value.draftConfig.purposeDetails?.outOfScope ?? "",
-    },
-    custom_content_rules: value.draftConfig.customContentRules ?? [],
     allowed_topics: value.draftConfig.allowedTopics,
     restricted_topics: value.draftConfig.restrictedTopics,
     policy_bindings: value.draftConfig.policyBindings.map(fromCurrentBinding),
@@ -178,9 +170,6 @@ export async function getGuardrail(id: string): Promise<Guardrail> {
 
 export async function createGuardrail(input: {
   name: string;
-  purpose: string;
-  purpose_details?: GuardrailPurposeDetails;
-  custom_content_rules?: Guardrail["custom_content_rules"];
   allowed_topics?: string[];
   policy_bindings: GuardrailPolicyBinding[];
   safety_level?: SafetyLevel;
@@ -188,15 +177,7 @@ export async function createGuardrail(input: {
 }): Promise<Guardrail> {
   const created = await controllerApi.createControllerGuardrail({
     name: input.name,
-    description: input.purpose,
     draftConfig: {
-      purposeDetails: {
-        audience: input.purpose_details?.audience ?? "",
-        tasks: input.purpose_details?.tasks ?? "",
-        protect: input.purpose_details?.protect ?? "",
-        outOfScope: input.purpose_details?.out_of_scope ?? "",
-      },
-      customContentRules: input.custom_content_rules ?? [],
       allowedTopics: input.allowed_topics ?? [],
       restrictedTopics: [],
       policyBindings: input.policy_bindings.map(toCurrentBinding),
@@ -210,24 +191,17 @@ export async function createGuardrail(input: {
 
 export const updateGuardrail = (
   id: string,
-  input: Partial<Pick<Guardrail, "name" | "custom_content_rules" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
+  input: Partial<Pick<Guardrail, "name" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
 ) => updateGuardrailDraft(id, input);
 
 async function updateGuardrailDraft(
   id: string,
-  input: Partial<Pick<Guardrail, "name" | "custom_content_rules" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
+  input: Partial<Pick<Guardrail, "name" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
 ): Promise<Guardrail> {
   const current = await controllerApi.getControllerGuardrail(id);
   const updated = await controllerApi.updateControllerGuardrail(id, {
     ...(input.name !== undefined ? { name: input.name } : {}),
     draftConfig: {
-      purposeDetails: {
-        audience: current.draftConfig.purposeDetails?.audience ?? "",
-        tasks: current.draftConfig.purposeDetails?.tasks ?? "",
-        protect: current.draftConfig.purposeDetails?.protect ?? "",
-        outOfScope: current.draftConfig.purposeDetails?.outOfScope ?? "",
-      },
-      customContentRules: input.custom_content_rules ?? current.draftConfig.customContentRules ?? [],
       allowedTopics: input.allowed_topics ?? current.draftConfig.allowedTopics,
       restrictedTopics: [],
       policyBindings: (input.policy_bindings ?? current.draftConfig.policyBindings.map(fromCurrentBinding)).map(toCurrentBinding),
@@ -393,9 +367,6 @@ export const rollbackGuardrail = (guardrailId: string, version: string) =>
 
 export function previewGuardrailCandidate(input: {
   name: string;
-  purpose: string;
-  purpose_details?: GuardrailPurposeDetails;
-  custom_content_rules?: Guardrail["custom_content_rules"];
   allowed_topics?: string[];
   policy_bindings: GuardrailPolicyBinding[];
   safety_level?: SafetyLevel;
@@ -403,15 +374,7 @@ export function previewGuardrailCandidate(input: {
 }): Promise<GuardrailCompilePreview> {
   return controllerApi.previewControllerGuardrailPlan({
     name: input.name,
-    description: input.purpose,
     draftConfig: {
-      purposeDetails: {
-        audience: input.purpose_details?.audience ?? "",
-        tasks: input.purpose_details?.tasks ?? "",
-        protect: input.purpose_details?.protect ?? "",
-        outOfScope: input.purpose_details?.out_of_scope ?? "",
-      },
-      customContentRules: input.custom_content_rules ?? [],
       allowedTopics: input.allowed_topics ?? [],
       restrictedTopics: [],
       policyBindings: input.policy_bindings.map(toCurrentBinding),
@@ -431,14 +394,6 @@ export async function getGuardrailCompilePreview(id: string): Promise<GuardrailC
   const guardrail = await controllerApi.getControllerGuardrail(id);
   return previewGuardrailCandidate({
     name: guardrail.name,
-    purpose: guardrail.description,
-    purpose_details: {
-      audience: guardrail.draftConfig.purposeDetails?.audience ?? "",
-      tasks: guardrail.draftConfig.purposeDetails?.tasks ?? "",
-      protect: guardrail.draftConfig.purposeDetails?.protect ?? "",
-      out_of_scope: guardrail.draftConfig.purposeDetails?.outOfScope ?? "",
-    },
-    custom_content_rules: guardrail.draftConfig.customContentRules ?? [],
     policy_bindings: guardrail.draftConfig.policyBindings.map(fromCurrentBinding),
     safety_level: guardrail.draftConfig.safetyLevel,
     output_delivery: guardrail.draftConfig.outputDelivery,
@@ -446,6 +401,11 @@ export async function getGuardrailCompilePreview(id: string): Promise<GuardrailC
 }
 
 export const getPolicies = () => controllerApi.requestController<Collection<Policy>>("/api/v1/policies");
+export type ProtectionPresetPreview = ProtectionPreset & { bindings: GuardrailPolicyBinding[] };
+export async function getProtectionPresets(): Promise<Collection<ProtectionPresetPreview>> {
+  const result = await controllerApi.requestController<Collection<ProtectionPreset & { policyBindings: CurrentPolicyBinding[] }>>("/api/v1/protection-presets");
+  return { ...result, items: result.items.map(({ policyBindings, ...preset }) => ({ ...preset, bindings: policyBindings.map(fromCurrentBinding) })) };
+}
 export const getPolicy = (id: string) => controllerApi.requestController<Policy>(`/api/v1/policies/${encodeURIComponent(id)}`);
 export const getActionCatalog = () => controllerApi.requestController<Collection<ActionDefinition>>("/api/v1/actions");
 
@@ -590,6 +550,7 @@ function mapValidationRun(value: controllerApi.ValidationRun): ValidationRun {
     guardrail_version: value.guardrailVersion,
     source_draft_version: value.sourceDraftRevision,
     status: value.status === "passed" ? "passed" : value.status === "failed" ? "failed" : "incomplete",
+    failure_reason: value.failureReason,
     metrics: {
       total: value.metrics.total,
       passed: value.metrics.passed,

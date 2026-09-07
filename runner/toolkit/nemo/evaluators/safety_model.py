@@ -54,6 +54,12 @@ class SafetyModelEvaluator:
             None,
         )
 
+    def supported_rails(self, capability: str, contract_ref: str) -> frozenset[str]:
+        if MODEL_SAFETY_CONTRACT_BY_CAPABILITY.get(capability) != contract_ref:
+            return frozenset()
+        return frozenset(rail for provider in self._guards
+            if capability in provider.capabilities for rail in provider.config.rail_types)
+
     async def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
         messages = _assessment_messages(request)
         trackers: list[ModelCallTracker] = []

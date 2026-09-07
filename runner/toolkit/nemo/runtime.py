@@ -7,9 +7,11 @@ import time
 from contextlib import nullcontext
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, replace
+from functools import wraps
 from typing import Any
 
 from nemoguardrails import Guardrails
+from nemoguardrails.exceptions import LLMCallException
 from nemoguardrails.guardrails.iorails import INTERNAL_ERROR_MESSAGE
 from nemoguardrails.rails.llm.options import (
     ActivatedRail,
@@ -51,6 +53,7 @@ from .action_registry import (
     ACTION_RESOLVE,
     ActionProviders,
 )
+from .actions.names import ACTION_RECORD_OWNED_POLICY
 from ..evaluation.contracts import CONTRACT_PII_EXACT
 from .actions.contracts import ActionRequest, ActionResult, ActionUsage, ModelCallUsage
 from .actions.model_call import (
@@ -91,6 +94,16 @@ class _ExecutionScope:
     current_text: str | None = None
     proposed_action: str = "pass"
     reason: str = "All NeMo Actions passed."
+    action_failure: _ActionExecutionFailure | None = None
+
+
+class _ActionExecutionFailure(LLMCallException):
+    """Safe diagnostic: never retain Action arguments or exception messages."""
+
+    def __init__(self, action_name: str, error_type: str, *, timed_out: bool = False):
+        self.action_name = action_name
+        self.timed_out = timed_out
+        super().__init__(f"{action_name} failed with {error_type}.", detail="Guardrail Action")
 
 
 class _PatchConflict(ValueError):
@@ -112,32 +125,60 @@ class NeMoActionBridge:
         self._providers = providers
 
     def register(self, rails: Guardrails) -> None:
+        def register_action(handler, *, name):
+            # Preserve the signature used by NeMo to inject context. Catch even
+            # Python argument-binding failures before its dispatcher logs the
+            # full argument payload and converts the exception to an event.
+            @wraps(handler)
+            async def checked(*args, **kwargs):
+                scope = _CURRENT_SCOPE.get()
+                if scope is None or scope.closed:
+                    raise _ActionExecutionFailure(name, "InactiveRequest")
+                if scope.action_failure is not None:
+                    raise scope.action_failure
+                try:
+                    return await handler(*args, **kwargs)
+                except Exception as error:
+                    scope.action_failure = _ActionExecutionFailure(
+                        name, type(error).__name__, timed_out=isinstance(error, TimeoutError)
+                    )
+                    # NeMo's public dispatcher deliberately propagates this
+                    # exception family instead of logging arguments or converting
+                    # it to an InternalError event. No upstream patch is needed.
+                    raise scope.action_failure from None
+
+            rails.register_action(checked, name=name)
+
         if self._config.runtime_profile == "llmrails_colang2_programmable":
-            rails.register_action(
+            register_action(
                 self.record_native,
                 name=ACTION_RECORD_NATIVE,
             )
-            rails.register_action(
+            register_action(
                 self.resolve,
                 name=ACTION_RESOLVE,
             )
-            rails.register_action(
+            register_action(
                 self.customer_identifier,
                 name=ACTION_CUSTOMER_IDENTIFIER,
             )
-            rails.register_action(
+            register_action(
                 self.record_policy,
                 name=ACTION_RECORD_POLICY,
             )
+            register_action(
+                self.record_owned_policy,
+                name=ACTION_RECORD_OWNED_POLICY,
+            )
         for provider in self._providers.values():
-            rails.register_action(
+            register_action(
                 self._action_handler(provider.name, provider.version),
                 name=provider.name,
             )
         if "sensitive_data_detection" in self._config.required_features:
             # Keep NeMo's native sensitive-data flows while providing a small,
             # dependency-free detector with the product's existing semantics.
-            rails.register_action(
+            register_action(
                 self.detect_sensitive_data,
                 name=(
                     "DetectSensitiveDataAction"
@@ -146,7 +187,7 @@ class NeMoActionBridge:
                     else "detect_sensitive_data"
                 ),
             )
-            rails.register_action(
+            register_action(
                 self.mask_sensitive_data,
                 name=(
                     "MaskSensitiveDataAction"
@@ -436,6 +477,19 @@ class NeMoActionBridge:
             detected = detected or count > 0
         return {"detected": detected, "redacted": redacted}
 
+    async def record_owned_policy(
+        self,
+        flow_name: str,
+        safe: bool,
+        text: str,
+        policy_id: str,
+        policy_version: str,
+        replacement: str | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return await self.record_policy(flow_name, safe, text, replacement, context,
+            policy_id=policy_id, policy_version=policy_version)
+
     async def record_policy(
         self,
         flow_name: str,
@@ -443,21 +497,36 @@ class NeMoActionBridge:
         text: str,
         replacement: str | None = None,
         context: dict[str, Any] | None = None,
+        policy_id: str | None = None,
+        policy_version: str | None = None,
     ) -> dict[str, Any]:
+        # Colang values and parsed model output are dynamically typed. Do not
+        # interpret e.g. the string "false" as a successful safety decision.
+        # Validate before producing any finding, mutation, or execution evidence.
+        if type(safe) is not bool:
+            raise TypeError("Policy safety result must be a boolean.")
+        if not isinstance(text, str):
+            raise TypeError("Policy result text must be a string.")
+        if replacement is not None and not isinstance(replacement, str):
+            raise TypeError("Policy replacement must be a string or null.")
+        if not isinstance(flow_name, str) or not flow_name:
+            raise TypeError("Policy result must identify a Flow.")
         request = self._request()
-        binding = next(
-            (
-                item
-                for item in self._config.action_bindings
-                if item.policy_id is not None
-                and (
-                    item.flow_name == flow_name
-                    or _compiled_policy_flow_name(item) == flow_name
-                )
-                and request.phase in item.phases
-            ),
-            None,
+        candidates = tuple(
+            item
+            for item in self._config.action_bindings
+            if item.policy_id is not None
+            and ((policy_id is None and policy_version is None)
+                or (item.policy_id == policy_id and item.policy_version == policy_version))
+            and (
+                item.flow_name == flow_name
+                or _compiled_policy_flow_name(item) == flow_name
+            )
+            and request.phase in item.phases
         )
+        # New artifacts carry compiler-owned identity even when flow_name is
+        # computed dynamically. Legacy names resolve only when unambiguous.
+        binding = candidates[0] if len(candidates) == 1 else None
         if binding is None:
             binding = NeMoActionBinding(
                 id=f"unknown-policy-flow:{flow_name}",
@@ -476,7 +545,7 @@ class NeMoActionBridge:
             f"Policy {binding.policy_id}@{binding.policy_version} "
             f"flow {binding.flow_name} passed."
             if safe
-            else f"Policy {binding.policy_id}@{binding.policy_version} detected customer data."
+            else f"Policy {binding.policy_id}@{binding.policy_version} flow {binding.flow_name} reported unsafe content."
         )
         findings = () if safe else (
             RiskFinding(
@@ -930,6 +999,8 @@ class NeMoRuntime:
                         )
                 else:
                     raise RuntimeError(f"Unknown NeMo runtime profile {profile!r}.")
+                if scope.action_failure is not None:
+                    raise scope.action_failure
                 runtime_span.set_attributes({
                     "guardrail.runtime.result": "success",
                     "guardrail.runtime.duration_ms": max(
@@ -938,6 +1009,9 @@ class NeMoRuntime:
                     "guardrail.runtime.action_count": len(runtime_results),
                 })
         except Exception as error:
+            # Colang may itself fail while consuming the missing Action result.
+            # Preserve the original safe diagnostic rather than a secondary one.
+            error = scope.action_failure or error
             if runtime_span is not None:
                 runtime_span.record_exception(error)
                 runtime_span.set_status(Status(StatusCode.ERROR, type(error).__name__))
@@ -2395,8 +2469,33 @@ def _failed_decision(
     active_concurrency=0,
     native_model_calls: tuple[ModelCallUsage, ...] = (),
 ):
-    reason = f"NeMo Guardrails failed closed with {type(error).__name__}."
+    reason = (
+        f"NeMo Guardrails failed closed: {error}"
+        if isinstance(error, _ActionExecutionFailure)
+        else f"NeMo Guardrails failed closed with {type(error).__name__}."
+    )
     checksum = config_checksum(config)
+    action_error_trace = (
+        RuntimeTraceStep(
+            id="nemo:runtime:action-error",
+            parent_id="nemo:runtime:error",
+            kind="action",
+            name=error.action_name,
+            action_name=error.action_name,
+            status="error",
+            outcome="error",
+            route="fail_closed",
+            timed_out=error.timed_out,
+            detail=reason,
+            guardrail_id=request.plan.guardrail_id,
+            guardrail_version=request.plan.guardrail_version,
+            rail_type=request.phase,
+            content_block_id=request.active_block_id,
+            engine=config.runtime_engine,
+            runtime_profile=config.runtime_profile,
+            config_checksum=checksum,
+        ),
+    ) if isinstance(error, _ActionExecutionFailure) else ()
     trace = (
         RuntimeTraceStep(
             id="nemo:runtime:error",
@@ -2411,11 +2510,14 @@ def _failed_decision(
             guardrail_version=request.plan.guardrail_version,
             rail_type=request.phase,
             outcome="error",
-            timed_out=isinstance(error, TimeoutError),
+            timed_out=isinstance(error, TimeoutError) or (
+                isinstance(error, _ActionExecutionFailure) and error.timed_out
+            ),
             engine=config.runtime_engine,
             runtime_profile=config.runtime_profile,
             config_checksum=checksum,
         ),
+        *action_error_trace,
         *_native_model_trace_steps(
             request, native_model_calls, "nemo:runtime:error",
         ),

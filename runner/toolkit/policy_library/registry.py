@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from .domain import PolicySpec
 from .loader import load_builtin_policies
+from .protection import policy_protection
 from ..safety.taxonomy import taxonomy
 
 
@@ -15,6 +16,7 @@ _SUPPORTED_TEST_DECISIONS = frozenset(
 )
 _SUPPORTED_TAG_NAMESPACES = frozenset(
     {
+        "protection",
         "guardrail_category",
         "collection",
         "domain",
@@ -90,6 +92,7 @@ class PolicyLibraryRegistry:
                 )
 
         parameter_names = [parameter.name for parameter in item.parameters]
+        policy_protection(item)
         if len(parameter_names) != len(set(parameter_names)):
             raise ValueError(f"Policy {item.id!r} repeats a parameter name.")
 

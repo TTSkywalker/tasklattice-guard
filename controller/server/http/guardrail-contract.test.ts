@@ -20,7 +20,6 @@ const config = loadConfig({
 });
 
 const draftConfig = {
-  purposeDetails: { audience: "Support", tasks: "Orders", protect: "Accounts", outOfScope: "Everything else" },
   allowedTopics: ["Order status"],
   restrictedTopics: [],
   policyBindings: [{
@@ -38,14 +37,29 @@ const draftConfig = {
 };
 
 describe("Guardrail HTTP contract", () => {
-  it("requires Business purpose when a Guardrail is created", async () => {
-    const createGuardrail = vi.fn();
+  it("creates a Guardrail using only a name and Policy bindings", async () => {
+    const createGuardrail = vi.fn().mockResolvedValue({ id: "guard-1", name: "Support", draftConfig });
     const response = await appWith(createGuardrail).request("/api/v1/guardrails", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Support", draftConfig, runtimeProfile: "auto" }),
     });
 
+    expect(response.status).toBe(201);
+    expect(createGuardrail.mock.calls[0]![0]).toMatchObject({ name: "Support", draftConfig });
+    expect(createGuardrail.mock.calls[0]![0]).not.toHaveProperty("description");
+  });
+
+  it.each([
+    { description: "Retired description" },
+    { purpose: "Retired purpose" },
+    { draftConfig: { ...draftConfig, purposeDetails: { tasks: "Retired identity" } } },
+  ])("rejects removed business-purpose fields instead of keeping aliases: %j", async (retired) => {
+    const createGuardrail = vi.fn();
+    const response = await appWith(createGuardrail).request("/api/v1/guardrails", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Support", draftConfig, ...retired }),
+    });
     expect(response.status).toBe(400);
     expect(createGuardrail).not.toHaveBeenCalled();
   });
@@ -57,7 +71,6 @@ describe("Guardrail HTTP contract", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "Support",
-        description: "Support account operations.",
         draftConfig: { ...draftConfig, restrictedTopics: ["Medical advice"] },
         runtimeProfile: "auto",
       }),

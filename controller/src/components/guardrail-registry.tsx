@@ -50,9 +50,6 @@ export function GuardrailRegistry({
                   </span>
                   <span className="min-w-0 flex-1">
                     <strong className="block truncate text-sm group-hover:text-primary">{guardrail.name}</strong>
-                    <span className="mt-1 line-clamp-2 whitespace-normal break-words text-xs leading-5 text-muted-foreground">
-                      {guardrail.purpose}
-                    </span>
                   </span>
                 </Link>
               </TableCell>

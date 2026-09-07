@@ -120,6 +120,31 @@ async def test_pass_does_not_allow_globally_or_modify_downstream_input(programma
     assert calls == [("pass-first", "alpha beta"), ("reject-next", "alpha beta")]
 
 
+@pytest.mark.parametrize("phase", ["input", "output"])
+@pytest.mark.parametrize("reject_at_end", [False, True])
+async def test_large_standard_policy_chain_preserves_order_and_short_circuit(phase, reject_at_end):
+    # Multiple individually configured input/output rails exhausted upstream
+    # Colang 1's 300-event guard before an ordinary 32-Policy Default completed.
+    # Exercise a larger chain through real NeMo, without changing that limit.
+    middle = [(f"check-{index:02d}", "alpha", "unused", "reject") for index in range(36)]
+    steps = [
+        ("z-mask-alpha", "alpha", "[A]", "redact"), *middle,
+        ("b-mask-beta", "beta", "[B]", "redact"),
+        ("end-check", "[B]" if reject_at_end else "missing", "unused", "reject"),
+        ("after-end", "missing", "unused", "pass"),
+    ]
+    result, calls = await run_chain(steps, phase=phase)
+    assert result.decision == ("block" if reject_at_end else "transform")
+    if not reject_at_end:
+        assert result.texts == ("[A] [B]",)
+    expected = [("z-mask-alpha", "alpha beta"), *[(identity, "[A] beta") for identity, *_ in middle],
+                ("b-mask-beta", "[A] beta"), ("end-check", "[A] [B]")]
+    if not reject_at_end:
+        expected.append(("after-end", "[A] [B]"))
+    assert calls == expected
+    assert [step.policy_id for step in result.trace if step.kind == "action"] == [identity for identity, _ in expected]
+
+
 def test_local_rules_use_current_text_and_stop_on_reject(monkeypatch):
     template = policy("pattern-matching")
     rule = template.rules[0]

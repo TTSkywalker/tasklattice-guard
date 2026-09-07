@@ -11,8 +11,8 @@ describe("Policy catalog", () => {
     const catalog = PolicyCatalog.load(assetDirectory);
     const policies = catalog.list();
 
-    expect(policies).toHaveLength(45);
-    expect(new Set(policies.map((policy) => policy.id)).size).toBe(45);
+    expect(policies).toHaveLength(69);
+    expect(new Set(policies.map((policy) => policy.id)).size).toBe(69);
     expect(catalog.get("builtin-content-safety")).toMatchObject({ rails: ["input", "output"], test_count: 2 });
     expect(catalog.get("competitor-mention-detection")).toMatchObject({
       name: "Competitor Name Blocking",
@@ -59,7 +59,7 @@ describe("Policy catalog", () => {
   it("fails fast with the configured asset path in the error", () => {
     const missingDirectory = resolve("../runner/toolkit/policy_library/missing-assets");
     expect(() => PolicyCatalog.load(missingDirectory)).toThrow(
-      `Unable to load Policy catalog asset ${resolve(missingDirectory, "builtin_policies.json")}`,
+      `Unable to load protection contract ${resolve(missingDirectory, "protection-contracts.json")}`,
     );
   });
 });

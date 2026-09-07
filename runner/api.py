@@ -27,7 +27,7 @@ from .metrics import (
     UNMATCHED_METRIC_ID,
     UNRESOLVED_METRIC_ID,
 )
-from .output_streaming import OutputStreamProcessor, OutputStreamSessionStore
+from .output_streaming import OutputStreamEvaluationError, OutputStreamProcessor, OutputStreamSessionStore
 from .toolkit.runtime.streaming import output_stream_contract
 from .telemetry import RuntimeTelemetryExporter
 
@@ -177,8 +177,10 @@ class OutputStreamRequest(BaseModel):
     text: str = Field(default="", max_length=100_000)
     final: bool = False
     call_id: str | None = Field(default=None, min_length=1, max_length=256)
-    protocol: Literal["http", "a2a"] = "http"
+    protocol: Literal["http", "a2a", "litellm"] = "http"
     messages: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    request_data: dict[str, Any] = Field(default_factory=dict)
+    request_headers: dict[str, str] = Field(default_factory=dict)
     attributes: dict[str, str] = Field(default_factory=dict)
     model: str | None = None
     output_sink: Literal["display", "markdown", "html", "sql", "shell", "url", "json", "tool_argument"] | None = None
@@ -405,7 +407,9 @@ class RunnerAPI:
             request: Request,
             x_api_key: str | None = Header(default=None),
         ):
-            expected_adapter = "a2a-guard" if payload.protocol == "a2a" else "generic-http-guard"
+            expected_adapter = {
+                "a2a": "a2a-guard", "http": "generic-http-guard", "litellm": LITELLM_ADAPTER_ID,
+            }[payload.protocol]
             authenticated = self._store.authenticate_integration(integration_id, x_api_key)
             self._metrics.observe_authentication(payload.protocol, authenticated)
             if not authenticated:
@@ -415,17 +419,23 @@ class RunnerAPI:
                 self._metrics.reject_request(payload.protocol, "output", "adapter_mismatch")
                 raise HTTPException(status_code=409, detail="Integration adapter does not match this protocol.")
 
-            evaluate_payload = EvaluateRequest(
-                phase="output",
-                texts=[payload.text or " "],
-                call_id=payload.call_id or payload.stream_id,
-                protocol=payload.protocol,
-                messages=payload.messages,
-                attributes=payload.attributes,
-                model=payload.model,
-                output_sink=payload.output_sink,
-            )
-            protection_request = _http_protection_request(evaluate_payload, request, integration_id)
+            if payload.protocol == "litellm":
+                # Preserve the same principal, routing fields and call identity
+                # used by the pre-call Generic Guardrail API callback.
+                protection_request = _litellm_protection_request(LiteLLMGuardrailRequest(
+                    input_type="response", texts=[payload.text or " "],
+                    litellm_call_id=payload.call_id or payload.stream_id,
+                    structured_messages=payload.messages, model=payload.model,
+                    request_data=payload.request_data, request_headers=payload.request_headers,
+                ), integration_id)
+            else:
+                evaluate_payload = EvaluateRequest(
+                    phase="output", texts=[payload.text or " "],
+                    call_id=payload.call_id or payload.stream_id, protocol=payload.protocol,
+                    messages=payload.messages, attributes=payload.attributes,
+                    model=payload.model, output_sink=payload.output_sink,
+                )
+                protection_request = _http_protection_request(evaluate_payload, request, integration_id)
             try:
                 resolutions = []
                 mode = self._runtime.output_delivery(protection_request, on_resolved=resolutions.append,
@@ -464,6 +474,8 @@ class RunnerAPI:
                     request=protection_request,
                     evaluate=evaluate_candidate,
                 )
+            except OutputStreamEvaluationError as error:
+                raise HTTPException(status_code=504 if error.timed_out else 502, detail=str(error)) from error
             except LookupError as error:
                 raise HTTPException(status_code=404, detail=str(error)) from error
             except ValueError as error:
@@ -751,6 +763,7 @@ def _telemetry_metadata(decision: ProtectionDecision) -> dict[str, Any]:
             "name": item.name,
             "status": item.status,
             "durationMs": item.duration_ms,
+            "parentId": item.parent_id,
             "contractRef": item.contract_ref,
             "verdict": item.verdict,
             "route": item.route,

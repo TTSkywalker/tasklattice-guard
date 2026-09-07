@@ -5,7 +5,7 @@
     "description": "Protects Australian-specific identifiers, international employee data, financial information, credentials, protected class information, and industry-specific sensitive data.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "pii_detection",
@@ -2254,7 +2254,7 @@
     "description": "Restricts an airline chatbot to airline-related topics only. Blocks off-topic questions about news, sports, coding, politics, entertainment, finance, recipes, homework, and general knowledge using keyword-based detection with no additional LLM calls.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_topics","label":"Business topics","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "topic_control",
@@ -2378,7 +2378,7 @@
     "description": "Protects airline passenger PII including PNR/booking references, multi-national passport numbers, frequent flyer (Skywards) numbers, payment cards, IBANs, Emirates ID, UAE phone numbers, and email addresses. Designed for UAE-based airlines operating global routes.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "pii_detection",
@@ -3411,7 +3411,7 @@
     "description": "Prevents AI from leaking flight operations data (flight numbers, crew schedules, gate assignments, aircraft tail numbers), generating content about aviation security vulnerabilities or bypass procedures, and producing unauthorized airline statements or fake incident reports.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "content_safety",
@@ -5504,7 +5504,7 @@
     "description": "Baseline PII protection for internal tools and testing. Focuses on credentials and high-risk identifiers only. Suitable for non-sensitive internal use.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "pii_detection",
@@ -6196,7 +6196,7 @@
     "description": "Comprehensive safety guardrails for healthcare claims agent chatbots. Blocks fraud coaching (exaggeration, document forgery), PHI disclosure without authorization, prior-auth gaming (code manipulation, medical necessity misrepresentation), system override injection (prompt injection, role impersonation), and medical advice in claims context (diagnosis, treatment recommendations).",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "agentic_security",
@@ -7361,7 +7361,7 @@
     "description": "Automatically detects and blocks AI from recommending or promoting competitor brands. Uses LLM-powered discovery to identify your top competitors, then monitors both inputs and outputs for competitor mentions, referrals, and comparisons that could divert business.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_filters","label":"Words & content filters","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "topic_control",
@@ -8197,7 +8197,7 @@
     "description": "Comprehensive EU AI Act Article 5 compliance covering all prohibited AI practices. Includes 5 dedicated sub-guardrails per language (English + French) for: subliminal manipulation (Art. 5.1a), vulnerability exploitation (Art. 5.1b), social scoring (Art. 5.1c), emotion recognition in workplace/education (Art. 5.1f), and biometric categorization & predictive profiling (Art. 5.1d/g/h). Uses conditional matching (identifier word + context word).",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "agentic_security",
@@ -9880,7 +9880,7 @@
     "description": "GDPR Article 32 compliance for EU personal data protection. Masks French national IDs (NIR/INSEE), EU IBANs, French phone numbers, EU VAT numbers, EU passport numbers, and email addresses. Suitable for applications processing EU citizen data requiring GDPR compliance.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "pii_detection",
@@ -10302,7 +10302,7 @@
     "description": "Comprehensive multi-language NSFW content filtering. Blocks profanity, sexual content, inappropriate requests, self-harm content, and child safety violations in English, Spanish, French, German, and Australian. Best for global applications.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "content_safety",
@@ -18488,7 +18488,7 @@
     "description": "Blocks profanity, sexual content, NSFW requests, self-harm content, and child safety violations using English and Australian-specific slang. Protects against inappropriate content including sexual solicitation, explicit content, Australian profanity, self-harm, and content involving minors.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "content_safety",
@@ -25640,7 +25640,7 @@
     "description": "Basic NSFW content filtering for English only. Blocks profanity, sexual content, slurs, solicitation, explicit requests, self-harm content, and child safety violations. Suitable for most applications requiring content moderation.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"content_safety","label":"Content safety","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "content_safety",
@@ -32430,7 +32430,7 @@
     "description": "Detects and blocks prompt injection attacks, SQL injection attempts, code injection, and jailbreak attempts. Protects against adversarial inputs that try to override system instructions or extract sensitive information.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"attacks_and_abuse","label":"Attacks & abuse","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "agentic_security",
@@ -33972,7 +33972,7 @@
     "description": "Monetary Authority of Singapore (MAS) AI Risk Management for Financial Institutions alignment. Covers 5 enforceable obligation areas: fairness & bias in financial decisions, transparency & explainability of AI models, human oversight for consequential actions, data governance for financial customer data, and model security against adversarial attacks. Based on Guidelines on Artificial Intelligence Risk Management (MAS), and aligned with the 2018 FEAT Principles and Project MindForge. Zero-cost keyword-based detection.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "agentic_security",
@@ -34708,7 +34708,7 @@
     "description": "Singapore Personal Data Protection Act (PDPA) compliance. Covers 5 obligation areas: personal identifier collection (s.13 Consent), sensitive data profiling (Advisory Guidelines), Do Not Call Registry violations (Part IX), overseas data transfers (s.26), and automated profiling without human oversight (Model AI Governance Framework). Also includes regex-based PII detection for NRIC/FIN, Singapore phone numbers, postal codes, passports, UEN, and bank account numbers. Zero-cost keyword-based detection.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "pii_detection",
@@ -35766,7 +35766,7 @@
     "description": "Restricts AI responses to only approved topics. Blocks off-topic requests like news, politics, entertainment, and general knowledge questions. Useful for chatbots that should stay focused on a specific domain.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_topics","label":"Business topics","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "topic_control",
@@ -36410,7 +36410,7 @@
     "description": "Compliance with UAE Federal Decree-Law No. 45/2021 (Data Protection) and Federal Decree-Law No. 2/2015 (Anti-Discrimination). Protects Emirates ID numbers, UAE phone numbers, and ensures cultural sensitivity including royal family references and religious content policies.",
     "source": "built_in",
     "version": "1.95.0",
-    "tags": [
+    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
       {
         "namespace": "guardrail_category",
         "value": "agentic_security",
