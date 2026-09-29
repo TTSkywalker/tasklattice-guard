@@ -1,10 +1,11 @@
+import "@/i18n";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GuardrailRowActions } from './guardrail-row-actions';
 import type { Guardrail } from '@/lib/api';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en' } }) }));
+
 vi.mock('./guardrail-duplicate', () => ({ DuplicateGuardrailSheet: () => <div role="dialog" aria-label="Duplicate Guardrail" /> }));
 vi.mock('./guardrail-delete-sheet', () => ({ DeleteGuardrailSheet: () => <div role="dialog" aria-label="Delete Guardrail" /> }));
 vi.mock('@/lib/api', () => ({ getGuardrailDeletionImpact: vi.fn().mockResolvedValue({}), deleteGuardrail: vi.fn() }));

@@ -7,6 +7,12 @@ export function DropdownMenu({ children }: SlotProps) {
   const labelId = useId();
   const trigger = findSlots(children, DropdownMenuTrigger)[0];
   const content = findSlots(children, DropdownMenuContent)[0];
+  const side = content?.props.side === "top" ? "top" : "bottom";
+  const offset: Exclude<ComponentProps<typeof OverflowMenu>["menuOffset"], undefined> =
+    (menu, direction, target, flipped) => ({
+      left: (flipped ? -1 : 1) * (menu.offsetWidth - (target?.offsetWidth ?? 0)) / 2,
+      top: (direction === "top" ? -1 : 1) * Number(content?.props.sideOffset ?? 8),
+    });
   const child = trigger?.props.children;
   const childProps = isValidElement<Record<string, unknown>>(child)
     ? child.props
@@ -32,6 +38,9 @@ export function DropdownMenu({ children }: SlotProps) {
         iconDescription={label}
         renderIcon={Icon}
         size="md"
+        direction={side}
+        menuOffset={offset}
+        menuOffsetFlip={offset}
         flipped={content?.props.align === "end"}
         className={cn("guard-overflow-menu", childProps.className as string)}
         menuOptionsClass={cn(

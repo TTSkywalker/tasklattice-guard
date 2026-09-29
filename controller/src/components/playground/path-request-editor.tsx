@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Checkbox as CarbonCheckbox } from "@/components/ui/checkbox";
 import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
 import { useState } from "react";
@@ -13,7 +14,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { useRoutingText } from "@/components/traffic-routing/form";
+
 import { newHeader } from "./path-request-model";
 import type { PathWorkbench } from "./use-path-workbench";
 
@@ -22,7 +23,8 @@ export function PathRequestEditor({
 }: {
   workbench: PathWorkbench;
 }) {
-  const t = useRoutingText();
+  const { t: uiText } = useTranslation();
+  const { t } = useTranslation();
   const [tab, setTab] = useState("headers");
   const [importOpen, setImportOpen] = useState(false);
   const [source, setSource] = useState("");
@@ -67,21 +69,21 @@ export function PathRequestEditor({
         <div className="path-editor-toolbar">
           <TabsList
             className="border-0"
-            aria-label={t("请求编辑", "Request editor")}
+            aria-label={t("routing.requestEditor")}
           >
             <TabsTrigger value="headers">
-              <List aria-hidden="true" className="size-4" />Headers{" "}
+              <List aria-hidden="true" className="size-4" />{uiText("uiCopy.headers")}{" "}
               <span className="text-muted-foreground">
                 {w.draft.headers.filter((h) => h.enabled && h.name).length}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="body"><Braces aria-hidden="true" className="size-4" />Body</TabsTrigger>
+            <TabsTrigger value="body"><Braces aria-hidden="true" className="size-4" />{uiText("uiCopy.body")}</TabsTrigger>
             {w.target === "router" ? (
               <TabsTrigger value="context"><GitBranch aria-hidden="true" className="size-4" />
-                {t("路由上下文", "Context")}
+                {t("routing.context")}
               </TabsTrigger>
             ) : (
-              <TabsTrigger value="auth"><KeyRound aria-hidden="true" className="size-4" />{t("认证", "Auth")}</TabsTrigger>
+              <TabsTrigger value="auth"><KeyRound aria-hidden="true" className="size-4" />{t("routing.auth")}</TabsTrigger>
             )}
           </TabsList>
           <div className="flex items-center gap-1">
@@ -96,7 +98,7 @@ export function PathRequestEditor({
               }}
             >
               <Upload className="size-4" />
-              {t("导入 HTTP/cURL", "Import HTTP/cURL")}
+              {t("routing.importHTTPCURL")}
             </Button>
             <Button
               variant="ghost"
@@ -107,7 +109,7 @@ export function PathRequestEditor({
                 setFormatError("");
               }}
             >
-              <FileCode2 aria-hidden="true" className="size-4" />{t("填入示例", "Load example")}
+              <FileCode2 aria-hidden="true" className="size-4" />{t("routing.loadExample")}
             </Button>
           </div>
         </div>
@@ -117,7 +119,7 @@ export function PathRequestEditor({
         >
           <div
             role="table"
-            aria-label="HTTP headers"
+            aria-label={uiText("uiCopy.hTTPHeaders")}
             className="w-full text-sm"
           >
             <div
@@ -125,14 +127,12 @@ export function PathRequestEditor({
               className="grid grid-cols-[2.75rem_minmax(0,1fr)_minmax(0,1.5fr)_2.75rem] items-center gap-1 border-b pb-2 text-xs text-muted-foreground sm:gap-3"
             >
               <span role="columnheader" className="sr-only">
-                {t("启用", "Enabled")}
+                {t("routing.enabled")}
               </span>
-              <span className="col-start-2" role="columnheader">
-                Header
-              </span>
-              <span role="columnheader">Value</span>
+              <span className="col-start-2" role="columnheader">{uiText("uiCopy.header")}</span>
+              <span role="columnheader">{uiText("uiCopy.value")}</span>
               <span role="columnheader" className="sr-only">
-                {t("删除", "Remove")}
+                {t("routing.remove")}
               </span>
             </div>
             {w.draft.headers.map((h, index) => (
@@ -158,7 +158,7 @@ export function PathRequestEditor({
                 <div role="cell">
                   <Input
                     aria-label={`Header ${index + 1} name`}
-                    placeholder="Header"
+                    placeholder={uiText("uiCopy.header")}
                     className="field:h-11 min-w-0 field:border-transparent field:bg-transparent field:font-mono field:text-xs field:shadow-none"
                     value={h.name}
                     disabled={w.pending}
@@ -170,7 +170,7 @@ export function PathRequestEditor({
                 <div role="cell">
                   <Input
                     aria-label={`Header ${index + 1} value`}
-                    placeholder="Value"
+                    placeholder={uiText("uiCopy.value")}
                     className="field:h-11 min-w-0 field:border-transparent field:bg-transparent field:font-mono field:text-xs field:shadow-none"
                     value={h.value}
                     disabled={w.pending}
@@ -212,7 +212,7 @@ export function PathRequestEditor({
             }
           >
             <Plus className="size-4" />
-            {t("添加 Header", "Add header")}
+            {t("routing.addHeader")}
           </Button>
         </TabsContent>
         <TabsContent
@@ -221,7 +221,7 @@ export function PathRequestEditor({
         >
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <CarbonNativeSelect
-              aria-label="Body format"
+              aria-label={uiText("uiCopy.bodyFormat")}
               className="path-body-format"
               value={jsonBody ? "json" : "text"}
               disabled={w.pending}
@@ -239,7 +239,7 @@ export function PathRequestEditor({
                 });
               }}
             >
-              <option value="text">{t("原始文本", "Raw text")}</option>
+              <option value="text">{t("routing.rawText")}</option>
               <option value="json">JSON</option>
             </CarbonNativeSelect>
             <Button
@@ -255,16 +255,16 @@ export function PathRequestEditor({
                   setFormatError("");
                 } catch {
                   setFormatError(
-                    t("Body 不是有效的 JSON。", "Body is not valid JSON."),
+                    t("routing.bodyIsNotValidJSON"),
                   );
                 }
               }}
             >
-              <Code2 aria-hidden="true" className="size-4" />{t("格式化 JSON", "Format JSON")}
+              <Code2 aria-hidden="true" className="size-4" />{t("routing.formatJSON")}
             </Button>
           </div>
           <Textarea
-            aria-label="Request body"
+            aria-label={uiText("uiCopy.requestBody")}
             spellCheck={false}
             value={w.draft.body}
             disabled={w.pending}
@@ -284,9 +284,7 @@ export function PathRequestEditor({
           value="context"
           className="min-h-0 space-y-4 overflow-auto p-4"
         >
-          <label className="block text-xs">
-            Call ID
-            <div className="mt-1 flex gap-2">
+          <label className="block text-xs">{uiText("uiCopy.callID")}<div className="mt-1 flex gap-2">
               <Input
                 className="field:h-11 min-w-0"
                 value={w.callId}
@@ -299,19 +297,16 @@ export function PathRequestEditor({
                 disabled={w.pending}
                 onClick={() => w.setCallId(`test-${crypto.randomUUID()}`)}
               >
-                <RefreshCw aria-hidden="true" className="size-4" />{t("重新生成", "New")}
+                <RefreshCw aria-hidden="true" className="size-4" />{t("routing.new")}
               </Button>
             </div>
           </label>
           <p className="text-xs text-muted-foreground">
-            {t(
-              "相同 Call ID 会沿用固定的路由分配。",
-              "The same Call ID reuses its pinned route assignment.",
-            )}
+            {t("routing.theSameCallIDReusesItsPinnedRouteAssignment")}
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-xs">
-              {t("业务字段 JSON", "Business fields JSON")}
+              {t("routing.businessFieldsJSON")}
               <Textarea
                 className="mt-2 field:min-h-24 field:font-mono field:text-xs"
                 value={w.fields}
@@ -320,7 +315,7 @@ export function PathRequestEditor({
               />
             </label>
             <label className="text-xs">
-              {t("Endpoint 请求上下文 JSON", "Endpoint request context JSON")}
+              {t("routing.endpointRequestContextJSON")}
               <Textarea
                 className="mt-2 field:min-h-24 field:font-mono field:text-xs"
                 value={w.endpointContext}
@@ -330,10 +325,7 @@ export function PathRequestEditor({
             </label>
           </div>
           <p className="text-xs text-muted-foreground">
-            {t(
-              "Headers 与地址栏描述原始业务请求；此处补充其他匹配字段。",
-              "Headers and the URL describe the business request; add other matching fields here.",
-            )}
+            {t("routing.headersAndTheURLDescribeTheBusinessRequestAdd")}
           </p>
         </TabsContent>
         <TabsContent
@@ -341,9 +333,9 @@ export function PathRequestEditor({
           className="min-h-0 space-y-4 overflow-auto p-4"
         >
           <label className="block max-w-lg space-y-2 text-sm">
-            <span>Endpoint API key</span>
+            <span>{uiText("uiCopy.endpointAPIKey")}</span>
             <Input
-              aria-label="Endpoint API key"
+              aria-label={uiText("uiCopy.endpointAPIKey")}
               className="field:h-11"
               type="password"
               autoComplete="off"
@@ -354,27 +346,21 @@ export function PathRequestEditor({
             />
           </label>
           <p className="text-xs text-muted-foreground">
-            {t(
-              "通过 X-Api-Key 发送到所选 Endpoint。凭证不会写入测试历史。",
-              "Sent as X-Api-Key to the selected Endpoint. Credentials are excluded from test history.",
-            )}
+            {t("routing.sentAsXApiKeyToTheSelectedEndpoint")}
           </p>
         </TabsContent>
       </Tabs>
       <Sheet open={importOpen} onOpenChange={setImportOpen}>
         <SheetContent className="w-full sm:max-w-xl">
           <SheetHeader>
-            <SheetTitle>{t("导入请求", "Import request")}</SheetTitle>
+            <SheetTitle>{t("routing.importRequest")}</SheetTitle>
             <SheetDescription>
-              {t(
-                "粘贴 HTTP 明文或 cURL，解析后替换当前请求。",
-                "Paste HTTP text or curl to replace the current request.",
-              )}
+              {t("routing.pasteHTTPTextOrCurlToReplaceTheCurrent")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 pb-4">
             <Textarea
-              aria-label="HTTP request or curl"
+              aria-label={uiText("uiCopy.hTTPRequestOrCurl")}
               className="field:min-h-40 flex-1 field:font-mono field:text-xs"
               value={source}
               onChange={(e) => setSource(e.target.value)}
@@ -398,7 +384,7 @@ export function PathRequestEditor({
                 }
               }}
             >
-              {t("导入并替换", "Import and replace")}
+              {t("routing.importAndReplace")}
             </Button>
           </div>
         </SheetContent>

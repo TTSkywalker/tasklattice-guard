@@ -1,3 +1,4 @@
+import "@/i18n";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -5,7 +6,7 @@ import { RouterRevisions } from './router-revisions';
 import type { RouterRevision, TrafficRouter } from '@/lib/traffic-routing-api';
 const { remove } = vi.hoisted(() => ({ remove: vi.fn() }));
 vi.mock('@/lib/traffic-routing-api', async original => ({ ...await original<typeof import('@/lib/traffic-routing-api')>(), deleteRouterRevision: remove }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { exists: () => false } }) }));
+
 const history = [2, 1].map(revision => ({ revision, createdAt: `2026-09-0${revision}T00:00:00.000Z`, snapshot: { routes: [] } })) as RouterRevision[];
 const router = { id: 'router', activeRevision: 2, rolloutStatus: 'active' } as TrafficRouter;
 afterEach(() => { cleanup(); vi.clearAllMocks(); });

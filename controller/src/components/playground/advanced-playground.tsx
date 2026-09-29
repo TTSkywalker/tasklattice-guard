@@ -1,8 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { Activity, History, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorNotice } from "@/components/product-shell";
-import { useRoutingText } from "@/components/traffic-routing/form";
+
 import type { Guardrail } from "@/lib/api";
 import { usePathWorkbench } from "./use-path-workbench";
 import { PathTargetBar } from "./path-target-bar";
@@ -19,13 +20,13 @@ export function AdvancedPlayground({
   active: boolean;
   guardrails: Guardrail[];
 }) {
-  const t = useRoutingText();
+  const { t } = useTranslation();
   const workbench = usePathWorkbench(active);
   const [historyOpen, setHistoryOpen] = useState(false);
   const names = Object.fromEntries(guardrails.map((g) => [g.id, g.name]));
   return (
     <section
-      aria-label={t("高级请求工作台", "Advanced request workbench")}
+      aria-label={t("routing.advancedRequestWorkbench")}
       className="advanced-workbench flex min-w-0 flex-col overflow-hidden border bg-card"
     >
       <PathTargetBar workbench={workbench} />
@@ -41,7 +42,7 @@ export function AdvancedPlayground({
             <div className="flex shrink-0 items-center justify-between border-b px-4">
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <Activity className="size-4" aria-hidden="true" />
-                {t("测试结果", "Test result")}
+                {t("routing.testResult")}
               </h2>
               <Button
                 variant="ghost"
@@ -50,7 +51,7 @@ export function AdvancedPlayground({
                 onClick={() => setHistoryOpen(true)}
               >
                 <History className="size-4" />
-                {t("历史记录", "History")}
+                {t("routing.history")}
                 {workbench.records.length
                   ? ` (${workbench.records.length})`
                   : ""}
@@ -63,10 +64,7 @@ export function AdvancedPlayground({
                   className="flex items-center gap-2 p-6 text-sm text-muted-foreground"
                 >
                   <LoaderCircle className="size-4 animate-spin" />
-                  {t(
-                    "正在测试，请等待结果…",
-                    "Testing the request. Waiting for results…",
-                  )}
+                  {t("routing.testingTheRequestWaitingForResults")}
                 </p>
               ) : workbench.current ? (
                 <PathTestResult
@@ -77,16 +75,10 @@ export function AdvancedPlayground({
               ) : (
                 <div className="p-6 text-sm text-muted-foreground">
                   <p>
-                    {t(
-                      "发送请求，查看命中的 GuardRail 和执行结果。",
-                      "Send a request to inspect the selected GuardRail and test result.",
-                    )}
+                    {t("routing.sendARequestToInspectTheSelectedGuardRailAnd")}
                   </p>
                   <p className="mt-2 text-xs">
-                    {t(
-                      "先在上方选择测试目标，编辑 Headers 或 Body。",
-                      "Choose a target above, then edit Headers or Body.",
-                    )}
+                    {t("routing.chooseATargetAboveThenEditHeadersOrBody")}
                   </p>
                 </div>
               )}

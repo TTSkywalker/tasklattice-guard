@@ -20,6 +20,7 @@ import type { SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/lib/auth";
 
 export function AccountPage({ section = "general" }: { section?: "general" | "security" | "access-tokens" }) {
+  const { t: uiText } = useTranslation();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { user, updateProfile } = useAuth();
@@ -57,7 +58,7 @@ export function AccountPage({ section = "general" }: { section?: "general" | "se
         <TabsList aria-label={t("account.sections")} className="min-w-max">
           <TabsTrigger value="general"><UserRound />{t("account.general")}</TabsTrigger>
           <TabsTrigger value="security"><KeyRound />{t("account.security")}</TabsTrigger>
-          <TabsTrigger value="access-tokens"><ShieldCheck />Access Tokens</TabsTrigger>
+          <TabsTrigger value="access-tokens"><ShieldCheck />{uiText("uiCopy.accessTokens")}</TabsTrigger>
         </TabsList>
         </div>
 

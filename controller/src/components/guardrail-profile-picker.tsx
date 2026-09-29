@@ -21,6 +21,7 @@ export function GuardrailProfilePicker({ presets, selected, pending, onSelect, o
   presets: GuardrailProfilePreview[]; selected: string; pending: string | null;
   onSelect: (id: string) => void; onResolve: (mode: "replace" | "add" | "cancel") => void;
 }) {
+  const { t: uiText } = useTranslation();
   const { t } = useTranslation();
   const id = useId();
   const profile = presets.find(item => item.id === (pending ?? selected));
@@ -36,7 +37,7 @@ export function GuardrailProfilePicker({ presets, selected, pending, onSelect, o
   };
   return <section className="space-y-3">
     <div className="space-y-2">
-      <Label htmlFor={id} className="text-sm font-semibold">Profile</Label>
+      <Label htmlFor={id} className="text-sm font-semibold">{uiText("uiCopy.profile")}</Label>
       <Select value={pending ?? selected} onValueChange={onSelect}>
         <SelectTrigger id={id} className="field:min-h-11 field:h-auto w-full field:bg-card field:py-2.5 field:text-sm field:[&>span]:min-w-0 field:[&>span]:whitespace-normal field:[&>span]:text-left">
           <SelectValue>{profile ? profileLabel(profile) : blankLabel}</SelectValue>

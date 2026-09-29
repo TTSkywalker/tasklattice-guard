@@ -27,6 +27,7 @@ import "./runner-capacity.scss";
 export const runnerPoolKey = ["resources", "runner-pools"] as const;
 
 export function RunnerCapacitySection({ showHeader = true }: { showHeader?: boolean }) {
+  const { t: uiText } = useTranslation();
   const { t, i18n } = useTranslation();
   const auth = useAuth();
   const queryClient = useQueryClient();
@@ -51,7 +52,7 @@ export function RunnerCapacitySection({ showHeader = true }: { showHeader?: bool
         {(query.data?.items ?? []).map((pool) => (
           <article key={pool.id}>
             <header className="runner-pool-heading">
-              <h3><Server aria-hidden="true" />{pool.name}{pool.isDefault ? <Badge>Baseline</Badge> : null}</h3>
+              <h3><Server aria-hidden="true" />{pool.name}{pool.isDefault ? <Badge>{uiText("uiCopy.baseline")}</Badge> : null}</h3>
               <span>{t("runners.instancesCount", { count: pool.instances.length })}</span>
             </header>
             <div className="runner-live-metrics" aria-label={t("runners.liveMetrics")}>
@@ -80,7 +81,7 @@ export function RunnerCapacitySection({ showHeader = true }: { showHeader?: bool
               <h4><Server aria-hidden="true" />{t("runners.instancesTitle")}</h4>
             <div className="hidden overflow-x-auto lg:block">
               <Table className="min-w-[64rem]">
-                <TableHeader><TableRow><TableHead>Runner</TableHead><TableHead>{t("runners.columns.runtimeState")}</TableHead><TableHead>{t("runners.columns.configurationSync")}</TableHead><TableHead>{t("runners.columns.inflightQueue")}</TableHead><TableHead>CPU / Memory</TableHead><TableHead>{t("runners.columns.lastHeartbeat")}</TableHead><TableHead>{t("runners.columns.actions")}</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Runner</TableHead><TableHead>{t("runners.columns.runtimeState")}</TableHead><TableHead>{t("runners.columns.configurationSync")}</TableHead><TableHead>{t("runners.columns.inflightQueue")}</TableHead><TableHead>{uiText("uiCopy.cPUMemory")}</TableHead><TableHead>{t("runners.columns.lastHeartbeat")}</TableHead><TableHead>{t("runners.columns.actions")}</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {pool.instances.map((runner) => (
                     <TableRow key={runner.runnerId}>
@@ -119,7 +120,7 @@ export function RunnerCapacitySection({ showHeader = true }: { showHeader?: bool
                   <div className="mt-4"><RunnerConvergenceStatus runner={runner} /></div>
                   <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
                     <RunnerDatum label={t("runners.columns.inflightQueue")} value={`${runner.load?.inflight ?? 0} / ${runner.load?.queueDepth ?? 0}`} />
-                    <RunnerDatum label="CPU / Memory" value={`${Math.round((runner.load?.cpuUtilization ?? 0) * 100)}% / ${Math.round((runner.load?.memoryUtilization ?? 0) * 100)}%`} />
+                    <RunnerDatum label={uiText("uiCopy.cPUMemory")} value={`${Math.round((runner.load?.cpuUtilization ?? 0) * 100)}% / ${Math.round((runner.load?.memoryUtilization ?? 0) * 100)}%`} />
                     <RunnerDatum label={t("runners.columns.lastHeartbeat")} value={formatDate(runner.lastHeartbeatAt, i18n.language)} />
                   </dl>
                   {auth.user?.role === "admin" && (runner.status === "offline" || runner.status === "syncing") ? <Button

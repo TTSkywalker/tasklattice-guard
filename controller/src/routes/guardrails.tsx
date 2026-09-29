@@ -124,6 +124,7 @@ export function GuardrailsPage() {
 }
 
 export function GuardrailDetailPage() {
+  const { t: uiText } = useTranslation();
   const { t } = useTranslation();
   const { guardrailId } = useParams({ strict: false }) as { guardrailId: string };
   const navigate = useNavigate({ from: "/guardrails/$guardrailId" });
@@ -267,7 +268,7 @@ export function GuardrailDetailPage() {
             {routers.length ? <StateBadge state="protected" /> : activeVersion ? <StateBadge state="ready" /> : null}
             {guardrail.is_default ? <Badge variant="outline">{t("guardrails.defaultBadge")}</Badge> : guardrail.system_managed ? <Badge variant="outline">{t("guardrails.systemManaged")}</Badge> : null}
           </div>
-          {guardrail.copy_origin && <p className="mt-2 text-sm text-muted-foreground">Copied from {guardrail.copy_origin.sourceName} · {guardrail.copy_origin.sourceVersion ?? `draft r${guardrail.copy_origin.sourceDraftRevision}`} · {guardrail.copy_origin.sourceGuardrailId}</p>}
+          {guardrail.copy_origin && <p className="mt-2 text-sm text-muted-foreground">{uiText("uiCopy.copiedFrom")}{" "}{guardrail.copy_origin.sourceName} · {guardrail.copy_origin.sourceVersion ?? `draft r${guardrail.copy_origin.sourceDraftRevision}`} · {guardrail.copy_origin.sourceGuardrailId}</p>}
           {hasUnpublishedDraft ? <button type="button" className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-md bg-amber-50 px-3 text-xs font-medium text-amber-800 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setSection("draft")}><Circle className="size-2.5 fill-current" />{t("guardrails.unpublishedDraft")}</button> : null}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -290,7 +291,7 @@ export function GuardrailDetailPage() {
           <TabsList className="min-w-max" aria-label={t("guardrails.detailViews")}>
             <TabsTrigger value="runtime"><Activity aria-hidden="true" />{t("guardrails.runtimeTab")}</TabsTrigger>
             <TabsTrigger value="findings"><ShieldAlert aria-hidden="true" /><span className="flex items-center gap-2">{t("guardrails.securityFindingsTab")}{metricsQuery.data?.findings_summary?.total ? <Badge variant="outline" className={metricsQuery.data?.findings_summary?.critical ? "border-red-200 bg-red-50 font-mono text-[10px] text-red-700" : "font-mono text-[10px]"}>{metricsQuery.data?.findings_summary?.total}</Badge> : null}</span></TabsTrigger>
-            <TabsTrigger value="immutable"><History aria-hidden="true" />{t("guardrails.versions")}</TabsTrigger>
+            <TabsTrigger value="immutable"><History aria-hidden="true" /><span className="flex items-center gap-2">{t("guardrails.versions")}{versionsQuery.data ? <Badge variant="outline" className="font-mono text-[10px]">{guardrailVersions.length}</Badge> : null}</span></TabsTrigger>
             <TabsTrigger value="testing"><FlaskConical aria-hidden="true" /><span className="flex items-center gap-2">{t("guardrails.validationHistoryTab")}{validationRunsQuery.data?.items.length ? <Badge variant="outline" className="font-mono text-[10px]">{validationRunsQuery.data.items.length}</Badge> : null}</span></TabsTrigger>
             <TabsTrigger value="draft"><Pencil aria-hidden="true" /><span className="flex items-center gap-2">{t("guardrails.draftReleaseTab")}{hasUnpublishedDraft ? <Circle className="size-2 fill-amber-500 text-amber-500" /> : null}</span></TabsTrigger>
           </TabsList>
@@ -537,6 +538,7 @@ export function ImmutableVersionView({ detail, selectedVersion, versions, loadin
   onCompareBaseChange: (version: string) => void;
   onCloseCompare: () => void;
 }) {
+  const { t: uiText } = useTranslation();
   const { t, i18n } = useTranslation();
   const auth = useAuth();
   const [deleteVersion, setDeleteVersion] = useState<string | null>(null);
@@ -573,9 +575,9 @@ export function ImmutableVersionView({ detail, selectedVersion, versions, loadin
               </div>
               <div className="flex flex-wrap gap-2">
                 {compareOptions.length ? <Button variant="outline" className="min-h-11" onClick={onStartCompare}><GitCompareArrows />{t("guardrails.compareWithPrevious")}</Button> : null}
-                {auth.user?.role === "admin" ? <VersionMenu><VersionMenuTrigger asChild><Button variant="ghost" className="size-11" aria-label="Version actions"><VersionActionsIcon /></Button></VersionMenuTrigger><VersionMenuContent align="end">
+                {auth.user?.role === "admin" ? <VersionMenu><VersionMenuTrigger asChild><Button variant="ghost" className="size-11" aria-label={uiText("uiCopy.versionActions")}><VersionActionsIcon /></Button></VersionMenuTrigger><VersionMenuContent align="end">
                   <VersionMenuItem variant="edit" disabled={selectedVersion.active || rollback.isPending || removeVersion.isPending} onSelect={() => setRollbackVersion(selectedVersion.version)}><History />{t("guardrails.rollback")}</VersionMenuItem>
-                  <VersionMenuItem variant="destructive" disabled={selectedVersion.active || rollback.isPending || removeVersion.isPending} onSelect={() => { removeVersion.reset(); setDeleteVersion(selectedVersion.version); }}><Trash2 />Delete</VersionMenuItem>
+                  <VersionMenuItem variant="destructive" disabled={selectedVersion.active || rollback.isPending || removeVersion.isPending} onSelect={() => { removeVersion.reset(); setDeleteVersion(selectedVersion.version); }}><Trash2 />{uiText("uiCopy.delete")}</VersionMenuItem>
                 </VersionMenuContent></VersionMenu> : null}
               </div>
             </div>
@@ -604,7 +606,7 @@ export function ImmutableVersionView({ detail, selectedVersion, versions, loadin
     <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">{t("guardrails.confirmRollbackImpact")}</div>
     {rollback.error ? <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{rollback.error instanceof Error ? rollback.error.message : t("guardrails.operationFailed")}</p> : null}
   </ConfirmationSheet>
-  <ConfirmationSheet open={deleteVersion !== null} onOpenChange={open => { if (!open) setDeleteVersion(null); }} eyebrow="Guardrail version" title={`Delete version ${deleteVersion ?? ""}?`} description="This permanently removes the historical version. Active, compiling, or referenced versions cannot be deleted. Audit evidence and artifacts are retained." cancelLabel={t("common.cancel")} confirmLabel="Delete version" variant="destructive" pending={removeVersion.isPending} onConfirm={() => { if (deleteVersion) removeVersion.mutate(deleteVersion); }}>
+  <ConfirmationSheet open={deleteVersion !== null} onOpenChange={open => { if (!open) setDeleteVersion(null); }} eyebrow={uiText("uiCopy.guardrailVersion")} title={`Delete version ${deleteVersion ?? ""}?`} description={uiText("uiCopy.thisPermanentlyRemovesTheHistoricalVersionActiveCompilingOr")} cancelLabel={t("common.cancel")} confirmLabel={uiText("uiCopy.deleteVersion")} variant="destructive" pending={removeVersion.isPending} onConfirm={() => { if (deleteVersion) removeVersion.mutate(deleteVersion); }}>
     {removeVersion.error && <p role="alert" className="text-sm text-destructive">{removeVersion.error.message}</p>}
   </ConfirmationSheet></>;
 }

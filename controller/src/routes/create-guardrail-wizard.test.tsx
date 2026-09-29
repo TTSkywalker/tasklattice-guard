@@ -1,3 +1,4 @@
+import { uiCopyEn } from "../ui-copy-i18n";
 import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +28,7 @@ vi.mock("@/lib/controller-api", async importOriginal => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, string | number>) => {
+      if (key.startsWith("uiCopy.")) return uiCopyEn[key.slice(7) as keyof typeof uiCopyEn];
       const labels: Record<string, string> = {
         "common.cancel": "Cancel",
         "common.next": "Next",

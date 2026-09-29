@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { createTestCase, type Guardrail, type TestCase } from "@/lib/api";
 
 export function AddTestCaseSheet({ guardrail, open, onOpenChange, onCreated }: { guardrail: Guardrail; open: boolean; onOpenChange: (open: boolean) => void; onCreated: () => void }) {
+  const { t: uiText } = useTranslation();
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [policyId, setPolicyId] = useState(guardrail.policy_bindings[0]?.policy_id ?? "");
@@ -52,7 +53,7 @@ export function AddTestCaseSheet({ guardrail, open, onOpenChange, onCreated }: {
       <SheetField label={t("guardrails.caseName")}><Input autoFocus className="field:min-h-11" value={name} onChange={(event) => setName(event.target.value)} /></SheetField>
       <SheetField label={t("guardrails.policy")}><Select value={policyId} onValueChange={setPolicyId}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent>{guardrail.policy_bindings.map((binding) => <SelectItem key={binding.policy_id} value={binding.policy_id}>{binding.policy_id}</SelectItem>)}</SelectContent></Select></SheetField>
       <div className="grid gap-4 sm:grid-cols-2">
-        <SheetField label={t("guardrails.modelBoundary")}><Select value={phase} onValueChange={(next) => setPhase(next as typeof phase)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="input">Input</SelectItem><SelectItem value="output">Output</SelectItem></SelectContent></Select></SheetField>
+        <SheetField label={t("guardrails.modelBoundary")}><Select value={phase} onValueChange={(next) => setPhase(next as typeof phase)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="input">{uiText("uiCopy.input")}</SelectItem><SelectItem value="output">{uiText("uiCopy.output")}</SelectItem></SelectContent></Select></SheetField>
         <SheetField label={t("guardrails.expectedDecision")}><Select value={expected} onValueChange={(next) => setExpected(next as typeof expected)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent>{["allow", "block", "transform", "intervene"].map((decision) => <SelectItem key={decision} value={decision}>{decision}</SelectItem>)}</SelectContent></Select></SheetField>
       </div>
       <SheetField label={t("guardrails.testContent")}><Textarea className="field:min-h-32" value={content} onChange={(event) => setContent(event.target.value)} /></SheetField>

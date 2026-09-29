@@ -1,3 +1,4 @@
+import "@/i18n";
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { Changes, routingSnapshotText } from './routing-changes';

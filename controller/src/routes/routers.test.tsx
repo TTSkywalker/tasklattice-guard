@@ -1,3 +1,4 @@
+import "@/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,36 +11,7 @@ const createBindingsMock = vi.fn();
 const getEndpointsMock = vi.fn();
 const getTrafficScopeFieldsMock = vi.fn();
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string, values?: Record<string, string | number>) => {
-      const labels: Record<string, string> = {
-        "common.cancel": "Cancel",
-        "common.multiSelect.available": "{{count}} available",
-        "common.multiSelect.options": "{{name}} options",
-        "common.multiSelect.open": "Open {{name}}",
-        "common.multiSelect.close": "Close {{name}}",
-        "common.multiSelect.remove": "Remove {{name}}",
-        "routers.routerName": "Router name",
-        "routers.gateways": "Gateway Endpoints",
-        "routers.selectGateways": "Select Gateways",
-        "routers.searchGateways": "Search Gateways",
-        "routers.allTraffic": "All traffic",
-        "routers.filteredTraffic": "Only matching traffic",
-        "routers.createBindings": "Create {{count}} bindings",
-        "routers.creating": "Creating…",
-        "routers.createdBindings": "Created {{count}} bindings",
-        "routers.guardrail": "Guardrail",
-        "endpoints.setupStatuses.verified": "Verified",
-      };
-      return Object.entries(values ?? {}).reduce(
-        (label, [name, value]) => label.replace(`{{${name}}}`, String(value)),
-        labels[key] ?? key,
-      );
-    },
-    i18n: { language: "en", exists: () => false },
-  }),
-}));
+
 
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { role: "admin" } }) }));
 

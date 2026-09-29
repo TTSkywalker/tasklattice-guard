@@ -1,3 +1,4 @@
+import "@/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -20,12 +21,7 @@ const { save, preview, publish, role } = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({
   useAuth: () => ({ user: { role: role.value } }),
 }));
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: "en", exists: () => false },
-  }),
-}));
+
 const navigation = vi.hoisted(() => ({
   search: {} as { tab?: string; routeId?: string },
   listeners: new Set<() => void>(),

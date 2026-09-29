@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
 import { useRef, useState, type ReactNode } from "react";
-import { useRoutingText } from "@/components/traffic-routing/form";
+
 
 /** One scroll owner per pane; the separator supports pointer and keyboard resizing. */
 export function PathWorkbenchSplit({
@@ -9,7 +10,7 @@ export function PathWorkbenchSplit({
   request: ReactNode;
   result: ReactNode;
 }) {
-  const t = useRoutingText();
+  const { t } = useTranslation();
   const [height, setHeight] = useState(50);
   const drag = useRef({ y: 0, height: 50 });
   const container = useRef<HTMLDivElement>(null);
@@ -25,7 +26,7 @@ export function PathWorkbenchSplit({
       <div
         role="separator"
         tabIndex={0}
-        aria-label={t("调整请求区高度", "Resize request panel")}
+        aria-label={t("routing.resizeRequestPanel")}
         aria-orientation="horizontal"
         aria-valuemin={30}
         aria-valuemax={60}

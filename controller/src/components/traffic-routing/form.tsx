@@ -1,10 +1,5 @@
 import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
 import type { ReactNode, SelectHTMLAttributes } from 'react';
-import { useTranslation } from 'react-i18next';
-export function useRoutingText() {
-  const { i18n } = useTranslation();
-  return (zh: string, en: string) => i18n.language.startsWith('zh') ? zh : en;
-}
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="grid min-w-0 gap-2 text-sm"><span className="font-medium">{label}</span>{children}</label>;
 }

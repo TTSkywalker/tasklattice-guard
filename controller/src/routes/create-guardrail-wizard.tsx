@@ -72,6 +72,7 @@ export function CreateGuardrailWizard({
   onCreated: (id: string) => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
+  const { t: uiText } = useTranslation();
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const canManage = user?.role === "admin";
@@ -506,8 +507,8 @@ export function CreateGuardrailWizard({
                   <ReviewRow label={t("guardrailWizard.runtimeProfile")} value={`${preview.data.engine} · Colang ${preview.data.colang_version}`} mono />
                   <ReviewRow label={t("guardrailWizard.planIdentity")} value={preview.data.checksum} mono />
                   <div className="flex flex-wrap gap-2 p-4">
-                    <Badge variant="outline"><Braces />{preview.data.rails.length} Rails</Badge>
-                    <Badge variant="outline">{preview.data.actions.length} Actions</Badge>
+                    <Badge variant="outline"><Braces />{preview.data.rails.length}{uiText("uiCopy.rails")}</Badge>
+                    <Badge variant="outline">{preview.data.actions.length}{uiText("uiCopy.actions")}</Badge>
                     <Badge variant="outline">{preview.data.estimated_critical_path_ms} ms</Badge>
                     <Badge variant="outline"><Check />{t("guardrailWizard.planReady")}</Badge>
                   </div>

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import type {
   RouterDraft,
@@ -34,6 +35,7 @@ export function RouteEditorSheet({
   onApply: (route: TrafficRoute) => void;
   onClose: () => void;
 }) {
+  const { t: localize } = useTranslation();
   const [route, setRoute] = useState(() => structuredClone(initialRoute));
   const [submitted, setSubmitted] = useState(false);
   const fallback = route.kind === "fallback";
@@ -51,24 +53,22 @@ export function RouteEditorSheet({
     <EntitySheet
       open
       width="xl"
-      eyebrow="Routing rule"
+      eyebrow={localize("routing.routingRule")}
       title={
         fallback
-          ? "Edit fallback"
+          ? localize("routing.editFallback")
           : isNew
-            ? "Create routing rule"
-            : "Edit routing rule"
+            ? localize("routing.createRoutingRule")
+            : localize("routing.editRoutingRule")
       }
-      description="Select incoming traffic, then choose its GuardRail destinations. Changes apply to the draft until you publish."
+      description={localize("routing.selectIncomingTrafficThenChooseItsGuardRailDestinationsChanges")}
       closeDisabled={busy}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
       footer={
         <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
+          <Button variant="outline" disabled={busy} onClick={onClose}>{localize("routing.cancel")}</Button>
           <Button
             variant={isNew ? "create" : "edit"}
             disabled={busy}
@@ -78,14 +78,14 @@ export function RouteEditorSheet({
                 onApply({ ...route, name: route.name.trim() });
             }}
           >
-            {isNew ? "Add rule" : "Apply changes"}
+            {isNew ? localize("routing.addRule") : localize("routing.applyChanges")}
           </Button>
         </>
       }
     >
       <fieldset disabled={busy} className="min-w-0 space-y-6">
         {!fallback && (
-          <Field label="Route name">
+          <Field label={localize("routing.routeName")}>
             <Input
               value={route.name}
               onChange={(e) => setRoute({ ...route, name: e.target.value })}
@@ -95,12 +95,12 @@ export function RouteEditorSheet({
         <section className="min-w-0 space-y-4">
           <div>
             <h3 className="font-semibold">
-              {fallback ? "Unmatched traffic" : "Traffic Selector"}
+              {fallback ? localize("routing.unmatchedTraffic") : localize("routing.trafficSelector")}
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {fallback
-                ? "All traffic that did not match an earlier rule."
-                : "Describe which requests this rule should receive."}
+                ? localize("routing.allTrafficThatDidNotMatchAnEarlierRule")
+                : localize("routing.describeWhichRequestsThisRuleShouldReceive")}
             </p>
           </div>
           {!fallback && (
@@ -117,11 +117,11 @@ export function RouteEditorSheet({
         </section>
         <section className="min-w-0 space-y-4 border-t pt-6">
           <div>
-            <h3 className="font-semibold">GuardRails</h3>
+            <h3 className="font-semibold">{localize("routing.guardRails")}</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {fallback
-                ? "One GuardRail receives 100% of unmatched traffic."
-                : "One target receives all matching traffic. Multiple targets split it by percentage; each request reaches one target."}
+                ? localize("routing.oneGuardRailReceives100OfUnmatchedTraffic")
+                : localize("routing.oneTargetReceivesAllMatchingTrafficMultipleTargetsSplit")}
             </p>
           </div>
           <TargetsEditor
@@ -144,9 +144,7 @@ export function RouteEditorSheet({
       </fieldset>
       {!fallback && (
         <details className="mt-6 border-t pt-3">
-          <summary className="min-h-11 cursor-pointer py-3 text-sm">
-            Test matching
-          </summary>
+          <summary className="min-h-11 cursor-pointer py-3 text-sm">{localize("routing.testMatching")}</summary>
           <SelectorPreviewPanel
             routerId={routerId}
             endpointIds={endpointIds}

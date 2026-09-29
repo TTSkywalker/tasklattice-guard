@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Children, type ReactNode } from "react";
 import { StateBadge } from "@/components/product-shell";
 import { StateMachineDiagram } from "@/components/help/state-machine-diagram";
@@ -11,6 +12,7 @@ const toneClasses: Record<Tone, string> = {
 };
 
 function ResourceMap({ locale }: { locale: "en" | "zh-CN" }) {
+  const { t: uiText } = useTranslation();
   const { title, implementation, testCases, caption, lanes } = resourceMapCopy(locale);
   return <figure className="mx-auto my-6 max-w-[50rem] overflow-x-auto rounded-xl border bg-card p-4 sm:p-6" aria-label={title}>
     <div className="min-w-[720px] space-y-6">
@@ -23,7 +25,7 @@ function ResourceMap({ locale }: { locale: "en" | "zh-CN" }) {
               <div className="flex items-center gap-2">{node.logo ? <img src="/favicon.svg" alt="" width={20} height={20} className="size-5" /> : null}<strong className="text-xs leading-5 text-foreground">{node.title}</strong></div>
               <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{node.detail}</p>
               {node.title === "Policy" ? <div className="mt-2 space-y-1 rounded-md border border-dashed bg-muted/30 p-2 text-[11px] leading-4 text-foreground">
-                <div><strong>Rule</strong> <span aria-hidden="true">→</span> {implementation}</div>
+                <div><strong>{uiText("uiCopy.rule")}</strong> <span aria-hidden="true">→</span> {implementation}</div>
                 <div className="font-mono text-[10px] text-muted-foreground">regex · keyword · category<br />code_block · competitor_intent<br />colang_flow</div>
                 <div>{testCases}</div>
               </div> : null}

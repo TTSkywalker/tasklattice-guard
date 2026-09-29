@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { EndpointProtocolIcon } from "@/components/endpoint-protocol-icon";
 import { Link } from "@tanstack/react-router";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -41,6 +42,7 @@ export function RouterOverview({
   onRevisions: () => void;
   onRouting: () => void;
 }) {
+  const { t: localize } = useTranslation();
   const snapshot = router.activeSnapshot;
   const revision = revisions.find((r) => r.revision === router.activeRevision);
   const versions = new Set(
@@ -56,37 +58,37 @@ export function RouterOverview({
   return (
     <div className="router-overview">
       <div className="router-overview-metrics">
-        <div><button type="button" className="router-metric-label" onClick={onEndpoints}><Cable aria-hidden="true" />Endpoints<ArrowRight aria-hidden="true" /></button><strong>{endpoints.length}</strong><span className="router-metric-detail">{healthy} healthy{unhealthy ? ` · ${unhealthy} need attention` : ''}{unknown ? ` · ${unknown} unknown` : ''}{disabled ? ` · ${disabled} disabled` : ''}</span></div>
-        <div><button type="button" className="router-metric-label" onClick={onRouting}><GitBranch aria-hidden="true" />Published routing rules<ArrowRight aria-hidden="true" /></button><strong>{normalRules.length}</strong><span className="router-metric-detail">{snapshot ? `${snapshot.routes.filter(r => r.kind === "fallback").length} fallback` : 'No published rule set'}</span></div>
-        <div><span className="router-metric-label"><ShieldCheck aria-hidden="true" />Guardrail versions</span><strong>{versions.size}</strong><span className="router-metric-detail">{snapshot ? 'Pinned in the published revision' : 'Assigned when a revision is published'}</span></div>
+        <div><button type="button" className="router-metric-label" onClick={onEndpoints}><Cable aria-hidden="true" />{localize("routing.endpoints2")}<ArrowRight aria-hidden="true" /></button><strong>{endpoints.length}</strong><span className="router-metric-detail">{localize("routing.healthyCount", { count: healthy })}{unhealthy ? localize("routing.needAttentionCount", { count: unhealthy }) : ''}{unknown ? localize("routing.unknownCount", { count: unknown }) : ''}{disabled ? localize("routing.disabledCount", { count: disabled }) : ''}</span></div>
+        <div><button type="button" className="router-metric-label" onClick={onRouting}><GitBranch aria-hidden="true" />{localize("routing.publishedRoutingRules")}<ArrowRight aria-hidden="true" /></button><strong>{normalRules.length}</strong><span className="router-metric-detail">{snapshot ? localize("routing.fallbackCount", { count: snapshot.routes.filter(r => r.kind === "fallback").length }) : localize("routing.noPublishedRuleSet")}</span></div>
+        <div><span className="router-metric-label"><ShieldCheck aria-hidden="true" />{localize("routing.guardrailVersions")}</span><strong>{versions.size}</strong><span className="router-metric-detail">{snapshot ? localize("routing.pinnedInThePublishedRevision") : localize("routing.assignedWhenARevisionIsPublished")}</span></div>
       </div>
       <div className="router-overview-columns">
-        <section className="router-overview-panel router-flow-panel" aria-label="Traffic Flow">
+        <section className="router-overview-panel router-flow-panel" aria-label={localize("routing.trafficFlow")}>
           <header className="router-panel-heading">
-            <div><h2>Traffic Flow</h2><p>{snapshot ? `Published routing · ${revisionLabel(revision)}. All attached Endpoints share this ordered rule set.` : 'No revision has been published. Draft rules are not serving traffic.'}</p></div>
+            <div><h2>{localize("routing.trafficFlow")}</h2><p>{snapshot ? localize("routing.flowDescription", { revision: revisionLabel(revision) }) : localize("routing.noRevisionHasBeenPublishedDraftRulesAreNot")}</p></div>
           </header>
-          {!endpoints.length && <div className="router-endpoint-notice"><Cable aria-hidden="true" /><p>No endpoints are attached to this router.</p><Button variant="ghost" onClick={onEndpoints}>{canEdit ? 'Attach endpoint' : 'View endpoints'}</Button></div>}
+          {!endpoints.length && <div className="router-endpoint-notice"><Cable aria-hidden="true" /><p>{localize("routing.noEndpointsAreAttachedToThisRouter")}</p><Button variant="ghost" onClick={onEndpoints}>{canEdit ? localize("routing.attachEndpoint") : localize("routing.viewEndpoints")}</Button></div>}
           {snapshot ? <TrafficFlow snapshot={snapshot} endpoints={endpoints} guardrails={guardrails} onRule={onRule} /> : <div className="router-flow-empty">
-            <div className="router-flow-stages" aria-hidden="true"><span><Cable /><span>Endpoint</span></span><ArrowRight /><span><GitBranch /><span>Routing</span></span><ArrowRight /><span><ShieldCheck /><span>Guardrail</span></span></div>
-            <h3>Traffic flow appears after the first publication</h3>
-            <p>Configure routing rules and choose Guardrail versions, then review and publish. This diagram will show the published configuration.</p>
-            <Button variant="outline" onClick={onRouting}>View routing</Button>
+            <div className="router-flow-stages" aria-hidden="true"><span><Cable /><span>{localize("routing.endpoint")}</span></span><ArrowRight /><span><GitBranch /><span>{localize("routing.routing")}</span></span><ArrowRight /><span><ShieldCheck /><span>{localize("routing.guardrail")}</span></span></div>
+            <h3>{localize("routing.trafficFlowAppearsAfterTheFirstPublication")}</h3>
+            <p>{localize("routing.configureRoutingRulesAndChooseGuardrailVersionsThenReview")}</p>
+            <Button variant="outline" onClick={onRouting}>{localize("routing.viewRouting")}</Button>
           </div>}
         </section>
         <aside className="router-overview-sidebar">
-          <section className="router-overview-panel" aria-label="Current deployment">
-            <header className="router-panel-heading"><h2>Current deployment</h2><StateBadge state={router.rolloutStatus} label={router.rolloutStatus === 'active' ? 'Active' : router.rolloutStatus === 'failed' ? 'Rollout failed' : router.rolloutStatus === 'distributing' ? 'Distributing' : 'Unpublished'} /></header>
+          <section className="router-overview-panel" aria-label={localize("routing.currentDeployment")}>
+            <header className="router-panel-heading"><h2>{localize("routing.currentDeployment")}</h2><StateBadge state={router.rolloutStatus} label={router.rolloutStatus === 'active' ? localize("routing.active") : router.rolloutStatus === 'failed' ? localize("routing.rolloutFailed") : router.rolloutStatus === 'distributing' ? localize("routing.distributing") : localize("routing.unpublished")} /></header>
             {router.activeRevision !== null ? <dl className="router-deployment-facts">
-              <div><dt>Revision</dt><dd className="font-mono">{revision ? revisionLabel(revision) : `r${router.activeRevision}`}</dd></div>
-              <div><dt>Published by</dt><dd>{revision?.createdBy ?? '—'}</dd></div>
-              <div><dt>Published at</dt><dd>{revision ? new Date(revision.createdAt).toLocaleString() : '—'}</dd></div>
-            </dl> : <div className="router-panel-empty"><p>No deployed revision</p><span>Draft changes take effect only after publication and Runner deployment.</span></div>}
+              <div><dt>{localize("routing.revision")}</dt><dd className="font-mono">{revision ? revisionLabel(revision) : `r${router.activeRevision}`}</dd></div>
+              <div><dt>{localize("routing.publishedBy")}</dt><dd>{revision?.createdBy ?? '—'}</dd></div>
+              <div><dt>{localize("routing.publishedAt")}</dt><dd>{revision ? new Date(revision.createdAt).toLocaleString() : '—'}</dd></div>
+            </dl> : <div className="router-panel-empty"><p>{localize("routing.noDeployedRevision")}</p><span>{localize("routing.draftChangesTakeEffectOnlyAfterPublicationAndRunner")}</span></div>}
           </section>
-          <section className="router-overview-panel" aria-label="Recent revisions">
-            <header className="router-panel-heading"><h2><History aria-hidden="true" />Recent revisions</h2><Button variant="link" size="sm" onClick={onRevisions}>View all</Button></header>
+          <section className="router-overview-panel" aria-label={localize("routing.recentRevisions")}>
+            <header className="router-panel-heading"><h2><History aria-hidden="true" />{localize("routing.recentRevisions")}</h2><Button variant="link" size="sm" onClick={onRevisions}>{localize("routing.viewAll")}</Button></header>
             {revisions.length ? <ul className="router-revision-list">{revisions.slice(0, 3).map(r => <li key={r.revision}>
-              <code>{revisionLabel(r)}</code><span>{r.revision === router.activeRevision ? router.rolloutStatus === 'active' ? 'Active' : router.rolloutStatus === 'failed' ? 'Rollout failed' : 'Deploying' : 'Previous'}</span>
-            </li>)}</ul> : <div className="router-panel-empty"><p>No published revisions</p><span>Publication history will appear here.</span></div>}
+              <code>{revisionLabel(r)}</code><span>{r.revision === router.activeRevision ? router.rolloutStatus === 'active' ? localize("routing.active") : router.rolloutStatus === 'failed' ? localize("routing.rolloutFailed") : localize("routing.deploying") : localize("routing.previous")}</span>
+            </li>)}</ul> : <div className="router-panel-empty"><p>{localize("routing.noPublishedRevisions")}</p><span>{localize("routing.publicationHistoryWillAppearHere")}</span></div>}
           </section>
         </aside>
       </div>
@@ -105,6 +107,7 @@ export function TrafficFlow({
   guardrails: Names;
   onRule: (id: string) => void;
 }) {
+  const { t: localize } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
   const [lines, setLines] = useState<
     Array<{ d: string; label?: string; x: number; y: number }>
@@ -161,7 +164,7 @@ export function TrafficFlow({
     <div
       className="router-traffic-flow overflow-x-auto"
       tabIndex={0}
-      aria-label="Published traffic flow"
+      aria-label={localize("routing.publishedTrafficFlow")}
     >
       <div
         ref={root}
@@ -190,15 +193,9 @@ export function TrafficFlow({
             </g>
           ))}
         </svg>
-        <h3 className="col-start-1 text-xs font-medium text-muted-foreground">
-          Endpoints
-        </h3>
-        <h3 className="col-start-3 text-xs font-medium text-muted-foreground">
-          Routing rules · first match wins
-        </h3>
-        <h3 className="col-start-5 text-xs font-medium text-muted-foreground">
-          GuardRails · pinned versions
-        </h3>
+        <h3 className="col-start-1 text-xs font-medium text-muted-foreground">{localize("routing.endpoints2")}</h3>
+        <h3 className="col-start-3 text-xs font-medium text-muted-foreground">{localize("routing.routingRulesFirstMatchWins")}</h3>
+        <h3 className="col-start-5 text-xs font-medium text-muted-foreground">{localize("routing.guardRailsPinnedVersions")}</h3>
         <div
           data-flow-node="sources"
           className="col-start-1 space-y-3 self-center"
@@ -220,19 +217,17 @@ export function TrafficFlow({
               <p className={`mt-2 text-xs ${e.runtime_status === "healthy" ? "text-[var(--success)]" : e.runtime_status === "degraded" ? "text-destructive" : "text-muted-foreground"}`}>
                 ●{" "}
                 {e.runtime_status === "healthy"
-                  ? "Healthy"
+                  ? localize("routing.healthy2")
                   : e.runtime_status === "degraded"
-                    ? "Unhealthy"
+                    ? localize("routing.unhealthy")
                     : e.enabled
-                      ? "Health unknown"
-                      : "Disabled"}
+                      ? localize("routing.healthUnknown")
+                      : localize("routing.disabled")}
               </p>
             </Link>
           ))}
           {!endpoints.length && (
-            <p className={`${nodeClass} text-muted-foreground`}>
-              No attached Endpoints
-            </p>
+            <p className={`${nodeClass} text-muted-foreground`}>{localize("routing.noAttachedEndpoints2")}</p>
           )}
         </div>
         {normal.map((r, i) => (
@@ -254,8 +249,7 @@ export function TrafficFlow({
                 {selectorSummary(r.selector.expression)}
               </span>
               <span className="mt-2 block text-xs text-muted-foreground">
-                {conditionCount(r.selector.expression)} conditions
-                {!r.enabled ? " · Disabled" : ""}
+                {localize("routing.conditionCount", { count: conditionCount(r.selector.expression) })}{!r.enabled ? ` · ${localize("routing.disabled")}` : ""}
               </span>
             </button>
             <div
@@ -273,14 +267,14 @@ export function TrafficFlow({
                     <ShieldCheck className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 break-words font-medium">
                       {guardrails.find((g) => g.id === t.guardrailId)?.name ??
-                        "GuardRail unavailable"}
+                        localize("routing.guardRailUnavailable")}
                     </span>
                   </span>
                   <Badge
                     variant="secondary"
                     className="mt-2 max-w-full break-all whitespace-normal"
                   >
-                    {t.guardrailVersion || "Version unavailable"}
+                    {t.guardrailVersion || localize("routing.versionUnavailable")}
                   </Badge>
                 </a>
               ))}
@@ -293,19 +287,15 @@ export function TrafficFlow({
               data-flow-node="unmatched"
               style={{ gridRow: Math.max(normal.length, 1) + 2 }}
               className={`${nodeClass} col-start-1 self-center border-dashed bg-muted/30`}
-            >
-              Unmatched traffic
-            </div>
+            >{localize("routing.unmatchedTraffic")}</div>
             <button
               data-flow-node={fallback.id}
               style={{ gridRow: Math.max(normal.length, 1) + 2 }}
               className={`${nodeClass} col-start-3 self-center border-dashed bg-muted/30`}
               onClick={() => onRule(fallback.id)}
             >
-              <span className="font-medium">Fallback</span>
-              <span className="mt-1 block text-xs text-muted-foreground">
-                Used when no routing rules match.
-              </span>
+              <span className="font-medium">{localize("routing.fallback")}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">{localize("routing.usedWhenNoRoutingRulesMatch")}</span>
             </button>
             <div
               style={{ gridRow: Math.max(normal.length, 1) + 2 }}
@@ -321,7 +311,7 @@ export function TrafficFlow({
                   <span className="flex items-center gap-2">
                     <ShieldCheck className="size-4" />
                     {guardrails.find((g) => g.id === t.guardrailId)?.name ??
-                      "GuardRail unavailable"}
+                      localize("routing.guardRailUnavailable")}
                   </span>
                   <Badge
                     variant="secondary"

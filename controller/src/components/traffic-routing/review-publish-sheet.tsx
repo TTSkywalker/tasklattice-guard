@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
 import type {
   RouterDraft,
@@ -36,13 +37,14 @@ export function ReviewPublishSheet({
   onPublish: () => void;
   onReviewAgain: () => void;
 }) {
+  const { t: localize } = useTranslation();
   return (
     <EntitySheet
       open
       width="xl"
-      eyebrow="Router"
-      title="Review routing changes"
-      description="Review the changes and exact GuardRail versions before creating an immutable revision."
+      eyebrow={localize("routing.router")}
+      title={localize("routing.reviewRoutingChanges")}
+      description={localize("routing.reviewTheChangesAndExactGuardRailVersionsBeforeCreating")}
       closeDisabled={pending}
       returnFocusRef={opener}
       onOpenChange={(open) => {
@@ -54,21 +56,19 @@ export function ReviewPublishSheet({
             variant="outline"
             disabled={pending}
             onClick={() => onClose()}
-          >
-            Cancel
-          </Button>
+          >{localize("routing.cancel")}</Button>
           <Button
             disabled={pending || Boolean(error)}
             onClick={() => onPublish()}
           >
-            {pending ? "Publishing…" : "Publish revision"}
+            {pending ? localize("routing.publishing") : localize("routing.publishRevision")}
           </Button>
         </>
       }
     >
       <Changes before={before} after={review.snapshot} names={names} />
       <section className="mt-6 space-y-3">
-        <h3 className="font-medium">GuardRail versions</h3>
+        <h3 className="font-medium">{localize("routing.guardRailVersions")}</h3>
         {review.snapshot.routes.map((r) => (
           <div key={r.id} className="rounded-lg border p-3 text-sm">
             <p className="font-medium">{r.name}</p>
@@ -81,7 +81,7 @@ export function ReviewPublishSheet({
                   .find((x) => x.id === r.id)
                   ?.targets.find((x) => x.id === t.id)?.versionStrategy ===
                 "latest"
-                  ? "Latest → "
+                  ? localize("routing.latestPrefix")
                   : ""}
                 {t.guardrailVersion}
               </p>
@@ -90,7 +90,7 @@ export function ReviewPublishSheet({
         ))}
       </section>
       <section className="mt-6 space-y-2">
-        <h3 className="font-medium">Attached Endpoints at review</h3>
+        <h3 className="font-medium">{localize("routing.attachedEndpointsAtReview")}</h3>
         {review.endpointIds.length ? (
           review.endpointIds.map((id) => (
             <p className="text-sm" key={id}>
@@ -98,9 +98,7 @@ export function ReviewPublishSheet({
             </p>
           ))
         ) : (
-          <p className="text-sm text-muted-foreground">
-            No attached Endpoints.
-          </p>
+          <p className="text-sm text-muted-foreground">{localize("routing.noAttachedEndpoints")}</p>
         )}
       </section>
       {error && (
@@ -110,12 +108,8 @@ export function ReviewPublishSheet({
             variant="outline"
             disabled={busy}
             onClick={() => onReviewAgain()}
-          >
-            Review again
-          </Button>
-          <Button variant="outline" disabled={busy} onClick={() => onPublish()}>
-            Retry same publication
-          </Button>
+          >{localize("routing.reviewAgain")}</Button>
+          <Button variant="outline" disabled={busy} onClick={() => onPublish()}>{localize("routing.retrySamePublication")}</Button>
         </div>
       )}
     </EntitySheet>

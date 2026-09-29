@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
 import { Braces, GitBranch, ShieldCheck } from "lucide-react";
-import { useRoutingText } from "@/components/traffic-routing/form";
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { PathTestRecord } from "./use-path-workbench";
 
@@ -16,7 +17,7 @@ export function PathTestResult({
   item: PathTestRecord;
   guardrailNames: Record<string, string>;
 }) {
-  const t = useRoutingText();
+  const { t } = useTranslation();
   const body = item.result?.body ?? {};
   const decision = object(body.decision);
   const assignment = object(
@@ -47,10 +48,10 @@ export function PathTestResult({
     item.input.target === "router" && !failed ? "routing" : "evaluation";
   const stateLabel = (state: unknown) =>
     ({
-      selected: t("已选中", "Selected"),
-      not_matched: t("未命中", "Not matched"),
-      not_evaluated: t("未执行", "Not evaluated"),
-      not_applicable: t("不适用", "Not applicable"),
+      selected: t("routing.selected"),
+      not_matched: t("routing.notMatched"),
+      not_evaluated: t("routing.notEvaluated"),
+      not_applicable: t("routing.notApplicable"),
     })[String(state)] ?? String(state ?? "");
   return (
     <article className="flex min-h-0 flex-1 flex-col">
@@ -60,23 +61,20 @@ export function PathTestResult({
         >
           {failed
             ? item.error
-              ? t("测试失败", "Test failed")
+              ? t("routing.testFailed")
               : `HTTP ${item.result?.status}`
             : outcome
-              ? `${t("检测结果", "Decision")}: ${String(outcome)}`
+              ? `${t("routing.decision")}: ${String(outcome)}`
               : guardrail
-                ? `${t("路由命中", "Routed to")} ${name} · ${version}`
-                : t("草稿匹配完成", "Draft matching complete")}
+                ? `${t("routing.routedTo")} ${name} · ${version}`
+                : t("routing.draftMatchingComplete")}
         </p>
         {failed && (
           <p className="break-words text-sm text-destructive">
             {item.error ??
               String(
                 detail ??
-                  t(
-                    "请求失败，请查看原始响应。",
-                    "Request failed. Inspect the raw response.",
-                  ),
+                  t("routing.requestFailedInspectTheRawResponse"),
               )}
           </p>
         )}
@@ -90,20 +88,20 @@ export function PathTestResult({
           {body.runnerId ? ` · Runner: ${String(body.runnerId)}` : ""}
           {item.result ? ` · ${item.result.durationMs} ms` : ""}
           {body.simulation
-            ? ` · ${t("仅匹配，未执行检测", "Matching only; no evaluation")}`
+            ? ` · ${t("routing.matchingOnlyNoEvaluation")}`
             : ""}
         </p>
       </div>
       <Tabs defaultValue={defaultTab} className="min-h-0 flex-1 gap-0">
         <TabsList
           className="mx-3 shrink-0"
-          aria-label={t("测试结果", "Test results")}
+          aria-label={t("routing.testResults")}
         >
-          <TabsTrigger value="routing"><GitBranch aria-hidden="true" className="size-4" />{t("路由分析", "Routing")}</TabsTrigger>
+          <TabsTrigger value="routing"><GitBranch aria-hidden="true" className="size-4" />{t("routing.routing")}</TabsTrigger>
           <TabsTrigger value="evaluation"><ShieldCheck aria-hidden="true" className="size-4" />
-            {t("检测结果", "Evaluation")}
+            {t("routing.evaluation")}
           </TabsTrigger>
-          <TabsTrigger value="raw"><Braces aria-hidden="true" className="size-4" />{t("原始响应", "Raw response")}</TabsTrigger>
+          <TabsTrigger value="raw"><Braces aria-hidden="true" className="size-4" />{t("routing.rawResponse")}</TabsTrigger>
         </TabsList>
         <TabsContent
           value="routing"
@@ -119,25 +117,22 @@ export function PathTestResult({
           ) : null}
           {body.pinned === true && (
             <p className="text-sm">
-              {t(
-                "沿用了此 Call ID 的固定路由。生成新 Call ID 可以重新匹配。",
-                "Reused the pinned route for this Call ID. Generate a new Call ID to match again.",
-              )}
+              {t("routing.reusedThePinnedRouteForThisCallIDGenerate")}
             </p>
           )}
           {rules.length ? (
             <div
               role="table"
-              aria-label={t("规则匹配过程", "Rule matching")}
+              aria-label={t("routing.ruleMatching")}
               className="text-sm"
             >
               <div
                 role="row"
                 className="grid grid-cols-[minmax(0,1fr)_6rem_minmax(0,2fr)] gap-3 border-b pb-2 text-xs text-muted-foreground"
               >
-                <span role="columnheader">{t("规则", "Rule")}</span>
-                <span role="columnheader">{t("结果", "Result")}</span>
-                <span role="columnheader">{t("原因", "Reason")}</span>
+                <span role="columnheader">{t("routing.rule")}</span>
+                <span role="columnheader">{t("routing.result")}</span>
+                <span role="columnheader">{t("routing.reason")}</span>
               </div>
               {rules.map((rule, index) => (
                 <div
@@ -154,19 +149,13 @@ export function PathTestResult({
                     className="break-words text-xs leading-5 text-muted-foreground"
                   >
                     {rule.state === "not_evaluated" ? (
-                      t(
-                        "前序规则已接收请求",
-                        "An earlier rule received the request",
-                      )
+                      t("routing.anEarlierRuleReceivedTheRequest")
                     ) : rule.state === "not_applicable" ? (
-                      t(
-                        "规则未启用或来源 Endpoint 不适用",
-                        "Disabled or outside the Endpoint scope",
-                      )
+                      t("routing.disabledOrOutsideTheEndpointScope")
                     ) : rows(rule.children).length ? (
                       <Conditions conditions={rows(rule.children)} />
                     ) : (
-                      t("无附加条件", "No additional conditions")
+                      t("routing.noAdditionalConditions")
                     )}
                   </div>
                 </div>
@@ -175,25 +164,16 @@ export function PathTestResult({
           ) : (
             <p className="text-sm text-muted-foreground">
               {assignment.routerId
-                ? t(
-                    "Endpoint 响应提供实际分配；逐条规则分析可在 Router 模式查看。",
-                    "The Endpoint returned the actual assignment. Use Router mode for per-rule analysis.",
-                  )
-                : t(
-                    "本次响应未提供路由分配。",
-                    "No route assignment was returned.",
-                  )}
+                ? t("routing.theEndpointReturnedTheActualAssignmentUseRouterMode")
+                : t("routing.noRouteAssignmentWasReturned")}
             </p>
           )}
           {(selected || Array.isArray(body.candidates)) && (
             <div className="space-y-2 text-sm">
               <p className="font-medium">
                 {Array.isArray(body.candidates)
-                  ? t(
-                      "草稿候选目标，未实际分配",
-                      "Draft candidates, not assigned",
-                    )
-                  : t("目标分配", "Target allocation")}
+                  ? t("routing.draftCandidatesNotAssigned")
+                  : t("routing.targetAllocation")}
               </p>
               {rows(selected?.targets ?? body.candidates).map(
                 (target, index) => (
@@ -207,7 +187,7 @@ export function PathTestResult({
                     · {Number(target.weightBps) / 100}%
                     {target.guardrailId === guardrail &&
                     target.guardrailVersion === version
-                      ? ` · ${t("本次选中", "Selected")}`
+                      ? ` · ${t("routing.selected")}`
                       : ""}
                   </p>
                 ),
@@ -221,22 +201,16 @@ export function PathTestResult({
         >
           {body.simulation ? (
             <p>
-              {t(
-                "本次只检查路由，未执行 GuardRail。",
-                "This request only checked routing; no GuardRail was executed.",
-              )}
+              {t("routing.thisRequestOnlyCheckedRoutingNoGuardRailWasExecuted")}
             </p>
           ) : failed ? (
             <p>
-              {t(
-                "请求失败，无法确认检测完成。请根据上方错误修改请求后重试。",
-                "The request failed. Evaluation completion is not confirmed. Correct the error above and retry.",
-              )}
+              {t("routing.theRequestFailedEvaluationCompletionIsNotConfirmedCorrect")}
             </p>
           ) : (
             <>
               <p className="text-sm">
-                {t("检测结果", "Decision")}:{" "}
+                {t("routing.decision")}:{" "}
                 <strong>{String(outcome ?? "—")}</strong>
               </p>
               {["action", "reason"].map((key) => {
@@ -257,14 +231,8 @@ export function PathTestResult({
               ))}
               <p className="text-xs text-muted-foreground">
                 {item.input.target === "endpoint"
-                  ? t(
-                      "经 Runner Endpoint 执行；外部 Ingress / TLS 不在测试范围内。",
-                      "Executed through the Runner Endpoint; external Ingress / TLS is outside this test.",
-                    )
-                  : t(
-                      "Runner 执行 Body 输入检测；Endpoint 认证不在测试范围内。",
-                      "Runner evaluated the body as input; Endpoint authentication is outside this test.",
-                    )}
+                  ? t("routing.executedThroughTheRunnerEndpointExternalIngressTLSIs")
+                  : t("routing.runnerEvaluatedTheBodyAsInputEndpointAuthenticationIs")}
               </p>
             </>
           )}
@@ -283,7 +251,7 @@ export function PathTestResult({
   );
 }
 function Conditions({ conditions }: { conditions: Record<string, unknown>[] }) {
-  const t = useRoutingText();
+  const { t } = useTranslation();
   return (
     <ul className="space-y-1">
       {conditions.map((condition, index) => (
@@ -291,7 +259,7 @@ function Conditions({ conditions }: { conditions: Record<string, unknown>[] }) {
           {Array.isArray(condition.children) ? (
             <div className="border-l pl-2">
               <span>
-                {String(condition.combinator ?? t("条件组", "Condition group"))}
+                {String(condition.combinator ?? t("routing.conditionGroup"))}
               </span>
               <Conditions conditions={rows(condition.children)} />
             </div>

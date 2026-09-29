@@ -223,6 +223,10 @@
 .guard-tabs .cds--tab-content {
   padding: 1.5rem 0 0;
 }
+.guard-tabs .cds--tabs__nav-link {
+  display: flex;
+  align-items: center;
+}
 .guard-tabs .cds--tabs__nav-item-label {
   display: inline-flex;
   align-items: center;
@@ -344,4 +348,29 @@ svg.lucide {
     block-size: var(--cds-layout-size-height-local, 2.5rem);
     border-block-end: 1px solid var(--cds-border-strong);
   }
+}
+
+// Menu rows must share the panel's hit area and keyboard focus geometry.
+.guard-menu-options {
+  max-inline-size: calc(100vw - 2rem);
+  &::after { display: none; }
+  .cds--overflow-menu-options__option {
+    block-size: auto;
+    min-block-size: 2.75rem;
+  }
+  .cds--overflow-menu-options__btn {
+    inline-size: 100%;
+    max-inline-size: none;
+    min-block-size: 2.75rem;
+  }
+  .guard-menu-label, .guard-menu-separator { inline-size: 100%; }
+  .guard-menu-separator { margin-block: 0.25rem; }
+}
+.guard-overflow-menu.cds--overflow-menu--open,
+.guard-overflow-menu.cds--overflow-menu--open .cds--overflow-menu__trigger {
+  box-shadow: none;
+  background-color: var(--cds-layer-hover);
+}
+.account-menu-options .guard-menu-label {
+  padding: 0.75rem 1rem;
 }

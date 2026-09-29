@@ -40,6 +40,7 @@ type OutcomeFilter = "all" | "allow" | "transform" | "block" | "error";
 type LogView = "interactions" | "checkpoints" | "system";
 
 export function LogsPage() {
+  const { t: uiText } = useTranslation();
   const { t } = useTranslation();
   const search = useSearch({ from: "/logs" });
   const navigate = useNavigate({ from: "/logs" });
@@ -92,7 +93,7 @@ export function LogsPage() {
   return (
     <section className="py-6 sm:py-8">
       <PageHeader title={t("pages.logs.title")} description={t("logs.description")} />
-      {routingFilters.routerId && <div className="my-3 rounded border p-3 text-sm">Router: {routingFilters.routerId} · Route: {routingFilters.routeId ?? "—"} · Target: {routingFilters.targetId ?? "—"} · r{routingFilters.routerRevision ?? "—"} · {routingFilters.since} – {routingFilters.until} <Link to="/logs" search={{}} className="ml-3 text-primary">Clear routing filters</Link></div>}
+      {routingFilters.routerId && <div className="my-3 rounded border p-3 text-sm">{uiText("uiCopy.router")}{" "}{routingFilters.routerId}{" "}{uiText("uiCopy.route")}{" "}{routingFilters.routeId ?? "—"}{" "}{uiText("uiCopy.target")}{" "}{routingFilters.targetId ?? "—"} · r{routingFilters.routerRevision ?? "—"} · {routingFilters.since} – {routingFilters.until} <Link to="/logs" search={{}} className="ml-3 text-primary">{uiText("uiCopy.clearRoutingFilters")}</Link></div>}
 
       {settingsQuery.data && settingsQuery.data.level !== "info" ? (
         <div className="mt-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950">

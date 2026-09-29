@@ -172,6 +172,7 @@ function TrafficActionElement({
 }
 
 function TrafficValueEditor(props: ValueEditorProps) {
+  const { t: uiText } = useTranslation();
   const definition = (props.fieldData as TrafficField).definition;
   if (!definition?.custom_key) {
     return <CarbonValueEditor {...props} className={cn(props.className, "min-h-10")} extraProps={{ "aria-label": fieldLabelForId(props.field) }} />;
@@ -181,7 +182,7 @@ function TrafficValueEditor(props: ValueEditorProps) {
     <div className={cn(props.className, "grid min-w-0 gap-2 sm:grid-cols-2")}>
       <Input
         className="field:min-h-10 field:font-mono field:text-xs"
-        aria-label="Attribute name"
+        aria-label={uiText("uiCopy.attributeName")}
         value={encoded.key}
         placeholder={definition.source === "header" ? "x-app-id" : definition.source === "jwt_claim" ? "department" : "sdk.agent_id"}
         disabled={props.disabled}
@@ -189,7 +190,7 @@ function TrafficValueEditor(props: ValueEditorProps) {
       />
       <Input
         className="field:min-h-10 field:font-mono field:text-xs"
-        aria-label="Attribute value"
+        aria-label={uiText("uiCopy.attributeValue")}
         value={encoded.value}
         placeholder="finance-agent"
         disabled={props.disabled}

@@ -259,6 +259,7 @@ function EndpointDetailContent({
   onOpenChange: (open: boolean) => void;
   onUpdated: () => Promise<void>;
 }) {
+  const { t: uiText } = useTranslation();
   const { t, i18n } = useTranslation();
   const auth = useAuth();
   const canManage = auth.user?.role === "admin";
@@ -342,7 +343,7 @@ function EndpointDetailContent({
       footer={footer}
     >
       <div className="space-y-5">
-        <Button asChild variant="outline" className="min-h-11"><Link to="/playground" search={{ mode: "advanced", endpoint: endpoint.id }}>{t("playground.advancedMode")} · Endpoint</Link></Button>
+        <Button asChild variant="outline" className="min-h-11"><Link to="/playground" search={{ mode: "advanced", endpoint: endpoint.id }}>{t("playground.advancedMode")}{" "}{uiText("uiCopy.endpoint")}</Link></Button>
         {query.error ? <ErrorNotice error={query.error} /> : null}
         {closeWarning ? <SecretExitWarning /> : null}
         {oneTimeCredential ? (

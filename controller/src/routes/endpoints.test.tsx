@@ -1,3 +1,4 @@
+import { uiCopyEn } from "../ui-copy-i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -17,6 +18,7 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
   useTranslation: () => ({
     t: (key: string, values?: Record<string, string | number>) => {
+      if (key.startsWith("uiCopy.")) return uiCopyEn[key.slice(7) as keyof typeof uiCopyEn];
       const labels: Record<string, string> = {
         "common.cancel": "Cancel",
         "common.back": "Back",

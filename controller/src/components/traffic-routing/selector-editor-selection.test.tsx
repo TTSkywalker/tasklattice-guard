@@ -1,10 +1,11 @@
+import "@/i18n";
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { SelectorEditor } from './selector-editor';
 import { capabilityIssues, selectorExpressionSchema, selectableSelectorFields, type SelectorExpression, type RouterDraft } from '../../../shared/traffic-routing';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
+
 beforeAll(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); });
 afterEach(cleanup);
 

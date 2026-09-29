@@ -1,3 +1,5 @@
+import { uiCopyEn, uiCopyZh } from "./ui-copy-i18n";
+import { routingEn, routingZh } from "./routing-i18n";
 import i18n from "i18next";
 import { accessTokensEn, accessTokensZh } from "./access-token-i18n";
 import { initReactI18next } from "react-i18next";
@@ -10,6 +12,8 @@ export type SupportedLanguage = "en" | "zh-CN";
 const resources = {
   en: {
     translation: {
+      routing: routingEn,
+      uiCopy: uiCopyEn,
       routerMonitoring: {
         callCount_one: "{{count}} call", callCount_other: "{{count}} calls",
         errorCount: "{{errors}} errors / {{completed}} completed",
@@ -2550,7 +2554,7 @@ const resources = {
         draftConfigurationDescription: "Editable Policy bindings used to compile the next immutable version.",
         validationInputs: "Test inputs",
         validationInputsDescription: "Reviewed Test Cases that must execute before this draft can be released.",
-        versions: "Versions",
+        versions: "Immutable versions",
         versionCount: "{{count}} immutable releases",
         selectVersion: "Open version {{version}}",
         historicalVersion: "Historical",
@@ -2941,13 +2945,15 @@ const resources = {
   },
   "zh-CN": {
     translation: {
+      routing: routingZh,
+      uiCopy: uiCopyZh,
       routerMonitoring: {
         callCount: "{{count}} 次调用",
         errorCount: "{{errors}} 次错误 / {{completed}} 次已完成",
         viewTargets: "查看 {{name}} 的目标分布",
       },
       resourceList: {
-        clearSearch: "清除搜索", refresh: "刷新", loading: "加载中…", unavailable: "记录加载失败", count: "{{matched}} 条匹配，共 {{total}} 条", clearFilters: "清除筛选", noMatches: "没有匹配的记录", noMatchesDescription: "请尝试其他关键词，或清除筛选条件。", perPage: "每页记录数：", previous: "上一页", next: "下一页", page: "页码", range: "第 {{min}}–{{max}} 条，共 {{total}} 条", pages: "共 {{total}} 页", allStatuses: "全部状态", searchGuardrails: "按名称或 ID 搜索 Guardrails…", searchRouters: "按名称、ID 或 Endpoint 搜索 Routers…", searchEndpoints: "按名称、ID 或适配器搜索 Endpoints…", actionsFor: "操作：{{name}}", viewDetails: "查看详情",
+        clearSearch: "清除搜索", refresh: "刷新", loading: "加载中…", unavailable: "记录加载失败", count: "{{matched}} 条匹配，共 {{total}} 条", clearFilters: "清除筛选", noMatches: "没有匹配的记录", noMatchesDescription: "请尝试其他关键词，或清除筛选条件。", perPage: "每页记录数：", previous: "上一页", next: "下一页", page: "页码", range: "第 {{min}}–{{max}} 条，共 {{total}} 条", pages: "共 {{total}} 页", allStatuses: "全部状态", searchGuardrails: "按名称或 ID 搜索 Guardrails…", searchRouters: "按名称、ID 或接入端点搜索路由器…", searchEndpoints: "按名称、ID 或适配器搜索 Endpoints…", actionsFor: "操作：{{name}}", viewDetails: "查看详情",
       },
       accessTokens: accessTokensZh,
       providerRegistration: providerRegistrationZh,
@@ -3068,7 +3074,7 @@ const resources = {
         policyLibrary: "策略库",
         playground: "调试场",
         validation: "测试",
-        routers: "Traffic Routers",
+        routers: "流量路由器",
         logs: "运行日志",
         endpoints: "端点",
         auditLog: "审计日志",
@@ -3174,7 +3180,7 @@ const resources = {
         degradedDescription: "一个必需连接处于降级状态，需要运营人员处理。",
         unavailableDescription: "无法读取 Controller 健康状态；当前就绪状态未知，不能视为 Ready。",
         controllerUnavailable: "Controller 状态请求失败，请先检查 Controller Pod 与 Service，再变更运行配置。",
-        routers: "活跃 Traffic Routers",
+        routers: "活跃 流量路由器",
         endpoints: "已启用 Endpoints",
         available: "可用",
         optional: "可选 · 未配置",
@@ -3679,8 +3685,8 @@ const resources = {
         playground: { eyebrow: "首页 / Playground", title: "Playground", description: "通过已发布 Guardrail Version 或临时 Draft 预览与真实模型聊天，并检查每一轮请求与响应如何被保护。" },
         validation: { eyebrow: "构建与测试 / 测试", title: "测试", description: "使用测试输入和预期结果检查 Guardrail 中的 Rule 行为，并查看历史测试记录。" },
         routers: {
-          eyebrow: "集成 / Traffic Routers",
-          title: "Traffic Routers",
+          eyebrow: "集成 / 流量路由器",
+          title: "流量路由器",
           description: "按明确的首条命中规则，将流量分发到已测试的 Guardrail Version，并保留系统兜底。",
           add: "创建 Router",
         },
@@ -4394,7 +4400,7 @@ const resources = {
           documents: "由合规文档生成",
         },
         routerSeparateTitle: "Router 保持独立",
-        routerSeparate: "先创建并测试 Guardrail，再从 Traffic Routers 将已测试的 Guardrail Version 绑定到流量。",
+        routerSeparate: "先创建并测试 Guardrail，再从 流量路由器 将已测试的 Guardrail Version 绑定到流量。",
         reviewTitle: "检查 Guardrail",
         reviewIntentTitle: "意图",
         reviewControlsTitle: "控制",
@@ -4412,7 +4418,7 @@ const resources = {
         title: "Guardrails 概览",
         description: "监控 Guardrail 健康状态与核心运行指标。",
         manage: "管理",
-        manageRouters: "管理 Traffic Routers",
+        manageRouters: "管理 流量路由器",
         guardrailFilter: "按 Guardrail 筛选",
         timeRangeFilter: "选择时间范围",
         allGuardrails: "全部 Guardrails",
@@ -4526,7 +4532,7 @@ const resources = {
         title: "模型安全运行概览",
         description: "集中查看受保护流量、风险信号、测试状态，以及需要处理的系统事项。",
         manageGuardrails: "管理 Guardrails",
-        manageRouters: "管理 Traffic Routers",
+        manageRouters: "管理 流量路由器",
         evaluatedRequests: "已评估请求",
         scopeTitle: "指标范围",
         globalScopeDescription: "在所选流量与时间窗口中比较全部 Guardrail。",
@@ -5031,7 +5037,7 @@ const resources = {
         operationFailed: "操作失败。",
       },
       routerDetail: {
-        back: "返回 Traffic Routers",
+        back: "返回 流量路由器",
         notFound: "未找到该 Router。",
         description: "将来自 {{endpoint}} 的流量路由到不可变的 {{guardrail}} Guardrail Version。",
         directRuntime: "直接运行时",
@@ -5466,7 +5472,7 @@ const resources = {
         draftConfigurationDescription: "用于编译下一个不可变版本的可编辑 Policy 绑定。",
         validationInputs: "测试输入",
         validationInputsDescription: "发布草稿前必须执行的已审查 Test Case。",
-        versions: "版本",
+        versions: "不可变版本",
         versionCount: "{{count}} 个不可变发布版本",
         selectVersion: "打开版本 {{version}}",
         historicalVersion: "历史版本",
@@ -5609,7 +5615,7 @@ const resources = {
         trafficRouters: "Traffic Router",
         definition: "定义",
         intent: "安全意图",
-        routers: "Traffic Routers",
+        routers: "流量路由器",
         allowedDomains: "允许的业务领域",
         restrictedDomains: "限制领域",
         noAllowed: "未明确设置允许领域。",
@@ -5643,7 +5649,7 @@ const resources = {
         noCases: "暂无 Test Case",
         noCasesDescription: "运行测试前，至少添加一个允许或干预 Test Case 。",
         addTestCase: "添加 Test Case",
-        guardrailRouters: "Traffic Routers",
+        guardrailRouters: "流量路由器",
         guardrailRoutersDescription: "当前绑定到此 Guardrail 不可变版本的 Traffic Scope。",
         apply: "创建 Router",
         noRouters: "暂无 Router 使用此 Guardrail",
@@ -5770,7 +5776,7 @@ const resources = {
         localPoliciesLabel: "本地 Policy",
         routerCount: "已用于 {{count}} 个 Router。",
         noRoutersDescription: "此 Guardrail 当前尚未部署到流量。",
-        manageRouters: "管理 Traffic Routers",
+        manageRouters: "管理 流量路由器",
         complianceLabel: "合规率",
         reviewedParameters: "已审查参数：{{parameters}}",
         latestEvidence: "最新测试报告",

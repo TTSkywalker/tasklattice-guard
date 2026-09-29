@@ -23,5 +23,6 @@ controller/*.tsbuildinfo
 controller/vite.config.js
 controller/vite.config.d.ts
 /unused.db
+output
 
 controller/scripts/.openapi-inputs-*.ts

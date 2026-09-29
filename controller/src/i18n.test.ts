@@ -37,7 +37,7 @@ describe("i18n source boundary", () => {
 
     for (const file of files) {
       const source = readFileSync(file, "utf8");
-      const runtimeCopy = source.replace(/\bt\(\s*(['"])(?:\\.|(?!\1).)*\1\s*,/gu, "t(\"localized-key\",");
+      const runtimeCopy = source;
       expect(runtimeCopy, file).not.toMatch(/[\u3400-\u9fff]/u);
     }
   });
@@ -99,12 +99,44 @@ describe("Router and Endpoint product terminology", () => {
     const { default: i18n } = await import("./i18n");
     for (const language of ["en", "zh-CN"]) {
       const t = i18n.getFixedT(language);
-      expect(t("nav.routers")).toContain("Router");
+      expect(t("nav.routers")).toBe(language === "en" ? "Traffic Routers" : "流量路由器");
       expect(t("nav.endpoints")).toMatch(/Endpoint|端点/);
       for (const key of ["endpoints.register", "endpoints.openEndpointDetails", "endpoints.deleteDialogTitle", "dashboard.attentionEndpoint"]) {
         expect(t(key), `${language}: ${key}`).toMatch(/endpoint|Endpoint|端点/);
         expect(t(key), `${language}: ${key}`).not.toMatch(/Integration|集成|Deployment/);
       }
+    }
+  });
+});
+
+describe("routing translation contract", () => {
+  it("provides matching keys and interpolation parameters in both languages", async () => {
+    const { routingEn, routingZh } = await import("./routing-i18n");
+    const { uiCopyEn, uiCopyZh } = await import("./ui-copy-i18n");
+    const flatten = (value: Record<string, unknown>, prefix = ""): Record<string, string> => Object.fromEntries(
+      Object.entries(value).flatMap(([key, text]) => typeof text === "string"
+        ? [[`${prefix}${key}`, text]]
+        : Object.entries(flatten(text as Record<string, unknown>, `${prefix}${key}.`))),
+    );
+    const en = flatten({ routing: routingEn, uiCopy: uiCopyEn }), zh = flatten({ routing: routingZh, uiCopy: uiCopyZh });
+    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort());
+    for (const key of Object.keys(en)) {
+      expect(zh[key]?.trim(), key).toBeTruthy();
+      const parameters = (text: string) => [...text.matchAll(/{{\s*([\w]+)\s*}}/g)].map(m => m[1]).sort();
+      expect(parameters(zh[key]!), key).toEqual(parameters(en[key]!));
+    }
+  });
+
+  it("does not reintroduce inline bilingual helpers or untranslated Router labels", () => {
+    const sources = [...runtimeUiSources(resolve("src/components")), ...runtimeUiSources(resolve("src/routes"))];
+    for (const file of sources) {
+      expect(readFileSync(file, "utf8"), file).not.toContain("useRoutingText");
+    }
+    const routerFiles = sources.filter(file => file.includes("traffic-routing") || /routes\/routers?(?:-detail)?\.tsx$/.test(file));
+    for (const file of routerFiles) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toMatch(/>\s*[A-Z][a-z]+(?:\s+[A-Za-z]+)+[.!?]?\s*</);
+      expect(source, file).not.toMatch(/(?:title|description|placeholder|aria-label)="[A-Z][a-z]+(?:\s+[A-Za-z]+)+/);
     }
   });
 });

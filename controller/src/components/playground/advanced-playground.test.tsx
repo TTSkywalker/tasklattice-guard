@@ -1,3 +1,4 @@
+import "@/i18n";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,

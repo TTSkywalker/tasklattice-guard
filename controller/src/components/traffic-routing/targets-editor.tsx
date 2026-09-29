@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -16,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Field, percent, useRoutingText } from "./form";
+import { Field, percent } from "./form";
 
 export function distributeEqually(targets: RouteTarget[]): RouteTarget[] {
   const weight = targets.length ? Math.floor(10000 / targets.length) : 0;
@@ -37,7 +38,7 @@ export function TargetsEditor({
   allowLatest?: boolean;
   fallback?: boolean;
 }) {
-  const t = useRoutingText();
+  const { t } = useTranslation();
   const query = useQuery({
     queryKey: ["routing-guardrails"],
     queryFn: listControllerGuardrails,
@@ -86,15 +87,12 @@ export function TargetsEditor({
             )
           }
         >
-          {t("添加 Guardrail", "Add Guardrail")}
+          {t("routing.addGuardrail")}
         </Button>
       )}
       {value.length === 1 && (
         <p className="text-xs text-muted-foreground">
-          {t(
-            "匹配的流量全部转发到此 Guardrail（100%）。",
-            "All matching traffic goes to this Guardrail (100%).",
-          )}
+          {t("routing.allMatchingTrafficGoesToThisGuardrail100")}
         </p>
       )}
       {value.length > 1 && (
@@ -106,8 +104,8 @@ export function TargetsEditor({
               : "text-xs text-destructive"
           }
         >
-          {t("分发比例合计", "Total distribution")}: {percent(total)}
-          {total !== 10000 && t("，请调整为 100%。", ". Adjust to 100%.")}
+          {t("routing.totalDistribution")}: {percent(total)}
+          {total !== 10000 && t("routing.adjustTo100")}
         </p>
       )}
     </div>
@@ -133,7 +131,8 @@ function TargetRow({
   allowLatest: boolean;
   fallback: boolean;
 }) {
-  const t = useRoutingText();
+  const { t: localize } = useTranslation();
+  const { t } = useTranslation();
   const query = useQuery({
     queryKey: ["routing-guardrail", target.guardrailId],
     queryFn: () => getControllerGuardrail(target.guardrailId),
@@ -183,10 +182,7 @@ function TargetRow({
                 guardrailVersion: "",
               })
             }
-            placeholder={t(
-              "搜索或选择 Guardrail…",
-              "Search or select a Guardrail…",
-            )}
+            placeholder={t("routing.searchOrSelectAGuardrail")}
           />
         </div>
         {!single && (
@@ -213,7 +209,7 @@ function TargetRow({
           <Button
             variant="destructive"
             className="size-12 shrink-0"
-            aria-label={`Remove Guardrail ${index + 1}`}
+            aria-label={localize("routing.removeGuardrail", { index: index + 1 })}
             onClick={onRemove}
           >
             ×
@@ -221,7 +217,7 @@ function TargetRow({
         )}
       </div>
       {target.guardrailId && allowLatest && (
-        <Field label={t("版本策略", "Version strategy")}>
+        <Field label={t("routing.versionStrategy")}>
           <Select
             value={target.versionStrategy ?? "pinned"}
             onValueChange={(strategy) =>
@@ -234,13 +230,13 @@ function TargetRow({
             }
           >
             <SelectTrigger
-              aria-label={`Guardrail ${index + 1} version strategy`}
+              aria-label={localize("routing.versionStrategy", { index: index + 1 })}
             >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="latest">Latest when published</SelectItem>
-              <SelectItem value="pinned">Pin version</SelectItem>
+              <SelectItem value="latest">{localize("routing.latestWhenPublished")}</SelectItem>
+              <SelectItem value="pinned">{localize("routing.pinVersion")}</SelectItem>
             </SelectContent>
           </Select>
         </Field>
@@ -252,8 +248,8 @@ function TargetRow({
             onChange({ ...target, guardrailVersion })
           }
         >
-          <SelectTrigger aria-label={`Guardrail ${index + 1} version`}>
-            <SelectValue placeholder={t("选择版本", "Select version")} />
+          <SelectTrigger aria-label={localize("routing.targetVersion", { index: index + 1 })}>
+            <SelectValue placeholder={t("routing.selectVersion")} />
           </SelectTrigger>
           <SelectContent>
             {versions.map((version) => (
@@ -267,10 +263,7 @@ function TargetRow({
       {query.error && <ErrorNotice error={query.error} />}
       {query.data && !versions.length && (
         <p className="text-xs text-muted-foreground">
-          {t(
-            "此 Guardrail 尚无就绪版本，请先发布。",
-            "Publish this Guardrail to make a version available.",
-          )}
+          {t("routing.publishThisGuardrailToMakeAVersionAvailable")}
         </p>
       )}
     </div>
