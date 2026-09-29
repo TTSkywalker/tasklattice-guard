@@ -97,7 +97,11 @@ replace pages.
 The catalog and source templates are built once and cached by the Controller service.
 The inspector is memoized, builds its Rule-name index once, and renders only the
 selected Policy tab. Shared source text compresses efficiently; a regression test caps
-the gzip overhead for all built-in compliance metadata at 45 KB.
+the gzip overhead for all built-in compliance metadata at 46 KB (46,000 bytes).
+This measures the difference between the complete catalog responses with and
+without documentation. Versioned Rule risk fields affect gzip dictionary reuse;
+the measured overhead with those fields is approximately 45.2 KB, even though
+the documentation content is unchanged.
 
 Tests require 71/71 built-in Policies to have bilingual, version-bound documentation
 and valid Rule references. They verify industry mappings, intentional empty mappings,

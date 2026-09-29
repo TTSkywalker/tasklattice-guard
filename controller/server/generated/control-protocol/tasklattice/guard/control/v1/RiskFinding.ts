@@ -39,7 +39,13 @@ export interface RiskFinding {
   'claims'?: (_tasklattice_guard_control_v1_GroundingClaimEvidence)[];
   'reasoning'?: (_tasklattice_guard_control_v1_AutomatedReasoningFinding)[];
   'providerEvidence'?: (_tasklattice_guard_control_v1_ProviderEvidence)[];
+  /**
+   * Versioned Rule risk; absent evidence remains unclassified, not informational.
+   */
   'riskSeverity'?: (string);
+  /**
+   * Immutable Policy version used by the matched Rule; absent for legacy evidence.
+   */
   'policyVersion'?: (string);
   '_confidence'?: "confidence";
   '_replacement'?: "replacement";
@@ -81,7 +87,13 @@ export interface RiskFinding__Output {
   'claims': (_tasklattice_guard_control_v1_GroundingClaimEvidence__Output)[];
   'reasoning': (_tasklattice_guard_control_v1_AutomatedReasoningFinding__Output)[];
   'providerEvidence': (_tasklattice_guard_control_v1_ProviderEvidence__Output)[];
+  /**
+   * Versioned Rule risk; absent evidence remains unclassified, not informational.
+   */
   'riskSeverity'?: (string);
+  /**
+   * Immutable Policy version used by the matched Rule; absent for legacy evidence.
+   */
   'policyVersion'?: (string);
   '_confidence'?: "confidence";
   '_replacement'?: "replacement";

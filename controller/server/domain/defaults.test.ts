@@ -199,6 +199,9 @@ describe("Default Guardrail baseline", () => {
       enabled_rule_ids: binding.enabledRuleIds,
       rule_order: binding.ruleOrder ?? [],
       rule_actions: Object.entries(binding.ruleActions),
+      rule_severities: policies.find(policy => policy.id === binding.policyId)!.rules
+        .filter(rule => binding.enabledRuleIds.includes(rule.id))
+        .map(rule => [rule.id, rule.risk_severity]),
       enabled_rails: binding.enabledRails,
     })));
     expect(plan.modules.map((item) => item.phase)).toEqual(draft.policyBindings.flatMap((binding) => binding.enabledRails));

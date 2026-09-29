@@ -3,6 +3,7 @@ import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from '@
 import './router-monitoring.scss';
 import { revisionLabel } from "./router-view-model";
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { getRouterDistribution, getRouterRevisions, type TrafficRouter, type DistributionReport, type RouterDraft, type DistributionRow } from '@/lib/traffic-routing-api';
@@ -14,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Field, NativeSelect, share, percent, useRoutingText } from './form';
 export function DistributionOverview({ router, endpoints }: { router: TrafficRouter; endpoints: Array<{ id: string; name: string }> }) {
   const t = useRoutingText();
+  const { t: translate } = useTranslation();
   const [hours, setHours] = useState(24);
   const [revision, setRevision] = useState('');
   const [endpoint, setEndpoint] = useState('');
@@ -37,8 +39,8 @@ export function DistributionOverview({ router, endpoints }: { router: TrafficRou
     { label: t('总调用', 'Total calls'), value: report?.total.toLocaleString(), detail: t('逻辑调用首次路由决策', 'First routing decisions'), tone: '' },
     { label: t('已分配', 'Assigned'), value: assigned.toLocaleString(), detail: t('已选定目标', 'Target selected'), tone: '' },
     { label: t('未分配', 'Unassigned'), value: report?.unassigned?.toLocaleString() ?? '—', detail: t('未选定目标', 'No target selected'), tone: (report?.unassigned ?? 0) > 0 ? 'warning' : '' },
-    { label: 'Fallback', value: share(fallback, report?.total ?? 0), detail: t(`${fallback.toLocaleString()} 次调用`, `${fallback.toLocaleString()} calls`), tone: '' },
-    { label: t('执行错误率', 'Execution error rate'), value: share(errors, completed), detail: t(`${errors.toLocaleString()} 次错误 / ${completed.toLocaleString()} 次已完成`, `${errors.toLocaleString()} errors / ${completed.toLocaleString()} completed`), tone: errors > 0 ? 'error' : '' },
+    { label: 'Fallback', value: share(fallback, report?.total ?? 0), detail: translate('routerMonitoring.callCount', { count: fallback }), tone: '' },
+    { label: t('执行错误率', 'Execution error rate'), value: share(errors, completed), detail: translate('routerMonitoring.errorCount', { errors: errors.toLocaleString(), completed: completed.toLocaleString() }), tone: errors > 0 ? 'error' : '' },
   ];
   const maxTrend = Math.max(...(report?.trend?.map(point => point.count) ?? []), 1);
   return <div className="router-monitoring">
@@ -76,7 +78,7 @@ export function DistributionOverview({ router, endpoints }: { router: TrafficRou
             <TableCell><button type="button" className="monitoring-link" onClick={() => setRouteId(id)}>{routeName(id)}</button></TableCell>
             <TableCell><button type="button" className="monitoring-link tabular-nums" onClick={() => setRouteId(id)}>{count.toLocaleString()}</button></TableCell>
             <TableCell className="tabular-nums">{share(count, report.total)}</TableCell>
-            <TableCell><button type="button" className="monitoring-targets" onClick={() => setRouteId(id)} aria-label={t(`查看 ${routeName(id)} 的目标分布`, `View targets for ${routeName(id)}`)}>{targets.map(target => {
+            <TableCell><button type="button" className="monitoring-targets" onClick={() => setRouteId(id)} aria-label={translate('routerMonitoring.viewTargets', { name: routeName(id) })}>{targets.map(target => {
               const matching = assignedRows.filter(r => `${r.guardrailId}@${r.guardrailVersion}` === target);
               return <span key={target} className="monitoring-target"><span>{name(matching[0]!.guardrailId)}<code>{matching[0]!.guardrailVersion}</code></span><span>{share(matching.reduce((n, r) => n + r.count, 0), routeAssigned)}</span></span>;
             })}{!targets.length && t('查看目标', 'View targets')}</button></TableCell>

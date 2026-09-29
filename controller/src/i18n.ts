@@ -9,6 +9,11 @@ export type SupportedLanguage = "en" | "zh-CN";
 const resources = {
   en: {
     translation: {
+      routerMonitoring: {
+        callCount_one: "{{count}} call", callCount_other: "{{count}} calls",
+        errorCount: "{{errors}} errors / {{completed}} completed",
+        viewTargets: "View targets for {{name}}",
+      },
       resourceList: {
         clearSearch: "Clear search", refresh: "Refresh", loading: "Loading…", unavailable: "Unable to load records", count: "{{matched}} of {{total}} records", clearFilters: "Clear filters", noMatches: "No matching records", noMatchesDescription: "Try another keyword or clear the filters.", perPage: "Records per page:", previous: "Previous page", next: "Next page", page: "Page number", range: "{{min}}–{{max}} of {{total}} records", pages: "of {{total}} pages", allStatuses: "All statuses", searchGuardrails: "Search Guardrails by name or ID…", searchRouters: "Search Routers by name, ID or Endpoint…", searchEndpoints: "Search Endpoints by name, ID or adapter…", actionsFor: "Actions: {{name}}", viewDetails: "View details",
       },
@@ -2925,6 +2930,11 @@ const resources = {
   },
   "zh-CN": {
     translation: {
+      routerMonitoring: {
+        callCount: "{{count}} 次调用",
+        errorCount: "{{errors}} 次错误 / {{completed}} 次已完成",
+        viewTargets: "查看 {{name}} 的目标分布",
+      },
       resourceList: {
         clearSearch: "清除搜索", refresh: "刷新", loading: "加载中…", unavailable: "记录加载失败", count: "{{matched}} 条匹配，共 {{total}} 条", clearFilters: "清除筛选", noMatches: "没有匹配的记录", noMatchesDescription: "请尝试其他关键词，或清除筛选条件。", perPage: "每页记录数：", previous: "上一页", next: "下一页", page: "页码", range: "第 {{min}}–{{max}} 条，共 {{total}} 条", pages: "共 {{total}} 页", allStatuses: "全部状态", searchGuardrails: "按名称或 ID 搜索 Guardrails…", searchRouters: "按名称、ID 或 Endpoint 搜索 Routers…", searchEndpoints: "按名称、ID 或适配器搜索 Endpoints…", actionsFor: "操作：{{name}}", viewDetails: "查看详情",
       },

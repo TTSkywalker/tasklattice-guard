@@ -1,9 +1,10 @@
-import { isValidElement, type ReactNode, type ComponentProps } from "react";
+import { isValidElement, useId, type ReactNode, type ComponentProps } from "react";
 import { OverflowMenu, OverflowMenuItem } from "@carbon/react";
 import { findSlots, textContent } from "@/components/carbon/composition";
 import { cn } from "@/lib/utils";
 type SlotProps = { children?: ReactNode; className?: string };
 export function DropdownMenu({ children }: SlotProps) {
+  const labelId = useId();
   const trigger = findSlots(children, DropdownMenuTrigger)[0];
   const content = findSlots(children, DropdownMenuContent)[0];
   const child = trigger?.props.children;
@@ -20,23 +21,28 @@ export function DropdownMenu({ children }: SlotProps) {
     </span>
   );
   return (
-    <OverflowMenu
-      autoAlign
-      align={content?.props.align === "end" ? "top-end" : "top-start"}
-      aria-label={label}
-      iconDescription={label}
-      renderIcon={Icon}
-      size="md"
-      flipped={content?.props.align === "end"}
-      className={cn("guard-overflow-menu", childProps.className as string)}
-      menuOptionsClass={cn(
-        "guard-menu-options",
-        content?.props.className as string,
-      )}
-      disabled={Boolean(childProps.disabled)}
-    >
-      {content?.props.children as ReactNode}
-    </OverflowMenu>
+    <>
+      {/* Keep the trigger name independent of the transient floating tooltip. */}
+      <span id={labelId} className="sr-only">{label}</span>
+      <OverflowMenu
+        autoAlign
+        align={content?.props.align === "end" ? "top-end" : "top-start"}
+        aria-label={label}
+        aria-labelledby={labelId}
+        iconDescription={label}
+        renderIcon={Icon}
+        size="md"
+        flipped={content?.props.align === "end"}
+        className={cn("guard-overflow-menu", childProps.className as string)}
+        menuOptionsClass={cn(
+          "guard-menu-options",
+          content?.props.className as string,
+        )}
+        disabled={Boolean(childProps.disabled)}
+      >
+        {content?.props.children as ReactNode}
+      </OverflowMenu>
+    </>
   );
 }
 export function DropdownMenuTrigger(
