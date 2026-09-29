@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Gauge, RefreshCw, Trash2, WifiOff } from "lucide-react";
+import { CheckCircle2, Gauge, RefreshCw, Server, Trash2, WifiOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { EmptyState, ErrorNotice, StateBadge } from "@/components/product-shell";
@@ -22,6 +22,7 @@ import {
   type RunnerPool,
 } from "@/lib/controller-api";
 import { cn } from "@/lib/utils";
+import "./runner-capacity.scss";
 
 export const runnerPoolKey = ["resources", "runner-pools"] as const;
 
@@ -35,7 +36,7 @@ export function RunnerCapacitySection({ showHeader = true }: { showHeader?: bool
 
   return (
     <section
-      className="overflow-hidden rounded-lg border bg-card"
+      className="runner-capacity"
       aria-labelledby={showHeader ? "runner-capacity-title" : undefined}
       aria-label={showHeader ? undefined : t("runners.title")}
     >
@@ -49,32 +50,34 @@ export function RunnerCapacitySection({ showHeader = true }: { showHeader?: bool
       <div className="divide-y">
         {(query.data?.items ?? []).map((pool) => (
           <article key={pool.id}>
-            <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-semibold">{pool.name}</h3>
-                  {pool.isDefault ? <Badge>Baseline</Badge> : null}
-                </div>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t("runners.recommendation", { recommended: pool.capacity.recommendedReplicas, desired: pool.desiredReplicas })}
-                </p>
-              </div>
-              <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
-                <PoolConvergenceStatus pool={pool} />
-                {auth.user?.role === "admin" ? (
-                  <Button variant="outline" className="min-h-11" onClick={() => setEditing(pool)}>
-                    <Gauge />{t("runners.capacitySettings")}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-            <div className="grid gap-px border-y bg-border sm:grid-cols-2 xl:grid-cols-5">
-              <RunnerMetric label={t("runners.readyRunners")} value={`${pool.capacity.readyRunners}/${pool.capacity.totalRunners}`} />
-              <RunnerMetric label="RPS" value={pool.capacity.currentRps.toFixed(1)} detail={`${t("runners.safeCapacity")} ${pool.capacity.safeRpsCapacity.toFixed(1)}`} />
+            <header className="runner-pool-heading">
+              <h3><Server aria-hidden="true" />{pool.name}{pool.isDefault ? <Badge>Baseline</Badge> : null}</h3>
+              <span>{t("runners.instancesCount", { count: pool.instances.length })}</span>
+            </header>
+            <div className="runner-live-metrics" aria-label={t("runners.liveMetrics")}>
+              <RunnerMetric label={t("runners.readyRunners")} value={`${pool.capacity.readyRunners} / ${pool.capacity.totalRunners}`} />
+              <RunnerMetric label={t("runners.currentThroughput")} value={pool.capacity.currentRps.toFixed(1)} unit="RPS" />
               <RunnerMetric label={t("runners.inflightUtilization")} value={`${Math.round(pool.capacity.inflightUtilization * 100)}%`} />
-              <RunnerMetric label="p95" value={`${Math.round(pool.capacity.latencyP95Ms)} ms`} />
+              <RunnerMetric label={t("runners.latencyP95")} value={`${Math.round(pool.capacity.latencyP95Ms)}`} unit="ms" />
               <RunnerMetric label={t("runners.errorRate")} value={`${(pool.capacity.errorRate * 100).toFixed(2)}%`} />
             </div>
+            <div className="runner-planning-row">
+              <section className="runner-planning" aria-label={t("runners.planningTitle")}>
+                <header><h4><Gauge aria-hidden="true" />{t("runners.planningTitle")}</h4>
+                  {auth.user?.role === "admin" ? <Button variant="ghost" onClick={() => setEditing(pool)}><Gauge />{t("runners.capacitySettings")}</Button> : null}
+                </header>
+                <dl className="runner-planning-facts">
+                  <div><dt>{t("runners.fleetSafeRps")}</dt><dd>{pool.capacity.safeRpsCapacity.toFixed(1)} <small>RPS</small></dd></div>
+                  <div><dt>{t("runners.safeRpsPerRunner")}</dt><dd>{pool.safeRpsPerRunner.toFixed(1)} <small>RPS</small></dd></div>
+                  <div><dt>{t("runners.replicaPlan")}</dt><dd>{pool.desiredReplicas} <small>/ {pool.capacity.recommendedReplicas}</small></dd></div>
+                </dl>
+                <p>{t("runners.capacityFormula", { count: pool.capacity.readyRunners, perRunner: pool.safeRpsPerRunner.toFixed(1) })}</p>
+                <p>{t("runners.planningHint")}</p>
+              </section>
+              <PoolConvergenceStatus pool={pool} />
+            </div>
+            <section className="runner-instance-section" aria-label={t("runners.instancesTitle")}>
+              <h4><Server aria-hidden="true" />{t("runners.instancesTitle")}</h4>
             <div className="hidden overflow-x-auto lg:block">
               <Table className="min-w-[64rem]">
                 <TableHeader><TableRow><TableHead>Runner</TableHead><TableHead>{t("runners.columns.runtimeState")}</TableHead><TableHead>{t("runners.columns.configurationSync")}</TableHead><TableHead>{t("runners.columns.inflightQueue")}</TableHead><TableHead>CPU / Memory</TableHead><TableHead>{t("runners.columns.lastHeartbeat")}</TableHead><TableHead>{t("runners.columns.actions")}</TableHead></TableRow></TableHeader>
@@ -129,6 +132,7 @@ export function RunnerCapacitySection({ showHeader = true }: { showHeader?: bool
                 </div>
               ))}
             </div>
+            </section>
           </article>
         ))}
       </div>
@@ -153,12 +157,11 @@ export function RunnerCapacitySection({ showHeader = true }: { showHeader?: bool
   );
 }
 
-function RunnerMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function RunnerMetric({ label, value, unit }: { label: string; value: string; unit?: string }) {
   return (
-    <div className="bg-card px-5 py-4">
+    <div className="runner-live-metric">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1.5 text-xl font-semibold tracking-[-0.025em] tabular-nums">{value}</p>
-      {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
+      <p className="runner-live-value">{value}{unit ? <small>{unit}</small> : null}</p>
     </div>
   );
 }
@@ -197,12 +200,8 @@ function PoolConvergenceStatus({ pool }: { pool: RunnerPool }) {
     <div
       role="status"
       aria-live="polite"
-      className={cn(
-        "min-w-0 rounded-lg border px-3.5 py-2.5 sm:min-w-72",
-        state === "converged" && "border-emerald-200 bg-emerald-50/60 text-emerald-950",
-        state === "syncing" && "border-amber-200 bg-amber-50/70 text-amber-950",
-        state === "unavailable" && "border-red-200 bg-red-50/70 text-red-950",
-      )}
+      className="runner-convergence"
+      data-state={state}
     >
       <p className={cn(
         "flex items-center gap-2 text-xs font-medium",

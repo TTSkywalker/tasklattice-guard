@@ -1,7 +1,7 @@
 import { EndpointProtocolIcon } from "@/components/endpoint-protocol-icon";
 import { Link } from "@tanstack/react-router";
 import { useLayoutEffect, useRef, useState } from "react";
-import { GitBranch, ShieldCheck } from "lucide-react";
+import { ArrowRight, Cable, GitBranch, History, ShieldCheck } from "lucide-react";
 import type { Endpoint } from "@/lib/api";
 import type {
   RouterDraft,
@@ -10,6 +10,8 @@ import type {
 } from "@/lib/traffic-routing-api";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { StateBadge } from "../product-shell";
+import "./router-workspace.scss";
 import {
   conditionCount,
   revisionLabel,
@@ -26,6 +28,7 @@ export function RouterOverview({
   onRule,
   onEndpoints,
   onRevisions,
+  onRouting,
   canEdit,
 }: {
   router: TrafficRouter;
@@ -36,6 +39,7 @@ export function RouterOverview({
   onRule: (id: string) => void;
   onEndpoints: () => void;
   onRevisions: () => void;
+  onRouting: () => void;
 }) {
   const snapshot = router.activeSnapshot;
   const revision = revisions.find((r) => r.revision === router.activeRevision);
@@ -44,111 +48,49 @@ export function RouterOverview({
       r.targets.map((t) => `${t.guardrailId}:${t.guardrailVersion}`),
     ) ?? [],
   );
+  const healthy = endpoints.filter(e => e.runtime_status === "healthy").length;
+  const unhealthy = endpoints.filter(e => e.runtime_status === "degraded").length;
+  const unknown = endpoints.filter(e => e.enabled && !["healthy", "degraded"].includes(e.runtime_status)).length;
+  const disabled = endpoints.filter(e => !e.enabled).length;
+  const normalRules = snapshot?.routes.filter(r => r.kind === "normal") ?? [];
   return (
-    <div className="space-y-6">
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">Traffic Flow</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {snapshot
-              ? `Published routing · ${revisionLabel(revision)}. All attached Endpoints share this ordered rule set.`
-              : "No revision has been published. Draft rules are not serving traffic."}
-          </p>
-        </div>
-        {!endpoints.length && (
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-dashed p-4">
-            <p className="text-sm">No endpoints are attached to this router.</p>
-            <Button variant="outline" onClick={onEndpoints}>
-              {canEdit ? "Attach endpoint" : "View endpoints"}
-            </Button>
-          </div>
-        )}
-        {snapshot ? (
-          <TrafficFlow
-            snapshot={snapshot}
-            endpoints={endpoints}
-            guardrails={guardrails}
-            onRule={onRule}
-          />
-        ) : (
-          <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            Publish the first revision to see the active traffic flow.
-          </p>
-        )}
-      </section>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Summary title="Endpoints">
-          <p>{endpoints.length} attached</p>
-          <p className="text-muted-foreground">
-            {endpoints.filter((e) => e.runtime_status === "healthy").length}{" "}
-            healthy ·{" "}
-            {endpoints.filter((e) => e.runtime_status === "unknown").length}{" "}
-            unknown
-          </p>
-        </Summary>
-        <Summary title="Routing">
-          <p>
-            {snapshot?.routes.filter((r) => r.kind === "normal").length ?? 0}{" "}
-            rules
-          </p>
-          <p className="text-muted-foreground">
-            {snapshot?.routes.filter((r) => r.kind === "fallback").length ?? 0}{" "}
-            fallback
-          </p>
-        </Summary>
-        <Summary title="Current deployment">
-          <p>
-            Revision{" "}
-            {router.activeRevision ? `${revisionLabel(revision)}` : "—"}
-          </p>
-          <p className="break-words text-muted-foreground">
-            Published by {revision?.createdBy ?? "—"}
-          </p>
-          <p className="text-muted-foreground">
-            {revision
-              ? new Date(revision.createdAt).toLocaleString()
-              : "Not published"}
-          </p>
-          <p>{versions.size} pinned GuardRail versions</p>
-        </Summary>
-        <Summary title="Recent revisions">
-          <Button variant="link" className="h-auto px-0" onClick={onRevisions}>
-            View all
-          </Button>
-          {revisions.slice(0, 3).map((r) => (
-            <p
-              key={r.revision}
-              className="flex flex-wrap justify-between gap-2"
-            >
-              <span className="break-all font-mono text-xs">
-                {revisionLabel(r)}
-              </span>
-              <span className="text-muted-foreground">
-                {r.revision === router.activeRevision
-                  ? router.rolloutStatus === "active"
-                    ? "Active"
-                    : "Deploying"
-                  : "Previous"}
-              </span>
-            </p>
-          ))}
-        </Summary>
+    <div className="router-overview">
+      <div className="router-overview-metrics">
+        <div><button type="button" className="router-metric-label" onClick={onEndpoints}><Cable aria-hidden="true" />Endpoints<ArrowRight aria-hidden="true" /></button><strong>{endpoints.length}</strong><span className="router-metric-detail">{healthy} healthy{unhealthy ? ` · ${unhealthy} need attention` : ''}{unknown ? ` · ${unknown} unknown` : ''}{disabled ? ` · ${disabled} disabled` : ''}</span></div>
+        <div><button type="button" className="router-metric-label" onClick={onRouting}><GitBranch aria-hidden="true" />Published routing rules<ArrowRight aria-hidden="true" /></button><strong>{normalRules.length}</strong><span className="router-metric-detail">{snapshot ? `${snapshot.routes.filter(r => r.kind === "fallback").length} fallback` : 'No published rule set'}</span></div>
+        <div><span className="router-metric-label"><ShieldCheck aria-hidden="true" />Guardrail versions</span><strong>{versions.size}</strong><span className="router-metric-detail">{snapshot ? 'Pinned in the published revision' : 'Assigned when a revision is published'}</span></div>
+      </div>
+      <div className="router-overview-columns">
+        <section className="router-overview-panel router-flow-panel" aria-label="Traffic Flow">
+          <header className="router-panel-heading">
+            <div><h2>Traffic Flow</h2><p>{snapshot ? `Published routing · ${revisionLabel(revision)}. All attached Endpoints share this ordered rule set.` : 'No revision has been published. Draft rules are not serving traffic.'}</p></div>
+          </header>
+          {!endpoints.length && <div className="router-endpoint-notice"><Cable aria-hidden="true" /><p>No endpoints are attached to this router.</p><Button variant="ghost" onClick={onEndpoints}>{canEdit ? 'Attach endpoint' : 'View endpoints'}</Button></div>}
+          {snapshot ? <TrafficFlow snapshot={snapshot} endpoints={endpoints} guardrails={guardrails} onRule={onRule} /> : <div className="router-flow-empty">
+            <div className="router-flow-stages" aria-hidden="true"><span><Cable /><span>Endpoint</span></span><ArrowRight /><span><GitBranch /><span>Routing</span></span><ArrowRight /><span><ShieldCheck /><span>Guardrail</span></span></div>
+            <h3>Traffic flow appears after the first publication</h3>
+            <p>Configure routing rules and choose Guardrail versions, then review and publish. This diagram will show the published configuration.</p>
+            <Button variant="outline" onClick={onRouting}>View routing</Button>
+          </div>}
+        </section>
+        <aside className="router-overview-sidebar">
+          <section className="router-overview-panel" aria-label="Current deployment">
+            <header className="router-panel-heading"><h2>Current deployment</h2><StateBadge state={router.rolloutStatus} label={router.rolloutStatus === 'active' ? 'Active' : router.rolloutStatus === 'failed' ? 'Rollout failed' : router.rolloutStatus === 'distributing' ? 'Distributing' : 'Unpublished'} /></header>
+            {router.activeRevision !== null ? <dl className="router-deployment-facts">
+              <div><dt>Revision</dt><dd className="font-mono">{revision ? revisionLabel(revision) : `r${router.activeRevision}`}</dd></div>
+              <div><dt>Published by</dt><dd>{revision?.createdBy ?? '—'}</dd></div>
+              <div><dt>Published at</dt><dd>{revision ? new Date(revision.createdAt).toLocaleString() : '—'}</dd></div>
+            </dl> : <div className="router-panel-empty"><p>No deployed revision</p><span>Draft changes take effect only after publication and Runner deployment.</span></div>}
+          </section>
+          <section className="router-overview-panel" aria-label="Recent revisions">
+            <header className="router-panel-heading"><h2><History aria-hidden="true" />Recent revisions</h2><Button variant="link" size="sm" onClick={onRevisions}>View all</Button></header>
+            {revisions.length ? <ul className="router-revision-list">{revisions.slice(0, 3).map(r => <li key={r.revision}>
+              <code>{revisionLabel(r)}</code><span>{r.revision === router.activeRevision ? router.rolloutStatus === 'active' ? 'Active' : router.rolloutStatus === 'failed' ? 'Rollout failed' : 'Deploying' : 'Previous'}</span>
+            </li>)}</ul> : <div className="router-panel-empty"><p>No published revisions</p><span>Publication history will appear here.</span></div>}
+          </section>
+        </aside>
       </div>
     </div>
-  );
-}
-function Summary({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-2 rounded-lg border p-4 text-sm">
-      <h3 className="font-medium">{title}</h3>
-      {children}
-    </section>
   );
 }
 
@@ -214,19 +156,19 @@ export function TrafficFlow({
     return () => observer.disconnect();
   }, [snapshot, endpoints, guardrails]);
   const nodeClass =
-    "relative z-10 min-w-0 rounded-lg border bg-card p-4 text-left text-sm shadow-xs";
+    "router-flow-node relative z-10 min-w-0 border bg-card p-4 text-left text-sm";
   return (
     <div
-      className="overflow-x-auto rounded-xl border bg-muted/10"
+      className="router-traffic-flow overflow-x-auto"
       tabIndex={0}
-      aria-label="Traffic flow, scroll horizontally on smaller screens"
+      aria-label="Published traffic flow"
     >
       <div
         ref={root}
-        className="relative grid min-w-[880px] grid-cols-[minmax(220px,28fr)_minmax(50px,5fr)_minmax(220px,30fr)_minmax(64px,5fr)_minmax(240px,32fr)] gap-y-5 p-5"
+        className="relative grid min-w-[760px] grid-cols-[minmax(160px,28fr)_minmax(40px,5fr)_minmax(180px,30fr)_minmax(50px,5fr)_minmax(180px,32fr)] gap-y-5 p-5"
       >
         <svg
-          className="pointer-events-none absolute inset-0 h-full w-full text-slate-300"
+          className="pointer-events-none absolute inset-0 h-full w-full text-[var(--cds-border-strong-01)]"
           aria-hidden="true"
         >
           {lines.map((l, i) => (
@@ -241,7 +183,7 @@ export function TrafficFlow({
                 x={l.x}
                 y={l.y}
                 textAnchor="middle"
-                className="fill-muted-foreground text-[11px]"
+                className="fill-muted-foreground text-xs"
               >
                 {l.label}
               </text>
@@ -275,7 +217,7 @@ export function TrafficFlow({
                   {e.name}
                 </span>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className={`mt-2 text-xs ${e.runtime_status === "healthy" ? "text-[var(--success)]" : e.runtime_status === "degraded" ? "text-destructive" : "text-muted-foreground"}`}>
                 ●{" "}
                 {e.runtime_status === "healthy"
                   ? "Healthy"

@@ -1,3 +1,4 @@
+import { ResourceList } from "@/components/resource-list";
 import { EventFilterToolbar } from "@/components/event-filter-toolbar";
 import { selectedSeverities, type EventSeverity } from "../../shared/security-severity";
 import { SecuritySeverityBadge } from "@/components/security-severity";
@@ -16,7 +17,7 @@ import { EventPagination, useEventCursor } from '@/components/event-pagination';
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Activity, ArrowLeft, ArrowUpRight, Ban, Check, ChevronDown, Circle, CircleAlert, FlaskConical, GitCompareArrows, History, LoaderCircle, LockKeyhole, Pencil, Plus, RefreshCw, Rocket, RotateCcw, Save, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { RuntimeHealthAlert } from "@/components/dashboard/runtime-health-alert";
 import { RuntimeMetricChart } from "@/components/dashboard/runtime-metric-chart";
@@ -108,26 +109,16 @@ export function GuardrailsPage() {
   const guardrails = query.data?.items ?? [];
 
   return (
-    <section className="py-6 sm:py-8">
-      <PageHeader title={t("pages.guardrails.title")} description={t("guardrails.description")} action={auth.user?.role === "admin" ? <Button variant="create" className="min-h-11" onClick={openCreation}><Plus />{t("guardrails.create")}</Button> : undefined} />
-      {query.error ? <div className="mt-5 space-y-3"><ErrorNotice error={query.error} /><Button type="button" variant="outline" className="min-h-11" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw className={query.isFetching ? "animate-spin motion-reduce:animate-none" : undefined} />{t("common.retry")}</Button></div> : null}
-      {query.isPending ? <GuardrailRegistrySkeleton /> : null}
-      {!query.isPending && !guardrails.length ? <div className="mt-5"><EmptyState title={t("guardrails.emptyTitle")} description={t("guardrails.emptyDescription")} action={auth.user?.role === "admin" ? <Button variant="create" onClick={openCreation}><Plus />{t("guardrails.createFirst")}</Button> : undefined} /></div> : null}
-      {guardrails.length ? <GuardrailRegistry guardrails={guardrails} onOpen={(guardrailId) => navigate({ to: "/guardrails/$guardrailId", params: { guardrailId } })} /> : null}
+    <section className="py-8">
+      <PageHeader title={t("pages.guardrails.title")} description={t("guardrails.description")} />
+      <ResourceList items={guardrails} label={t("pages.guardrails.title")} searchPlaceholder={t("resourceList.searchGuardrails")} searchText={item => `${item.name} ${item.id}`}
+        filter={{ label: t("common.status"), options: [{ value: "", label: t("resourceList.allStatuses") }, ...[...new Set(guardrails.map(item => item.status))].sort().map(value => ({ value, label: t(`states.${value}`, { defaultValue: value.replaceAll("_", " ") }) }))], matches: (item, value) => item.status === value }}
+        loading={query.isPending} refreshing={query.isFetching} error={query.error} onRefresh={() => void query.refetch()}
+        emptyTitle={t("guardrails.emptyTitle")} emptyDescription={t("guardrails.emptyDescription")}
+        action={auth.user?.role === "admin" ? <Button variant="create" size="lg" onClick={openCreation}><Plus />{t("guardrails.create")}</Button> : undefined}>
+        {items => <GuardrailRegistry guardrails={items} onOpen={guardrailId => navigate({ to: "/guardrails/$guardrailId", params: { guardrailId } })} />}
+      </ResourceList>
       <CreateGuardrailWizard open={createOpen} returnFocusRef={createOpener} onOpenChange={setCreateOpen} onCreated={async (id) => { setCreateOpen(false); await queryClient.invalidateQueries({ queryKey: queryKeys.guardrails }); navigate({ to: "/guardrails/$guardrailId", params: { guardrailId: id } }); }} />
-    </section>
-  );
-}
-
-function GuardrailRegistrySkeleton() {
-  return (
-    <section className="mt-5 overflow-hidden rounded-xl border bg-card shadow-xs" aria-hidden="true">
-      <header className="border-b bg-muted/25 px-5 py-3"><Skeleton className="h-4 w-36" /></header>
-      <div className="flex items-center gap-3 px-5 py-4">
-        <Skeleton className="size-9 shrink-0 rounded-lg" />
-        <div className="min-w-0 flex-1 space-y-2"><Skeleton className="h-4 w-40" /><Skeleton className="h-3 w-full max-w-xl" /></div>
-        <Skeleton className="h-5 w-20 shrink-0" />
-      </div>
     </section>
   );
 }
@@ -135,7 +126,7 @@ function GuardrailRegistrySkeleton() {
 export function GuardrailDetailPage() {
   const { t } = useTranslation();
   const { guardrailId } = useParams({ strict: false }) as { guardrailId: string };
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/guardrails/$guardrailId" });
   const auth = useAuth();
   const queryClient = useQueryClient();
   const guardrailQuery = useQuery({ queryKey: queryKeys.guardrail(guardrailId), queryFn: () => getGuardrail(guardrailId) });
@@ -271,7 +262,7 @@ export function GuardrailDetailPage() {
       <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-2xl font-semibold tracking-[-0.015em] sm:text-3xl">{guardrail.name}</h1>
+            <h1 className="font-sans text-[2rem] font-normal tracking-normal">{guardrail.name}</h1>
             {activeVersion ? <Badge className="border-emerald-200 bg-emerald-50 font-mono text-[11px] text-emerald-700 hover:bg-emerald-50">{t("guardrails.activeVersion", { version: activeVersion.version })}</Badge> : <StateBadge state={guardrail.tested_current ? "ready" : "needs_validation"} />}
             {routers.length ? <StateBadge state="protected" /> : activeVersion ? <StateBadge state="ready" /> : null}
             {guardrail.is_default ? <Badge variant="outline">{t("guardrails.defaultBadge")}</Badge> : guardrail.system_managed ? <Badge variant="outline">{t("guardrails.systemManaged")}</Badge> : null}
@@ -297,11 +288,11 @@ export function GuardrailDetailPage() {
       <Tabs value={section} onValueChange={setSection} className="mt-7">
         <div className="overflow-x-auto">
           <TabsList className="min-w-max" aria-label={t("guardrails.detailViews")}>
-            <TabsTrigger value="runtime">{t("guardrails.runtimeTab")}</TabsTrigger>
-            <TabsTrigger value="findings"><span className="flex items-center gap-2">{t("guardrails.securityFindingsTab")}{metricsQuery.data?.findings_summary?.total ? <Badge variant="outline" className={metricsQuery.data?.findings_summary?.critical ? "border-red-200 bg-red-50 font-mono text-[10px] text-red-700" : "font-mono text-[10px]"}>{metricsQuery.data?.findings_summary?.total}</Badge> : null}</span></TabsTrigger>
-            <TabsTrigger value="immutable">{t("guardrails.versions")}</TabsTrigger>
-            <TabsTrigger value="testing"><span className="flex items-center gap-2">{t("guardrails.validationHistoryTab")}{validationRunsQuery.data?.items.length ? <Badge variant="outline" className="font-mono text-[10px]">{validationRunsQuery.data.items.length}</Badge> : null}</span></TabsTrigger>
-            <TabsTrigger value="draft"><span className="flex items-center gap-2">{t("guardrails.draftReleaseTab")}{hasUnpublishedDraft ? <Circle className="size-2 fill-amber-500 text-amber-500" /> : null}</span></TabsTrigger>
+            <TabsTrigger value="runtime"><Activity aria-hidden="true" />{t("guardrails.runtimeTab")}</TabsTrigger>
+            <TabsTrigger value="findings"><ShieldAlert aria-hidden="true" /><span className="flex items-center gap-2">{t("guardrails.securityFindingsTab")}{metricsQuery.data?.findings_summary?.total ? <Badge variant="outline" className={metricsQuery.data?.findings_summary?.critical ? "border-red-200 bg-red-50 font-mono text-[10px] text-red-700" : "font-mono text-[10px]"}>{metricsQuery.data?.findings_summary?.total}</Badge> : null}</span></TabsTrigger>
+            <TabsTrigger value="immutable"><History aria-hidden="true" />{t("guardrails.versions")}</TabsTrigger>
+            <TabsTrigger value="testing"><FlaskConical aria-hidden="true" /><span className="flex items-center gap-2">{t("guardrails.validationHistoryTab")}{validationRunsQuery.data?.items.length ? <Badge variant="outline" className="font-mono text-[10px]">{validationRunsQuery.data.items.length}</Badge> : null}</span></TabsTrigger>
+            <TabsTrigger value="draft"><Pencil aria-hidden="true" /><span className="flex items-center gap-2">{t("guardrails.draftReleaseTab")}{hasUnpublishedDraft ? <Circle className="size-2 fill-amber-500 text-amber-500" /> : null}</span></TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="runtime" className="space-y-5 pt-5">

@@ -149,7 +149,7 @@ describe("Policy Studio business directory", () => {
     await act(async () => finish({ items: [{ ...selected, supported_rails: ["input"], timeout_ms: 500, failure_mode: "fail_closed" }] }));
     await waitFor(() => expect(screen.queryByText("policyStudio.actionsUnavailable")).toBeNull());
     fireEvent.click(screen.getByText("policyStudio.actionsTitle"));
-    expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "common.next" }));
     fireEvent.click(screen.getByRole("button", { name: "policyStudio.validateAndRun" }));
     await waitFor(() => expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ draft: expect.objectContaining({ action_references: [selected] }) })));
@@ -172,7 +172,7 @@ describe("Policy Studio business directory", () => {
     api.catalog.mockRejectedValueOnce(new Error("Refresh failed"));
     await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.actionCatalog }); });
     await screen.findByText("policyStudio.actionsUnavailable");
-    expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("GuardCustomerIdentifierAction@1.0.0")).toBeTruthy();
     expect(screen.queryByText("policyStudio.actionsEmpty")).toBeNull();
   });

@@ -5,9 +5,9 @@ import type { NotToggleProps } from "react-querybuilder";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-export type ShadcnNotToggleProps = NotToggleProps;
+export type CarbonNotToggleProps = NotToggleProps;
 
-export const ShadcnNotToggle = ({
+export const CarbonNotToggle = ({
   className,
   handleOnChange,
   label,
@@ -22,7 +22,7 @@ export const ShadcnNotToggle = ({
   schema: _schema,
   ruleGroup: _ruleGroup,
   ...otherProps
-}: ShadcnNotToggleProps): React.JSX.Element => {
+}: CarbonNotToggleProps): React.JSX.Element => {
   const id = useId();
   return (
     <>

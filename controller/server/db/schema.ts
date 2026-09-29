@@ -492,7 +492,7 @@ export const auditEvents = pgTable("audit_event", {
   resourceId: text("resource_id").notNull(),
   detail: jsonb("detail").$type<Record<string, unknown>>().notNull().default({}),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("audit_resource_idx").on(table.resourceType, table.resourceId)]);
+}, (table) => [index("audit_resource_idx").on(table.resourceType, table.resourceId), index("audit_time_id_idx").on(table.occurredAt.desc(), table.id.desc())]);
 
 export const outboxEvents = pgTable("controller_outbox", {
   id: text("id").primaryKey(),

@@ -1,3 +1,4 @@
+import { Braces, GitBranch, ShieldCheck } from "lucide-react";
 import { useRoutingText } from "@/components/traffic-routing/form";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { PathTestRecord } from "./use-path-workbench";
@@ -98,11 +99,11 @@ export function PathTestResult({
           className="mx-3 shrink-0"
           aria-label={t("测试结果", "Test results")}
         >
-          <TabsTrigger value="routing">{t("路由分析", "Routing")}</TabsTrigger>
-          <TabsTrigger value="evaluation">
+          <TabsTrigger value="routing"><GitBranch aria-hidden="true" className="size-4" />{t("路由分析", "Routing")}</TabsTrigger>
+          <TabsTrigger value="evaluation"><ShieldCheck aria-hidden="true" className="size-4" />
             {t("检测结果", "Evaluation")}
           </TabsTrigger>
-          <TabsTrigger value="raw">{t("原始响应", "Raw response")}</TabsTrigger>
+          <TabsTrigger value="raw"><Braces aria-hidden="true" className="size-4" />{t("原始响应", "Raw response")}</TabsTrigger>
         </TabsList>
         <TabsContent
           value="routing"

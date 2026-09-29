@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, CircleUserRound, LogOut, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -55,7 +55,7 @@ export function AccountMenu({
           className={cn(
             "group flex h-11 items-center outline-none transition-colors focus-visible:ring-2",
             placement === "header"
-              ? "size-11 justify-center rounded-full p-1.5 text-foreground hover:bg-muted focus-visible:ring-ring/40 data-[state=open]:bg-muted data-[state=open]:ring-1 data-[state=open]:ring-border"
+              ? "console-account size-11 justify-center rounded-none p-1.5 focus-visible:ring-ring"
               : "rounded-lg text-sidebar-foreground hover:bg-sidebar-accent focus-visible:ring-sidebar-ring data-[state=open]:bg-sidebar-accent",
             collapsed ? "mx-auto size-11 justify-center" : placement === "header" ? "" : "w-full gap-2.5 px-2",
           )}

@@ -50,9 +50,13 @@ order: 3
 
 同一次请求命中多个 Rule 时，每条证据单独分级，Router 的请求摘要取其中最高级别。正常通过不生成安全事件；检查失败保留在运行日志，详情标记“检查异常”，最终是否阻断另行展示。安全事件级别不表示人工调查进度，目前没有认领、关闭或抑制事件的工作流。
 
+<a id="concept-unclassified-events" />
+
 ### 老版本为什么显示“未分级”
 
 旧事件或旧 Guardrail 产物可能没有保存 Rule 级别。系统不会读取今天的 Policy 配置去猜测过去的风险，也不会把旧的置信度分级当作新级别。使用已定义风险级别的 Policy，测试并发布新的 Guardrail Version 后，新事件才会带上对应的级别；历史记录保留原样。
+
+<a id="concept-event-log-levels" />
 
 ### 与 INFO／DEBUG／TRACE 的区别
 

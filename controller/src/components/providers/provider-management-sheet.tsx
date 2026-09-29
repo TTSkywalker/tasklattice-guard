@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { StateBadge } from "@/components/product-shell";

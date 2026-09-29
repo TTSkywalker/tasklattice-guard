@@ -1,3 +1,4 @@
+import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
 import { useEffect } from "react";
 import { Link, Outlet } from "@tanstack/react-router";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
@@ -25,10 +26,10 @@ export function HelpLayout() {
           TaskLattice Guard <span className="font-normal text-muted-foreground">Document</span>
         </Link>
         <div className="flex items-center gap-3">
-          <select aria-label={t("common.language")} value={locale} onChange={event => void setLanguage(event.target.value as SupportedLanguage)} className="min-h-11 rounded-md border bg-background px-3 text-sm focus-visible:outline-primary">
+          <CarbonNativeSelect aria-label={t("common.language")} value={locale} onChange={event => void setLanguage(event.target.value as SupportedLanguage)} className="min-h-11 rounded-md border bg-background px-3 text-sm focus-visible:outline-primary">
             <option value="zh-CN">{t("common.chinese")}</option>
             <option value="en">English</option>
-          </select>
+          </CarbonNativeSelect>
           <Link to="/dashboard" className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted focus-visible:outline-primary">
             <ArrowLeft aria-hidden="true" className="size-4" />{labels.backToPortal}
           </Link>

@@ -1,6 +1,6 @@
 import { ArrowUpRight, Copy, X } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { StateBadge } from "@/components/product-shell";
 import { Button } from "@/components/ui/button";

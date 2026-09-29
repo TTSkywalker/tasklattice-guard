@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/notifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { LoginPage } from "@/routes/login";
@@ -66,7 +66,7 @@ export function ControlPlaneLayout() {
           <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-card/90 px-4 backdrop-blur-md sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <SidebarTrigger className="size-11 rounded-lg" />
-              <Separator orientation="vertical" className="h-5" />
+              <Separator orientation="vertical" className="h-5 self-center" />
               {location.group ? <Breadcrumb className="min-w-0">
                 <BreadcrumbList className="flex-nowrap">
                   <BreadcrumbItem className="hidden sm:inline-flex">{t(location.group)}</BreadcrumbItem>
@@ -85,7 +85,7 @@ export function ControlPlaneLayout() {
             <Outlet />
           </main>
         </SidebarInset>
-        <Toaster richColors />
+        <Toaster />
       </SidebarProvider>
     </TooltipProvider>
   );

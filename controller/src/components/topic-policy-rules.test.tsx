@@ -45,7 +45,9 @@ describe("Topic Policy configuration", () => {
   it("applies intent suggestions only to parameters, preserving Rule switches", async () => {
     const analyze = vi.spyOn(api, "analyzeGuardrailIntent").mockResolvedValue({ summary: "Support boundaries", allowed_topics: ["Order support"], restricted_topics: ["Fraud"], topic_control_mode: "strict", review_notes: [] } as unknown as Awaited<ReturnType<typeof api.analyzeGuardrailIntent>>);
     setup(); const before = current();
-    fireEvent.change(await helper(), { target: { value: "Allow order support; deny fraud" } });
+    const input=await helper();
+    await waitFor(()=>expect(input.hasAttribute("disabled")).toBe(false));
+    fireEvent.change(input, { target: { value: "Allow order support; deny fraud" } });
     await waitFor(() => expect(screen.getByRole("button", { name: "guardrailWizard.intentAnalyze" }).hasAttribute("disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "guardrailWizard.intentAnalyze" }));
     fireEvent.click(await screen.findByRole("button", { name: "guardrailWizard.applyProposal" }));

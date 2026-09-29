@@ -89,7 +89,7 @@ describe("Guardrail detail information hierarchy", () => {
     await screen.findByText("Logging temporarily unavailable");
     fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
     await screen.findByRole("heading", { name: "guardrails.loggingTitle" });
-    expect(screen.getByRole("combobox", { name: "guardrails.loggingLevel" }).textContent).toBe("INFO");
+    expect(screen.getByRole("combobox", { name: "guardrails.loggingLevel" }).querySelector(".cds--list-box__label")?.textContent).toBe("INFO");
     expect(load).toHaveBeenCalledWith("guardrail-default");
     expect(save).not.toHaveBeenCalled();
   });
@@ -306,7 +306,7 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("guardrails.dependenciesModels")).toBeTruthy();
 
     const generatedFilesTab = screen.getByRole("tab", { name: "guardrails.generatedFilesTab count:1" });
-    fireEvent.mouseDown(generatedFilesTab, { button: 0, ctrlKey: false });
+    fireEvent.click(generatedFilesTab, { button: 0, ctrlKey: false });
     fireEvent.mouseUp(generatedFilesTab, { button: 0, ctrlKey: false });
     fireEvent.click(generatedFilesTab);
     expect(screen.getAllByText("config.yml").length).toBeGreaterThan(0);

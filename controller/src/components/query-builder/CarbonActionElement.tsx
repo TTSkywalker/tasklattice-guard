@@ -3,9 +3,9 @@ import type { ActionProps } from "react-querybuilder";
 
 import { Button } from "@/components/ui/button";
 
-export type ShadcnActionProps = ActionProps;
+export type CarbonActionProps = ActionProps;
 
-export const ShadcnActionElement = ({
+export const CarbonActionElement = ({
   className,
   handleOnClick,
   label,
@@ -21,7 +21,7 @@ export const ShadcnActionElement = ({
   validation: _validation,
   schema: _schema,
   ...otherProps
-}: ShadcnActionProps): React.JSX.Element => (
+}: CarbonActionProps): React.JSX.Element => (
   <Button
     {...otherProps}
     data-testid={testID}

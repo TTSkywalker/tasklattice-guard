@@ -1,0 +1,37 @@
+.resource-list {
+  margin-block-start: 1.5rem;
+  min-inline-size: 0;
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+}
+.resource-list-toolbar { display: flex; align-items: stretch; border-block-end: 1px solid var(--cds-border-subtle-01); }
+.resource-list-toolbar > .cds--search { flex: 1; min-inline-size: 16rem; max-inline-size: none; }
+.resource-list-filter { flex: 0 0 13rem; border-inline-start: 1px solid var(--cds-border-subtle-01); }
+.resource-list-toolbar > .cds--btn { flex-shrink: 0; white-space: nowrap; }
+// Keep the rendered Carbon controls (including the search clear button) on
+// the same baseline; component size props alone do not size every inner field.
+.resource-list-toolbar > .cds--btn,
+.resource-list-toolbar > .cds--search,
+.resource-list-toolbar .cds--search-input,
+.resource-list-toolbar .cds--search-close,
+.resource-list-filter .cds--list-box,
+.resource-list-filter .cds--list-box__field { block-size: 3rem; min-block-size: 3rem; }
+.resource-list-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-block-size: 3rem; padding-inline: 1rem; color: var(--cds-text-secondary); font-size: 0.75rem; }
+.resource-list .resource-table { table-layout: fixed; min-inline-size: 66rem; }
+.resource-list .resource-table th { white-space: nowrap; }
+.resource-list .resource-table td { height: 4.5rem; white-space: normal; overflow-wrap: anywhere; }
+.resource-list .resource-table .resource-name-column { width: 30%; }
+.resource-list .resource-table .resource-actions-column { width: 4.5rem; padding-inline: 0.5rem; text-align: center; }
+.resource-list .resource-row { cursor: pointer; }
+.resource-list .resource-row:focus-within { background: var(--cds-layer-hover-01); }
+.resource-name { display: inline-flex; align-items: center; gap: 0.5rem; min-block-size: 2rem; max-inline-size: 100%; padding: 0; border: none; background: none; color: var(--cds-link-primary); font-size: 0.875rem; font-weight: 600; text-align: start; cursor: pointer; }
+.resource-name > svg { flex: 0 0 1rem; width: 1rem; height: 1rem; }
+.resource-name:hover { text-decoration: underline; }
+.resource-name:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+.resource-secondary { display: block; margin-block-start: 0.25rem; color: var(--cds-text-secondary); font-size: 0.75rem; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resource-list .guard-overflow-menu { inline-size: 2.75rem; block-size: 2.75rem; min-inline-size: 2.75rem; min-block-size: 2.75rem; padding: 0; color: var(--cds-icon-secondary); }
+.resource-list .guard-menu-trigger-content svg { inline-size: 1.25rem; block-size: 1.25rem; }
+
+.resource-list .resource-router-table .resource-name-column { width: 25%; }
+.resource-list .resource-router-table .resource-endpoints-column { width: 20%; }
+.resource-list .resource-router-table .resource-rollout-column { width: 15%; }

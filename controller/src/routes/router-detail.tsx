@@ -1,15 +1,16 @@
 import { DistributionOverview } from "@/components/traffic-routing/distribution";
 import { ReviewPublishSheet } from "@/components/traffic-routing/review-publish-sheet";
 import { useEffect, useRef, useState } from "react";
+import { Activity, Cable, GitBranch, History, LayoutDashboard, AlertTriangle, FlaskConical, Pencil } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearch, useBlocker } from "@tanstack/react-router";
-import { toast } from "sonner";
+import { Link, useParams, useSearch, useNavigate, useBlocker } from "@tanstack/react-router";
+import { toast } from "@/components/ui/notifications";
 import { useAuth } from "@/lib/auth";
 import { getEndpoints } from "@/lib/endpoints-api";
 import { listControllerGuardrails } from "@/lib/controller-api";
 import { queryKeys } from "@/features/query-keys";
 import * as api from "@/lib/traffic-routing-api";
-import { PageHeader, ErrorNotice } from "@/components/product-shell";
+import { PageHeader, ErrorNotice, StateBadge } from "@/components/product-shell";
 import { EntitySheet } from "@/components/entity-sheet";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -25,7 +26,7 @@ import {
   Changes,
 } from "@/components/traffic-routing/router-revisions";
 import { revisionLabel } from "@/components/traffic-routing/router-view-model";
-import { RouterStatus } from "./routers";
+import "@/components/traffic-routing/router-workspace.scss";
 export {
   DeleteRouterSheet,
   RouterRuntimeEventTable,
@@ -69,10 +70,28 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
     canEdit = auth.user?.role === "admin";
   const client = useQueryClient();
   const search = useSearch({ strict: false }) as { routeId?: string; tab?: string };
-  const [tab, setTab] = useState(search.routeId ? "routing" : search.tab ?? "overview");
+  const navigate = useNavigate();
+  const tab = search.tab ?? (search.routeId ? "routing" : "overview");
+  const setTab = (nextTab: string, routeId = search.routeId) => void navigate({
+    to: "/integration/routers/$routerId",
+    params: { routerId: router.id },
+    search: previous => ({ ...previous, tab: nextTab, routeId }),
+    resetScroll: false,
+  });
+  // Canonicalize direct links without adding a browser-history entry.
+  useEffect(() => {
+    if (!search.tab) void navigate({
+      to: "/integration/routers/$routerId",
+      params: { routerId: router.id },
+      search: previous => ({ ...previous, tab }),
+      replace: true,
+      resetScroll: false,
+    });
+  }, [navigate, router.id, search.tab, tab]);
   const [selected, setSelected] = useState<string | null>(
     search.routeId ?? null,
   );
+  useEffect(() => setSelected(search.routeId ?? null), [search.routeId]);
   const [editing, setEditing] = useState(false);
   const [base, setBase] = useState(router);
   const [draft, setDraft] = useState(router.draft);
@@ -94,7 +113,8 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
     (router.draftRevision !== router.activeDraftRevision &&
       JSON.stringify(router.draft) !== JSON.stringify(router.activeSnapshot));
   const blocker = useBlocker({
-    shouldBlockFn: () => dirty,
+    // Tab navigation keeps this workspace mounted and does not discard drafts.
+    shouldBlockFn: ({ current, next }) => dirty && current.pathname !== next.pathname,
     withResolver: true,
     enableBeforeUnload: dirty,
   });
@@ -201,7 +221,7 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
     prepare.reset();
   };
   const openRule = (id: string) => {
-    setTab("routing");
+    setTab("routing", id);
     setSelected(id);
   };
   const openReview = () => {
@@ -210,7 +230,7 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
   };
   const serverChanged = router.draftRevision !== base.draftRevision;
   return (
-    <section className="space-y-5 py-7">
+    <section className="router-workspace space-y-5 py-8">
       <Link
         className="inline-flex min-h-11 items-center text-sm text-primary"
         to="/integration/routers"
@@ -220,17 +240,11 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
       <PageHeader
         title={router.name}
         description="Manage traffic routing from incoming Endpoints to GuardRails."
-        action={<Button asChild variant="outline" className="min-h-11"><Link to="/playground" search={{ mode: "advanced", router: router.id }}>Test Router</Link></Button>}
+        action={<Button asChild variant="outline" className="min-h-11"><Link to="/playground" search={{ mode: "advanced", router: router.id }}><FlaskConical aria-hidden="true" />Test Router</Link></Button>}
       />
-      <div className="space-y-2 text-sm">
-        <RouterStatus
-          router={router}
-          revisionLabel={revisionLabel(
-            revisions.data?.items.find(
-              (r) => r.revision === router.activeRevision,
-            ),
-          )}
-        />
+      <div className="router-workspace-status">
+        <StateBadge state={router.rolloutStatus} label={router.rolloutStatus === "active" ? "Active" : router.rolloutStatus === "failed" ? "Rollout failed" : router.rolloutStatus === "distributing" ? "Distributing" : "Unpublished"} />
+        {router.activeRevision !== null && <code className="text-xs text-muted-foreground">{revisionLabel(revisions.data?.items.find(r => r.revision === router.activeRevision))}</code>}
         <p className="text-muted-foreground">
           {router.endpointIds.length} Endpoints ·{" "}
           {active?.routes.filter((r) => r.kind === "normal").length ?? 0} Routes
@@ -246,14 +260,16 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
         </p>
       </div>
       {router.rolloutStatus === "failed" && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="router-deployment-error">
+          <AlertTriangle aria-hidden="true" />
           Runner deployment failed. Review the configuration and publish a new
           revision to retry.
         </p>
       )}
       {unpublished && !editing && (
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-          <div>
+        <div className="router-draft-notice" role="status">
+          <Pencil aria-hidden="true" className="router-draft-icon" />
+          <div className="router-draft-copy">
             <p className="text-sm font-medium">Draft changes</p>
             <p className="mt-1 text-sm text-muted-foreground">
               Routing configuration has unpublished changes.
@@ -318,18 +334,25 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
       <Tabs
         value={tab}
         onValueChange={setTab}
-        className="gap-0 overflow-hidden rounded-xl border bg-card"
+        className="mt-7"
       >
-        <div className="overflow-x-auto border-b px-4">
-          <TabsList className="min-w-max border-b-0" aria-label="Router views">
-            {["overview", "endpoints", "routing", "monitoring", "revisions"].map((value) => (
+        <div className="overflow-x-auto">
+          <TabsList className="min-w-max" aria-label="Router views">
+            {([
+              ["overview", LayoutDashboard],
+              ["endpoints", Cable],
+              ["routing", GitBranch],
+              ["monitoring", Activity],
+              ["revisions", History],
+            ] as const).map(([value, Icon]) => (
               <TabsTrigger value={value} key={value}>
+                <Icon aria-hidden="true" />
                 {value[0]!.toUpperCase() + value.slice(1)}
               </TabsTrigger>
             ))}
           </TabsList>
         </div>
-        <TabsContent value="overview" className="min-w-0 p-4 sm:p-6">
+        <TabsContent value="overview" className="min-w-0 pt-5">
           {endpoints.error && <ErrorNotice error={endpoints.error} />}
           {guardrails.error && <ErrorNotice error={guardrails.error} />}
           {revisions.error && <ErrorNotice error={revisions.error} />}
@@ -351,6 +374,7 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
               revisions={revisions.data?.items ?? []}
               onRule={openRule}
               onEndpoints={() => setTab("endpoints")}
+              onRouting={() => setTab("routing")}
               onRevisions={() => setTab("revisions")}
             />
           )}
@@ -367,14 +391,14 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
             </Button>
           )}
         </TabsContent>
-        <TabsContent value="endpoints" className="min-w-0 p-4 sm:p-6">
+        <TabsContent value="endpoints" className="min-w-0 pt-5">
           <RouterEndpoints
             router={router}
             canEdit={canEdit && !busy}
             onBound={accept}
           />
         </TabsContent>
-        <TabsContent value="routing" className="min-w-0 space-y-5 p-4 sm:p-6">
+        <TabsContent value="routing" className="min-w-0 space-y-5 pt-5">
           {editing && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-4">
               <div>
@@ -447,7 +471,7 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
             />
           )}
         </TabsContent>
-        <TabsContent value="monitoring" className="min-w-0 space-y-5 p-4 sm:p-6">
+        <TabsContent value="monitoring" className="min-w-0 space-y-5 pt-5">
           <div>
             <h2 className="text-lg font-semibold">Monitoring</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -460,7 +484,7 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
           </> : endpoints.isPending ? <p role="status">Loading monitoring…</p> :
             <DistributionOverview router={router} endpoints={incoming} />}
         </TabsContent>
-        <TabsContent value="revisions" className="min-w-0 p-4 sm:p-6">
+        <TabsContent value="revisions" className="min-w-0 pt-5">
           {revisions.error ? (
             <>
               <ErrorNotice error={revisions.error} />

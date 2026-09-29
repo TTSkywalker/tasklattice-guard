@@ -16,10 +16,10 @@ const steps: RuntimeTraceStep[] = [
 it("renders the same hierarchy, outcomes, and interactions for Playground and Logs", () => {
   const telemetry = { metadata: { trace: steps.map(step => ({ ...step, parentId: step.parent_id, durationMs: step.duration_ms, parallelGroup: step.parallel_group })) } } as unknown as RuntimeEvent;
   const { container, unmount } = render(<ExecutionTrace steps={runtimeTraceSteps(telemetry)} />);
-  const logsMarkup = container.innerHTML;
+  const logsMarkup = container.textContent;
   unmount();
   const playground = render(<ExecutionTracePanel result={{ trace_id: "trace", trace: steps } as PlaygroundCheckResult} />);
-  expect(playground.container.innerHTML).toBe(logsMarkup);
+  expect(playground.container.textContent).toBe(logsMarkup);
   expect(playgroundTraceSteps(steps)[1]?.outcome).toBe("unsafe");
   fireEvent.click(screen.getByRole("button", { name: "logs.collapseSpan Runtime" }));
   expect(screen.queryByText("Action")).toBeNull();

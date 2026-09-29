@@ -16,15 +16,59 @@ focus, browser zoom and layout at desktop window sizes. Existing mobile styles
 and historical tests may remain; this is a scope change, not a request to remove
 working code. Feature-specific QA instructions must follow this desktop-only scope.
 
-## Carbon filter components
+## Console design language: Carbon
 
-The Security Events toolbar uses `@carbon/react` through `EventFilterToolbar`.
-Reuse this surface for matching list-filter interactions. Its Sass imports only
-used components under `.guard-carbon`, including local theme and layout tokens.
-Do not import Carbon's global reset or full stylesheet into the console. The
-scoped surface keeps the site typography and defines local white/g100 theme tokens.
-Risk filters are multi-select and URL-backed; the server filters before cursor
-pagination, while option counts describe the complete selected time window.
+The desktop console uses Carbon's productive UI language. `controller/src/design-system.scss`
+imports the installed Carbon g10 theme and maps its semantic tokens to the shared
+UI primitives and the existing console shell. `controller/src/styles.css` defines locally
+hosted IBM Plex Sans / IBM Plex Mono with Noto Sans SC for Chinese. Keep the
+TaskLattice brand and domain terminology.
+
+- Use the g10 canvas, white content layers, neutral separators, and square controls.
+  Reserve shadows for overlays, not ordinary content cards.
+- Use a 32px regular-weight page title, 14px UI text, the existing 64px shell header, a 252px
+  expanded sidebar and 72px collapsed sidebar, and 8px spacing increments. Default controls are 40px; dense controls
+  may be 32px. Keep visible keyboard focus and preserve existing accessible names.
+- Center button labels and inline icons together, with symmetric inline padding;
+  do not reserve trailing-icon space for buttons that use inline children.
+- Blue identifies the primary operation. Editing is an operation, not a warning.
+  Use warning, danger, and success colors for actual domain states and keep a text
+  label alongside status color. Risk severity, requested action, and execution
+  status remain separate concepts.
+- Shared controls in `controller/src/components/ui` compose native `@carbon/react`
+  components: Button, TextInput/TextArea, Dropdown/ComboBox/FilterableMultiSelect,
+  Checkbox/Toggle, Tabs, DataTable primitives, OverflowMenu, and notifications.
+  Add new controls here rather than adding another component library. Native Select is used for short HTML-form option lists.
+- Preserve the existing application shell layout and interaction contracts. The
+  brand belongs in the sidebar header and collapses to its icon; the toggle stays
+  in the content header, before the breadcrumbs. Keep navigation indentation,
+  group spacing, footer links, edge-rail toggle and Ctrl/Cmd+B shortcut. Hovering
+  must not expand a collapsed sidebar. Carbon visual migration does not replace
+  this shell with Carbon Header/SideNav/Content. Resource forms and
+  side-effect confirmations open in the existing right-side, full-height drawers
+  (`EntitySheet` / `ConfirmationSheet`), with a scrollable body and fixed actions.
+  Do not convert them to centered modals as part of a design-system migration.
+  Retain focus trapping/restoration, nested drawers, cancellation, pending-close
+  protection, and explicit confirmation before writes. Keep wizard keyboard
+  navigation and step-gating behavior. Carbon styles do not override these rules.
+  The drawer keeps its proven Radix Dialog behavior with Carbon form controls.
+  Dropdowns use floating positioning inside drawers; Escape closes the open
+  dropdown before the drawer. Preserve existing interaction test assertions;
+  adapting component selectors must not weaken behavior or layout contracts.
+- Query Builder, routing diagrams, charts, code/diff editors, and the conversation
+  engine remain domain components. Their controls, typography and surfaces share
+  the Carbon system; do not replace domain behavior with visual mockups.
+- Use the focused `@radix-ui/react-dialog` and `@radix-ui/react-slot` primitives
+  for the existing drawer, sidebar and wizard interaction contracts. The umbrella Radix,
+  shadcn and Sonner dependencies are removed. Global toasts use the shared Carbon
+  notification service.
+- Import only used native Carbon component styles, not a second global reset.
+  The Security Events toolbar uses `@carbon/react` through `EventFilterToolbar`
+  with a white local layer under `.guard-carbon`. Reuse it for matching filters.
+  Risk filters are multi-select and URL-backed; filtering happens before cursor
+  pagination, while option counts cover the selected time range.
+- Check default, focus, selected, disabled, empty, and error/recovery states at
+  desktop widths in both languages. Honor reduced-motion preferences.
 
 ## Run from source
 

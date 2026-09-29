@@ -41,7 +41,7 @@ export function GuardrailProfilePicker({ presets, selected, pending, onSelect, o
         <SelectTrigger id={id} className="min-h-11 h-auto w-full bg-card py-2.5 text-sm [&>span]:min-w-0 [&>span]:whitespace-normal [&>span]:text-left">
           <SelectValue>{profile ? profileLabel(profile) : blankLabel}</SelectValue>
         </SelectTrigger>
-        <SelectContent position="popper" align="start" className="w-(--radix-select-trigger-width)">
+        <SelectContent position="popper" align="start" className="">
           <SelectItem value="blank" className="min-h-11">{blankLabel}</SelectItem>
           {presets.map(item => <SelectItem key={item.id} value={item.id} textValue={item.name} className="min-h-11 py-2.5">{profileLabel(item)}</SelectItem>)}
         </SelectContent>

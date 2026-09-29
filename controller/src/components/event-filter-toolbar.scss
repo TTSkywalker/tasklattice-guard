@@ -1,18 +1,12 @@
-@use 'sass:meta';
 @use '@carbon/react/scss/themes';
 @use '@carbon/react/scss/theme';
 @use '@carbon/react/scss/spacing' as spacing;
 @use '@carbon/react/scss/utilities/layout';
 
-// Load only used components inside this surface. No Carbon reset or global theme.
+// Load only used components in this white layer; console tokens live in design-system.scss.
 .guard-carbon {
   @include theme.theme(themes.$white);
   @include layout.emit-layout-tokens;
-  @include meta.load-css('@carbon/react/scss/components/dropdown');
-  @include meta.load-css('@carbon/react/scss/components/multiselect');
-  @include meta.load-css('@carbon/react/scss/components/tag');
-  @include meta.load-css('@carbon/react/scss/components/button');
-  @include meta.load-css('@carbon/react/scss/components/toggletip');
 
   font-family: var(--font-sans);
   color: var(--cds-text-primary);

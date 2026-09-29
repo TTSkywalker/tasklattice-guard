@@ -94,7 +94,7 @@ function choose(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
 function tab(name: string) {
-  fireEvent.mouseDown(screen.getByRole("tab", { name }), {
+  fireEvent.click(screen.getByRole("tab", { name }), {
     button: 0,
     ctrlKey: false,
   });

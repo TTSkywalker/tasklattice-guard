@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileCode2,
+  BookOpen,
   Download,
   FlaskConical,
   LoaderCircle,
@@ -22,7 +23,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { PolicyStudioSheet } from "@/components/policy-studio";
 import { ConfirmationSheet } from "@/components/confirmation-sheet";
@@ -400,10 +401,10 @@ export function PolicyDetail({ policy, onClose, onEdit, onExport, onDelete }: { 
       <Tabs key={policy.id} defaultValue="policy" className="mt-5">
         <div className="overflow-x-auto">
           <TabsList aria-label={t("policyLibrary.detailViews")} className="min-w-max">
-            <TabsTrigger value="policy">{t("policyLibrary.tabs.policy")}</TabsTrigger>
-            <TabsTrigger value="validation">{t("policyLibrary.tabs.testCases")}</TabsTrigger>
-            <TabsTrigger value="compliance">{t("policyLibrary.tabs.compliance")}</TabsTrigger>
-            <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
+            <TabsTrigger value="policy"><ShieldCheck aria-hidden="true" />{t("policyLibrary.tabs.policy")}</TabsTrigger>
+            <TabsTrigger value="validation"><FlaskConical aria-hidden="true" />{t("policyLibrary.tabs.testCases")}</TabsTrigger>
+            <TabsTrigger value="compliance"><BookOpen aria-hidden="true" />{t("policyLibrary.tabs.compliance")}</TabsTrigger>
+            <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><FileCode2 aria-hidden="true" /><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="policy" className="space-y-5 pt-3 sm:pt-4">

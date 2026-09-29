@@ -25,10 +25,10 @@ export function RuntimeHealthAlert({ metrics }: { metrics: RuntimeHealthAlertMet
     : []]);
 
   return (
-    <Alert key={noticeKey} dismissible className="border-amber-200 bg-amber-50/70 text-amber-950">
+    <Alert key={noticeKey} dismissible variant="warning">
       <TriangleAlert />
       <AlertTitle>{t(detailKey === "dashboard.healthSystem" ? "dashboard.platformAttention" : "dashboard.degraded")}</AlertTitle>
-      <AlertDescription className="text-amber-900/75">{detailKey === "dashboard.healthSystem" && metrics.system_reasons?.some(reason => reason !== "all_required_components_ready")
+      <AlertDescription>{detailKey === "dashboard.healthSystem" && metrics.system_reasons?.some(reason => reason !== "all_required_components_ready")
         ? metrics.system_reasons.filter(reason => reason !== "all_required_components_ready").map(reason => <p key={reason}>{t(`platformStatus.reason.${reason}`)}</p>)
         : t(detailKey, { count: metrics.degraded_endpoints })}</AlertDescription>
     </Alert>

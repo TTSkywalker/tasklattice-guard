@@ -71,7 +71,7 @@ describe("URL-driven log inspection", () => {
   it("stores the selected Logs tab and opens the clicked checkpoint", async () => {
     const { router } = await setup();
     const checkpointTab = await screen.findByRole("tab", { name: "logs.checkpoints" });
-    fireEvent.mouseDown(checkpointTab, { button: 0, ctrlKey: false });
+    fireEvent.click(checkpointTab, { button: 0, ctrlKey: false });
     fireEvent.click(checkpointTab);
     fireEvent.click(await screen.findByRole("button", { name: "logs.inspectCheckpoint" }));
     await screen.findByRole("dialog");

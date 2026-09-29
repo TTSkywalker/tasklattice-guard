@@ -20,6 +20,15 @@ If a Router moves traffic from Guardrail v1 to v2:
 
 ## Scope of the page
 
-The current audit page loads the latest **500** events and then applies search and time filters to those loaded records. “All time” does not mean the page contains a complete history. A missing older event does not prove that the change never happened.
+Search and filtering run on the server across all retained events in the selected time range, rather than only the latest 500. The page shows the matching total and supports 25, 50, or 100 events per page.
+
+- **Search**: enter keywords from an event, actor ID, resource ID, or recorded details, then select Search or press Enter.
+- **Time range**: select the last 24 hours, 7 days, 30 days, or all retained time.
+- **Filters**: expand actor type, event type, and resource type filters. Remove applied conditions individually or clear them together.
+- **Details**: select an event name or row to inspect the recorded change in a right-side drawer without leaving the query.
+
+For example, to find a Router's publications in the last 30 days, select that time range, filter to the Router resource type and its publication event, and search for the Router ID.
+
+Filters, page number, and the query cutoff are stored in the URL for reloads, Back/Forward navigation, and sharing. The cutoff stays fixed while paging so newly arriving events do not shift rows. Refresh preserves the filters, advances the cutoff, and returns to the first page. The cutoff is shown above the table.
 
 [Open audit log](/audit-log)

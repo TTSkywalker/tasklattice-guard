@@ -23,7 +23,7 @@ vi.mock("@/components/account-menu", () => ({
   AccountMenu: ({ placement }: { placement?: string }) => <button type="button">Account menu · {placement}</button>,
 }));
 vi.mock("@/components/control-plane-sidebar", () => ({ ControlPlaneSidebar: () => <aside>Navigation</aside> }));
-vi.mock("@/components/ui/sonner", () => ({ Toaster: () => null }));
+vi.mock("@/components/ui/notifications", () => ({ Toaster: () => null }));
 vi.mock("@/components/ui/sidebar", () => ({
   SidebarProvider: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   SidebarInset: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -54,6 +54,10 @@ describe("ControlPlaneLayout", () => {
 
     expect(screen.getByRole("button", { name: "Account menu · header" })).toBeTruthy();
     expect(screen.getByText("Page content")).toBeTruthy();
+    const header = screen.getByRole("banner");
+    expect(header.contains(screen.getByRole("button", { name: "Toggle navigation" }))).toBe(true);
+    expect(header.contains(screen.getByRole("button", { name: "Account menu · header" }))).toBe(true);
+    expect(header.contains(screen.getByText("Navigation"))).toBe(false);
     expect(screen.getByText("Dashboard")).toBeTruthy();
     expect(screen.queryByText("Home")).toBeNull();
     expect(screen.queryByText("TaskLattice Guard")).toBeNull();

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, ShieldCheck, UserRoundCog, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { EmptyState, ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell";

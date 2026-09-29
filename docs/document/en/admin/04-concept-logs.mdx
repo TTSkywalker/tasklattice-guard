@@ -48,9 +48,13 @@ Open **Guardrail → Security Events** to inspect detected issues. Select a time
 
 Multiple Rule matches in one request keep their individual levels; the Router request summary shows the highest. Safe checks do not create security events. Failed checks remain in runtime logs with a Check failed notice, independently of the final allow/block outcome. Risk is not an investigation status; there is currently no assignment, closure, or suppression workflow.
 
+<a id="concept-unclassified-events" />
+
 ### Why older records may be Unclassified
 
 Older events and Guardrail artifacts may not contain a Rule risk snapshot. The system does not reconstruct history from current Policy settings or reuse the old confidence-derived rating. Test and publish a new Guardrail Version using classified Policies to include risk snapshots in subsequent events. Historical records remain unchanged.
+
+<a id="concept-event-log-levels" />
 
 ### How INFO / DEBUG / TRACE differ
 

@@ -1,3 +1,5 @@
+import { queryAuditEvents } from "./audit-events.js";
+import type { AuditQuery } from "../../shared/audit-query.js";
 import type { EventSeverity } from "../../shared/security-severity.js";
 import { readGuardrailProfiles } from "./guardrail-profiles.js";
 import { expandProtectionPreset } from "../policy-catalog/presets.js";
@@ -1494,8 +1496,8 @@ export class ControlPlaneService {
     });
   }
 
-  async listAuditEvents(limit = 100) {
-    return this.db.select().from(auditEvents).orderBy(desc(auditEvents.occurredAt)).limit(limit);
+  async listAuditEvents(query: Partial<AuditQuery> = {}) {
+    return queryAuditEvents(this.db, query);
   }
 
   async createRouter(input: {

@@ -13,9 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export type ShadcnValueSelectorProps = VersatileSelectorProps;
+export type CarbonValueSelectorProps = VersatileSelectorProps;
 
-export const ShadcnValueSelector = ({
+export const CarbonValueSelector = ({
   className,
   handleOnChange,
   options,
@@ -36,7 +36,7 @@ export const ShadcnValueSelector = ({
   validation: _validation,
   schema: _schema,
   ...otherProps
-}: ShadcnValueSelectorProps): React.JSX.Element => {
+}: CarbonValueSelectorProps): React.JSX.Element => {
   const { onChange, val } = useValueSelector({ handleOnChange, value });
   const optionContent = useMemo(() => {
     const items = options as OptionList;

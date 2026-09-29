@@ -1,3 +1,4 @@
+import { auditLogSearch } from "../shared/audit-query";
 import { selectedSeverities } from "../shared/security-severity";
 import { createBrowserHistory, createRootRoute, createRoute, createRouter, Navigate, redirect, useRouterState } from "@tanstack/react-router";
 
@@ -66,7 +67,7 @@ const logsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/logs", 
   ...Object.fromEntries(['requestId', 'checkpointId', 'guardrailId', 'routerId', 'routeId', 'targetId', 'endpointId', 'since', 'until'].flatMap(key => typeof search[key] === 'string' && search[key].trim() ? [[key, search[key]]] : [])),
   ...(Number.isInteger(Number(search.routerRevision)) && Number(search.routerRevision) > 0 ? { routerRevision: Number(search.routerRevision) } : {}),
 }), component: LogsPage });
-const auditLogRoute = createRoute({ getParentRoute: () => rootRoute, path: "/audit-log", component: AuditLogPage });
+const auditLogRoute = createRoute({ getParentRoute: () => rootRoute, path: "/audit-log", validateSearch: auditLogSearch, component: AuditLogPage });
 const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
 const accountRoute = createRoute({ getParentRoute: () => rootRoute, path: "/account", component: AccountRoutePage });
 function AccountRoutePage() {

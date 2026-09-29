@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { SelectorEditor } from './selector-editor';
 import { capabilityIssues, selectorExpressionSchema, selectableSelectorFields, type SelectorExpression, type RouterDraft } from '../../../shared/traffic-routing';
@@ -16,7 +16,7 @@ function Harness() {
 const currentExpression = (): SelectorExpression => JSON.parse(screen.getByTestId('expression').textContent!);
 const draftFor = (expression: SelectorExpression): RouterDraft => ({ routes: [{ id: 'route', name: 'Route', kind: 'normal', enabled: true, selector: { expression }, targets: [] }] });
 async function select(testId: string, name: string) {
-  fireEvent.keyDown(screen.getByTestId(testId), { key: 'ArrowDown' });
+  fireEvent.keyDown(within(screen.getByTestId(testId)).getByRole("combobox"), { key: 'ArrowDown' });
   fireEvent.click(await screen.findByRole('option', { name, exact: true }));
 }
 
@@ -52,7 +52,7 @@ it.each(['in', 'not_in', 'exists', 'not_exists'])('serializes the %s operator af
 it('hides unsupported LiteLLM fields and still rejects unsupported saved conditions', async () => {
   render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: 'Add condition' }));
-  fireEvent.keyDown(screen.getByTestId('fields'), { key: 'ArrowDown' });
+  fireEvent.keyDown(within(screen.getByTestId('fields')).getByRole('combobox'), { key: 'ArrowDown' });
   expect(await screen.findByRole('option', { name: 'litellm.team_id', exact: true })).toBeTruthy();
   for (const name of ['a2a.version', 'litellm.version', 'output.sink', 'output.content_type', 'output.schema_id', 'JWT Claim', 'Request attribute']) {
     expect(screen.queryByRole('option', { name, exact: true })).toBeNull();

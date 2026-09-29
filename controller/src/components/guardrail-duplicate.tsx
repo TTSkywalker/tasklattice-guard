@@ -1,3 +1,4 @@
+import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
 import { queryKeys } from "@/features/query-keys";
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -21,7 +22,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="grid min-w-0 gap-2 text-sm"><span className="font-medium">{label}</span>{children}</label>;
 }
 function NativeSelect(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${props.className ?? ''}`} />;
+  return <CarbonNativeSelect {...props} className={`h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${props.className ?? ''}`} />;
 }
 
 export function DuplicateGuardrailSheet({ id, name, close, onDuplicated }: { id: string; name: string; close: () => void; onDuplicated?: (copy: GuardrailDetail) => void }) {

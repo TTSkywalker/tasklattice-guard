@@ -4,7 +4,7 @@ import { eventSeverity } from "../../shared/security-severity";
 const classes = {
   critical: "border-destructive bg-destructive/10 text-destructive",
   high: "border-destructive/40 text-destructive",
-  medium: "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  medium: "border-transparent bg-[var(--notice-warning)] text-[var(--warning)]",
   low: "border-border text-foreground",
   informational: "border-primary/30 bg-primary/5 text-primary",
   unclassified: "border-border text-muted-foreground",

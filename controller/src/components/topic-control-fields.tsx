@@ -1,3 +1,4 @@
+import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
 import { useId, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
@@ -10,10 +11,10 @@ export function TopicModeField({ mode, onChange, disabled = false }: { mode: Top
   const id = useId();
   return <div className="grid gap-2">
     <Label htmlFor={id}>{t("topicControl.mode")}</Label>
-    <select id={id} value={mode} disabled={disabled} onChange={event => onChange(event.target.value as TopicControlMode)} aria-describedby={`${id}-hint`} className="min-h-11 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+    <CarbonNativeSelect id={id} value={mode} disabled={disabled} onChange={event => onChange(event.target.value as TopicControlMode)} aria-describedby={`${id}-hint`} className="min-h-11 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
       <option value="strict">{t("topicControl.strict")}</option>
       <option value="permissive">{t("topicControl.permissive")}</option>
-    </select>
+    </CarbonNativeSelect>
     <p id={`${id}-hint`} className="text-xs leading-5 text-muted-foreground">{t(`topicControl.${mode}Hint`)}</p>
   </div>;
 }

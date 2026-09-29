@@ -66,7 +66,7 @@ vi.mock("@/lib/auth", () => ({
   useAuth: () => ({ user, updateProfile: updateProfileMock }),
 }));
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/components/ui/notifications", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 function renderPage(section: "general" | "security" = "general") {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });

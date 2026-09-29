@@ -145,7 +145,7 @@ const policy: Policy = {
 };
 
 function clickTab(tab: HTMLElement) {
-  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.click(tab, { button: 0, ctrlKey: false });
   fireEvent.mouseUp(tab, { button: 0, ctrlKey: false });
   fireEvent.click(tab);
 }
@@ -292,11 +292,11 @@ describe("Catalog filtering", () => {
       return <CatalogFilters policies={items} facets={tagFacets(items)} directory={directory} onDirectoryChange={(value) => setDirectory(value as "privacy" | null)} selected={selected} onChange={setSelected} onClear={() => { setDirectory(null); setSelected(new Set()); }} />;
     }
     render(<Harness />);
-    expect(screen.getByRole("checkbox", { name: /Australia/ }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("checkbox", { name: /Australia/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByRole("button", { name: /protection.allDirectories/ })).toBeNull();
-    expect(screen.getByRole("checkbox", { name: /Australia/ }).getAttribute("aria-checked")).toBe("false");
+    expect((screen.getByRole("checkbox", { name: /Australia/ }) as HTMLInputElement).checked).toBe(false);
     expect((screen.getByRole("button", { name: "Clear filters" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /protection.directories.privacy/ }));
     expect(screen.getByRole("button", { name: /protection.directories.privacy/ }).getAttribute("aria-pressed")).toBe("true");

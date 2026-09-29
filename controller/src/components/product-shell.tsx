@@ -25,7 +25,7 @@ export function PageHeader({
     <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
         {eyebrow ? <p className="text-sm font-medium text-primary">{eyebrow}</p> : null}
-        <h1 className={cn("font-display text-3xl font-semibold tracking-[-0.015em] text-foreground sm:text-[2rem]", eyebrow && "mt-1.5")}>
+        <h1 className={cn("font-sans text-3xl font-normal tracking-normal text-foreground sm:text-[2rem]", eyebrow && "mt-1.5")}>
           {title}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
@@ -47,16 +47,16 @@ export function StateBadge({ state, label }: { state: string; label?: string }) 
       variant={negative ? "destructive" : "outline"}
       className={cn(
         "h-5 rounded-sm px-2 text-[11px] font-medium capitalize",
-        positive && "border-emerald-200 bg-emerald-50 text-emerald-700",
-        warning && "border-amber-200 bg-amber-50 text-amber-700",
+        positive && "border-transparent bg-[var(--notice-success)] text-[var(--success)]",
+        warning && "border-transparent bg-[var(--notice-warning)] text-[var(--warning)]",
       )}
     >
       <span
         className={cn(
           "size-1.5 rounded-full bg-muted-foreground/50",
-          positive && "bg-emerald-500",
+          positive && "bg-[var(--success)]",
           negative && "bg-destructive",
-          warning && "bg-amber-500",
+          warning && "bg-[var(--warning)]",
         )}
       />
       {label ?? (i18n.exists(`states.${normalized}`) ? t(`states.${normalized}`) : state.replaceAll("_", " "))}
@@ -121,7 +121,7 @@ export function InfoNotice({
   dismissible?: boolean;
 }) {
   return (
-    <Alert dismissible={dismissible} className="border-primary/20 bg-primary/[0.04] text-foreground">
+    <Alert dismissible={dismissible} variant="info">
       <Info className="text-primary" />
       {title ? <AlertTitle>{title}</AlertTitle> : null}
       <AlertDescription className="leading-5 text-muted-foreground">{children}</AlertDescription>

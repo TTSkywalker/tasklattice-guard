@@ -1,7 +1,8 @@
+import { Checkbox as CarbonCheckbox } from "@/components/ui/checkbox";
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { QueryBuilder, type RuleGroupType, type ValueEditorProps, type ActionProps } from 'react-querybuilder';
-import { QueryBuilderShadcn } from '@/components/query-builder';
+import { QueryBuilderCarbon } from '@/components/query-builder';
 import 'react-querybuilder/dist/query-builder.css';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,7 @@ export function SelectorEditor({ value, onChange, fields = defaultSelectorFields
     }
   }, [value]);
   const total = leafCount(value);
-  return <QueryBuilderShadcn><QueryBuilder
+  return <QueryBuilderCarbon><QueryBuilder
     fields={fields.map(field => ({ name: field.id, label: field.label }))}
     query={query}
     onQueryChange={nextQuery => {
@@ -60,7 +61,7 @@ export function SelectorEditor({ value, onChange, fields = defaultSelectorFields
       removeRule: { label: t('删除条件', 'Remove condition') },
       removeGroup: { label: t('删除条件组', 'Remove group') },
     }}
-  /></QueryBuilderShadcn>;
+  /></QueryBuilderCarbon>;
 }
 export function toQuery(expression: SelectorExpression): RuleGroupType {
   return { id: crypto.randomUUID(), combinator: expression.combinator, rules: expression.conditions.map(condition =>
@@ -102,7 +103,7 @@ function Condition({ value, fields, onChange }: { value: SelectorCondition; fiel
     {field?.http && <Field label={t('HTTP 来源', 'HTTP source')}><NativeSelect value={value.requestSource ?? ''} onChange={e => onChange({ ...value, requestSource: e.target.value as SelectorCondition['requestSource'] })}><option value="" disabled>{t('选择来源', 'Choose source')}</option><option value="endpoint_request">{t('Endpoint 接入请求', 'Endpoint request')}</option><option value="business_request">{t('原始业务请求', 'Original business request')}</option></NativeSelect></Field>}
     {field?.customKey && <Field label={value.field === 'http.header' ? t('Header 名称', 'Header name') : t('属性名称', 'Attribute key')}><Input className="min-h-11" value={value.key ?? ''} onChange={e => onChange({ ...value, key: value.field === 'http.header' ? e.target.value.toLowerCase() : e.target.value })} placeholder={value.field === 'http.header' ? 'x-channel' : ''} /></Field>}
     {!noValue && (multiple ? <div className="grid gap-2 sm:col-span-2">{values.map((v, i) => <div key={i} className="flex items-end gap-2"><div className="min-w-0 flex-1"><Field label={`${t('值', 'Value')} ${i + 1}`}><Input className="min-h-11" value={v} onChange={e => onChange({ ...value, value: values.map((s, n) => n === i ? e.target.value : s) })} /></Field></div><Button className="min-h-11" variant="destructive" aria-label={`${t('删除值', 'Remove value')} ${i + 1}`} onClick={() => onChange({ ...value, value: values.filter((_, n) => n !== i) })}>−</Button></div>)}<Button type="button" className="min-h-11 justify-self-start" variant="create" onClick={() => onChange({ ...value, value: [...values, ''] })}>{t('添加值', 'Add value')}</Button></div> : <Field label={t('值', 'Value')}><Input className="min-h-11" value={values[0] ?? ''} onChange={e => onChange({ ...value, value: e.target.value })} /></Field>)}
-    {!noValue && <label className="flex min-h-11 items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={value.caseSensitive !== false} onChange={e => onChange({ ...value, caseSensitive: e.target.checked })} />{t('区分大小写', 'Case sensitive')}</label>}
+    {!noValue && <label className="flex min-h-11 items-center gap-2 text-sm sm:col-span-2"><CarbonCheckbox checked={value.caseSensitive !== false} onChange={e => onChange({ ...value, caseSensitive: e.target.checked })} />{t('区分大小写', 'Case sensitive')}</label>}
   </div>;
 }
 

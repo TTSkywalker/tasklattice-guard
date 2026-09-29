@@ -1,3 +1,4 @@
+import { Checkbox as CarbonCheckbox } from "@/components/ui/checkbox";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { ConfirmationSheet } from "@/components/confirmation-sheet";
 import { ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell";
@@ -349,7 +350,7 @@ function RunnerConfigurationComparison({ view, selectedBindings, onSelectionChan
         const selected = selectedBindings.includes(binding.id);
         return <TableRow key={binding.id}>
           <TableCell className="whitespace-normal align-top"><p className="font-medium">{capabilityTitle(t, binding)}</p>
-            {change ? <label className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" aria-label={`${t("modelSettings.applyBinding")} ${binding.id}`} checked={selected} disabled={disabled || !change.ready}
+            {change ? <label className="flex min-h-11 items-center gap-2 text-xs"><CarbonCheckbox aria-label={`${t("modelSettings.applyBinding")} ${binding.id}`} checked={selected} disabled={disabled || !change.ready}
               onChange={event => onSelectionChange(event.target.checked ? [...selectedBindings, binding.id] : selectedBindings.filter(id => id !== binding.id))} />
               {t(change.ready ? "modelSettings.bindingReady" : "modelSettings.bindingNotReady")}</label> : null}
           </TableCell>

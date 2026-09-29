@@ -395,7 +395,19 @@ class ArtifactStore:
         canonical = _stable_json(content)
         checksum = hashlib.sha256(canonical.encode()).hexdigest()
         if not hmac.compare_digest(checksum, message.checksum):
-            raise ValueError(f"Artifact {message.artifact_id} checksum does not match its content.")
+            # Protobuf repeated fields have no presence bit. The severity-field
+            # addition decodes previously signed bindings with an extra empty
+            # rule_severities list, changing their canonical JSON. Recover only
+            # that known earlier representation; never discard recorded levels.
+            bindings = content["plan"].get("policy_bindings", [])
+            if bindings and all(binding.get("rule_severities") == [] for binding in bindings):
+                content["plan"]["policy_bindings"] = [
+                    {key: value for key, value in binding.items() if key != "rule_severities"}
+                    for binding in bindings
+                ]
+                checksum = hashlib.sha256(_stable_json(content).encode()).hexdigest()
+            if not hmac.compare_digest(checksum, message.checksum):
+                raise ValueError(f"Artifact {message.artifact_id} checksum does not match its content.")
         self._public_key.verify(_base64(message.signature), checksum.encode())
         if message.nemo_version != self._nemo_version:
             raise ValueError(

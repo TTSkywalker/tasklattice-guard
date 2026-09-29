@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Ban, ChevronDown, ChevronRight, Info, LoaderCircle, Play, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { AddTestCaseSheet } from "@/components/add-test-case-sheet";

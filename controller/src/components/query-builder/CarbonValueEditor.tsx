@@ -10,11 +10,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-export interface ShadcnValueEditorProps extends ValueEditorProps {
+export interface CarbonValueEditorProps extends ValueEditorProps {
   extraProps?: Record<string, unknown>;
 }
 
-export const ShadcnValueEditor = (allProps: ShadcnValueEditorProps): React.JSX.Element | null => {
+export const CarbonValueEditor = (allProps: CarbonValueEditorProps): React.JSX.Element | null => {
   const {
     fieldData,
     operator,

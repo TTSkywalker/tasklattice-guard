@@ -1,3 +1,4 @@
+import { auditQuerySchema } from "../../shared/audit-query.js";
 import { pathTestSchema, parseHttpRequest, requestSource } from "../../shared/playground-path.js";
 import { openApiDocument, apiReferenceHtml, apiAgentIndex } from "./openapi.js";
 import { allowsTokenPermission } from "../../shared/access-tokens.js";
@@ -945,8 +946,8 @@ export function createHttpApp(input: {
     return context.json(await input.service.runtimeMetrics(scope));
   });
   app.get("/api/v1/audit-events", authenticated, async (context) => {
-    const limit = z.coerce.number().int().min(1).max(500).default(100).parse(context.req.query("limit"));
-    return context.json({ items: await input.service.listAuditEvents(limit) });
+    const query = auditQuerySchema.parse(context.req.query());
+    return context.json(await input.service.listAuditEvents(query));
   });
 
   app.post("/api/internal/v1/runtime-events", runnerAuthentication(input.config.runnerToken), async (context) => {
@@ -1002,12 +1003,28 @@ export function createHttpApp(input: {
   app.all("/api/*", context => context.json({ error: { code: "not_found", message: "API operation not found." } }, 404));
   const uiRoot = resolve(input.config.uiDist);
   if (existsSync(uiRoot)) {
+    // Hashed build assets must never fall through to the SPA document. During
+    // an upgrade an old/new hash may be unavailable on a particular replica.
+    app.use("/assets/*", async (context, next) => {
+      await next();
+      context.header("Cache-Control", context.res.status === 200 || context.res.status === 206
+        ? "public, max-age=31536000, immutable" : "no-store");
+    });
     app.use("/assets/*", serveStatic({ root: uiRoot }));
+    app.all("/assets/*", context => {
+      context.header("Cache-Control", "no-store");
+      return context.text("Asset not found. Reload the page to load the current version.", 404);
+    });
     app.use("/docs/diagrams/*", serveStatic({ root: uiRoot }));
     app.get("/docs/diagrams/*", context => context.text("Not found", 404));
     app.get("/favicon.svg", serveStatic({ root: uiRoot, path: "favicon.svg" }));
     app.get("/favicon.ico", serveStatic({ root: uiRoot, path: "favicon.ico" }));
-    app.get("*", serveStatic({ root: uiRoot, path: "index.html" }));
+    // Each navigation must fetch the document for the current deployment,
+    // rather than retaining references to a previous build's asset hashes.
+    app.get("*", async (context, next) => {
+      context.header("Cache-Control", "no-store");
+      await next();
+    }, serveStatic({ root: uiRoot, path: "index.html" }));
   }
   return app;
 }
