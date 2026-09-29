@@ -19,6 +19,26 @@ const config = loadConfig({
 });
 
 describe("Runner instance management HTTP routes", () => {
+  it("requires authentication for source identities", async () => {
+    const app = appWith(null, {});
+    expect((await app.request("/api/v1/system/version")).status).toBe(401);
+  });
+  it("uses each Runner's reported source, retaining unknown metadata for older Runners", async () => {
+    const software = { version: "v1.0.0-1-gabcdef-dirty", commit: "abcdef", branch: "main", dirty: true, source: "build" };
+    const app = appWith({ user: { id: "user-1", role: "user" } }, {
+      listRunnerPoolsWithCapacity: vi.fn().mockResolvedValue([{ id: "default", instances: [
+        { runnerId: "new", runnerVersion: software.version, labels: { "tasklattice.build": JSON.stringify(software) }, status: "ready", lastHeartbeatAt: null },
+        { runnerId: "old", runnerVersion: "0.2.0", labels: {}, status: "offline", lastHeartbeatAt: null },
+      ] }]),
+    });
+    const response = await app.request("/api/v1/system/version");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json();
+    expect(body.dataPlane[0].software).toEqual(software);
+    expect(body.dataPlane[1].software).toMatchObject({ version: "0.2.0", dirty: null, source: "unknown" });
+    expect(body.controlPlane).toHaveProperty("commit");
+  });
   it("force-removes a syncing registration and closes only the removed boot's connection", async () => {
     const removeRunnerInstance = vi.fn().mockResolvedValue({ bootId: "boot-1" });
     const removeRunnerConnection = vi.fn();

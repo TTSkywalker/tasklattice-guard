@@ -394,7 +394,7 @@ function ControlPlaneSection({ models, selectedId, savedId, report, disabled, sa
         <div>
           <Label htmlFor="control-plane-model" className="sr-only">{t("modelSettings.assignedModel")}</Label>
           <Select value={selectedId ?? noneValue} disabled={disabled} onValueChange={(value) => onChange(value === noneValue ? null : value)}>
-            <SelectTrigger id="control-plane-model" className="h-11 w-full"><SelectValue placeholder={t("modelSettings.notAssigned")} /></SelectTrigger>
+            <SelectTrigger id="control-plane-model" className="field:h-11 w-full"><SelectValue placeholder={t("modelSettings.notAssigned")} /></SelectTrigger>
             <SelectContent position="popper">
               <SelectItem value={noneValue}>{t("modelSettings.notAssigned")}</SelectItem>
               {available.map((model) => <SelectItem key={model.id} value={model.id}><ModelOption model={model} /></SelectItem>)}
@@ -508,7 +508,7 @@ function CapabilityBindingTable({ rows, savedAssignments, report, disabled, savi
         <TableCell className="whitespace-normal">
           <Label className="sr-only" htmlFor={`binding-model-${binding.id}`}>{t("modelSettings.modelColumn")}</Label>
           <Select value={modelId ?? noneValue} disabled={disabled || !selectableModels.length} onValueChange={(value) => onChange(binding.id, value === noneValue ? null : value)}>
-            <SelectTrigger id={`binding-model-${binding.id}`} className="h-11 w-full" title={!compatibleModels.length ? t("modelSettings.noCompatibleModels") : undefined}><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
+            <SelectTrigger id={`binding-model-${binding.id}`} className="field:h-11 w-full" title={!compatibleModels.length ? t("modelSettings.noCompatibleModels") : undefined}><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
             <SelectContent position="popper"><SelectItem value={noneValue}>{t(compatibleModels.length ? "modelSettings.notAssigned" : "modelSettings.noCompatibleModelsShort")}</SelectItem>{selectableModels.map((model) => <SelectItem key={model.id} value={model.id}><ModelOption model={model} /></SelectItem>)}</SelectContent>
           </Select>
           {preferred ? <p className="mt-2 text-xs text-muted-foreground">{t("modelSettings.recommendedModel", { name: preferred.name })}</p> : <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t("modelSettings.noCompatibleModelsHelp")}</p>}

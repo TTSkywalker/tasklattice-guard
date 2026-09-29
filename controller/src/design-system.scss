@@ -331,3 +331,17 @@ svg.lucide {
 [data-sidebar="menu-item"] > .cds--tooltip > .cds--tooltip-trigger__wrapper {
   width: 100%;
 }
+
+// Let each dropdown's visible button determine its height. Carbon's default
+// fixed-height list box otherwise clips short fields and leaves tall wrappers.
+@layer components {
+  .guard-select .cds--list-box {
+    block-size: auto;
+    max-block-size: none;
+    border-block-end: 0;
+  }
+  .guard-select .cds--list-box__field {
+    block-size: var(--cds-layout-size-height-local, 2.5rem);
+    border-block-end: 1px solid var(--cds-border-strong);
+  }
+}

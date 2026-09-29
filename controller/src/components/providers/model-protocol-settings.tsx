@@ -49,7 +49,7 @@ export function ModelProtocolSettings({ models, disabled, onChanged }: {
           <div className="space-y-2">
             <Label htmlFor="protocol-model">{t("modelSettings.model")}</Label>
             <Select value={model?.id ?? ""} disabled={save.isPending} onValueChange={(id) => { setModel(models.find((item) => item.id === id)); save.reset(); }}>
-              <SelectTrigger id="protocol-model" className="h-11 w-full"><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
+              <SelectTrigger id="protocol-model" className="field:h-11 w-full"><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
               <SelectContent position="popper">{models.map((item) => <SelectItem key={item.id} value={item.id}>{item.name} · {item.providerName}</SelectItem>)}</SelectContent>
             </Select>
           </div>
@@ -59,12 +59,12 @@ export function ModelProtocolSettings({ models, disabled, onChanged }: {
             <div className="space-y-2">
               <Label htmlFor="model-protocol">{t("modelSettings.profile")}</Label>
               <Select value={model.profile} disabled={disabled || save.isPending || model.protocolEditable === false} onValueChange={(profile) => setModel({ ...model, profile: profile as ModelDefinition["profile"] })}>
-                <SelectTrigger id="model-protocol" className="h-11 w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="model-protocol" className="field:h-11 w-full"><SelectValue /></SelectTrigger>
                 <SelectContent position="popper">{profiles.map((profile) => <SelectItem key={profile} value={profile}>{t(`modelSettings.profiles.${profile}`)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-2"><Label htmlFor="model-timeout">{t("modelSettings.timeout")}</Label><Input id="model-timeout" type="number" className="h-11" required min={1} max={120} value={model.timeoutSeconds} onChange={(event) => setModel({ ...model, timeoutSeconds: Number(event.target.value) })} /></div>
-            <div className="space-y-2"><Label htmlFor="model-token-limit">{t("modelSettings.maxTokens")}</Label><Input id="model-token-limit" type="number" className="h-11" required min={1} max={32768} value={model.maxTokens} onChange={(event) => setModel({ ...model, maxTokens: Number(event.target.value) })} /></div>
+            <div className="space-y-2"><Label htmlFor="model-timeout">{t("modelSettings.timeout")}</Label><Input id="model-timeout" type="number" className="field:h-11" required min={1} max={120} value={model.timeoutSeconds} onChange={(event) => setModel({ ...model, timeoutSeconds: Number(event.target.value) })} /></div>
+            <div className="space-y-2"><Label htmlFor="model-token-limit">{t("modelSettings.maxTokens")}</Label><Input id="model-token-limit" type="number" className="field:h-11" required min={1} max={32768} value={model.maxTokens} onChange={(event) => setModel({ ...model, maxTokens: Number(event.target.value) })} /></div>
           </fieldset> : null}
           {save.error ? <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{save.error.message}</p> : null}
         </form>

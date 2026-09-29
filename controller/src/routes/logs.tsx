@@ -104,16 +104,16 @@ export function LogsPage() {
       <Card className="mt-5 gap-0 p-0 shadow-none">
         <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
           <LogFilter label={t("logs.guardrailFilter")}>
-            <Select value={guardrailId} onValueChange={setGuardrailId}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("logs.allGuardrails")}</SelectItem>{guardrails.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
+            <Select value={guardrailId} onValueChange={setGuardrailId}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("logs.allGuardrails")}</SelectItem>{guardrails.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
           </LogFilter>
           <LogFilter label={t("logs.windowFilter")}>
-            <Select value={window} onValueChange={(value) => setWindow(value as MetricWindow)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{(["1h", "24h", "7d", "15d", "30d"] as MetricWindow[]).map((value) => <SelectItem key={value} value={value}>{t(`dashboard.windows.${value}`)}</SelectItem>)}</SelectContent></Select>
+            <Select value={window} onValueChange={(value) => setWindow(value as MetricWindow)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent>{(["1h", "24h", "7d", "15d", "30d"] as MetricWindow[]).map((value) => <SelectItem key={value} value={value}>{t(`dashboard.windows.${value}`)}</SelectItem>)}</SelectContent></Select>
           </LogFilter>
           <LogFilter label={t("logs.directionFilter")}>
-            <Select value={phase} onValueChange={(value) => setPhase(value as PhaseFilter)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("logs.allDirections")}</SelectItem><SelectItem value="input">{t("logs.inbound")}</SelectItem><SelectItem value="output">{t("logs.outbound")}</SelectItem></SelectContent></Select>
+            <Select value={phase} onValueChange={(value) => setPhase(value as PhaseFilter)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("logs.allDirections")}</SelectItem><SelectItem value="input">{t("logs.inbound")}</SelectItem><SelectItem value="output">{t("logs.outbound")}</SelectItem></SelectContent></Select>
           </LogFilter>
           <LogFilter label={t("logs.outcomeFilter")}>
-            <Select value={outcome} onValueChange={(value) => setOutcome(value as OutcomeFilter)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("logs.allOutcomes")}</SelectItem>{(["allow", "transform", "block", "error"] as const).map((value) => <SelectItem key={value} value={value}>{t(`logs.outcomes.${value}`)}</SelectItem>)}</SelectContent></Select>
+            <Select value={outcome} onValueChange={(value) => setOutcome(value as OutcomeFilter)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("logs.allOutcomes")}</SelectItem>{(["allow", "transform", "block", "error"] as const).map((value) => <SelectItem key={value} value={value}>{t(`logs.outcomes.${value}`)}</SelectItem>)}</SelectContent></Select>
           </LogFilter>
         </div>
       </Card>

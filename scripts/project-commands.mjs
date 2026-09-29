@@ -1,3 +1,4 @@
+import { gitBuildInfo } from "./git-build-info.mjs";
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -29,11 +30,12 @@ function run(command, argv, quiet = false) {
 const pack = () => run('bash', ['scripts/package-runtime-chart.sh', env.DEV_CHART_VERSION ?? '0.0.0-dev']);
 async function images(component) {
   if (component && !['controller', 'runner'].includes(component)) throw new Error(`Unknown image component: ${component}`);
+  const buildInfo = JSON.stringify(gitBuildInfo());
   if (!component || component === 'controller') {
     await pack();
-    await run('docker', ['build', '-f', 'Dockerfile.controller', '-t', env.CONTROLLER_IMAGE ?? `${env.CONTROLLER_REPOSITORY ?? 'ghcr.io/tasklattice/tali-guard-controller'}:dev`, '.']);
+    await run('docker', ['build', '--build-arg', `TALI_BUILD_INFO=${buildInfo}`, '-f', 'Dockerfile.controller', '-t', env.CONTROLLER_IMAGE ?? `${env.CONTROLLER_REPOSITORY ?? 'ghcr.io/tasklattice/tali-guard-controller'}:dev`, '.']);
   }
-  if (!component || component === 'runner') await run('docker', ['build', '-f', 'Dockerfile.runner', '-t', env.RUNNER_IMAGE ?? `${env.RUNNER_REPOSITORY ?? 'ghcr.io/tasklattice/tali-guard-runner'}:dev`, '.']);
+  if (!component || component === 'runner') await run('docker', ['build', '--build-arg', `TALI_BUILD_INFO=${buildInfo}`, '-f', 'Dockerfile.runner', '-t', env.RUNNER_IMAGE ?? `${env.RUNNER_REPOSITORY ?? 'ghcr.io/tasklattice/tali-guard-runner'}:dev`, '.']);
 }
 async function lint(extra = args) {
   for (const values of [required, ['--values', devValues], ['--values', devValues, '--set', 'observability.serviceMonitor.enabled=true', '--set', 'observability.prometheusRule.enabled=true', '--set', 'observability.grafanaDashboard.enabled=true'], ['--values', devValues, '--values', debugValues]]) {

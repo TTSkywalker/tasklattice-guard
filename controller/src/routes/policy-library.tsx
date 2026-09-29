@@ -185,7 +185,7 @@ export function PolicyLibraryPage() {
           <span className="sr-only">{t("policyLibrary.searchCatalog")}</span>
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="min-h-11 bg-card pl-9"
+            className="field:min-h-11 field:bg-card field:pl-9"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t("policyLibrary.catalogSearchPlaceholder")}

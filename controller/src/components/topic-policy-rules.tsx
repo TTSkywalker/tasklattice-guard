@@ -33,7 +33,7 @@ export function TopicPolicyRules({ binding, policy, onChange }: {
         <p className="mb-3 text-xs leading-5 text-muted-foreground">{t(`protection.topicRules.${deny ? "denyHint" : "allowHint"}`)}</p>
         {enabled ? <div className="space-y-4">
           <label htmlFor={`${id}-${deny ? "deny" : "allow"}`} className="block text-sm font-medium">{t(deny ? "topicControl.denied" : "topicControl.allowed")}</label>
-          <Textarea id={`${id}-${deny ? "deny" : "allow"}`} className="min-h-28" value={deny ? values.denied : values.allowed} placeholder={t("guardrailWizard.onePerLine")} onChange={event => parameters({ [deny ? "denied_topics" : "allowed_topics"]: event.target.value })} />
+          <Textarea id={`${id}-${deny ? "deny" : "allow"}`} className="field:min-h-28" value={deny ? values.denied : values.allowed} placeholder={t("guardrailWizard.onePerLine")} onChange={event => parameters({ [deny ? "denied_topics" : "allowed_topics"]: event.target.value })} />
           {!deny ? <TopicModeField mode={values.mode} onChange={mode => parameters({ topic_mode: mode })} /> : null}
         </div> : <p className="text-xs text-muted-foreground">{t("protection.topicRules.disabled")}</p>}
       </section>;
@@ -66,7 +66,7 @@ function TopicPolicyHelper({ binding, policy, onApply }: { binding: GuardrailPol
     {status.error ? <ErrorNotice error={status.error} /> : null}
     {!status.isPending && !available ? <p className="text-sm text-muted-foreground">{t("guardrailWizard.policyAssistantUnavailable")}</p> : null}
     <label className="grid gap-2 text-sm font-medium">{t("guardrailWizard.intentInputLabel")}
-      <Textarea maxLength={2000} className="min-h-40 font-normal leading-6" value={intent} placeholder={t("guardrailWizard.intentInputPlaceholder")} disabled={!available || analyze.isPending} onChange={event => { setIntent(event.target.value); analyze.reset(); setApplied(false); }} />
+      <Textarea maxLength={2000} className="field:min-h-40 field:font-normal field:leading-6" value={intent} placeholder={t("guardrailWizard.intentInputPlaceholder")} disabled={!available || analyze.isPending} onChange={event => { setIntent(event.target.value); analyze.reset(); setApplied(false); }} />
     </label>
     <Button disabled={!available || !intent.trim() || analyze.isPending} onClick={() => analyze.mutate()}>{t(analyze.isPending ? "guardrailWizard.intentAnalyzing" : "guardrailWizard.intentAnalyze")}</Button>
     {analyze.error ? <ErrorNotice error={analyze.error} /> : null}

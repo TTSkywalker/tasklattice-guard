@@ -9,6 +9,11 @@ function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'guard-command-test-'));
   for (const dir of ['scripts', 'bin']) mkdirSync(join(root, dir));
   copyFileSync(new URL('./project-commands.mjs', import.meta.url), join(root, 'scripts/project-commands.mjs'));
+  copyFileSync(new URL('./git-build-info.mjs', import.meta.url), join(root, 'scripts/git-build-info.mjs'));
+  for (const args of [['init'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Test'], ['add', '.'], ['commit', '-m', 'initial']]) {
+    const result = spawnSync('git', ['-C', root, ...args]);
+    assert.equal(result.status, 0, result.stderr?.toString());
+  }
   const log = join(root, 'commands.jsonl');
   for (const command of ['docker', 'helm', 'bash', 'kubectl']) {
     writeFileSync(join(root, 'bin', command), `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(process.env.COMMAND_LOG,JSON.stringify({command:${JSON.stringify(command)},args:process.argv.slice(2),controllerRepository:process.env.TALI_GUARD_CONTROLLER_IMAGE_REPOSITORY,runnerRepository:process.env.TALI_GUARD_RUNNER_IMAGE_REPOSITORY})+'\\n');process.exit(process.env.FAIL_COMMAND===${JSON.stringify(command)}?1:0);\n`, { mode: 0o755 });
@@ -46,11 +51,14 @@ test('image builds package the release version and pass repository overrides', t
   });
   assert.equal(result.status, 0, result.stderr);
   const calls = f.calls();
-  assert.deepEqual(calls.map(call => [call.command, call.args]), [
+  assert.deepEqual(calls.map(call => [call.command, call.args.filter((arg, index, args) => arg !== '--build-arg' && args[index - 1] !== '--build-arg')]), [
     ['bash', ['scripts/package-runtime-chart.sh', '0.0.0-test']],
     ['docker', ['build', '-f', 'Dockerfile.controller', '-t', 'registry.test/controller:dev', '.']],
     ['docker', ['build', '-f', 'Dockerfile.runner', '-t', 'registry.test/runner:dev', '.']],
   ]);
+  const buildInfo = JSON.parse(calls[1].args.find(arg => arg.startsWith('TALI_BUILD_INFO=')).slice('TALI_BUILD_INFO='.length));
+  assert.equal(buildInfo.source, 'build');
+  assert.match(buildInfo.commit, /^[0-9a-f]{40}$/);
   assert.equal(calls[0].controllerRepository, 'registry.test/controller');
   assert.equal(calls[0].runnerRepository, 'registry.test/runner');
 });

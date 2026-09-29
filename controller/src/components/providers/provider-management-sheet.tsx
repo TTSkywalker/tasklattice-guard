@@ -289,7 +289,7 @@ export function ProviderManagementSheet({
             <Label htmlFor={`provider-new-credential-${provider.id}`}>{t("modelSettings.newCredential")}</Label>
             <Input
               id={`provider-new-credential-${provider.id}`}
-              className="h-11 font-mono"
+              className="field:h-11 field:font-mono"
               type="password"
               autoComplete="new-password"
               spellCheck={false}

@@ -2,6 +2,10 @@
 @import "@xyflow/react/dist/style.css";
 @import "tw-animate-css";
 
+/* Carbon className belongs to a wrapper. Keep layout there; apply field:
+   utilities to the visible control, including its padding and focus surface. */
+@custom-variant field (& :is(input.cds--text-input, textarea.cds--text-area, select.cds--select-input, button.cds--list-box__field));
+
 @font-face {
   font-family: "IBM Plex Sans";
   font-style: normal;
@@ -250,6 +254,9 @@
 .router-selector .router-selector-field,
 .router-selector .router-selector-operator {
   width: 100%;
+}
+.router-selector .router-selector-field .cds--list-box__field,
+.router-selector .router-selector-operator .cds--list-box__field {
   min-height: 2.75rem;
 }
 .router-selector .router-selector-value {

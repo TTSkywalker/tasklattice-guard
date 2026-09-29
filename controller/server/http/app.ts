@@ -1,3 +1,5 @@
+import { readSoftwareVersion } from "../services/software-version.js";
+import { parseSoftwareVersion } from "../../shared/software-version.js";
 import { auditQuerySchema } from "../../shared/audit-query.js";
 import { pathTestSchema, parseHttpRequest, requestSource } from "../../shared/playground-path.js";
 import { openApiDocument, apiReferenceHtml, apiAgentIndex } from "./openapi.js";
@@ -200,6 +202,7 @@ export function createHttpApp(input: {
     prefix: "guard_controller_",
     collectDefaultMetrics: false,
   });
+  const controllerVersion = readSoftwareVersion();
   const policyCatalog = PolicyCatalog.load(input.config.policyCatalogDir);
   const legacyIntentAnalyzer = input.intentAnalyzer ?? null;
   const legacyPlaygroundModel = input.playgroundModel ?? null;
@@ -797,6 +800,18 @@ export function createHttpApp(input: {
     return context.body(null, 204);
   });
 
+  app.get("/api/v1/system/version", authenticated, async (context) => {
+    const pools = await input.service.listRunnerPoolsWithCapacity();
+    context.header("Cache-Control", "no-store");
+    return context.json({
+      controlPlane: controllerVersion,
+      dataPlane: pools.flatMap(pool => pool.instances.map(runner => ({
+        runnerId: runner.runnerId, poolId: pool.id, status: runner.status,
+        lastHeartbeatAt: runner.lastHeartbeatAt,
+        software: parseSoftwareVersion(runner.labels?.["tasklattice.build"], runner.runnerVersion),
+      }))),
+    });
+  });
   app.get("/api/v1/runner-pools", authenticated, async (context) => context.json({ items: await input.service.listRunnerPoolsWithCapacity() }));
   app.patch("/api/v1/runner-pools/:id", authenticated, administrator, async (context) => {
     const body = runnerPoolInput.parse(await context.req.json());

@@ -93,7 +93,7 @@ export function GuardrailVersionComparison({ base, target, baseOptions, onBaseCh
           <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
             {t("guardrails.baseVersion")}
             <Select value={base.version} onValueChange={onBaseChange}>
-              <SelectTrigger className="min-h-11 bg-card" aria-label={t("guardrails.baseVersion")}><SelectValue /></SelectTrigger>
+              <SelectTrigger className="field:min-h-11 field:bg-card" aria-label={t("guardrails.baseVersion")}><SelectValue /></SelectTrigger>
               <SelectContent>{baseOptions.map((version) => <SelectItem key={version.version} value={version.version}>{version.version}</SelectItem>)}</SelectContent>
             </Select>
           </label>

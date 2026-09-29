@@ -80,7 +80,7 @@ export function ProviderCredentialSettings({ provider, disabled, onChanged }: {
           <Label htmlFor={inputId}>{t("modelSettings.newCredential")}</Label>
           <Input
             id={inputId}
-            className="h-11 font-mono"
+            className="field:h-11 field:font-mono"
             type="password"
             autoComplete="new-password"
             spellCheck={false}

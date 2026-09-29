@@ -159,7 +159,7 @@ export function PathRequestEditor({
                   <Input
                     aria-label={`Header ${index + 1} name`}
                     placeholder="Header"
-                    className="h-11 min-w-0 border-transparent bg-transparent font-mono text-xs shadow-none"
+                    className="field:h-11 min-w-0 field:border-transparent field:bg-transparent field:font-mono field:text-xs field:shadow-none"
                     value={h.name}
                     disabled={w.pending}
                     onChange={(e) =>
@@ -171,7 +171,7 @@ export function PathRequestEditor({
                   <Input
                     aria-label={`Header ${index + 1} value`}
                     placeholder="Value"
-                    className="h-11 min-w-0 border-transparent bg-transparent font-mono text-xs shadow-none"
+                    className="field:h-11 min-w-0 field:border-transparent field:bg-transparent field:font-mono field:text-xs field:shadow-none"
                     value={h.value}
                     disabled={w.pending}
                     onChange={(e) =>
@@ -272,7 +272,7 @@ export function PathRequestEditor({
               w.setDraft({ ...w.draft, body: e.target.value });
               setFormatError("");
             }}
-            className="min-h-20 flex-1 resize-none font-mono text-xs leading-6"
+            className="field:min-h-20 flex-1 field:resize-none field:font-mono field:text-xs field:leading-6"
           />
           {(syntaxError || formatError) && (
             <p role="status" className="text-xs text-destructive">
@@ -288,7 +288,7 @@ export function PathRequestEditor({
             Call ID
             <div className="mt-1 flex gap-2">
               <Input
-                className="h-11 min-w-0"
+                className="field:h-11 min-w-0"
                 value={w.callId}
                 disabled={w.pending}
                 onChange={(e) => w.setCallId(e.target.value)}
@@ -313,7 +313,7 @@ export function PathRequestEditor({
             <label className="text-xs">
               {t("业务字段 JSON", "Business fields JSON")}
               <Textarea
-                className="mt-2 min-h-24 font-mono text-xs"
+                className="mt-2 field:min-h-24 field:font-mono field:text-xs"
                 value={w.fields}
                 disabled={w.pending}
                 onChange={(e) => w.setFields(e.target.value)}
@@ -322,7 +322,7 @@ export function PathRequestEditor({
             <label className="text-xs">
               {t("Endpoint 请求上下文 JSON", "Endpoint request context JSON")}
               <Textarea
-                className="mt-2 min-h-24 font-mono text-xs"
+                className="mt-2 field:min-h-24 field:font-mono field:text-xs"
                 value={w.endpointContext}
                 disabled={w.pending}
                 onChange={(e) => w.setEndpointContext(e.target.value)}
@@ -344,7 +344,7 @@ export function PathRequestEditor({
             <span>Endpoint API key</span>
             <Input
               aria-label="Endpoint API key"
-              className="h-11"
+              className="field:h-11"
               type="password"
               autoComplete="off"
               placeholder="X-Api-Key"
@@ -375,7 +375,7 @@ export function PathRequestEditor({
           <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 pb-4">
             <Textarea
               aria-label="HTTP request or curl"
-              className="min-h-40 flex-1 font-mono text-xs"
+              className="field:min-h-40 flex-1 field:font-mono field:text-xs"
               value={source}
               onChange={(e) => setSource(e.target.value)}
               maxLength={65536}

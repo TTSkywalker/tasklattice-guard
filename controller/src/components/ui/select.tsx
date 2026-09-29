@@ -119,6 +119,7 @@ export function Select({
     </>
   );
 }
+/** className lays out the Carbon wrapper; field: utilities style the visible control. */
 export function SelectTrigger(
   _props: ComponentProps<"button"> & { size?: "sm" | "default"; variant?: "default" | "rich" },
 ) {

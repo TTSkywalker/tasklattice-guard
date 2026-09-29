@@ -358,7 +358,7 @@ export function CreateGuardrailWizard({
           <WizardSection title={t("protection.startTitle")} description={t("protection.startHint")}>
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
               <Field label={`${t("guardrailWizard.name")} *`}>
-                <Input autoFocus className="min-h-11 bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("guardrailWizard.namePlaceholder")} />
+                <Input autoFocus className="field:min-h-11 field:bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("guardrailWizard.namePlaceholder")} />
               </Field>
               {!catalogReady || presetsQuery.isLoading ? <Skeleton className="h-32" /> : presetsQuery.error ? <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("protection.presetUnavailable")}</p><Button variant="outline" onClick={() => void presetsQuery.refetch()}>{t("common.retry")}</Button></div> : (
                 <GuardrailProfilePicker presets={presetsQuery.data?.items ?? []} selected={selectedPreset} pending={pendingPreset}
@@ -554,7 +554,7 @@ function IntentPolicyWorkspace({
             autoFocus
             aria-label={t("guardrailWizard.intentInputLabel")}
             maxLength={2000}
-            className="min-h-56 bg-card leading-6"
+            className="field:min-h-56 field:bg-card field:leading-6"
             disabled={!available || pending}
             value={intent}
             onChange={(event) => onIntentChange(event.target.value)}
@@ -636,7 +636,7 @@ function OutputDeliveryField({ value, onChange, requiredComplete = [] }: { value
       <Label htmlFor={id}>{t("guardrailWizard.outputDelivery")}</Label>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("guardrailWizard.outputDeliveryConditionalDescription")}</p>
       <Select value={value} disabled={requiredComplete.length > 0} onValueChange={(next) => onChange(next as OutputDelivery)}>
-        <SelectTrigger id={id} aria-describedby={`${id}-description`} className="mt-3 min-h-11 bg-card"><SelectValue /></SelectTrigger>
+        <SelectTrigger id={id} aria-describedby={`${id}-description`} className="mt-3 field:min-h-11 field:bg-card"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="interruptible">{t("guardrailWizard.outputDeliveryOptions.interruptible")}</SelectItem>
           <SelectItem value="window_buffered">{t("guardrailWizard.outputDeliveryOptions.window_buffered")}</SelectItem>

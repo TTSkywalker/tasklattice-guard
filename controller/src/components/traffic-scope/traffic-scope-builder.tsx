@@ -180,7 +180,7 @@ function TrafficValueEditor(props: ValueEditorProps) {
   return (
     <div className={cn(props.className, "grid min-w-0 gap-2 sm:grid-cols-2")}>
       <Input
-        className="min-h-10 font-mono text-xs"
+        className="field:min-h-10 field:font-mono field:text-xs"
         aria-label="Attribute name"
         value={encoded.key}
         placeholder={definition.source === "header" ? "x-app-id" : definition.source === "jwt_claim" ? "department" : "sdk.agent_id"}
@@ -188,7 +188,7 @@ function TrafficValueEditor(props: ValueEditorProps) {
         onChange={(event) => props.handleOnChange({ ...encoded, key: event.target.value })}
       />
       <Input
-        className="min-h-10 font-mono text-xs"
+        className="field:min-h-10 field:font-mono field:text-xs"
         aria-label="Attribute value"
         value={encoded.value}
         placeholder="finance-agent"

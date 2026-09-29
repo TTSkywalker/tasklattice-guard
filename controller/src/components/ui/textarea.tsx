@@ -1,5 +1,6 @@
 import { useId, type ComponentProps } from "react";
 import { TextArea } from "@carbon/react";
+/** className lays out the Carbon wrapper; field: utilities style the visible control. */
 export function Textarea({
   id,
   value,

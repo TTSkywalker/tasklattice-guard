@@ -188,7 +188,7 @@ export function HelpPage() {
       <label className="relative block shrink-0">
         <span className="sr-only">{labels.searchLabel}</span>
         <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input type="search" value={query} onChange={event => setQuery(event.target.value)} className="h-11 bg-card pl-9 pr-11 [&::-webkit-search-cancel-button]:appearance-none" placeholder={labels.searchPlaceholder} />
+        <Input type="search" value={query} onChange={event => setQuery(event.target.value)} className="field:h-11 field:bg-card field:pl-9 field:pr-11 field:[&::-webkit-search-cancel-button]:appearance-none" placeholder={labels.searchPlaceholder} />
         {searching ? <Button variant="ghost" size="icon" aria-label={labels.clearSearch} className="absolute top-0 right-0 size-11" onClick={() => setQuery("")}><X className="size-4" /></Button> : null}
       </label>
       <div ref={desktop ? desktopDirectory : undefined} className="mt-3 min-h-0 overflow-y-auto overscroll-contain">

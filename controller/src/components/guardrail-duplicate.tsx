@@ -62,7 +62,7 @@ export function DuplicateGuardrailSheet({ id, name, close, onDuplicated }: { id:
     <div className="grid gap-5">
       {query.error && <><ErrorNotice error={query.error} /><Button onClick={() => void query.refetch()}>Retry</Button></>}
       {query.isPending && <p role="status">Loading source…</p>}
-      <Field label="Copy name"><Input className="min-h-11" value={copyName} disabled={Boolean(submission)} onChange={event => setCopyName(event.target.value)} /></Field>
+      <Field label="Copy name"><Input className="field:min-h-11" value={copyName} disabled={Boolean(submission)} onChange={event => setCopyName(event.target.value)} /></Field>
       <Field label="Copy source"><NativeSelect value={source} disabled={Boolean(submission)} onChange={event => setSource(event.target.value)}><option value="published" disabled={missingSnapshot}>Current published version · {query.data?.activeVersion ?? '—'}</option><option value="draft">Current draft · r{query.data?.draftRevision ?? '—'}</option></NativeSelect></Field>
       {missingSnapshot && <p role="alert">The published version has no complete source snapshot. Explicitly choose the current draft, or republish the source Guardrail before duplicating.</p>}
       {unavailable && !missingSnapshot && <p role="alert">No published version. Select the current draft.</p>}

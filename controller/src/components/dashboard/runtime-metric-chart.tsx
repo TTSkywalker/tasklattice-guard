@@ -67,7 +67,7 @@ export function RuntimeMetricChart({ metrics }: { metrics: Metrics }) {
           <label className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
             {t("dashboard.metric")}
             <Select value={metric} onValueChange={(value) => setMetric(value as RuntimeMetricKey)}>
-              <SelectTrigger className="h-9 min-w-0 flex-1 bg-card sm:w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="field:h-9 min-w-0 flex-1 field:bg-card sm:w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {metricKeys.map((key) => <SelectItem key={key} value={key}>{t(`dashboard.metrics.${key}`)}</SelectItem>)}
               </SelectContent>

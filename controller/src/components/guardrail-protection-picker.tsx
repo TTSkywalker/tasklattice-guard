@@ -109,7 +109,7 @@ export function GuardrailProtectionPicker({ policies, bindings, onChange, issueF
         {section === "topics" ? businessControls : section === "reliability" ? correctnessControls : null}
         {sectionItems.length ? <>
           <div className="flex flex-wrap gap-2">
-            <Input className="min-h-11 min-w-0 flex-1 basis-48 bg-card" aria-label={t("protection.wizard.search")} placeholder={t("protection.wizard.search")} value={query} onChange={event => setQuery(event.target.value)} />
+            <Input className="field:min-h-11 min-w-0 flex-1 basis-48 field:bg-card" aria-label={t("protection.wizard.search")} placeholder={t("protection.wizard.search")} value={query} onChange={event => setQuery(event.target.value)} />
             <Button className="min-h-11" variant={selectedOnly ? "outline" : "secondary"} aria-pressed={!selectedOnly} onClick={() => setSelectedOnly(false)}>{t("protection.wizard.all")}</Button>
             <Button className="min-h-11" variant={selectedOnly ? "secondary" : "outline"} aria-pressed={selectedOnly} onClick={() => setSelectedOnly(true)}>{t("protection.wizard.selectedOnly", { count: selectedCount(section) })}</Button>
           </div>

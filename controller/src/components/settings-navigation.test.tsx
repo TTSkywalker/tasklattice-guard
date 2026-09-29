@@ -37,6 +37,7 @@ describe("SettingsNavigation", () => {
       "nav.providers",
       "nav.models",
       "nav.guardrailCatalog",
+      "nav.version",
     ]);
     expect(models.getAttribute("aria-selected")).toBe("true");
     expect(models.getAttribute("href")).toBe("/settings/models");

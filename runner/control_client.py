@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import importlib.metadata
 import logging
 import time
@@ -14,7 +15,7 @@ import httpx
 from runner.toolkit.nemo.action_registry import ActionProviders, action_providers
 from runner.toolkit.nemo.native_models import native_rail_models
 
-from . import __version__
+from .software_version import SOFTWARE_VERSION
 from .artifact_store import ArtifactStore
 from .compiler import DefaultRunnerCompiler
 from .capability_validation import validate_capability
@@ -434,7 +435,8 @@ class RunnerControlClient:
                 runner_id=self._settings.runner_id,
                 boot_id=self._boot_id,
                 pool_id=self._settings.pool_id,
-                runner_version=__version__,
+                runner_version=SOFTWARE_VERSION["version"],
+                labels={"tasklattice.build": json.dumps(SOFTWARE_VERSION)},
                 nemo_version=importlib.metadata.version("nemoguardrails"),
                 max_concurrency=self._settings.max_concurrency,
                 compiler_capable=self._settings.compiler_capable,

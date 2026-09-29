@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Building2, Languages, LockKeyhole, ShieldCheck } from "lucide-react";
+import { Building2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -48,7 +48,7 @@ export function LoginPage() {
       <section className="flex min-h-dvh flex-col px-5 py-5 sm:px-8 lg:px-12 lg:py-8">
         <div className="flex justify-end">
           <Select value={languageValue(i18n.language)} onValueChange={(value) => void setLanguage(value as SupportedLanguage)}>
-            <SelectTrigger aria-label={t("common.language")} className="min-h-[44px] w-40 bg-card"><Languages className="size-4 text-muted-foreground" /><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label={t("common.language")} className="w-40 field:h-12"><SelectValue /></SelectTrigger>
             <SelectContent position="popper" align="end"><SelectItem value="en">{t("common.english")}</SelectItem><SelectItem value="zh-CN">{t("common.chinese")}</SelectItem></SelectContent>
           </Select>
         </div>
@@ -61,10 +61,10 @@ export function LoginPage() {
             <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("auth.loginDescription")}</p>
 
             <form className="mt-8 grid gap-5" onSubmit={submit}>
-              <Field label={t("auth.loginIdentifier")}><Input className="min-h-[44px]" autoFocus type="text" autoComplete="username" placeholder="admin" value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>
-              <Field label={t("common.password")}><Input className="min-h-[44px]" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></Field>
+              <Field label={t("auth.loginIdentifier")}><Input className="field:min-h-[44px]" autoFocus type="text" autoComplete="username" placeholder="admin" value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>
+              <Field label={t("common.password")}><Input className="field:min-h-[44px]" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></Field>
               {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-              <Button size="lg" className="mt-1 min-h-[44px] w-full" disabled={loginPending}>{loginPending ? t("auth.loginSubmitting") : t("auth.loginSubmit")}</Button>
+              <Button type="submit" size="lg" className="mt-1 min-h-[44px] w-full" disabled={loginPending}>{loginPending ? t("auth.loginSubmitting") : t("auth.loginSubmit")}</Button>
             </form>
 
             <div className="mt-8 flex gap-3 rounded-xl border bg-muted/35 p-4">

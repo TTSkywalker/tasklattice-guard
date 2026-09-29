@@ -466,3 +466,9 @@ export const listAuditEvents = (query: Partial<AuditQuery> = {}, signal?: AbortS
 };
 
 export const deleteControllerGuardrailVersion = (id: string, version: string) => requestController<void>(`/api/v1/guardrails/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`, { method: "DELETE" });
+
+export type SystemVersion = {
+  controlPlane: import("../../shared/software-version").SoftwareVersion;
+  dataPlane: Array<{ runnerId: string; poolId: string; status: RunnerStatus; lastHeartbeatAt: string | null; software: import("../../shared/software-version").SoftwareVersion }>;
+};
+export const getSystemVersion = () => requestController<SystemVersion>("/api/v1/system/version");

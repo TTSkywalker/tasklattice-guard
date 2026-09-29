@@ -106,3 +106,19 @@ A running Controller also serves an interactive API reference at `/api/docs`,
 its OpenAPI contract at `/api/openapi.json`, and an agent-oriented index at
 `/api/llms.txt`. These describe the management API; application checks use the
 separate runtime integration guide above.
+
+### Git source versions
+
+`/settings/version` shows the Controller's startup identity and each registered
+Runner's own identity. Versions use `git describe --tags --always --long` plus
+`-dirty` when staged, unstaged, or untracked files exist anywhere in the repository
+(ignored files are excluded). The page also shows the full commit, branch, and
+workspace state. Restart a local process to capture subsequent source changes.
+
+`npm run images:build:dev` and the release workflow capture the workspace before
+building and pass `TALI_BUILD_INFO` to both Docker images. For direct Docker builds,
+pass `--build-arg "TALI_BUILD_INFO=$(node scripts/git-build-info.mjs)"`.
+Images without metadata and without Git report an unknown source state, never a
+clean workspace. Older Runners retain their reported version with unknown Git
+metadata until rebuilt and restarted. The authenticated
+`GET /api/v1/system/version` endpoint accepts the `runners:read` token permission.

@@ -193,7 +193,7 @@ function TargetRow({
           <div className="relative min-w-0">
               <Input
                 aria-label={`Guardrail ${index + 1} %`}
-                className="h-12 pr-7 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                className="field:h-12 field:pr-7 [appearance:textfield] field:[&::-webkit-inner-spin-button]:appearance-none field:[&::-webkit-outer-spin-button]:appearance-none"
                 type="number"
                 min="0"
                 max="100"

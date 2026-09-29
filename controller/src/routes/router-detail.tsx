@@ -1,3 +1,4 @@
+import { discardRouterDraft } from "@/components/traffic-routing/discard-router-draft";
 import { DistributionOverview } from "@/components/traffic-routing/distribution";
 import { ReviewPublishSheet } from "@/components/traffic-routing/review-publish-sheet";
 import { useEffect, useRef, useState } from "react";
@@ -95,6 +96,12 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
   const [editing, setEditing] = useState(false);
   const [base, setBase] = useState(router);
   const [draft, setDraft] = useState(router.draft);
+  // Keep the pre-edit draft across Review's save boundary. An unpublished
+  // Router has no active snapshot, but its existing configuration is still
+  // the baseline for discarding edits made in this workspace.
+  const [initialDraft] = useState(router.draft);
+  const discardTarget = router.activeSnapshot ?? initialDraft;
+  const hasDraftChanges = JSON.stringify(draft) !== JSON.stringify(discardTarget);
   const [review, setReview] = useState<
     | (api.RouterPublicationPreview & {
         key: string;
@@ -191,18 +198,15 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
     },
   });
   const discard = useMutation({
-    mutationFn: () =>
-      api.saveTrafficRouter(
-        router.id,
-        base.draftRevision,
-        router.activeSnapshot!,
-      ),
+    mutationFn: () => discardRouterDraft(base, discardTarget),
     onSuccess: async (next) => {
       setBase(next);
       setDraft(next.draft);
       setEditing(false);
       setReview(null);
       setDialog(null);
+      prepare.reset();
+      release.reset();
       await accept(next);
     },
   });
@@ -266,24 +270,26 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
           revision to retry.
         </p>
       )}
-      {unpublished && !editing && (
+      {unpublished && (!editing || tab !== "routing") && (
         <div className="router-draft-notice" role="status">
           <Pencil aria-hidden="true" className="router-draft-icon" />
           <div className="router-draft-copy">
-            <p className="text-sm font-medium">Draft changes</p>
+            <p className="text-sm font-medium">{hasDraftChanges ? "Draft changes" : "Unpublished configuration"}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Routing configuration has unpublished changes.
+              {hasDraftChanges
+                ? "Routing configuration has unpublished changes."
+                : "This Router has not been published. Review its configuration to publish it."}
             </p>
           </div>
           {canEdit && (
             <div className="flex gap-2">
-              <Button
+              {hasDraftChanges && <Button
                 variant="outline"
-                disabled={busy || !router.activeSnapshot}
-                onClick={() => setDialog("discard")}
+                disabled={busy}
+                onClick={() => { discard.reset(); setDialog("discard"); }}
               >
                 Discard
-              </Button>
+              </Button>}
               <Button
                 disabled={busy}
                 onClick={() => {
@@ -569,7 +575,9 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
           }
           description={
             dialog === "discard"
-              ? "Restore the currently published routing configuration. Live traffic is unchanged."
+              ? router.activeSnapshot
+                ? "Discard routing changes and restore the currently published configuration. Live traffic is unchanged."
+                : "Discard routing changes made in this workspace and restore the configuration from before editing. The Router and its Endpoint bindings are kept."
               : "Unsaved edits will be discarded. The last saved server draft will remain."
           }
           closeDisabled={busy}

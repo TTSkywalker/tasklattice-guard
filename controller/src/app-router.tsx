@@ -15,6 +15,7 @@ import { PolicyLibraryPage } from "@/routes/policy-library";
 import { AccountPage } from "@/routes/account";
 import { HelpPage } from "@/routes/help";
 import { AuditLogPage } from "@/routes/audit-log";
+import { VersionPage } from "@/routes/version";
 import { HealthPage } from "@/routes/status";
 import { RunnerPage } from "@/routes/runner";
 import { GuardrailCatalogPage, ModelsPage, ProvidersPage } from "@/routes/models";
@@ -78,6 +79,7 @@ const accountSecurityRoute = createRoute({ getParentRoute: () => accountRoute, p
 const accountTokensRoute = createRoute({ getParentRoute: () => accountRoute, path: "access-tokens", component: () => null });
 const accountGeneralRoute = createRoute({ getParentRoute: () => accountRoute, path: "general", beforeLoad: () => { throw redirect({ to: "/account", replace: true }); } });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: () => <Navigate to="/settings/health" replace /> });
+const versionRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/version", component: VersionPage });
 const healthRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/health", component: HealthPage });
 const runnerRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/runner", component: RunnerPage });
 const providersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/providers", component: ProvidersPage });
@@ -105,6 +107,7 @@ export const routeTree = rootRoute.addChildren([
   accountRoute.addChildren([accountSecurityRoute, accountTokensRoute, accountGeneralRoute]),
   settingsRoute,
   healthRoute,
+  versionRoute,
   runnerRoute,
   providersRoute,
   modelsRoute,

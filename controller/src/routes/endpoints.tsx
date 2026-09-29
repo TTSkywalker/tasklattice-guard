@@ -641,7 +641,7 @@ export function CreateEndpointSheet({
       ) : (
         <div className="grid min-w-0 gap-5">
           <Field label={t("endpoints.name")}>
-            <Input autoFocus className="min-h-11 rounded-lg bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("endpoints.namePlaceholder")} />
+            <Input autoFocus className="field:min-h-11 field:rounded-lg field:bg-card" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("endpoints.namePlaceholder")} />
           </Field>
           <Field label={t("endpoints.endpointProtocol")}>
             <Select value={adapterId} onValueChange={(value) => setAdapterId(value as EndpointAdapterId)}>

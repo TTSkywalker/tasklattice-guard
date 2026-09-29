@@ -29,8 +29,8 @@ export function TopicControlFields({ allowed, denied, mode, onAllowedChange, onD
   return <div className="space-y-4">
     <TopicModeField mode={mode} onChange={onModeChange} />
     <div className="grid gap-4 md:grid-cols-2">
-      <div className="grid content-start gap-2"><Label htmlFor={`${id}-allow`}>{allowedLabel ?? t("topicControl.allowed")}</Label><Textarea id={`${id}-allow`} ref={fieldRef} className="min-h-32 bg-card" value={allowed} onChange={event => onAllowedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></div>
-      <div className="grid content-start gap-2"><Label htmlFor={`${id}-deny`}>{t("topicControl.denied")}</Label><Textarea id={`${id}-deny`} className="min-h-32 bg-card" value={denied} onChange={event => onDeniedChange(event.target.value)} placeholder={t("topicControl.deniedPlaceholder")} /></div>
+      <div className="grid content-start gap-2"><Label htmlFor={`${id}-allow`}>{allowedLabel ?? t("topicControl.allowed")}</Label><Textarea id={`${id}-allow`} ref={fieldRef} className="field:min-h-32 field:bg-card" value={allowed} onChange={event => onAllowedChange(event.target.value)} placeholder={t("guardrailWizard.onePerLine")} /></div>
+      <div className="grid content-start gap-2"><Label htmlFor={`${id}-deny`}>{t("topicControl.denied")}</Label><Textarea id={`${id}-deny`} className="field:min-h-32 field:bg-card" value={denied} onChange={event => onDeniedChange(event.target.value)} placeholder={t("topicControl.deniedPlaceholder")} /></div>
     </div>
     <p className="text-xs leading-5 text-muted-foreground">{t("topicControl.denyPriority")}</p>
   </div>;

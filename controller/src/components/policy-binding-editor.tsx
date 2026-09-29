@@ -210,7 +210,7 @@ export function PolicyBindingEditor({
                               <span className="min-w-0"><span className="mb-1 block font-mono text-xs text-muted-foreground">{embedded ? ruleIndex + 1 : `${policyIndex + 1}.${ruleIndex + 1}`}</span><strong className="block truncate text-xs">{rule.name}</strong><SecuritySeverityBadge severity={rule.risk_severity} /><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.id}</span></span>
                               <div className="col-start-2 min-w-0 lg:col-auto">
                               <Select value={binding.rule_actions[rule.id] ?? "policy_default"} disabled={!enabled} onValueChange={(selected) => { const next = { ...binding.rule_actions }; if (selected === "policy_default") delete next[rule.id]; else next[rule.id] = selected as EnforcementAction; update(binding.policy_id, { rule_actions: next }); }}>
-                                <SelectTrigger aria-label={t("protection.ruleAction", { name: rule.name })} className="min-h-11"><SelectValue /></SelectTrigger>
+                                <SelectTrigger aria-label={t("protection.ruleAction", { name: rule.name })} className="field:min-h-11"><SelectValue /></SelectTrigger>
                                 <SelectContent><SelectItem value="policy_default">{inheritedActionLabel}</SelectItem>{enforcementActions.map((action) => <SelectItem key={action} value={action}>{action}</SelectItem>)}</SelectContent>
                               </Select>
                               </div>
@@ -231,7 +231,7 @@ export function PolicyBindingEditor({
                       <div className="grid gap-4 sm:grid-cols-2">
                         {!splitTopic ? <Field label={t("guardrailWizard.policyAction")}>
                           <Select value={binding.action ?? "policy_default"} onValueChange={(selected) => update(binding.policy_id, { action: selected === "policy_default" ? null : selected as EnforcementAction })}>
-                            <SelectTrigger className="min-h-11 bg-card"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="field:min-h-11 field:bg-card"><SelectValue /></SelectTrigger>
                             <SelectContent><SelectItem value="policy_default">{t("guardrailWizard.usePolicyBehavior")}</SelectItem>{enforcementActions.map((action) => <SelectItem key={action} value={action}>{action}</SelectItem>)}</SelectContent>
                           </Select>
                         </Field> : null}
@@ -262,14 +262,14 @@ export function PolicyBindingEditor({
                               <Field key={parameter.name} label={`${parameter.label ?? parameter.name}${parameter.required ? " *" : ""}`} hint={parameter.description}>
                                 {parameter.kind === "textarea" ? (
                                   <Textarea
-                                    className="min-h-24 bg-card"
+                                    className="field:min-h-24 field:bg-card"
                                     value={binding.parameter_values[parameter.name] ?? parameter.default ?? ""}
                                     placeholder={parameter.placeholder}
                                     onChange={(event) => update(binding.policy_id, { parameter_values: { ...binding.parameter_values, [parameter.name]: event.target.value } })}
                                   />
                                 ) : (
                                   <Input
-                                    className="min-h-11 bg-card"
+                                    className="field:min-h-11 field:bg-card"
                                     type={parameter.kind === "secret" ? "password" : "text"}
                                     value={binding.parameter_values[parameter.name] ?? parameter.default ?? ""}
                                     placeholder={parameter.placeholder}
@@ -283,9 +283,9 @@ export function PolicyBindingEditor({
 
                         {binding.policy_id === "builtin-automated-reasoning" ? (
                           <div className="grid gap-4 rounded-lg border bg-card p-4 sm:grid-cols-3">
-                            <Field label={t("guardrailWizard.reasoningPolicyId")}><Input className="min-h-11" value={binding.reasoning_policy?.policy_id ?? ""} onChange={(event) => update(binding.policy_id, { reasoning_policy: { policy_id: event.target.value, policy_version: binding.reasoning_policy?.policy_version ?? "", confidence_threshold: binding.reasoning_policy?.confidence_threshold ?? 0.8 } })} /></Field>
-                            <Field label={t("guardrailWizard.reasoningPolicyVersion")}><Input className="min-h-11" value={binding.reasoning_policy?.policy_version ?? ""} onChange={(event) => update(binding.policy_id, { reasoning_policy: { policy_id: binding.reasoning_policy?.policy_id ?? "", policy_version: event.target.value, confidence_threshold: binding.reasoning_policy?.confidence_threshold ?? 0.8 } })} /></Field>
-                            <Field label={t("guardrailWizard.confidenceThreshold")}><Input className="min-h-11" type="number" min={0} max={1} step={0.05} value={binding.reasoning_policy?.confidence_threshold ?? 0.8} onChange={(event) => update(binding.policy_id, { reasoning_policy: { policy_id: binding.reasoning_policy?.policy_id ?? "", policy_version: binding.reasoning_policy?.policy_version ?? "", confidence_threshold: Number(event.target.value) } })} /></Field>
+                            <Field label={t("guardrailWizard.reasoningPolicyId")}><Input className="field:min-h-11" value={binding.reasoning_policy?.policy_id ?? ""} onChange={(event) => update(binding.policy_id, { reasoning_policy: { policy_id: event.target.value, policy_version: binding.reasoning_policy?.policy_version ?? "", confidence_threshold: binding.reasoning_policy?.confidence_threshold ?? 0.8 } })} /></Field>
+                            <Field label={t("guardrailWizard.reasoningPolicyVersion")}><Input className="field:min-h-11" value={binding.reasoning_policy?.policy_version ?? ""} onChange={(event) => update(binding.policy_id, { reasoning_policy: { policy_id: binding.reasoning_policy?.policy_id ?? "", policy_version: event.target.value, confidence_threshold: binding.reasoning_policy?.confidence_threshold ?? 0.8 } })} /></Field>
+                            <Field label={t("guardrailWizard.confidenceThreshold")}><Input className="field:min-h-11" type="number" min={0} max={1} step={0.05} value={binding.reasoning_policy?.confidence_threshold ?? 0.8} onChange={(event) => update(binding.policy_id, { reasoning_policy: { policy_id: binding.reasoning_policy?.policy_id ?? "", policy_version: binding.reasoning_policy?.policy_version ?? "", confidence_threshold: Number(event.target.value) } })} /></Field>
                           </div>
                         ) : null}
                       </section>

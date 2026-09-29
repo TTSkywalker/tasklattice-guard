@@ -1,5 +1,6 @@
 import { useId, type ComponentProps } from "react";
 import { TextInput } from "@carbon/react";
+/** className lays out the Carbon wrapper; field: utilities style the visible control. */
 export function Input({
   id,
   className,

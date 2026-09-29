@@ -35,6 +35,8 @@ COPY --link --from=build /build/controller/server/db/migrations ./server/db/migr
 COPY --link --from=build /build/proto ./proto
 COPY --link runner/toolkit/policy_library/assets ./policy-catalog
 COPY --link dist/runtime-chart/tali-guard.tgz /opt/tali/helm/tali-guard.tgz
+ARG TALI_BUILD_INFO
+ENV TALI_BUILD_INFO=${TALI_BUILD_INFO}
 USER 65532:65532
 EXPOSE 8080 9090
 CMD ["node", "dist-server/server/index.js"]

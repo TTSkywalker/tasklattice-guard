@@ -49,13 +49,13 @@ export function AddTestCaseSheet({ guardrail, open, onOpenChange, onCreated }: {
   });
   return <EntitySheet open={open} onOpenChange={onOpenChange} eyebrow={t("guardrails.addCaseEyebrow")} title={t("guardrails.addCaseTitle")} description={t("guardrails.addCaseDescription")} footer={<><Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button><Button disabled={!name.trim() || !policyId || !content.trim() || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? <LoaderCircle className="animate-spin" /> : <Plus />}{t("guardrails.addTestCase")}</Button></>}>
     <div className="grid gap-5">
-      <SheetField label={t("guardrails.caseName")}><Input autoFocus className="min-h-11" value={name} onChange={(event) => setName(event.target.value)} /></SheetField>
-      <SheetField label={t("guardrails.policy")}><Select value={policyId} onValueChange={setPolicyId}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{guardrail.policy_bindings.map((binding) => <SelectItem key={binding.policy_id} value={binding.policy_id}>{binding.policy_id}</SelectItem>)}</SelectContent></Select></SheetField>
+      <SheetField label={t("guardrails.caseName")}><Input autoFocus className="field:min-h-11" value={name} onChange={(event) => setName(event.target.value)} /></SheetField>
+      <SheetField label={t("guardrails.policy")}><Select value={policyId} onValueChange={setPolicyId}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent>{guardrail.policy_bindings.map((binding) => <SelectItem key={binding.policy_id} value={binding.policy_id}>{binding.policy_id}</SelectItem>)}</SelectContent></Select></SheetField>
       <div className="grid gap-4 sm:grid-cols-2">
-        <SheetField label={t("guardrails.modelBoundary")}><Select value={phase} onValueChange={(next) => setPhase(next as typeof phase)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="input">Input</SelectItem><SelectItem value="output">Output</SelectItem></SelectContent></Select></SheetField>
-        <SheetField label={t("guardrails.expectedDecision")}><Select value={expected} onValueChange={(next) => setExpected(next as typeof expected)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{["allow", "block", "transform", "intervene"].map((decision) => <SelectItem key={decision} value={decision}>{decision}</SelectItem>)}</SelectContent></Select></SheetField>
+        <SheetField label={t("guardrails.modelBoundary")}><Select value={phase} onValueChange={(next) => setPhase(next as typeof phase)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="input">Input</SelectItem><SelectItem value="output">Output</SelectItem></SelectContent></Select></SheetField>
+        <SheetField label={t("guardrails.expectedDecision")}><Select value={expected} onValueChange={(next) => setExpected(next as typeof expected)}><SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger><SelectContent>{["allow", "block", "transform", "intervene"].map((decision) => <SelectItem key={decision} value={decision}>{decision}</SelectItem>)}</SelectContent></Select></SheetField>
       </div>
-      <SheetField label={t("guardrails.testContent")}><Textarea className="min-h-32" value={content} onChange={(event) => setContent(event.target.value)} /></SheetField>
+      <SheetField label={t("guardrails.testContent")}><Textarea className="field:min-h-32" value={content} onChange={(event) => setContent(event.target.value)} /></SheetField>
     </div>
   </EntitySheet>;
 }
