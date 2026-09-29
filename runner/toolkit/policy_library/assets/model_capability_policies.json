@@ -9,7 +9,8 @@
     "parameters": [],
     "rules": [{
       "id": "model/content-safety", "name": "Content safety classifier", "description": "Reject content classified as unsafe.",
-      "form": "colang_flow", "effect": "reject", "rails": ["input", "output"],
+      "form": "colang_flow", "effect": "reject",
+      "risk_severity": "high", "rails": ["input", "output"],
       "implementation": { "engine": "nemo-guardrails", "form": "colang_flow", "binding_id": "content_safety", "implementation_rule_id": "content_safety", "detector": null, "flow_name": "tasklattice content safety", "action_name": "GuardEvaluateAction" },
       "taxonomy_ids": ["TALI-PHYSICAL-HARM"]
     }],
@@ -27,7 +28,8 @@
     "parameters": [],
     "rules": [{
       "id": "model/jailbreak", "name": "Jailbreak detector", "description": "Reject jailbreak attempts before model execution.",
-      "form": "colang_flow", "effect": "reject", "rails": ["input"],
+      "form": "colang_flow", "effect": "reject",
+      "risk_severity": "high", "rails": ["input"],
       "implementation": { "engine": "nemo-guardrails", "form": "colang_flow", "binding_id": "jailbreak", "implementation_rule_id": "jailbreak", "detector": null, "flow_name": "tasklattice jailbreak", "action_name": "GuardEvaluateAction" },
       "taxonomy_ids": ["TALI-MODEL-SECURITY-JAILBREAK"]
     }],
@@ -86,6 +88,7 @@
         "description": "Block a request when any task matches a denied topic. Evaluated before the Allowlist Rule.",
         "form": "colang_flow",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -108,6 +111,7 @@
         "description": "In strict mode, redirect tasks outside the allowed topics. In permissive mode, unmatched tasks may continue.",
         "form": "colang_flow",
         "effect": "redirect",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -161,7 +165,8 @@
     "parameters": [],
     "rules": [{
       "id": "model/pii", "name": "PII detector", "description": "Redact detected PII before forwarding or release.",
-      "form": "colang_flow", "effect": "redact", "rails": ["input", "output"],
+      "form": "colang_flow", "effect": "redact",
+      "risk_severity": "medium", "rails": ["input", "output"],
       "implementation": { "engine": "nemo-guardrails", "form": "colang_flow", "binding_id": "pii", "implementation_rule_id": "pii", "detector": null, "flow_name": "tasklattice pii", "action_name": "GuardEvaluateAction" },
       "taxonomy_ids": ["TALI-PRIVACY-PII"]
     }],
@@ -179,7 +184,8 @@
     "parameters": [],
     "rules": [{
       "id": "model/company-policy", "name": "Company policy judge", "description": "Reject input that violates configured company policy.",
-      "form": "colang_flow", "effect": "reject", "rails": ["input"],
+      "form": "colang_flow", "effect": "reject",
+      "risk_severity": "low", "rails": ["input"],
       "implementation": { "engine": "nemo-guardrails", "form": "colang_flow", "binding_id": "company_policy", "implementation_rule_id": "company_policy", "detector": null, "flow_name": "tasklattice company policy", "action_name": "GuardTopicJudgeAction" },
       "taxonomy_ids": ["TALI-BUSINESS-POLICY"]
     }],
@@ -194,7 +200,8 @@
     "parameters": [],
     "rules": [{
       "id": "model/contextual-grounding", "name": "Grounding judge", "description": "Regenerate output that is unsupported by the source context.",
-      "form": "colang_flow", "effect": "regenerate", "rails": ["output"],
+      "form": "colang_flow", "effect": "regenerate",
+      "risk_severity": "medium", "rails": ["output"],
       "implementation": { "engine": "nemo-guardrails", "form": "colang_flow", "binding_id": "contextual_grounding", "implementation_rule_id": "contextual_grounding", "detector": null, "flow_name": "tasklattice contextual grounding", "action_name": "GuardGroundingAction" },
       "taxonomy_ids": ["TALI-RESPONSE-INTEGRITY-UNGROUNDED"]
     }],
@@ -209,7 +216,8 @@
     "parameters": [],
     "rules": [{
       "id": "model/automated-reasoning", "name": "Reasoning verifier", "description": "Rewrite output that violates the pinned reasoning policy.",
-      "form": "colang_flow", "effect": "rewrite", "rails": ["output"],
+      "form": "colang_flow", "effect": "rewrite",
+      "risk_severity": "medium", "rails": ["output"],
       "implementation": { "engine": "nemo-guardrails", "form": "colang_flow", "binding_id": "automated_reasoning", "implementation_rule_id": "automated_reasoning", "detector": null, "flow_name": "tasklattice automated reasoning", "action_name": "GuardAutomatedReasoningAction" },
       "taxonomy_ids": ["TALI-RESPONSE-INTEGRITY"]
     }],

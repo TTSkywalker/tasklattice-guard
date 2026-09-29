@@ -3,7 +3,7 @@ import type { ShiftActionsProps } from "react-querybuilder";
 
 import { Button } from "@/components/ui/button";
 
-export const ShadcnShiftActions = ({
+export const CarbonShiftActions = ({
   shiftUp,
   shiftDown,
   shiftUpDisabled,

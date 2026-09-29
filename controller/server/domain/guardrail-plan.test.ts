@@ -55,7 +55,7 @@ describe("Controller Guardrail plan", () => {
     expect(steps.length).toBeGreaterThan(0);
     expect(steps.every((step) => step.on_unsafe === "pass")).toBe(true);
     expect(steps.every((step) => step.phases.every((phase) => (policy.rails as string[]).includes(phase)))).toBe(true);
-    expect(plan.policy_bindings).toEqual([expect.objectContaining({ rule_actions: [[rule.id, "pass"]] })]);
+    expect(plan.policy_bindings).toEqual([expect.objectContaining({ rule_actions: [[rule.id, "pass"]], rule_severities: [[rule.id, rule.risk_severity]] })]);
     expect(policy).toEqual(before);
     binding.ruleActions = { missing: "pass" };
     expect(build).toThrow(/unknown Rule action overrides/);

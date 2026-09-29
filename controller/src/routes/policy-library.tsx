@@ -1,3 +1,4 @@
+import { SecuritySeverityBadge } from "@/components/security-severity";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -8,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileCode2,
+  BookOpen,
   Download,
   FlaskConical,
   LoaderCircle,
@@ -21,7 +23,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { PolicyStudioSheet } from "@/components/policy-studio";
 import { ConfirmationSheet } from "@/components/confirmation-sheet";
@@ -399,10 +401,10 @@ export function PolicyDetail({ policy, onClose, onEdit, onExport, onDelete }: { 
       <Tabs key={policy.id} defaultValue="policy" className="mt-5">
         <div className="overflow-x-auto">
           <TabsList aria-label={t("policyLibrary.detailViews")} className="min-w-max">
-            <TabsTrigger value="policy">{t("policyLibrary.tabs.policy")}</TabsTrigger>
-            <TabsTrigger value="validation">{t("policyLibrary.tabs.testCases")}</TabsTrigger>
-            <TabsTrigger value="compliance">{t("policyLibrary.tabs.compliance")}</TabsTrigger>
-            <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
+            <TabsTrigger value="policy"><ShieldCheck aria-hidden="true" />{t("policyLibrary.tabs.policy")}</TabsTrigger>
+            <TabsTrigger value="validation"><FlaskConical aria-hidden="true" />{t("policyLibrary.tabs.testCases")}</TabsTrigger>
+            <TabsTrigger value="compliance"><BookOpen aria-hidden="true" />{t("policyLibrary.tabs.compliance")}</TabsTrigger>
+            <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><FileCode2 aria-hidden="true" /><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="policy" className="space-y-5 pt-3 sm:pt-4">
@@ -466,7 +468,7 @@ function RuleRow({ rule }: { rule: PolicyRule }) {
       <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <CheckCircle2 className="size-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-medium">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.id}</span></span>
-        <Badge variant="outline">{t(`policyLibrary.effects.${rule.effect}`, { defaultValue: rule.effect })}</Badge>
+        <SecuritySeverityBadge severity={rule.risk_severity} /><Badge variant="outline">{t(`policyLibrary.effects.${rule.effect}`, { defaultValue: rule.effect })}</Badge>
         <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
       </summary>
       <div className="border-t bg-muted/15 px-4 py-4 text-xs">

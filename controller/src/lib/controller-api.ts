@@ -1,3 +1,4 @@
+import type { AuditQuery } from "../../shared/audit-query";
 import type { EnforcementAction } from "../../shared/enforcement-action.generated";
 import type {
   GuardrailLifecycleState,
@@ -457,6 +458,11 @@ export const listRuntimeEvents = (limit = 100, filters: { guardrailId?: string; 
   return requestController<Collection<RuntimeEvent>>(`/api/v1/telemetry/events?${query.toString()}`, signal ? { signal } : undefined);
 };
 export const getRuntimeEvent = (id: string, signal?: AbortSignal, includeContent = false) => requestController<RuntimeEvent>(`/api/v1/telemetry/events/${encodeURIComponent(id)}${includeContent ? "?includeContent=true" : ""}`, signal ? { signal } : undefined);
-export const listAuditEvents = (limit = 100) => requestController<Collection<AuditEvent>>(`/api/v1/audit-events?limit=${Math.min(500, Math.max(1, limit))}`);
+export type AuditEventPage = { items: AuditEvent[]; total: number; page: number; limit: number; before: string; facets: { kinds: string[]; resourceTypes: string[] } };
+export const listAuditEvents = (query: Partial<AuditQuery> = {}, signal?: AbortSignal) => {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") search.set(key, String(value));
+  return requestController<AuditEventPage>(`/api/v1/audit-events?${search}`, signal ? { signal } : undefined);
+};
 
 export const deleteControllerGuardrailVersion = (id: string, version: string) => requestController<void>(`/api/v1/guardrails/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`, { method: "DELETE" });

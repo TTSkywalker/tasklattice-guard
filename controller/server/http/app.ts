@@ -1,3 +1,4 @@
+import { auditQuerySchema } from "../../shared/audit-query.js";
 import { pathTestSchema, parseHttpRequest, requestSource } from "../../shared/playground-path.js";
 import { openApiDocument, apiReferenceHtml, apiAgentIndex } from "./openapi.js";
 import { allowsTokenPermission } from "../../shared/access-tokens.js";
@@ -472,17 +473,17 @@ export function createHttpApp(input: {
   app.get("/api/v1/policies/:id/draft/checks", authenticated, async (context) => {
     return context.json(await input.service.validatePolicy(context.req.param("id")));
   });
-  app.get("/api/v1/policies/:id/validation-runs/latest", authenticated, async (context) => {
+  app.get("/api/v1/policies/:id/test-runs/latest", authenticated, async (context) => {
     return context.json(await input.service.latestPolicyValidation(context.req.param("id")));
   });
-  app.get("/api/v1/policies/:id/validation-runs/:runId", authenticated, async context =>
+  app.get("/api/v1/policies/:id/test-runs/:runId", authenticated, async context =>
     context.json(await input.service.getPolicyValidation(context.req.param("id"), context.req.param("runId"))));
-  app.post("/api/v1/policies/:id/validation-runs", authenticated, administrator, async (context) => {
+  app.post("/api/v1/policies/:id/test-runs", authenticated, administrator, async (context) => {
     const run = await input.service.requestPolicyValidation({
       id: context.req.param("id"), actorId: context.get("actor").id,
       compilerAvailable: input.runnerControl.hasDefaultCompiler(),
     });
-    const statusUrl = `/api/v1/policies/${encodeURIComponent(context.req.param("id"))}/validation-runs/${encodeURIComponent(run.id)}`;
+    const statusUrl = `/api/v1/policies/${encodeURIComponent(context.req.param("id"))}/test-runs/${encodeURIComponent(run.id)}`;
     context.header("Location", statusUrl);
     return context.json({ ...run, statusUrl }, 202);
   });
@@ -724,21 +725,21 @@ export function createHttpApp(input: {
     await input.service.deleteTestCase({ guardrailId: context.req.param("guardrailId"), caseId: context.req.param("caseId"), actorId: context.get("actor").id });
     return context.body(null, 204);
   });
-  app.patch("/api/v1/guardrails/:id/validation-scope", authenticated, administrator, async (context) => {
+  app.patch("/api/v1/guardrails/:id/test-scope", authenticated, administrator, async (context) => {
     const body = validationScopeInput.parse(await context.req.json());
     return context.json(await input.service.setTestCaseExcluded({
       guardrailId: context.req.param("id"), caseId: body.caseId, excluded: body.excluded,
       actorId: context.get("actor").id,
     }));
   });
-  app.get("/api/v1/validation-runs", authenticated, async (context) => {
+  app.get("/api/v1/test-runs", authenticated, async (context) => {
     const items = await input.service.listValidationRuns(context.req.query("guardrailId"));
     return context.json({ items, count: items.length });
   });
-  app.get("/api/v1/validation-runs/:runId", authenticated, async (context) => {
+  app.get("/api/v1/test-runs/:runId", authenticated, async (context) => {
     return context.json(await input.service.getValidationRun(context.req.param("runId")));
   });
-  app.post("/api/v1/guardrails/:guardrailId/validation-runs", authenticated, administrator, async (context) => {
+  app.post("/api/v1/guardrails/:guardrailId/test-runs", authenticated, administrator, async (context) => {
     return context.json(await input.service.requestValidation({
       guardrailId: context.req.param("guardrailId"),
       actorId: context.get("actor").id,
@@ -931,7 +932,7 @@ export function createHttpApp(input: {
       outcome: z.enum(['allow','block','transform','error']).optional(),
       captured: z.enum(['true']).transform(() => true).optional(),
       findingsOnly: z.enum(['true']).transform(() => true).optional(),
-      severity: z.enum(['critical','high','medium','low']).optional(),
+      severity: z.string().describe('One or more comma-separated Rule risk levels: critical, high, medium, low, informational, unclassified. Matches any selected level before pagination.').transform(value => value.split(',')).pipe(z.array(z.enum(['critical','high','medium','low','informational','unclassified'])).min(1).max(6)).optional(),
     }).parse(context.req.query());
     return context.json(await input.service.queryRuntimeEvents(query));
   });
@@ -945,8 +946,8 @@ export function createHttpApp(input: {
     return context.json(await input.service.runtimeMetrics(scope));
   });
   app.get("/api/v1/audit-events", authenticated, async (context) => {
-    const limit = z.coerce.number().int().min(1).max(500).default(100).parse(context.req.query("limit"));
-    return context.json({ items: await input.service.listAuditEvents(limit) });
+    const query = auditQuerySchema.parse(context.req.query());
+    return context.json(await input.service.listAuditEvents(query));
   });
 
   app.post("/api/internal/v1/runtime-events", runnerAuthentication(input.config.runnerToken), async (context) => {
@@ -1002,12 +1003,28 @@ export function createHttpApp(input: {
   app.all("/api/*", context => context.json({ error: { code: "not_found", message: "API operation not found." } }, 404));
   const uiRoot = resolve(input.config.uiDist);
   if (existsSync(uiRoot)) {
+    // Hashed build assets must never fall through to the SPA document. During
+    // an upgrade an old/new hash may be unavailable on a particular replica.
+    app.use("/assets/*", async (context, next) => {
+      await next();
+      context.header("Cache-Control", context.res.status === 200 || context.res.status === 206
+        ? "public, max-age=31536000, immutable" : "no-store");
+    });
     app.use("/assets/*", serveStatic({ root: uiRoot }));
+    app.all("/assets/*", context => {
+      context.header("Cache-Control", "no-store");
+      return context.text("Asset not found. Reload the page to load the current version.", 404);
+    });
     app.use("/docs/diagrams/*", serveStatic({ root: uiRoot }));
     app.get("/docs/diagrams/*", context => context.text("Not found", 404));
     app.get("/favicon.svg", serveStatic({ root: uiRoot, path: "favicon.svg" }));
     app.get("/favicon.ico", serveStatic({ root: uiRoot, path: "favicon.ico" }));
-    app.get("*", serveStatic({ root: uiRoot, path: "index.html" }));
+    // Each navigation must fetch the document for the current deployment,
+    // rather than retaining references to a previous build's asset hashes.
+    app.get("*", async (context, next) => {
+      context.header("Cache-Control", "no-store");
+      await next();
+    }, serveStatic({ root: uiRoot, path: "index.html" }));
   }
   return app;
 }

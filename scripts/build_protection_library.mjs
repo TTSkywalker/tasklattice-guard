@@ -43,9 +43,25 @@ function split(sourceId, selected, id, name, description, tags = [], directory =
   const { rules, tests } = extract(sourceId, selected);
   return policy(id, name, description, directory, rules, [...tests, ...benignCases], tags);
 }
+// Reviewed risk belongs to the Rule, not its action or detector confidence.
+// Keep generated-only Rules explicit so regeneration cannot drop their levels.
+const generatedRuleRisk = {
+  "credential/password": "high",
+  "identity/passport": "medium",
+  "banking/identity-evasion": "low",
+  "banking/return-guarantee": "low",
+  "securities/inside-information": "low",
+  "securities/manipulation": "low",
+  "internet/phishing": "low",
+  "internet/session-theft": "high",
+  "application/active-html": "high",
+  "application/template-traversal": "high",
+};
 function regexRule(id, name, expression, taxonomy, effect = "reject") {
+  const risk_severity = generatedRuleRisk[id];
+  if (!risk_severity) throw new Error(`Missing reviewed risk level for generated Rule ${id}`);
   return {
-    id, name, description: "Matches this reviewed text pattern, not arbitrary semantic variants.", form: "regex", effect,
+    id, name, description: "Matches this reviewed text pattern, not arbitrary semantic variants.", form: "regex", effect, risk_severity,
     rails: ["input", "output"], expression,
     ...(effect === "redact" ? { redaction: "[REDACTED]" } : {}),
     implementation: { engine: "nemo-guardrails", form: "regex", binding_id: "", implementation_rule_id: id, detector: "regex" },

@@ -1,7 +1,7 @@
 {
   "adapter": "litellm-generic-guardrail",
   "artifact_id": "fixture-artifact-preset-singapore-financial-assistant-v1",
-  "checksum": "4e0161d5813f1fcad157314655a278be242f35236df57ce905df552e12f28d17",
+  "checksum": "16e7f324c824c05a581be35d482d64ca13812638d2d93946cd8dbb3e861e77ff",
   "compiler_version": "tasklattice-nemo-config-v23-topic-rules",
   "endpoint_id": "fixture-endpoint",
   "expected": {

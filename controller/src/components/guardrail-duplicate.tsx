@@ -1,3 +1,4 @@
+import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
 import { queryKeys } from "@/features/query-keys";
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -21,7 +22,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="grid min-w-0 gap-2 text-sm"><span className="font-medium">{label}</span>{children}</label>;
 }
 function NativeSelect(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${props.className ?? ''}`} />;
+  return <CarbonNativeSelect {...props} className={`h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${props.className ?? ''}`} />;
 }
 
 export function DuplicateGuardrailSheet({ id, name, close, onDuplicated }: { id: string; name: string; close: () => void; onDuplicated?: (copy: GuardrailDetail) => void }) {
@@ -57,7 +58,7 @@ export function DuplicateGuardrailSheet({ id, name, close, onDuplicated }: { id:
   });
   const missingSnapshot = query.data?.versions.find(version => version.version === query.data?.activeVersion)?.hasSourceSnapshot === false;
   const unavailable = source === 'published' && (!query.data?.activeVersion || missingSnapshot);
-  return <EntitySheet open onOpenChange={open => { if (!open && !mutation.isPending) close(); }} closeDisabled={mutation.isPending} eyebrow="Guardrail" title="Duplicate Guardrail" description="Copy configuration and pinned dependencies into an independent draft. Validation, logs, Endpoint bindings and traffic weights are not copied." footer={<><Button variant="outline" onClick={close} disabled={mutation.isPending}>Cancel</Button><Button variant="create" disabled={!query.data || !copyName.trim() || unavailable || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? 'Duplicating…' : mutation.isError ? 'Retry duplicate' : 'Create copy'}</Button></>}>
+  return <EntitySheet open onOpenChange={open => { if (!open && !mutation.isPending) close(); }} closeDisabled={mutation.isPending} eyebrow="Guardrail" title="Duplicate Guardrail" description="Copy configuration and pinned dependencies into an independent draft. Test history, logs, Endpoint bindings and traffic weights are not copied." footer={<><Button variant="outline" onClick={close} disabled={mutation.isPending}>Cancel</Button><Button variant="create" disabled={!query.data || !copyName.trim() || unavailable || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? 'Duplicating…' : mutation.isError ? 'Retry duplicate' : 'Create copy'}</Button></>}>
     <div className="grid gap-5">
       {query.error && <><ErrorNotice error={query.error} /><Button onClick={() => void query.refetch()}>Retry</Button></>}
       {query.isPending && <p role="status">Loading source…</p>}

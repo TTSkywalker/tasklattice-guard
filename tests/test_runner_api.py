@@ -258,6 +258,8 @@ async def test_runtime_authenticates_locally_and_emits_content_free_telemetry():
         "policyId": "builtin-secrets",
             "ruleId": "credential-pattern",
             "providerEvidence": [],
+            "riskSeverity": None,
+            "policyVersion": None,
     }]
     assert telemetry.events[0]["metadata"]["usage"]["action_invocations"] == 1
     assert telemetry.events[0]["metadata"]["trace"][0]["actionName"] == "GuardSecretsAction"

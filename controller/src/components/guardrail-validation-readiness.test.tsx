@@ -18,7 +18,7 @@ const revision = (status = "passed", evidenceKind = "nemo-rail-v1") => ({ assign
 function show(policies = [policy], onEdit = vi.fn()) {
   function Probe() {
     const readiness = useGuardrailValidationReadiness({ bindings: [binding], policies });
-    return <><GuardrailValidationReadiness readiness={readiness} onEdit={onEdit} /><button disabled={readiness.blocked}>Run Validation</button></>;
+    return <><GuardrailValidationReadiness readiness={readiness} onEdit={onEdit} /><button disabled={readiness.blocked}>Run tests</button></>;
   }
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}><Probe /></QueryClientProvider>);
 }
@@ -28,7 +28,7 @@ it("shows an actionable missing Topic dependency and blocks Validation", async (
   const onEdit = vi.fn(); show([policy], onEdit);
   expect((await screen.findByRole("alert")).textContent).toContain("No model is assigned");
   expect(screen.getByRole("alert").textContent).toContain("Affected Policies: Topic Control");
-  expect(screen.getByRole("button", { name: "Run Validation" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Run tests" }).hasAttribute("disabled")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Edit and remove Topic Control" }));
   expect(onEdit).toHaveBeenCalledOnce();
 });
@@ -36,24 +36,24 @@ it.each(["unverified", "failed", "validated", "activating"])("blocks %s assignme
   read.mockResolvedValue({ ...empty, [state === "validated" ? "draft" : state === "activating" ? "activating" : "active"]: revision(state === "failed" ? "failed" : "passed", state === "unverified" ? "model-probe" : "nemo-rail-v1") });
   show();
   expect((await screen.findByRole("alert")).textContent).toContain(protectionEn.validationReadiness.states[state as keyof typeof protectionEn.validationReadiness.states]);
-  expect(screen.getByRole("button", { name: "Run Validation" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Run tests" }).hasAttribute("disabled")).toBe(true);
 });
 it("retains active readiness despite a failed newer draft", async () => {
   read.mockResolvedValue({ ...empty, active: revision(), draft: revision("failed") }); show();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Run Validation" }).hasAttribute("disabled")).toBe(false));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Run tests" }).hasAttribute("disabled")).toBe(false));
   expect(screen.queryByRole("alert")).toBeNull();
 });
 it("does not fetch or block local-only Policies", () => {
   show([{ ...policy, protection: { ...policy.protection!, execution: "local", modelCapabilities: [] } }]);
   expect(read).not.toHaveBeenCalled();
-  expect(screen.getByRole("button", { name: "Run Validation" }).hasAttribute("disabled")).toBe(false);
+  expect(screen.getByRole("button", { name: "Run tests" }).hasAttribute("disabled")).toBe(false);
 });
 it("distinguishes pending and failed reads from missing models, and retries", async () => {
   read.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ ...empty, active: revision() }); show();
   expect(screen.getByRole("status").textContent).toContain("Checking draft");
   await screen.findByText(protectionEn.validationReadiness.unavailable);
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(screen.getByRole("button", { name: "Run Validation" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Run tests" }).hasAttribute("disabled")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Recheck dependencies" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Run Validation" }).hasAttribute("disabled")).toBe(false));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Run tests" }).hasAttribute("disabled")).toBe(false));
 });

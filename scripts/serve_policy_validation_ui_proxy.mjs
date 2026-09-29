@@ -25,7 +25,7 @@ const server = createServer(async (req, res) => {
       const update = own && req.method === 'PATCH' && localDraft(JSON.parse(bytes));
       const remove = own && req.method === 'DELETE';
       const validate = state.policyId && req.method === 'POST' &&
-        ['/validate', '/validation-runs'].some(suffix => path === `/api/v1/policies/${encodeURIComponent(state.policyId)}${suffix}`);
+        ['/validate', '/test-runs'].some(suffix => path === `/api/v1/policies/${encodeURIComponent(state.policyId)}${suffix}`);
       if (!create && !update && !remove && !validate) return json(res, 403, { error: 'Only the named local test Policy may be changed. Publication and model APIs are blocked.' });
       state.writes.push({ method: req.method, path });
     }
@@ -40,7 +40,7 @@ const server = createServer(async (req, res) => {
       state.policyId = JSON.parse(body).id;
       console.log(`Created test Policy ${state.policyId}; not published.`);
     }
-    if (state.policyId && path.startsWith(`/api/v1/policies/${encodeURIComponent(state.policyId)}/validation-runs`) && reply.ok && !state.delayed) {
+    if (state.policyId && path.startsWith(`/api/v1/policies/${encodeURIComponent(state.policyId)}/test-runs`) && reply.ok && !state.delayed) {
       const result = JSON.parse(body);
       if (['passed', 'failed'].includes(result.status)) {
         state.delayed = true; state.waiting = true;

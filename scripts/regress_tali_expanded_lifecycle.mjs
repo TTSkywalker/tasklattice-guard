@@ -34,8 +34,8 @@ try{
  report.guardrail=await api('/api/v1/guardrails',{name:report.name,runtimeProfile:'auto',draftConfig:{allowedTopics:[],restrictedTopics:[],safetyLevel:'balanced',outputDelivery:'full_buffered',policyBindings:[{policyId:policy.id,policyVersion:policy.version,action:'reject',parameterValues:{},enabledRuleIds:policy.rules.map(r=>r.id),ruleActions:{},ruleOrder:[],enabledRails:['input','output']}]}});save();
  const path='/api/v1/guardrails/'+report.guardrail.id;
  report.reservedNvidiaCalls+=2;save();
- const validation=await api('/api/v1/validation-runs',{guardrailId:report.guardrail.id});report.validationId=validation.id;save();
- report.validation=await until('/api/v1/validation-runs/'+validation.id,v=>['passed','failed'].includes(v.status));save();
+ const validation=await api(`/api/v1/guardrails/${encodeURIComponent(report.guardrail.id)}/test-runs`,{guardrailId:report.guardrail.id});report.validationId=validation.id;save();
+ report.validation=await until('/api/v1/test-runs/'+validation.id,v=>['passed','failed'].includes(v.status));save();
  assert.equal(report.validation.status,'passed');assert.equal(report.validation.results.length,2);
  assert(report.validation.results.every(c=>c.modelInvocations===1&&!c.actualFailure));
  report.publication=await api(path+'/publish',{});save();

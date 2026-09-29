@@ -105,6 +105,7 @@ describe("Default baseline validation gate", () => {
     expect(test.reads).toEqual([]);
     expect(test.updates).toEqual([]);
     expect(test.inserts).toContainEqual({ table: "guardrail_validation_run", value: expect.objectContaining({
+      id: expect.stringMatching(/^testing-report-[0-9a-f-]{36}$/),
       guardrailId: stored.id, sourceDraftRevision: 2, status: "queued", createdBy: null,
       excludedCaseIds: [], metrics: expect.objectContaining({ total: cases.length, passed: 0 }),
     }) });

@@ -1,7 +1,7 @@
 {
   "adapter": "litellm-generic-guardrail",
   "artifact_id": "fixture-artifact-preset-banking-assistant-v1",
-  "checksum": "c3f07dcfe008c81b108c2b2c5c42c458394a2ecbd6eeda45c67f75e64c143f3e",
+  "checksum": "3e9b00e22adf29a14ae415371ad326d7c5b7c42cd381117bfd6eb5e94e214d4e",
   "compiler_version": "tasklattice-nemo-config-v23-topic-rules",
   "endpoint_id": "fixture-endpoint",
   "expected": {

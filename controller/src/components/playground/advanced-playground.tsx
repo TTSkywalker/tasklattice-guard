@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { History, LoaderCircle } from "lucide-react";
+import { Activity, History, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorNotice } from "@/components/product-shell";
 import { useRoutingText } from "@/components/traffic-routing/form";
@@ -10,6 +10,7 @@ import { PathRequestEditor } from "./path-request-editor";
 import { PathTestResult } from "./path-test-result";
 import { PathTestHistory } from "./path-test-history";
 import { PathWorkbenchSplit } from "./path-workbench-split";
+import "./advanced-playground.scss";
 
 export function AdvancedPlayground({
   active,
@@ -25,7 +26,7 @@ export function AdvancedPlayground({
   return (
     <section
       aria-label={t("高级请求工作台", "Advanced request workbench")}
-      className="flex min-w-0 flex-col overflow-hidden rounded-xl border bg-card shadow-xs"
+      className="advanced-workbench flex min-w-0 flex-col overflow-hidden border bg-card"
     >
       <PathTargetBar workbench={workbench} />
       {workbench.error && (
@@ -38,7 +39,8 @@ export function AdvancedPlayground({
         result={
           <>
             <div className="flex shrink-0 items-center justify-between border-b px-4">
-              <h2 className="text-sm font-semibold">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <Activity className="size-4" aria-hidden="true" />
                 {t("测试结果", "Test result")}
               </h2>
               <Button

@@ -1,0 +1,333 @@
+@use "sass:map";
+@use "@carbon/react/scss/utilities/layout";
+@use "@carbon/react/scss/themes";
+@use "@carbon/react/scss/theme";
+@use "@carbon/themes/scss/component-tokens" as components;
+
+// Carbon productive UI: g10 canvas and white surfaces.
+// Native Carbon controls and domain-specific views share one semantic palette.
+:root {
+  @include theme.theme(themes.$g10);
+  @include layout.emit-layout-tokens;
+  --cds-button-primary-hover: #{map.get(components.$button-primary-hover, g-10)};
+  --cds-button-primary-active: #{map.get(
+      components.$button-primary-active,
+      g-10
+    )};
+  --cds-button-secondary: #{map.get(components.$button-secondary, g-10)};
+  --cds-button-secondary-hover: #{map.get(
+      components.$button-secondary-hover,
+      g-10
+    )};
+  --cds-button-danger-hover: #{map.get(components.$button-danger-hover, g-10)};
+  --background: var(--cds-background);
+  --foreground: var(--cds-text-primary);
+  --card: var(--cds-layer-01);
+  --card-foreground: var(--cds-text-primary);
+  --popover: var(--cds-layer-01);
+  --popover-foreground: var(--cds-text-primary);
+  --primary: var(--cds-interactive);
+  --primary-foreground: var(--cds-text-on-color);
+  --secondary: var(--cds-layer-02);
+  --secondary-foreground: var(--cds-text-primary);
+  --muted: var(--cds-layer-02);
+  --muted-foreground: var(--cds-text-secondary);
+  --accent: var(--cds-layer-hover-01);
+  --accent-foreground: var(--cds-text-primary);
+  --destructive: var(--cds-support-error);
+  --border: var(--cds-border-subtle-01);
+  --input: var(--cds-border-strong-01);
+  --ring: var(--cds-focus);
+  --sidebar: var(--cds-layer-01);
+  --sidebar-foreground: var(--cds-text-secondary);
+  --sidebar-primary: var(--cds-interactive);
+  --sidebar-primary-foreground: var(--cds-text-on-color);
+  --sidebar-accent: var(--cds-layer-selected-01);
+  --sidebar-accent-foreground: var(--cds-text-primary);
+  --sidebar-border: var(--cds-border-subtle-01);
+  --sidebar-ring: var(--cds-focus);
+  --success: #198038;
+  --notice-success: #defbe6;
+  --warning: #8e6a00;
+  --notice-warning: #fff1c7;
+  --notice-info: #edf5ff;
+  --notice-danger: #fff1f1;
+  --chart-1: #0f62fe;
+  --chart-2: #6929c4;
+  --chart-3: #007d79;
+  --chart-4: #9f1853;
+  --chart-5: #1192e8;
+  --chart-6: #570408;
+  --chart-grid: var(--border);
+  --outcome-allow: #198038;
+  --outcome-transform: #8e6a00;
+  --outcome-block: #da1e28;
+}
+
+.console-header,
+.console-brand {
+  background: #161616;
+  color: #f4f4f4;
+  border-color: #393939;
+}
+.console-header {
+  --foreground: #f4f4f4;
+  --muted-foreground: #c6c6c6;
+  --muted: #353535;
+  --border: #525252;
+  --ring: #ffffff;
+  .console-account:hover,
+  .console-account[data-state="open"] {
+    background: #353535;
+  }
+}
+.console-nav-item {
+  border-inline-start: 3px solid transparent;
+  &[data-active="true"] {
+    border-inline-start-color: var(--primary);
+  }
+}
+
+// Accessible keyboard focus stays crisp instead of a translucent halo.
+:where(
+  [data-slot="dropdown-menu-item"],
+  [data-slot="select-item"]
+):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.guard-button {
+  // Application buttons center the icon and label together. Carbon reserves
+  // asymmetric end padding for its trailing-icon pattern, which we do not use.
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding-inline: 1rem;
+  gap: 0.5rem;
+  max-inline-size: none;
+}
+.guard-button svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.guard-icon-button {
+  padding-inline: 0.75rem;
+  min-inline-size: 2rem;
+}
+.guard-link-button {
+  padding-inline: 0.5rem;
+}
+.guard-tag {
+  margin: 0;
+  // Status text must stay inside its background, including long translations.
+  // Carbon's default 208px cap is intended for truncated taxonomy tags.
+  max-inline-size: 100%;
+}
+.guard-overflow-menu .guard-menu-trigger-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.guard-menu-item-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.guard-menu-item-content svg {
+  width: 1rem;
+  height: 1rem;
+}
+.guard-menu-options {
+  min-width: 12rem;
+  z-index: 10000;
+}
+.guard-menu-label {
+  padding: 1rem;
+}
+.guard-menu-separator {
+  border-top: 1px solid var(--border);
+}
+.guard-notification {
+  max-inline-size: none;
+  inline-size: 100%;
+}
+.guard-notification .cds--inline-notification__text-wrapper {
+  display: block;
+  min-inline-size: 0;
+}
+.guard-notification .cds--inline-notification__title {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+.guard-toast-region {
+  position: fixed;
+  inset: 4rem 1rem auto auto;
+  z-index: 11000;
+  display: grid;
+  gap: 0.5rem;
+}
+.guard-option {
+  display: block;
+  padding-block: 0.375rem;
+  white-space: normal;
+}
+.guard-option > span {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.guard-option small,
+.guard-provider-option small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.guard-provider-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding-block: 0.5rem;
+  white-space: normal;
+}
+.guard-provider-option img {
+  height: 1.5rem;
+  width: 1.5rem;
+  object-fit: contain;
+}
+.cds--list-box__menu {
+  z-index: 10001;
+}
+.cds--list-box__menu-item:has(.guard-option),
+.cds--list-box__menu-item:has(.guard-provider-option) {
+  height: auto;
+  min-height: 2.5rem;
+}
+.cds--list-box__menu-item:has(.guard-option) .cds--list-box__menu-item__option,
+.cds--list-box__menu-item:has(.guard-provider-option)
+  .cds--list-box__menu-item__option {
+  height: auto;
+  min-height: 2.5rem;
+}
+.guard-tabs .cds--tab-content {
+  padding: 1.5rem 0 0;
+}
+.guard-tabs .cds--tabs__nav-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.guard-tabs .cds--tabs__nav-item-label > svg {
+  inline-size: 1rem;
+  block-size: 1rem;
+  flex-shrink: 0;
+}
+
+svg.lucide {
+  fill: none;
+}
+.guard-notification .cds--actionable-notification__text-wrapper {
+  display: block;
+  min-inline-size: 0;
+}
+.guard-notification .cds--actionable-notification__title {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+.cds--text-input__counter-alert:empty,
+.cds--text-area__counter-alert:empty {
+  display: none;
+}
+// Rich dropdown options must wrap without clipping descriptions.
+.guard-select .cds--list-box__menu-item,
+.guard-select .cds--list-box__menu-item__option {
+  height: auto;
+  min-height: 2.5rem;
+}
+.guard-select .cds--list-box__menu-item__option {
+  padding-block: 0.5rem;
+  white-space: normal;
+}
+.guard-select-option {
+  display: block;
+  width: 100%;
+}
+
+// Icon + title + description selections share one full-size field and focus
+// outline. Size the Carbon field itself, not a padded wrapper around it.
+.guard-select--rich .cds--list-box {
+  block-size: auto;
+  max-block-size: none;
+  transition-property: background-color;
+}
+.guard-select--rich .cds--list-box__field {
+  block-size: auto;
+  min-block-size: 4rem;
+  padding-block: 0.75rem;
+}
+.guard-select--rich .cds--list-box__label {
+  min-inline-size: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.guard-select--rich .cds--list-box__menu-item__option {
+  min-block-size: 4rem;
+  padding-block: 0.75rem;
+}
+
+// Compact checkboxes sit alongside application labels, rather than occupying
+// the full flex row as standalone Carbon form fields do.
+.guard-checkbox.cds--form-item {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+}
+.guard-protection-tabs.cds--tabs {
+  height: auto;
+  min-height: 4.5rem;
+  margin-bottom: 1.5rem;
+}
+.guard-protection-tabs .cds--tab--list {
+  width: 100%;
+}
+.guard-protection-tab.cds--tabs__nav-link {
+  flex: 1 0 auto;
+  height: 4.5rem;
+  padding: 0.75rem 1rem;
+}
+.guard-protection-tab .cds--tabs__nav-item-label {
+  display: grid;
+  gap: 0.375rem;
+}
+.guard-tag .cds--tag__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.guard-tag .cds--tag__label > svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex-shrink: 0;
+}
+
+// Carbon tooltips wrap their trigger; keep collapsed navigation centered within
+// the original sidebar row instead of shrinking to the icon button's width.
+[data-sidebar="menu-item"] > .cds--tooltip,
+[data-sidebar="menu-item"] > .cds--tooltip > .cds--tooltip-trigger__wrapper {
+  width: 100%;
+}

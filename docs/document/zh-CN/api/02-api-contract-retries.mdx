@@ -18,7 +18,7 @@ order: 1
 <a id="api-contract-async" />
 ## 收到 `202` 后继续查询
 
-`202 Accepted` 表示请求已被接受，异步工作可能仍在进行。例如，创建 Guardrail 验证任务后，使用响应中的 `runId` 请求 `GET /api/v1/validation-runs/{runId}`，查看任务结果。不要仅凭 `202` 就向用户报告“验证通过”。
+`202 Accepted` 表示请求已被接受，异步工作可能仍在进行。例如，创建 Guardrail 验证任务后，使用响应中的 `runId` 请求 `GET /api/v1/test-runs/{runId}`，查看任务结果。不要仅凭 `202` 就向用户报告“验证通过”。
 
 <a id="api-contract-router-publish" />
 ## Router 发布：按版本操作，再决定是否重试

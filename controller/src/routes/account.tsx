@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { KeyRound, Languages, ShieldCheck, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { UserAvatar } from "@/components/account-menu";
 import { ChangePasswordSheet } from "@/components/change-password-sheet";

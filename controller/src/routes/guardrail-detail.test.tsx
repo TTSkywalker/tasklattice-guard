@@ -89,7 +89,7 @@ describe("Guardrail detail information hierarchy", () => {
     await screen.findByText("Logging temporarily unavailable");
     fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
     await screen.findByRole("heading", { name: "guardrails.loggingTitle" });
-    expect(screen.getByRole("combobox", { name: "guardrails.loggingLevel" }).textContent).toBe("INFO");
+    expect(screen.getByRole("combobox", { name: "guardrails.loggingLevel" }).querySelector(".cds--list-box__label")?.textContent).toBe("INFO");
     expect(load).toHaveBeenCalledWith("guardrail-default");
     expect(save).not.toHaveBeenCalled();
   });
@@ -180,7 +180,7 @@ describe("Guardrail detail information hierarchy", () => {
   it("aggregates privacy-safe findings from Playground on the Guardrail", () => {
     const data: GuardrailFindingPage = {
       count: 1,
-      summary: { total: 1, critical: 1, high: 0, medium: 0, low: 0, affected_traces: 1, latest_at: "2026-08-16T09:46:46Z" },
+      summary: { total: 1, critical: 1, high: 0, medium: 0, low: 0, informational: 0, unclassified: 0, affected_traces: 1, latest_at: "2026-08-16T09:46:46Z" },
       items: [{
         id: "finding-critical",
         trace_id: "trace-playground",
@@ -212,7 +212,7 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("99%")).toBeTruthy();
   });
 
-  it("removes findings with repeated local ids when filtering to an empty severity", () => {
+  it("removes findings with repeated local ids when filtering to an empty severity", async () => {
     const repeatedFinding = {
       id: "model/content-safety",
       created_at: "2026-08-16T09:46:46Z",
@@ -233,7 +233,7 @@ describe("Guardrail detail information hierarchy", () => {
     };
     const data: GuardrailFindingPage = {
       count: 2,
-      summary: { total: 2, critical: 0, high: 0, medium: 2, low: 0, affected_traces: 2, latest_at: repeatedFinding.created_at },
+      summary: { total: 2, critical: 0, high: 0, medium: 2, low: 0, informational: 0, unclassified: 0, affected_traces: 2, latest_at: repeatedFinding.created_at },
       items: [
         { ...repeatedFinding, trace_id: "trace-one" },
         { ...repeatedFinding, trace_id: "trace-two" },
@@ -244,12 +244,26 @@ describe("Guardrail detail information hierarchy", () => {
     const { container } = render(<QueryClientProvider client={client}><GuardrailFindingsView data={data} loading={false} error={null} policies={[]} routers={[]} endpoints={[]} window="24h" onWindowChange={() => undefined} /></QueryClientProvider>);
 
     expect(container.querySelectorAll("article")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "routerDetail.severity.critical0" }));
-    expect(container.querySelectorAll("article")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("combobox", { name: /securityEvents.riskLevel/ }));
+    fireEvent.click(screen.getByRole("option", { name: /routerDetail.severity.critical/ }));
+    await waitFor(() => expect(container.querySelectorAll("article")).toHaveLength(0));
     expect(screen.getByText("guardrails.noMatchingFindings")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "routerDetail.severity.medium2" }));
-    expect(container.querySelectorAll("article")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("option", { name: /routerDetail.severity.medium/ }));
+    await waitFor(() => expect(container.querySelectorAll("article")).toHaveLength(2));
+  });
+
+  it("keeps scope totals during filter loading and exposes retry without claiming zero events", () => {
+    const onRetry = vi.fn();
+    const summary = { total: 18, critical: 3, high: 3, medium: 3, low: 3, informational: 3, unclassified: 3, affected_traces: 12, latest_at: null };
+    const props = { summary, policies: [], routers: [], endpoints: [], window: "24h" as const, onWindowChange: vi.fn(), severities: ["high" as const], onRetry };
+    const view = render(<GuardrailFindingsView {...props} loading error={null} />);
+    expect(screen.getByRole("status").textContent).toContain("matched:3 total:18 interactions:12");
+    expect(screen.getByText("securityEvents.updating")).toBeTruthy();
+    view.rerender(<GuardrailFindingsView {...props} loading={false} error={new Error("Offline")} />);
+    fireEvent.click(screen.getByRole("button", { name: "securityEvents.retry" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(screen.queryByText("guardrails.noSecurityFindings")).toBeNull();
   });
 
   it("shows immutable configuration before the unified compiled runtime", () => {
@@ -292,7 +306,7 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("guardrails.dependenciesModels")).toBeTruthy();
 
     const generatedFilesTab = screen.getByRole("tab", { name: "guardrails.generatedFilesTab count:1" });
-    fireEvent.mouseDown(generatedFilesTab, { button: 0, ctrlKey: false });
+    fireEvent.click(generatedFilesTab, { button: 0, ctrlKey: false });
     fireEvent.mouseUp(generatedFilesTab, { button: 0, ctrlKey: false });
     fireEvent.click(generatedFilesTab);
     expect(screen.getAllByText("config.yml").length).toBeGreaterThan(0);

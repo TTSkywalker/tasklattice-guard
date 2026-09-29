@@ -428,15 +428,15 @@ export const updateProgrammablePolicy = (id: string, input: { name?: string; des
 });
 export const deleteProgrammablePolicy = (id: string) => controllerApi.requestController<void>(`/api/v1/policies/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const validateProgrammablePolicy = (id: string) => controllerApi.requestController<PolicyValidation>(`/api/v1/policies/${encodeURIComponent(id)}/draft/checks`);
-export const getLatestProgrammablePolicyValidation = (id: string) => controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs/latest`);
+export const getLatestProgrammablePolicyValidation = (id: string) => controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/test-runs/latest`);
 export async function runProgrammablePolicyValidation(id: string): Promise<PolicyDraftValidationRun> {
-  const initial = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs`, { method: "POST" });
+  const initial = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/test-runs`, { method: "POST" });
   if (!initial.id) throw new Error("Policy validation did not return a run ID.");
   const deadline = Date.now() + 5 * 60_000;
   let current = initial;
   while ((current.status === "queued" || current.status === "running") && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    current = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs/${encodeURIComponent(initial.id)}`);
+    current = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/test-runs/${encodeURIComponent(initial.id)}`);
   }
   if (current.status === "queued" || current.status === "running") throw new Error("Policy Validation timed out while waiting for GuardRails 0.");
   return current;
@@ -478,13 +478,13 @@ function moduleTimeoutForStep(step: Record<string, unknown>, modules: Record<str
 export const getGuardrailLoggingSettings = (id: string) => controllerApi.requestController<CurrentLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`).then(mapLogging);
 export const updateGuardrailLoggingSettings = (id: string, level: LoggingLevel, acknowledgeCost = false) => controllerApi.requestController<CurrentLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`, { method: "PATCH", body: JSON.stringify({ level, acknowledgeCost }) }).then(mapLogging);
 
-export const createValidationRun = (guardrailId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-runs`, { method: "POST" }).then(waitForValidation);
+export const createValidationRun = (guardrailId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-runs`, { method: "POST" }).then(waitForValidation);
 export async function getValidationRuns(guardrailId?: string): Promise<Collection<ValidationRun>> {
   const suffix = guardrailId ? `?guardrailId=${encodeURIComponent(guardrailId)}` : "";
-  const response = await controllerApi.requestController<{ items: controllerApi.ValidationRun[]; count: number }>(`/api/v1/validation-runs${suffix}`);
+  const response = await controllerApi.requestController<{ items: controllerApi.ValidationRun[]; count: number }>(`/api/v1/test-runs${suffix}`);
   return { items: response.items.map(mapValidationRun), count: response.count };
 }
-export const getValidationRun = (runId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/validation-runs/${encodeURIComponent(runId)}`).then(mapValidationRun);
+export const getValidationRun = (runId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/test-runs/${encodeURIComponent(runId)}`).then(mapValidationRun);
 export const getPlaygroundModels = () => controllerApi.requestController<Collection<PlaygroundModel>>("/api/v1/playground/models");
 export const preparePlaygroundDraftPreview = (guardrailId: string) =>
   controllerApi.requestController<PlaygroundDraftPreview>(`/api/v1/playground/guardrails/${encodeURIComponent(guardrailId)}/draft-previews`, {
@@ -533,11 +533,11 @@ export const createTestCase = (
 }) }).then(mapTestCase);
 export const deleteTestCase = (guardrailId: string, caseId: string) => controllerApi.requestController<void>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-cases/${encodeURIComponent(caseId)}`, { method: "DELETE" });
 export const excludeGuardrailTestCase = (guardrailId: string, caseId: string) => controllerApi.requestController<TestCase>(
-  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-scope`,
+  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-scope`,
   { method: "PATCH", body: JSON.stringify({ caseId, excluded: true }) },
 );
 export const restoreGuardrailTestCase = (guardrailId: string, caseId: string) => controllerApi.requestController<TestCase>(
-  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-scope`,
+  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-scope`,
   { method: "PATCH", body: JSON.stringify({ caseId, excluded: false }) },
 );
 
@@ -627,7 +627,7 @@ async function waitForValidation(initial: controllerApi.ValidationRun): Promise<
   const deadline = Date.now() + 5 * 60_000;
   while ((current.status === "queued" || current.status === "running") && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    current = await controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/validation-runs/${encodeURIComponent(initial.id)}`);
+    current = await controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/test-runs/${encodeURIComponent(initial.id)}`);
   }
   return mapValidationRun(current);
 }

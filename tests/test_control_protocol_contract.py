@@ -334,6 +334,7 @@ def _plan() -> dict[str, object]:
             "enabled_rule_ids": ["pii/passport"],
             "rule_order": [],
             "rule_actions": [["pii/passport", "redact"]],
+            "rule_severities": [["pii/passport", "medium"]],
             "enabled_rails": ["input", "output"],
         }],
     }

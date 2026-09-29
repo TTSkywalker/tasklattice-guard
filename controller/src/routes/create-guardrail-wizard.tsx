@@ -16,7 +16,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { TopicControlUnavailable, useTopicControlAvailability } from "@/components/topic-control-availability";
 import { TopicControlFields, TopicModeField, type TopicControlMode } from "@/components/topic-control-fields";

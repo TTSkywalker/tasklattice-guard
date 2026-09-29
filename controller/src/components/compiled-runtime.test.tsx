@@ -54,7 +54,7 @@ describe("CompiledRuntime", () => {
 
     const filesTab = screen.getByRole("tab", { name: "guardrails.generatedFilesTab count:2" });
     expect(filesTab.getAttribute("data-state")).toBe("inactive");
-    fireEvent.mouseDown(filesTab, { button: 0, ctrlKey: false });
+    fireEvent.click(filesTab, { button: 0, ctrlKey: false });
     fireEvent.mouseUp(filesTab, { button: 0, ctrlKey: false });
     fireEvent.click(filesTab);
     expect(filesTab.getAttribute("data-state")).toBe("active");

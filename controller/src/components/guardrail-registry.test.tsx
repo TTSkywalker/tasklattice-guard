@@ -25,7 +25,7 @@ vi.mock("react-i18next", () => ({
         "guardrails.policies": "Policies",
         "guardrails.registry": "Guardrail registry · {{count}}",
         "guardrails.updated": "Updated",
-        "guardrails.validation": "Validation Run",
+        "guardrails.validation": "Testing Report",
       };
       return Object.entries(values ?? {}).reduce(
         (label, [name, value]) => label.replace(`{{${name}}}`, String(value)),
@@ -69,7 +69,7 @@ describe("GuardrailRegistry", () => {
     expect(screen.getByRole("table").className).toContain("table-fixed");
     expect(screen.getByRole("columnheader", { name: "Status" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Policies" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Validation Run" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Testing Report" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Updated" })).toBeTruthy();
   });
 

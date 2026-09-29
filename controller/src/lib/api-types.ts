@@ -1,3 +1,4 @@
+import type { RiskSeverity, EventSeverity } from "../../shared/security-severity";
 import type { EnforcementAction } from "../../shared/enforcement-action.generated";
 import type { GuardrailCategoryId } from "../../shared/guardrail-catalog";
 import type { PlatformStatusReason } from "../../shared/platform-status";
@@ -186,7 +187,7 @@ export type PlaygroundCheckPolicy = {
 
 export type PlaygroundCheckFinding = {
   id: string;
-  severity: "high" | "medium" | "low";
+  severity: EventSeverity;
   title: string;
   detail: string;
   confidence: number | null;
@@ -194,6 +195,7 @@ export type PlaygroundCheckFinding = {
   recommended_action: string;
   policy_id: string | null;
   rule_id: string | null;
+  policy_version?: string | null;
 };
 
 export type PlaygroundCheckResult = {
@@ -326,7 +328,7 @@ export type RouterTraceFinding = {
   router_id: string | null;
   endpoint_id: string | null;
   phase: string;
-  severity: "critical" | "high" | "medium" | "low";
+  severity: EventSeverity;
   risk: string;
   taxonomy_id: string;
   verdict: string;
@@ -334,6 +336,7 @@ export type RouterTraceFinding = {
   recommended_action: string;
   policy_id: string | null;
   rule_id: string | null;
+  policy_version?: string | null;
   detail: string;
   protocol?: string | null;
   provider_evidence?: Array<{
@@ -351,6 +354,8 @@ export type RuntimeFindingSummary = {
   high: number;
   medium: number;
   low: number;
+  informational: number;
+  unclassified: number;
   affected_traces: number;
   latest_at: string | null;
 };
@@ -580,6 +585,7 @@ export type PolicyRule = {
   description: string;
   form: "regex" | "keyword" | "category" | "code_block" | "competitor_intent" | "colang_flow";
   effect: string;
+  risk_severity?: RiskSeverity | null;
   rails: NativeRailType[];
   implementation: PolicyRuleImplementation;
   expression: string | null;
@@ -661,6 +667,7 @@ export type PolicyRailBinding = {
   flow_name: string;
   execution_mode: "detect" | "mutate";
   on_unsafe: EnforcementAction;
+  risk_severity?: RiskSeverity | null;
   parallel_group: string | null;
   priority: number | null;
   timeout_ms: number;
@@ -891,6 +898,7 @@ export type RuntimeHttpRequest = {
 };
 
 export type RuntimeLogEntry = {
+  execution_status?: "error" | "complete" | "unknown";
   http_request?: RuntimeHttpRequest | null;
   id: string;
   trace_id: string;

@@ -1,3 +1,4 @@
+import { SecuritySeverityBadge } from "@/components/security-severity";
 import { isSplitTopicPolicy, TOPIC_ALLOW_RULE, topicMissingParameters } from "../../shared/topic-policy";
 import { TopicPolicyRules } from "./topic-policy-rules";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -206,7 +207,7 @@ export function PolicyBindingEditor({
                           return (
                             <div key={rule.id} className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-3 p-3 lg:grid-cols-[1.25rem_minmax(0,1fr)_10rem_auto]">
                               <Checkbox aria-label={`${policy.name}: ${rule.name}`} checked={enabled} onCheckedChange={(next) => update(binding.policy_id, { enabled_rule_ids: next ? [...binding.enabled_rule_ids, rule.id] : binding.enabled_rule_ids.filter((id) => id !== rule.id) })} />
-                              <span className="min-w-0"><span className="mb-1 block font-mono text-xs text-muted-foreground">{embedded ? ruleIndex + 1 : `${policyIndex + 1}.${ruleIndex + 1}`}</span><strong className="block truncate text-xs">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.id}</span></span>
+                              <span className="min-w-0"><span className="mb-1 block font-mono text-xs text-muted-foreground">{embedded ? ruleIndex + 1 : `${policyIndex + 1}.${ruleIndex + 1}`}</span><strong className="block truncate text-xs">{rule.name}</strong><SecuritySeverityBadge severity={rule.risk_severity} /><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.id}</span></span>
                               <div className="col-start-2 min-w-0 lg:col-auto">
                               <Select value={binding.rule_actions[rule.id] ?? "policy_default"} disabled={!enabled} onValueChange={(selected) => { const next = { ...binding.rule_actions }; if (selected === "policy_default") delete next[rule.id]; else next[rule.id] = selected as EnforcementAction; update(binding.policy_id, { rule_actions: next }); }}>
                                 <SelectTrigger aria-label={t("protection.ruleAction", { name: rule.name })} className="min-h-11"><SelectValue /></SelectTrigger>

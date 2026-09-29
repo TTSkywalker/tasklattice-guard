@@ -69,8 +69,8 @@ if (resumeId) {
 const policyPath = `/api/v1/policies/${created.id}`;
 report(resumeId ? "policy-resumed" : "policy-created", { policyId: created.id });
 async function publishPolicy(version) {
-  await call(controller, `${policyPath}/validation-runs`, { body: {}, expected: 202 });
-  const validation = await until("Policy validation", async () => (await call(controller, `${policyPath}/validation-runs/latest`)).result,
+  await call(controller, `${policyPath}/test-runs`, { body: {}, expected: 202 });
+  const validation = await until("Policy validation", async () => (await call(controller, `${policyPath}/test-runs/latest`)).result,
     value => ["passed", "failed"].includes(value.status));
   assert.equal(validation.status, "passed", JSON.stringify(validation));
   const snapshot = (await call(controller, `${policyPath}/publish`, { body: {}, expected: 201 })).result;
@@ -105,8 +105,8 @@ await call(controller, guardrailPath, { method: "PATCH", body: { name: `Pinned r
 } });
 const saved = (await call(controller, guardrailPath)).result;
 assert.equal(saved.draftConfig.policyBindings[0].policyVersion, "1");
-const request = (await call(controller, "/api/v1/validation-runs", { expected: 202, body: { guardrailId: guardrail.id } })).result;
-const validation = await until("Guardrail validation", async () => (await call(controller, `/api/v1/validation-runs/${request.id}`)).result,
+const request = (await call(controller, `/api/v1/guardrails/${encodeURIComponent(guardrail.id)}/test-runs`, { expected: 202, body: { guardrailId: guardrail.id } })).result;
+const validation = await until("Guardrail validation", async () => (await call(controller, `/api/v1/test-runs/${request.id}`)).result,
   value => ["passed", "failed"].includes(value.status));
 assert.equal(validation.status, "passed", JSON.stringify(validation));
 assert.equal(validation.metrics.total, 4);

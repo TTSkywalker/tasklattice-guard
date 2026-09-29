@@ -19,7 +19,7 @@ describe('Guardrail row actions', () => {
       </div></div>
     </QueryClientProvider>);
     expect(screen.queryByRole('dialog')).toBeNull();
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Actions: Example' }), { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('button', { name: 'Actions: Example' }));
     expect(await screen.findByRole('menuitem', { name: 'Duplicate' })).toBeTruthy();
     expect(screen.getAllByRole('menuitem')).toHaveLength(2);
     fireEvent.click(screen.getByRole('menuitem', { name: action }));

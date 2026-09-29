@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 
 import { GuardrailResultCard } from "@/components/playground/guardrail-result-card";
 import { ModelMark } from "@/components/playground/model-mark";
+import "./model-selector.scss";
 import type { PlaygroundTurn } from "@/components/playground/types";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -236,28 +237,28 @@ function PlaygroundComposer({ guardrail, guardrails, versions, target, selectedV
           aria-label={t("playground.messageModel")}
         />
         <div className="flex flex-col gap-2 border-t border-border/70 p-2 2xl:flex-row 2xl:items-center 2xl:justify-between">
-          <div className="grid min-w-0 gap-2 sm:grid-cols-3 2xl:flex 2xl:items-center">
+          <div className="playground-composer-controls grid min-w-0 gap-2 sm:grid-cols-3 2xl:flex 2xl:items-center">
             <Select value={modelId} onValueChange={onModelChange} disabled={!models.length || pending}>
-              <SelectTrigger className="h-11 w-full border-0 bg-muted/55 shadow-none 2xl:w-56" aria-label={t("playground.selectedModel")}>
+              <SelectTrigger className="playground-model-select w-full border-0 bg-muted/55 shadow-none 2xl:w-56" aria-label={t("playground.selectedModel")}>
                 <SelectValue placeholder={t("playground.selectModel")} />
               </SelectTrigger>
               <SelectContent>
-                {models.map((model) => <SelectItem key={model.id} value={model.id}><ModelMark model={model} className="size-4" /><span className="font-medium">{model.provider}</span><span className="text-muted-foreground">{model.name}</span></SelectItem>)}
+                {models.map((model) => <SelectItem key={model.id} value={model.id} textValue={`${model.provider} · ${model.name}`}><span className="playground-model-option"><ModelMark model={model} /><span className="playground-model-label"><strong>{model.provider}</strong><span>{model.name}</span></span></span></SelectItem>)}
               </SelectContent>
             </Select>
             <div className="flex min-w-0 items-center gap-1">
               <Select value={guardrail.id} onValueChange={onGuardrailChange} disabled={pending}>
-                <SelectTrigger className="h-11 min-w-0 flex-1 border-0 bg-muted/55 shadow-none 2xl:w-56" aria-label={t("playground.selectedGuardrail")}>
+                <SelectTrigger className="min-w-0 flex-1 border-0 bg-muted/55 shadow-none 2xl:w-56" aria-label={t("playground.selectedGuardrail")}>
                   <ShieldCheck className="size-4 shrink-0 text-emerald-600" /><SelectValue />
                 </SelectTrigger>
                 <SelectContent>{guardrails.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
               </Select>
-              <Button asChild size="icon" variant="ghost" className="size-11 shrink-0 text-muted-foreground" title={t("playground.openGuardrailDefinition")}>
+              <Button asChild size="icon" variant="ghost" className="playground-definition-link shrink-0 text-muted-foreground" title={t("playground.openGuardrailDefinition")}>
                 <Link to="/guardrails/$guardrailId" params={{ guardrailId: guardrail.id }} aria-label={t("playground.openGuardrailDefinition")}><ExternalLink /></Link>
               </Button>
             </div>
             <Select value={targetValue} onValueChange={(value) => onTargetChange(value === "draft" ? { kind: "draft" } : { kind: "published", version: value.slice("version:".length) })} disabled={pending || versionsLoading || (!canTestDraft && !versions.length)}>
-              <SelectTrigger className="h-11 w-full border-0 bg-muted/55 text-xs shadow-none 2xl:w-64" aria-label={t("playground.selectedGuardrailTarget")}>
+              <SelectTrigger className="w-full border-0 bg-muted/55 text-xs shadow-none 2xl:w-64" aria-label={t("playground.selectedGuardrailTarget")}>
                 {versionsLoading || draftPreparing ? <LoaderCircle className="size-4 animate-spin text-muted-foreground" /> : target.kind === "draft" ? <FlaskConical className="size-4 text-amber-600" /> : <Tags className="size-4 text-muted-foreground" />}
                 <SelectValue placeholder={versionsLoading ? t("playground.loadingTargets") : t("playground.selectTarget")}>
                   {target.kind === "draft" ? <><span className="font-mono font-medium">{t("playground.draftRevision", { revision: guardrail.draft_revision ?? 1 })}</span><span className="text-amber-700">· {t("playground.unpublished")}</span></> : selectedVersion ? <><span className="font-mono font-medium">{t("playground.versionNumber", { version: selectedVersion.version })}</span>{selectedVersion.version === latestVersion ? <span className="text-muted-foreground">· {t("playground.latestVersion")}</span> : selectedVersion.active ? <span className="text-muted-foreground">· {t("playground.activeVersion")}</span> : null}</> : undefined}

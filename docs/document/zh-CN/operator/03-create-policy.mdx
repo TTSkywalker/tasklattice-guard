@@ -40,3 +40,12 @@ order: 2
 下一篇[自建 Policy 的测试、发布与跨环境迁移](#developer-release-transfer)说明验证门槛和版本语义。发布 Policy Version 后，还要在 Guardrail 草稿中绑定确切版本并解析必填参数；单独发布 Policy 不会使任何 Endpoint 请求自动开始检查。修改 Policy 会形成新的草稿和版本，不会暗中改变已绑定旧版的 Guardrail。
 
 跨环境导入的是可编辑定义，不是验证结果；目标环境需要重新检查 Action 和模型依赖、运行测试并发布。
+
+
+<a id="operator-policy-risk-severity" />
+
+## 为每条 Rule 选择风险级别
+
+在 Flow／Rail 配置中，分别设置 **风险级别** 与 **命中后处理**。新建 Rule 预选“中”，请根据实际业务影响确认或修改。内建 Rule 的默认级别可以在 Policy Library 查看。导入的旧草稿如果没有级别，需要补齐后才能测试和发布。
+
+例如检测客户编号可以按场景设为“中＋遮盖”；检测生产密钥通常设为“高＋阻断”。上线观察时可以在 Guardrail 中把处理覆盖为“仅记录”，事件仍保留原来的高风险。风险级别不能在 Guardrail 中覆盖；要修改级别，应更新 Policy、测试并发布新版本，再更新 Guardrail。[完整分级说明](#term-rule-risk-severity)

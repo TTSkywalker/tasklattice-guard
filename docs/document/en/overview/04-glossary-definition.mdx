@@ -48,6 +48,29 @@ A Rule's `form` says **how it finds a problem**. It is neither a Policy Library 
 
 <strong>Trace the exact implementation:</strong> `form` selects one of the types above; `engine`, `binding_id`, and `implementation_rule_id` identify the execution mapping. `detector`, `flow_name`, and `action_name` provide more specific provenance where relevant. Review these fields and Test Cases in Policy Library; maintain and publish custom programmable behavior in Policy Studio. Then inspect what this Rule requests **after a match**.
 
+
+<a id="term-rule-risk-severity" />
+
+### Rule risk level: how serious is the detected issue?
+
+A Rule has two independent settings. **Risk level** describes the potential impact of the issue; the **requested action** describes how to handle a match. Risk belongs to the Policy Version. Guardrail bindings can override actions, but do not override risk levels.
+
+| Risk level | Meaning | Example context |
+| --- | --- | --- |
+| `critical` | Potential major data, privilege, or business harm requiring immediate attention | A privileged Agent being induced to perform a highly damaging operation |
+| `high` | An important security boundary or sensitive data is involved | Production credentials, unauthorized execution, prompt injection |
+| `medium` | A material content or business risk | Ordinary personal information exposure, an important ungrounded answer |
+| `low` | A limited business or content-convention issue | Non-sensitive off-topic requests, brand wording constraints |
+| `informational` | Observation without a judgment of risk severity | A feature match used for identification and reporting |
+
+These are product conventions, not proof of confirmed harm or human verification. Built-in Rules provide defaults. Authors of custom Rules choose a level based on business impact. Older evidence without a versioned Rule level is **Unclassified**, which does not mean Informational or Low.
+
+A production-credential Rule rated High remains **High · Record only** with `pass`, **High · Requested action: Block** with `reject`, and **High · Requested action: Redact** with `redact`. Conversely, a competitor-name Rule may be Low even when it blocks. Stricter handling does not automatically increase risk severity.
+
+**Confidence is independent.** It describes the detector’s certainty about this evaluation. Missing scores are shown as Not provided; scores from different detectors may not be comparable. A 99% score does not automatically mean Critical.
+
+A successful safe check does not create a Low security event. Matches and uncertain detection evidence appear as security events. Errors, timeouts, and unavailable models are operational failures, not automatically Critical security events. [See security events and runtime logs](#concept-security-events).
+
 <a id="term-rule-actions" />
 
 ### After a Rule matches: eight directives

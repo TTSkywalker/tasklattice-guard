@@ -10,7 +10,7 @@ import { DetailFact, filterValidationRuns, GuardrailValidationHistory, TestCaseR
 vi.mock("@/components/add-test-case-sheet", () => ({ AddTestCaseSheet: () => null }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => ({
+    t: (key: string, options?: { id?: string }) => key === "validation.validationRunNamed" ? `Testing Report ${options?.id}` : ({
       "validation.caseTypes.scenario": "Policy scenario",
       "validation.acceptanceProvenance": "Acceptance provenance",
       "validation.sourcePolicy": "Pinned Policy",
@@ -28,18 +28,18 @@ vi.mock("react-i18next", () => ({
       "validation.whyCaseFailed": "Why this Case failed",
       "validation.decisionMismatch": "Decision mismatch",
       "validation.ruleMismatch": "Rule contract mismatch",
-      "validation.validationContractMismatch": "Validation contract mismatch",
-      "validation.validationRunColumn": "Validation Run",
+      "validation.validationContractMismatch": "Test expectations mismatch",
+      "validation.validationRunColumn": "Testing Report",
       "validation.targetColumn": "Target",
       "validation.casesColumn": "Cases",
       "validation.statusColumn": "Status",
       "validation.passRateColumn": "Pass rate",
       "validation.durationColumn": "Duration",
       "validation.runAtColumn": "Run at",
-      "validation.openValidationRun": "Open Validation Run",
-      "guardrails.validationHistoryTitle": "Validation history",
+      "validation.openValidationRun": "Open Testing Report",
+      "guardrails.validationHistoryTitle": "Testing Reports",
       "guardrails.validationHistoryDescription": "Immutable release-gate evidence.",
-      "guardrails.runReviewed": "Run Validation",
+      "guardrails.runReviewed": "Run tests",
       "validation.versionTarget": "Guardrail Version 20260904-010000.001Z",
       "guardrails.expectedDecision": "Expected decision",
       "guardrails.actualDecision": "Actual decision",
@@ -100,7 +100,7 @@ const validationRun = {
   created_at: "2026-08-14T08:00:00Z",
 } satisfies ValidationRun;
 
-describe("Validation Run acceptance evidence", () => {
+describe("Testing Report acceptance evidence", () => {
   beforeAll(() => {
     vi.stubGlobal("ResizeObserver", class {
       observe() {}
@@ -111,10 +111,21 @@ describe("Validation Run acceptance evidence", () => {
   afterAll(() => vi.unstubAllGlobals());
   afterEach(cleanup);
 
+  it.each(["validation", "testing-report"])("shows a Testing Report number for %s IDs and opens the original record", (prefix) => {
+    const number = "54b2887b-c498-4e1d-be84-01105d2e6413";
+    const run = { ...validationRun, id: `${prefix}-${number}` };
+    const onOpen = vi.fn();
+    render(<GuardrailValidationHistory runs={[run]} loading={false} error={null} canManage={false} running={false} onRun={vi.fn()} onOpen={onOpen} onOpenTarget={vi.fn()} />);
+    expect(screen.getByText("Testing Report 54B2887B")).toBeTruthy();
+    expect(screen.queryByText(run.id)).toBeNull();
+    fireEvent.click(screen.getByText(number));
+    expect(onOpen).toHaveBeenCalledWith(run);
+  });
+
   it("blocks running from history while dependency repair is required", () => {
     const onRun = vi.fn();
     render(<GuardrailValidationHistory runs={[validationRun]} loading={false} error={null} canManage running={false} blockedReason="Remove Topic Control first" onRun={onRun} onOpen={vi.fn()} onOpenTarget={vi.fn()} />);
-    const button = screen.getByRole("button", { name: "Run Validation" });
+    const button = screen.getByRole("button", { name: "Run tests" });
     expect(button.hasAttribute("disabled")).toBe(true);
     fireEvent.click(button);
     expect(onRun).not.toHaveBeenCalled();
@@ -129,7 +140,7 @@ describe("Validation Run acceptance evidence", () => {
     expect(onRunAgain).not.toHaveBeenCalled();
   });
 
-  it("filters Validation Runs by the exact Guardrail ID", () => {
+  it("filters Testing Reports by the exact Guardrail ID", () => {
     const otherRun = { ...validationRun, id: "validation-banker-001", guardrail_id: "guardrail-banker", status: "failed" as const };
     const names = new Map([["guardrail-finance", "Finance Guardrail"], ["guardrail-banker", "Banker Guardrail"]]);
 
@@ -137,20 +148,20 @@ describe("Validation Run acceptance evidence", () => {
     expect(filterValidationRuns([validationRun, otherRun], names, "finance", "all", "passed")).toEqual([validationRun]);
   });
 
-  it("keeps Validation history inside one Guardrail and opens records from the compact table", () => {
+  it("keeps Testing Reports inside one Guardrail and opens records from the compact table", () => {
     const onOpen = vi.fn();
     const onRun = vi.fn();
     render(<GuardrailValidationHistory runs={[validationRun]} loading={false} error={null} canManage running={false} onRun={onRun} onOpen={onOpen} onOpenTarget={vi.fn()} />);
 
-    expect(screen.getByRole("heading", { name: "Validation history" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Testing Reports" })).toBeTruthy();
     expect(screen.queryByText("Guardrail", { selector: "th" })).toBeNull();
-    fireEvent.click(screen.getByText("validation-finance-001").closest("tr")!);
+    fireEvent.click(screen.getByText("finance-001").closest("tr")!);
     expect(onOpen).toHaveBeenCalledWith(validationRun);
-    fireEvent.click(screen.getByRole("button", { name: "Run Validation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run tests" }));
     expect(onRun).toHaveBeenCalledOnce();
   });
 
-  it("opens the timestamped Target without opening the Validation Run", () => {
+  it("opens the timestamped Target without opening the Testing Report", () => {
     const onOpen = vi.fn();
     const onOpenTarget = vi.fn();
     render(<GuardrailValidationHistory

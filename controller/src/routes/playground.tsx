@@ -3,7 +3,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { ProbeInspectionDrawer } from "@/components/playground/probe-inspection-drawer";
 import { ProbeConversationPanel } from "@/components/playground/probe-conversation-panel";
@@ -96,20 +96,27 @@ export function PlaygroundPage() {
   }, [canTestDraft, selectTarget, target, versions, versionsQuery.isSuccess]);
 
   const loading = guardrailsQuery.isLoading || modelsQuery.isLoading;
+  const modeReady = guardrailsQuery.isSuccess && modelsQuery.isSuccess
+    && selectableGuardrails.length > 0 && models.length > 0;
+  const advancedActive = advanced && modeReady;
   return (
     <Tabs
-      value={advanced ? "advanced" : "simple"}
+      value={advancedActive ? "advanced" : "simple"}
       onValueChange={changeMode}
       className="gap-0 py-6 sm:py-8"
     >
-      <PageHeader
-        title={t("pages.playground.title")}
-        description={
-          advanced
-            ? t("playground.advancedDescription")
-            : t("pages.playground.description")
-        }
-        action={
+      <div className="flex min-w-0 items-end justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          <PageHeader
+            title={t("pages.playground.title")}
+            description={advancedActive
+              ? t("playground.advancedDescription")
+              : t("pages.playground.description")}
+          />
+        </div>
+        {/* Keep the list in the Tabs children tree so Carbon can discover both
+            panels even while the mode switch is hidden during setup. */}
+        <div hidden={!modeReady} className="ml-auto min-w-0 shrink-0">
           <TabsList aria-label={t("playground.modeLabel")}>
             <TabsTrigger value="simple">
               {t("playground.simpleMode")}
@@ -118,8 +125,8 @@ export function PlaygroundPage() {
               {t("playground.advancedMode")}
             </TabsTrigger>
           </TabsList>
-        }
-      />
+        </div>
+      </div>
       <TabsContent
         value="simple"
         forceMount
@@ -187,8 +194,8 @@ export function PlaygroundPage() {
         forceMount
         className="mt-5 data-[state=inactive]:hidden"
       >
-        {advancedOpened && (
-          <AdvancedPlayground active={advanced} guardrails={guardrails} />
+        {advancedOpened && modeReady && (
+          <AdvancedPlayground active={advancedActive} guardrails={guardrails} />
         )}
       </TabsContent>
     </Tabs>

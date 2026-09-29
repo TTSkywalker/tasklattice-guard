@@ -120,6 +120,13 @@
       "when": 1790061600000,
       "tag": "0016_retire_unverified_singapore_financial_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790670000000,
+      "tag": "0017_audit_query_index",
+      "breakpoints": true
     }
   ]
 }

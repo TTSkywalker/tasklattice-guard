@@ -37,6 +37,12 @@ export interface PolicyRailBinding {
    * Flow names that must complete before this binding becomes runnable.
    */
   'dependsOn'?: (string)[];
+  /**
+   * Versioned Rule risk, independent of detector confidence and requested action.
+   * Absent for older artifacts without a recorded risk level; never infer it.
+   */
+  'riskSeverity'?: (string);
+  '_riskSeverity'?: "riskSeverity";
   '_parallelGroup'?: "parallelGroup";
   '_priority'?: "priority";
 }
@@ -73,6 +79,12 @@ export interface PolicyRailBinding__Output {
    * Flow names that must complete before this binding becomes runnable.
    */
   'dependsOn': (string)[];
+  /**
+   * Versioned Rule risk, independent of detector confidence and requested action.
+   * Absent for older artifacts without a recorded risk level; never infer it.
+   */
+  'riskSeverity'?: (string);
+  '_riskSeverity'?: "riskSeverity";
   '_parallelGroup'?: "parallelGroup";
   '_priority'?: "priority";
 }

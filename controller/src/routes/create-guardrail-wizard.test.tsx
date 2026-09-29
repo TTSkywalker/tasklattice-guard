@@ -191,7 +191,7 @@ function renderWizard() {
 }
 
 async function selectSection(name: string) {
-  fireEvent.mouseDown(await screen.findByRole("tab", { name: new RegExp(name) }), { button: 0, ctrlKey: false });
+  fireEvent.click(await screen.findByRole("tab", { name: new RegExp(name) }), { button: 0, ctrlKey: false });
 }
 
 describe("Create Guardrail wizard", () => {
@@ -311,20 +311,20 @@ describe("Create Guardrail wizard", () => {
     ] });
     renderWizard();
     expect(await screen.findByText("Profile applied · 1 Policies selected")).toBeTruthy();
-    expect(screen.getByRole("combobox").textContent).toContain("General Profile");
+    expect(screen.getByRole("combobox").querySelector(".cds--list-box__label")?.textContent).toContain("General Profile");
     expect(screen.queryByRole("group", { name: "Industry or use case" })).toBeNull();
     fireEvent.keyDown(screen.getByRole("combobox", { name: "Profile", exact: true }), { key: "ArrowDown" });
     expect(await screen.findByRole("option", { name: /Alternate banking.*Banking/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: /Default banking.*Banking.*Default/ }));
-    expect(screen.getByRole("combobox").textContent).toContain("Default banking");
+    expect(screen.getByRole("combobox").querySelector(".cds--list-box__label")?.textContent).toContain("Default banking");
     fireEvent.click(screen.getByRole("button", { name: protectionEn.wizard.addPreset }));
     expect(screen.getByText("Profile applied · 2 Policies selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: protectionEn.wizard.undoPreset }));
-    expect(screen.getByRole("combobox").textContent).toContain("General Profile");
+    expect(screen.getByRole("combobox").querySelector(".cds--list-box__label")?.textContent).toContain("General Profile");
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("option", { name: "Start blank" }));
     fireEvent.click(screen.getByRole("button", { name: protectionEn.wizard.replacePreset }));
-    expect(screen.getByRole("combobox").textContent).toBe("Start blank");
+    expect(screen.getByRole("combobox").querySelector(".cds--list-box__label")?.textContent).toBe("Start blank");
     expect(screen.getByText("Profile applied · 0 Policies selected")).toBeTruthy();
   });
 
@@ -349,13 +349,13 @@ describe("Create Guardrail wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: protectionEn.wizard.addPreset }));
     expect(screen.getByText("Profile applied · 2 Policies selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: protectionEn.wizard.undoPreset }));
-    expect(picker.textContent).toBe("Banking preset");
+    expect(picker.querySelector(".cds--list-box__label")?.textContent).toBe("Banking preset");
     await choose("Internet preset");
     fireEvent.click(screen.getByRole("button", { name: protectionEn.wizard.replacePreset }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await selectSection("Business rules");
     fireEvent.click(await screen.findByRole("button", { name: "All protections" }));
-    expect(screen.getByRole("checkbox", { name: "Topic Filtering" })).toHaveProperty("ariaChecked", "false");
+    expect(screen.getByRole("checkbox", { name: "Topic Filtering" })).toHaveProperty("checked", false);
     fireEvent.click(screen.getByRole("button", { name: "Review draft" }));
     await waitFor(() => expect(apiMocks.preview).toHaveBeenCalledWith(expect.objectContaining({ policy_bindings: [configuredRequiredBinding] })));
   });
@@ -394,7 +394,7 @@ describe("Create Guardrail wizard", () => {
     await selectSection("Business rules");
     fireEvent.click(screen.getByRole("checkbox", { name: "Topic Filtering" }));
     await selectSection("Data & privacy");
-    expect(screen.getByRole("checkbox", { name: "Sensitive data" }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("checkbox", { name: "Sensitive data" }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Review draft" }));
     await waitFor(() => expect(apiMocks.preview).toHaveBeenCalledWith(expect.objectContaining({
       policy_bindings: [expect.objectContaining({ policy_id: privacy.id }), expect.objectContaining({ policy_id: correctness.id }), binding],
@@ -416,7 +416,7 @@ describe("Create Guardrail wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review draft" }));
     await waitFor(() => expect(apiMocks.preview).toHaveBeenCalledWith(expect.objectContaining({ policy_bindings: [configuredRequiredBinding] })));
     fireEvent.click(screen.getByRole("button", { name: "Edit protections" }));
-    expect(screen.getByRole("checkbox", { name: "Aviation Operations Security" }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("checkbox", { name: "Aviation Operations Security" }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByRole("textbox", { name: "Search protections" }).getAttribute("value")).toBe("");
   });
 
@@ -508,7 +508,7 @@ describe("Create Guardrail wizard", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: "Phrase filters" }));
     expect(screen.queryByRole("button", { name: "Add phrase" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Configure Phrase filters", exact: true }));
-    expect(screen.getByRole("combobox", { name: "Action for Configured phrase sequence" }).textContent).toBe("Phrase actions");
+    expect(screen.getByRole("combobox", { name: "Action for Configured phrase sequence" }).querySelector(".cds--list-box__label")?.textContent).toBe("Phrase actions");
     expect(screen.getByRole("button", { name: "Review draft" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Phrase 1" }), { target: { value: "internal-name" } });

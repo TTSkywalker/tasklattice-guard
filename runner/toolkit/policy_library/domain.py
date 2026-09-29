@@ -84,6 +84,7 @@ class PolicyRuleSpec:
     rails: tuple[PolicyRail, ...]
     implementation: PolicyImplementationRef
     taxonomy_ids: tuple[str, ...]
+    risk_severity: str | None = None
     expression: str | None = None
     context_expression: str | None = None
     context_max_gap_words: int | None = None

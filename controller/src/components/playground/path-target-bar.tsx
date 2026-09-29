@@ -1,4 +1,5 @@
-import { LoaderCircle, Send } from "lucide-react";
+import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
+import { Cable, GitBranch, LoaderCircle, Route, ScanLine, Send, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRoutingText } from "@/components/traffic-routing/form";
@@ -8,9 +9,9 @@ import type { PathWorkbench } from "./use-path-workbench";
 export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
   const t = useRoutingText();
   return (
-    <div className="shrink-0 space-y-3 border-b p-3 sm:p-4">
-      <div className="grid grid-cols-2 gap-3 lg:flex lg:flex-wrap lg:items-end">
-        <Field label={t("测试目标", "Test target")}>
+    <div className="path-target-bar">
+      <div className="path-target-fields">
+        <Field icon={<Target />} label={t("测试目标", "Test target")}>
           <PathTestSelect
             label="Test path"
             value={w.target}
@@ -22,7 +23,7 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
             ]}
           />
         </Field>
-        <Field label={w.target === "router" ? "Router" : "Endpoint"}>
+        <Field icon={w.target === "router" ? <Route /> : <Cable />} label={w.target === "router" ? "Router" : "Endpoint"}>
           <PathTestSelect
             label={w.target === "router" ? "Router" : "Endpoint"}
             value={
@@ -37,7 +38,7 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
         </Field>
         {w.target === "router" ? (
           <>
-            <Field label={t("版本", "Configuration")}>
+            <Field icon={<GitBranch />} label={t("版本", "Configuration")}>
               <PathTestSelect
                 label="Configuration"
                 value={w.configuration}
@@ -48,7 +49,7 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
                 options={[
                   {
                     value: "published",
-                    label: `${t("已发布", "Published")} · r${w.router?.activeRevision ?? "—"}`,
+                    label: w.router?.activeRevision ? `${t("已发布", "Published")} · r${w.router.activeRevision}` : t("尚未发布", "Not published"),
                   },
                   {
                     value: "draft",
@@ -57,7 +58,7 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
                 ]}
               />
             </Field>
-            <Field label={t("来源 Endpoint", "Source Endpoint")}>
+            <Field icon={<Cable />} label={t("来源 Endpoint", "Source Endpoint")}>
               <PathTestSelect
                 label="Source Endpoint"
                 value={w.endpoint?.id ?? ""}
@@ -69,7 +70,7 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
                 }))}
               />
             </Field>
-            <Field label={t("测试范围", "Test scope")}>
+            <Field icon={<ScanLine />} label={t("测试范围", "Test scope")}>
               <PathTestSelect
                 label="Test scope"
                 value={w.action}
@@ -90,16 +91,16 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
             </Field>
           </>
         ) : (
-          <p className="col-span-2 pb-3 text-xs text-muted-foreground">
+          <p className="path-bound-router">
             Router: {w.boundRouter?.name ?? "—"} · r
             {w.boundRouter?.activeRevision ?? "—"}
           </p>
         )}
       </div>
-      <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2 sm:grid-cols-[6rem_minmax(0,1fr)_auto]">
-        <select
+      <div className="path-request-line">
+        <CarbonNativeSelect
           aria-label="HTTP method"
-          className="h-11 rounded-md border bg-background px-2 font-mono text-sm focus-visible:outline-ring"
+          className="path-http-method"
           value={w.draft.method}
           disabled={w.pending || w.target === "endpoint"}
           onChange={(e) => w.setDraft({ ...w.draft, method: e.target.value })}
@@ -109,17 +110,17 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
               <option key={m}>{m}</option>
             ),
           )}
-        </select>
+        </CarbonNativeSelect>
         <Input
           aria-label="Request URL"
-          className="h-11 min-w-0 font-mono text-sm"
+          className="path-request-url"
           value={w.draft.url}
           readOnly={w.target === "endpoint"}
           disabled={w.pending}
           onChange={(e) => w.setDraft({ ...w.draft, url: e.target.value })}
         />
         <Button
-          className="col-span-2 min-h-11 sm:col-span-1"
+          className="path-send-button"
           disabled={w.pending || Boolean(w.unavailable)}
           onClick={() => void w.submit()}
         >
@@ -135,7 +136,7 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
               : t("发送测试", "Send test")}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p className="path-request-hint">
         {w.unavailable ||
           (w.target === "endpoint"
             ? t(
@@ -161,15 +162,17 @@ export function PathTargetBar({ workbench: w }: { workbench: PathWorkbench }) {
   );
 }
 function Field({
+  icon,
   label,
   children,
 }: {
+  icon: React.ReactNode;
   label: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-w-0 space-y-1">
-      <div className="text-xs text-muted-foreground">{label}</div>
+    <div className="path-target-field">
+      <div className="path-field-label"><span aria-hidden="true">{icon}</span>{label}</div>
       {children}
     </div>
   );

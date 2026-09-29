@@ -10,7 +10,7 @@ const draft = programmablePolicyDraftSchema.parse({
   guardrail_category: "content_safety", colang_version: "1.0",
   sources: [{ path: "rails.co", content: "define flow published_check\n  pass" }],
   parameter_schema: [{ name: "published_parameter", kind: "string", required: true }],
-  rail_bindings: [{ rail_type: "input", flow_name: "published_check", execution_mode: "detect", on_unsafe: "reject" }],
+  rail_bindings: [{ rail_type: "input", flow_name: "published_check", execution_mode: "detect", on_unsafe: "reject", risk_severity: "medium" }],
   execution_contract: [["output_delivery", "full_buffered"]],
   test_cases: [{ id: "published-case", name: "Published acceptance", rail_type: "input", content: "sample", expected_decision: "block",
     covered_rule_ids: ["flow/input/published_check"], case_type: "input_rail" }],

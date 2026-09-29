@@ -91,8 +91,8 @@ export function GuardrailProtectionPicker({ policies, bindings, onChange, issueF
       <Button className="min-h-11 h-auto max-w-full whitespace-normal break-words" variant="outline" onClick={() => onChange(bindings.filter(item => item.policy_id !== binding.policy_id))}>{t("protection.remove", { name: binding.policy_id })}</Button>
     </div>)}
     <Tabs value={section} onValueChange={value => { onSectionChange(value as ProtectionSection); onExpand(null); setQuery(""); }} className="gap-5">
-      <TabsList aria-label={t("protection.wizard.sections.navigation")} className="grid h-auto w-full grid-cols-2 gap-1 sm:sticky sm:top-0 sm:z-10 md:grid-cols-3 xl:grid-cols-5 rounded-lg border bg-background p-1 shadow-sm">
-        {sections.map(({ id, icon: Icon }) => <TabsTrigger key={id} value={id} className="h-auto min-h-16 min-w-0 flex-col items-start gap-2 rounded-md px-2 py-3 whitespace-normal text-left data-[state=active]:bg-primary/10 data-[state=active]:text-primary after:hidden last:col-span-2 md:last:col-span-1 sm:px-3">
+      <TabsList aria-label={t("protection.wizard.sections.navigation")} className="guard-protection-tabs">
+        {sections.map(({ id, icon: Icon }) => <TabsTrigger key={id} value={id} className="guard-protection-tab">
           <span className="flex items-center gap-2 text-sm font-semibold sm:text-base"><Icon className="hidden size-4 sm:block" />{t(`protection.wizard.sections.${id}`)}</span>
           {(id === "topics" && topicUnavailable) || (id === "reliability" && correctnessStatus === "unavailable")
             ? <Badge variant="destructive"><LockKeyhole aria-hidden="true" />{t("protection.wizard.sections.unavailable")}</Badge>

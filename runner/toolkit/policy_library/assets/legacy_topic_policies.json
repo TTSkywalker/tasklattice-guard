@@ -27,6 +27,7 @@
         "description": "Redirect input outside the configured topic boundary.",
         "form": "colang_flow",
         "effect": "redirect",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],

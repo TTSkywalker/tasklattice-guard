@@ -313,6 +313,11 @@ export function buildGuardrailPlan(input: {
       enabled_rule_ids: binding.enabledRuleIds,
       rule_order: binding.ruleOrder ?? [],
       rule_actions: Object.entries(binding.ruleActions).sort(([left], [right]) => left.localeCompare(right)),
+      // Compiler-owned snapshot; no Guardrail risk override is accepted.
+      rule_severities: (programmableByKey.get(`${binding.policyId}@${binding.policyVersion}`)?.rail_bindings.map(rail => ({ id: flowRuleId(rail.rail_type, rail.flow_name), risk_severity: rail.risk_severity }))
+        ?? policyById.get(`${binding.policyId}@${binding.policyVersion}`)?.rules
+        ?? []).filter(rule => binding.enabledRuleIds.includes(rule.id) && rule.risk_severity)
+        .map(rule => [rule.id, rule.risk_severity]),
       enabled_rails: binding.enabledRails,
     })),
   };

@@ -1,3 +1,7 @@
+import { ResourceList } from "@/components/resource-list";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { EndpointProtocolIcon } from "@/components/endpoint-protocol-icon";
 import { useEffect, useState, type ReactNode } from "react";
@@ -6,7 +10,6 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
-  ChevronRight,
   Clock3,
   Copy,
   Eye,
@@ -17,7 +20,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 import { useTranslation } from "react-i18next";
 
 import { EntitySheet } from "@/components/entity-sheet";
@@ -53,8 +56,6 @@ import {
   type OneTimeEndpointCredential,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-const ENDPOINT_COLUMNS = "xl:grid-cols-[minmax(160px,1fr)_160px_160px_150px_120px_16px]";
 
 const ADAPTERS: ReadonlyArray<{ id: EndpointAdapterId; protocol: EndpointProtocol }> = [
   { id: "litellm-generic-guardrail", protocol: "litellm" },
@@ -135,45 +136,26 @@ export function EndpointsPage({ endpointId, onEndpointChange }: {
   }
 
   return (
-    <section className="py-6 sm:py-8">
+    <section className="py-8">
       <PageHeader
         title={t("pages.endpoints.title")}
         description={t("endpoints.description")}
-        action={auth.user?.role === "admin" ? <Button variant="create" className="min-h-11 self-start" onClick={() => setCreateOpen(true)}><Plus />{t("endpoints.register")}</Button> : undefined}
       />
 
-      {query.error ? <div className="mt-5"><ErrorNotice error={query.error} /></div> : null}
-      {query.isLoading ? <Skeleton className="mt-5 h-60 rounded-lg" /> : null}
-
-      {endpoints.length ? (
-        <section className="mt-5 overflow-hidden rounded-lg border bg-card shadow-xs">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-5 py-3 text-xs text-muted-foreground">
-            <span>{t("endpoints.listSummary", { total: endpoints.length, verified })}</span>
-            {attention ? <span className="font-medium text-destructive">{t("endpoints.needsAttention", { count: attention })}</span> : null}
-          </div>
-          <div className={cn("hidden gap-4 border-b bg-muted/20 px-5 py-3 text-xs font-medium text-muted-foreground xl:grid", ENDPOINT_COLUMNS)}>
-            <span>{t("endpoints.gatewayInstance")}</span>
-            <span>{t("endpoints.setup")}</span>
-            <span>{t("endpoints.successRate24h")}</span>
-            <span>{t("endpoints.detectionP9524h")}</span>
-            <span>{t("endpoints.lastCallback")}</span>
-            <span />
-          </div>
-          <div className="divide-y divide-border">
-            {endpoints.map((endpoint) => (
-              <EndpointRow key={endpoint.id} endpoint={endpoint} onOpen={() => setSelected(endpoint)} />
-            ))}
-          </div>
-        </section>
-      ) : !query.isLoading ? (
-        <div className="mt-5">
-          <EmptyState
-            title={t("endpoints.emptyTitle")}
-            description={t("endpoints.emptyDescription")}
-            action={auth.user?.role === "admin" ? <Button variant="create" onClick={() => setCreateOpen(true)}><Plus />{t("endpoints.register")}</Button> : undefined}
-          />
-        </div>
-      ) : null}
+      <ResourceList items={endpoints} label={t("pages.endpoints.title")} searchPlaceholder={t("resourceList.searchEndpoints")}
+        searchText={item => `${item.name} ${item.id} ${item.adapter_id} ${t(`endpoints.adapters.${item.adapter_id}`)} ${item.protocol}`}
+        filter={{ label: t("endpoints.setup"), options: [{ value: "", label: t("resourceList.allStatuses") }, ...[...new Set(endpoints.map(item => item.setup_status))].sort().map(value => ({ value, label: t(`endpoints.setupStatuses.${value}`) }))], matches: (item, value) => item.setup_status === value }}
+        loading={query.isPending} refreshing={query.isFetching} error={query.error} onRefresh={() => void refreshEndpoints()}
+        emptyTitle={t("endpoints.emptyTitle")} emptyDescription={t("endpoints.emptyDescription")}
+        summary={<span>{t("endpoints.listSummary", { total: endpoints.length, verified })}{attention ? ` · ${t("endpoints.needsAttention", { count: attention })}` : ''}</span>}
+        action={auth.user?.role === "admin" ? <Button variant="create" size="lg" onClick={() => setCreateOpen(true)}><Plus />{t("endpoints.register")}</Button> : undefined}>
+        {items => <Table className="resource-table" aria-label={t("pages.endpoints.title")}><TableHeader><TableRow>
+          <TableHead className="resource-name-column">{t("endpoints.gatewayInstance")}</TableHead>
+          <TableHead>{t("endpoints.setup")}</TableHead><TableHead>{t("endpoints.successRate24h")}</TableHead>
+          <TableHead>{t("endpoints.detectionP9524h")}</TableHead><TableHead>{t("endpoints.lastCallback")}</TableHead>
+          <TableHead className="resource-actions-column"><span className="sr-only">{t("common.actions")}</span></TableHead>
+        </TableRow></TableHeader><TableBody>{items.map(endpoint => <EndpointRow key={endpoint.id} endpoint={endpoint} onOpen={() => setSelected(endpoint)} />)}</TableBody></Table>}
+      </ResourceList>
 
       {endpointId && !selected && <EntitySheet
         open onOpenChange={(open) => { if (!open) onEndpointChange?.(undefined); }}
@@ -216,37 +198,26 @@ export function EndpointsPage({ endpointId, onEndpointChange }: {
 
 function EndpointRow({ endpoint, onOpen }: { endpoint: Endpoint; onOpen: () => void }) {
   const { t, i18n } = useTranslation();
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={t("endpoints.openEndpoint", { name: endpoint.name })}
-      className={cn("group relative grid min-h-24 w-full gap-4 p-5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring xl:items-center", ENDPOINT_COLUMNS)}
-    >
-      <div className="min-w-0">
-        <span className="flex items-center gap-2.5">
-          <EndpointProtocolIcon protocol={endpoint.protocol} size="sm" />
-          <strong className="truncate text-sm font-medium">{endpoint.name}</strong>
-        </span>
-        <span className="mt-1.5 block truncate pl-9 text-xs text-muted-foreground">
-          {t(`endpoints.adapters.${endpoint.adapter_id}`)} · {shortId(endpoint.id)}
-        </span>
-      </div>
-      <ListDatum label={t("endpoints.setup")}><SetupBadge status={endpoint.setup_status} /></ListDatum>
-      <ListDatum label={t("endpoints.successRate24h")}><EndpointSuccessRate endpoint={endpoint} /></ListDatum>
-      <ListDatum label={t("endpoints.detectionP9524h")}>
-        <span className="text-xs tabular-nums" title={t("endpoints.detectionP95Explanation")}>
-          {endpoint.request_count > 0 && endpoint.detection_p95_ms != null ? `${endpoint.detection_p95_ms.toLocaleString(i18n.language)} ms` : "—"}
-        </span>
-      </ListDatum>
-      <ListDatum label={t("endpoints.lastCallback")}>
-        <time className="text-xs" dateTime={endpoint.last_seen_at ?? undefined} title={formatDate(endpoint.last_seen_at, i18n.language)}>
-          {endpoint.last_seen_at ? formatRelativeDate(endpoint.last_seen_at, i18n.language) : t("endpoints.never")}
-        </time>
-      </ListDatum>
-      <ChevronRight className="absolute right-4 top-5 size-4 text-muted-foreground xl:static" />
-    </button>
-  );
+  return <TableRow className="resource-row" onClick={onOpen}>
+    <TableCell>
+      <button type="button" className="resource-name" onClick={event => { event.stopPropagation(); onOpen(); }} aria-label={t("endpoints.openEndpoint", { name: endpoint.name })}>
+        <EndpointProtocolIcon protocol={endpoint.protocol} size="sm" /><span>{endpoint.name}</span>
+      </button>
+      <span className="resource-secondary" title={`${t(`endpoints.adapters.${endpoint.adapter_id}`)} · ${endpoint.id}`}>{t(`endpoints.protocolShort.${endpoint.protocol}`)} · {shortId(endpoint.id)}</span>
+    </TableCell>
+    <TableCell><SetupBadge status={endpoint.setup_status} /></TableCell>
+    <TableCell><EndpointSuccessRate endpoint={endpoint} /></TableCell>
+    <TableCell><span className="text-xs tabular-nums" title={t("endpoints.detectionP95Explanation")}>
+      {endpoint.request_count > 0 && endpoint.detection_p95_ms != null ? `${endpoint.detection_p95_ms.toLocaleString(i18n.language)} ms` : "—"}
+    </span></TableCell>
+    <TableCell><time className="text-xs" dateTime={endpoint.last_seen_at ?? undefined} title={formatDate(endpoint.last_seen_at, i18n.language)}>
+      {endpoint.last_seen_at ? formatRelativeDate(endpoint.last_seen_at, i18n.language) : t("endpoints.never")}
+    </time></TableCell>
+    <TableCell className="resource-actions-column" onClick={event => event.stopPropagation()}><DropdownMenu>
+      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={t("resourceList.actionsFor", { name: endpoint.name })}><MoreHorizontal /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end"><DropdownMenuItem onSelect={onOpen}><Eye />{t("resourceList.viewDetails")}</DropdownMenuItem></DropdownMenuContent>
+    </DropdownMenu></TableCell>
+  </TableRow>;
 }
 
 function EndpointSuccessRate({ endpoint }: { endpoint: Endpoint }) {
@@ -261,14 +232,6 @@ function EndpointSuccessRate({ endpoint }: { endpoint: Endpoint }) {
   </span>;
 }
 
-function ListDatum({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <span className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 text-muted-foreground xl:block xl:text-foreground">
-      <span className="text-xs font-medium text-muted-foreground xl:sr-only">{label}</span>
-      <span className="min-w-0">{children}</span>
-    </span>
-  );
-}
 
 function EndpointDetail({
   endpoint,
@@ -682,9 +645,9 @@ export function CreateEndpointSheet({
           </Field>
           <Field label={t("endpoints.endpointProtocol")}>
             <Select value={adapterId} onValueChange={(value) => setAdapterId(value as EndpointAdapterId)}>
-              <SelectTrigger className="min-h-16 min-w-0 overflow-hidden rounded-xl bg-card px-3 py-2 text-left"><SelectValue /></SelectTrigger>
-              <SelectContent className="min-w-[var(--radix-select-trigger-width)] rounded-xl p-1">
-                {ADAPTERS.map((item) => <SelectItem key={item.id} className="min-h-16 rounded-lg px-2.5 py-2 pr-10" value={item.id}><AdapterOption adapterId={item.id} /></SelectItem>)}
+              <SelectTrigger variant="rich" aria-label={t("endpoints.endpointProtocol")}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ADAPTERS.map((item) => <SelectItem key={item.id} value={item.id} textValue={t(`endpoints.adapters.${item.id}`)}><AdapterOption adapterId={item.id} /></SelectItem>)}
               </SelectContent>
             </Select>
           </Field>
@@ -1134,8 +1097,8 @@ function AdapterOption({ adapterId }: { adapterId: EndpointAdapterId }) {
     <span className="flex min-w-0 items-center gap-3">
       <EndpointProtocolIcon protocol={adapter.protocol} />
       <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-foreground">{t(`endpoints.adapters.${adapterId}`)}</span>
-        <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">{t(`endpoints.adapterDescriptions.${adapterId}`)}</span>
+        <span className="block text-sm font-medium text-foreground">{t(`endpoints.adapters.${adapterId}`)}</span>
+        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">{t(`endpoints.adapterDescriptions.${adapterId}`)}</span>
       </span>
     </span>
   );

@@ -1,5 +1,7 @@
+import { Checkbox as CarbonCheckbox } from "@/components/ui/checkbox";
+import { NativeSelect as CarbonNativeSelect } from "@/components/ui/native-select";
 import { useState } from "react";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { Braces, Code2, FileCode2, GitBranch, KeyRound, List, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,26 +62,26 @@ export function PathRequestEditor({
       <Tabs
         value={activeTab}
         onValueChange={setTab}
-        className="h-full min-h-0 gap-0"
+        className="path-request-editor h-full min-h-0 gap-0"
       >
-        <div className="flex shrink-0 flex-wrap items-center justify-between border-b px-3 sm:px-4">
+        <div className="path-editor-toolbar">
           <TabsList
             className="border-0"
             aria-label={t("请求编辑", "Request editor")}
           >
             <TabsTrigger value="headers">
-              Headers{" "}
+              <List aria-hidden="true" className="size-4" />Headers{" "}
               <span className="text-muted-foreground">
                 {w.draft.headers.filter((h) => h.enabled && h.name).length}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="body">Body</TabsTrigger>
+            <TabsTrigger value="body"><Braces aria-hidden="true" className="size-4" />Body</TabsTrigger>
             {w.target === "router" ? (
-              <TabsTrigger value="context">
+              <TabsTrigger value="context"><GitBranch aria-hidden="true" className="size-4" />
                 {t("路由上下文", "Context")}
               </TabsTrigger>
             ) : (
-              <TabsTrigger value="auth">{t("认证", "Auth")}</TabsTrigger>
+              <TabsTrigger value="auth"><KeyRound aria-hidden="true" className="size-4" />{t("认证", "Auth")}</TabsTrigger>
             )}
           </TabsList>
           <div className="flex items-center gap-1">
@@ -105,7 +107,7 @@ export function PathRequestEditor({
                 setFormatError("");
               }}
             >
-              {t("填入示例", "Load example")}
+              <FileCode2 aria-hidden="true" className="size-4" />{t("填入示例", "Load example")}
             </Button>
           </div>
         </div>
@@ -143,8 +145,7 @@ export function PathRequestEditor({
                   role="cell"
                   className="flex size-11 cursor-pointer items-center justify-center"
                 >
-                  <input
-                    type="checkbox"
+                  <CarbonCheckbox
                     className="size-4 accent-primary"
                     aria-label={`Enable header ${index + 1}`}
                     checked={h.enabled}
@@ -219,9 +220,9 @@ export function PathRequestEditor({
           className="flex min-h-0 flex-col gap-2 p-3 data-[state=inactive]:hidden sm:p-4"
         >
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <select
+            <CarbonNativeSelect
               aria-label="Body format"
-              className="h-11 rounded-md border bg-background px-3 text-sm text-foreground"
+              className="path-body-format"
               value={jsonBody ? "json" : "text"}
               disabled={w.pending}
               onChange={(e) => {
@@ -240,7 +241,7 @@ export function PathRequestEditor({
             >
               <option value="text">{t("原始文本", "Raw text")}</option>
               <option value="json">JSON</option>
-            </select>
+            </CarbonNativeSelect>
             <Button
               variant="ghost"
               className="min-h-11"
@@ -259,7 +260,7 @@ export function PathRequestEditor({
                 }
               }}
             >
-              {t("格式化 JSON", "Format JSON")}
+              <Code2 aria-hidden="true" className="size-4" />{t("格式化 JSON", "Format JSON")}
             </Button>
           </div>
           <Textarea
@@ -298,7 +299,7 @@ export function PathRequestEditor({
                 disabled={w.pending}
                 onClick={() => w.setCallId(`test-${crypto.randomUUID()}`)}
               >
-                {t("重新生成", "New")}
+                <RefreshCw aria-hidden="true" className="size-4" />{t("重新生成", "New")}
               </Button>
             </div>
           </label>

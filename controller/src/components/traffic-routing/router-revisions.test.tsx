@@ -14,13 +14,13 @@ function setup(canEdit = true) {
  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}><RouterRevisions router={router} revisions={history} canEdit={canEdit} onRestore={restore} /></QueryClientProvider>);
  return restore;
 }
-function openMenu(index = 1) { fireEvent.pointerDown(screen.getAllByRole('button', { name: /Actions for revision/ })[index]!, { button: 0, ctrlKey: false, pointerType: 'mouse' }); }
+function openMenu(index = 1) { fireEvent.click(screen.getAllByRole('button', { name: /Actions for revision/ })[index]!, { button: 0, ctrlKey: false, pointerType: 'mouse' }); }
 it('shows colored status and protects the current revision', async () => {
  setup();
- expect(screen.getByText('Active').className).toContain('text-emerald');
+ expect(screen.getByText('Active').closest('[data-slot=badge]')?.className).toContain('text-[var(--success)]');
  openMenu(0);
- expect((await screen.findByRole('menuitem', { name: 'Delete' })).getAttribute('aria-disabled')).toBe('true');
- expect(screen.getByRole('menuitem', { name: 'Rollback' }).getAttribute('aria-disabled')).toBe('true');
+ expect((await screen.findByRole('menuitem', { name: 'Delete' })).hasAttribute('disabled')).toBe(true);
+ expect(screen.getByRole('menuitem', { name: 'Rollback' }).hasAttribute('disabled')).toBe(true);
 });
 it('restores from the historical menu without deleting', async () => {
  const restore = setup(); openMenu();

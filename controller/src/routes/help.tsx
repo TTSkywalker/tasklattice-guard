@@ -36,7 +36,7 @@ function DocumentArticle({ document }: { document: HelpDocument }) {
   return <article id={document.id} className="document-article scroll-mt-36 outline-none 2xl:scroll-mt-24" tabIndex={-1}>
     <header className="border-b pb-6">
       <p className="text-xs font-medium text-primary">{document.categoryTitle}</p>
-      <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">{document.title}</h1>
+      <h1 className="mt-2 font-sans text-3xl font-normal tracking-normal">{document.title}</h1>
       <p className="mt-4 text-sm leading-7 text-muted-foreground">{document.summary}</p>
       {document.outcome ? <p className="mt-2 text-xs font-medium text-foreground">{document.outcome}</p> : null}
     </header>

@@ -81,3 +81,19 @@ describe("runtime content opt-in", () => {
     expect(getRuntimeEvent).toHaveBeenCalledWith("event", includeContent);
   });
 });
+
+
+describe("Security Event multi-select filter", () => {
+  it.each([["critical,high", 200], ["unclassified,informational", 200], ["high,invalid", 400], ["", 400]])("validates the complete filter %s", async (severity, status) => {
+    const queryRuntimeEvents = vi.fn().mockResolvedValue({ items: [], count: 0 });
+    const app = createHttpApp({ config,
+      auth: { api: { getSession: vi.fn().mockResolvedValue({ user: { id: "reader", role: "admin" } }) } } as unknown as ControllerAuth,
+      service: { queryRuntimeEvents } as unknown as ControlPlaneService,
+      runnerControl: {} as RunnerControlServer, metrics: {} as ControllerMetrics,
+    });
+    const response = await app.request(`/api/v1/telemetry/events?severity=${severity}`);
+    expect(response.status).toBe(status);
+    if (status === 200) expect(queryRuntimeEvents).toHaveBeenCalledWith(expect.objectContaining({ severity: severity.split(",") }));
+    else expect(queryRuntimeEvents).not.toHaveBeenCalled();
+  });
+});

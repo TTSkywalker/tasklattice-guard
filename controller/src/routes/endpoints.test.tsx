@@ -459,6 +459,21 @@ describe("Endpoint onboarding", () => {
 });
 
 describe("Endpoint request quality", () => {
+  afterEach(cleanup);
+  it("keeps the row action menu separate from opening the Endpoint drawer", async () => {
+    const item = endpoint();
+    const onEndpointChange = vi.fn();
+    deleteEndpointMock.mockClear();
+    getEndpointsMock.mockResolvedValue({ items: [item] });
+    renderWithProviders(<EndpointsPage onEndpointChange={onEndpointChange} />);
+    fireEvent.click(await screen.findByRole("button", { name: "resourceList.actionsFor" }));
+    expect(onEndpointChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "resourceList.viewDetails" }));
+    expect(onEndpointChange).toHaveBeenCalledExactlyOnceWith(item.id);
+    expect(deleteEndpointMock).not.toHaveBeenCalled();
+  });
+
+
   it("shows observed success rate and detection P95 with a request sample", async () => {
     getEndpointsMock.mockResolvedValue({ items: [endpoint({ request_count: 4, error_count: 1, detection_p95_ms: 90 })] });
     renderWithProviders(<EndpointsPage />);
