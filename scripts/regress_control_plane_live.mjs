@@ -99,10 +99,10 @@ try {
   assert.equal(guard.draftRevision, 1);
   assert.deepEqual(guard.excludedTestCaseIds, []);
   if (!report.validationId) {
-    const validation = guard.latestValidationRun ?? await call('/api/v1/validation-runs', { body: { guardrailId: guard.id }, expected: 202 });
+    const validation = guard.latestValidationRun ?? await call(`/api/v1/guardrails/${encodeURIComponent(guard.id)}/test-runs`, { body: { guardrailId: guard.id }, expected: 202 });
     report.validationId = validation.id; save();
   }
-  const validation = await until(`/api/v1/validation-runs/${report.validationId}`, v => ['passed', 'failed'].includes(v.status));
+  const validation = await until(`/api/v1/test-runs/${report.validationId}`, v => ['passed', 'failed'].includes(v.status));
   report.validation = { status: validation.status, metrics: validation.metrics, failures: validation.results.filter(r => !r.passed) }; save();
   assert.equal(validation.status, 'passed', JSON.stringify(report.validation));
   assert(validation.results.every(r => r.modelInvocations === 0 && !r.actualFailure));

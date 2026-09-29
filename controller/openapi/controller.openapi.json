@@ -328,7 +328,7 @@
             ]
           },
           "detail": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "id": {
             "type": "string"
@@ -1649,7 +1649,7 @@
             "type": "boolean"
           },
           "plan": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "runtimeProfile": {
             "type": "string"
@@ -1732,7 +1732,7 @@
             "type": "string"
           },
           "plan": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "prompts": {
             "items": {
@@ -2221,7 +2221,7 @@
           },
           "findings": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           },
@@ -2318,7 +2318,7 @@
           },
           "trace": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           },
@@ -3299,7 +3299,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse": {
+      "getPoliciesByIdTestRunsLatestResponse": {
         "properties": {
           "status": {
             "const": "not_run",
@@ -3311,7 +3311,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse2": {
+      "getPoliciesByIdTestRunsLatestResponse2": {
         "properties": {
           "created_at": {
             "type": "string"
@@ -3337,7 +3337,7 @@
           },
           "results": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItem"
             },
             "type": "array"
           },
@@ -3362,7 +3362,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse2ResultsItem": {
+      "getPoliciesByIdTestRunsLatestResponse2ResultsItem": {
         "properties": {
           "actual_decision": {
             "type": "string"
@@ -3439,7 +3439,7 @@
           },
           "trace": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           }
@@ -3463,7 +3463,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem": {
+      "getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem": {
         "additionalProperties": {
           "description": "Application-defined JSON value."
         },
@@ -7508,7 +7508,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           }
@@ -7692,7 +7692,7 @@
             "type": "string"
           },
           "metadata": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "occurredAt": {
             "format": "date-time",
@@ -7899,7 +7899,7 @@
             "type": "string"
           },
           "metadata": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "occurredAt": {
             "format": "date-time",
@@ -8541,7 +8541,7 @@
         ],
         "type": "object"
       },
-      "getValidationRunsResponse": {
+      "getTestRunsResponse": {
         "properties": {
           "count": {
             "type": "number"
@@ -8909,7 +8909,7 @@
         },
         "type": "object"
       },
-      "patchGuardrailsByIdValidationScopeRequest": {
+      "patchGuardrailsByIdTestScopeRequest": {
         "properties": {
           "caseId": {
             "minLength": 1,
@@ -8925,7 +8925,7 @@
         ],
         "type": "object"
       },
-      "patchGuardrailsByIdValidationScopeResponse": {
+      "patchGuardrailsByIdTestScopeResponse": {
         "properties": {
           "caseType": {
             "type": "string"
@@ -10962,7 +10962,7 @@
             "type": "string"
           },
           "plan": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "runtimeProfile": {
             "type": "string"
@@ -13065,7 +13065,7 @@
       "postPlaygroundPathTestsResponse2": {
         "properties": {
           "body": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "callId": {
             "type": "string"
@@ -13406,7 +13406,7 @@
         ],
         "type": "object"
       },
-      "postPoliciesByIdValidationRunsResponse": {
+      "postPoliciesByIdTestRunsResponse": {
         "properties": {
           "completedAt": {
             "anyOf": [
@@ -13447,7 +13447,7 @@
           },
           "results": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItem"
             },
             "type": "array"
           },
@@ -19171,7 +19171,7 @@
         ],
         "summary": "Read test cases",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -19321,7 +19321,7 @@
         ],
         "summary": "Create test cases",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -19464,7 +19464,7 @@
         ],
         "summary": "Delete test cases",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -19480,10 +19480,10 @@
         }
       }
     },
-    "/api/v1/guardrails/{guardrailId}/validation-runs": {
+    "/api/v1/guardrails/{guardrailId}/test-runs": {
       "post": {
         "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. Creates a new Runner task on each request. Track the returned run ID rather than latest, which can change when another task is created. Requires guardrails:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "postGuardrailsByGuardrailIdValidationRuns",
+        "operationId": "postGuardrailsByGuardrailIdTestRuns",
         "parameters": [
           {
             "in": "path",
@@ -19604,9 +19604,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Start an executable validation run",
+        "summary": "Start a Test Run",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -20961,10 +20961,10 @@
         }
       }
     },
-    "/api/v1/guardrails/{id}/validation-scope": {
+    "/api/v1/guardrails/{id}/test-scope": {
       "patch": {
         "description": "Updates the supplied fields; omitted fields are retained. Validation or draft state may be invalidated. Requires guardrails:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "patchGuardrailsByIdValidationScope",
+        "operationId": "patchGuardrailsByIdTestScope",
         "parameters": [
           {
             "in": "path",
@@ -20979,7 +20979,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/patchGuardrailsByIdValidationScopeRequest"
+                "$ref": "#/components/schemas/patchGuardrailsByIdTestScopeRequest"
               }
             }
           },
@@ -20990,7 +20990,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/patchGuardrailsByIdValidationScopeResponse"
+                  "$ref": "#/components/schemas/patchGuardrailsByIdTestScopeResponse"
                 }
               }
             },
@@ -21095,9 +21095,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Update validation scope",
+        "summary": "Update test scope",
         "tags": [
-          "guardrails"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -25857,10 +25857,10 @@
         }
       }
     },
-    "/api/v1/policies/{id}/validation-runs": {
+    "/api/v1/policies/{id}/test-runs": {
       "post": {
         "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. Creates a new Runner task on each request. Track the returned run ID rather than latest, which can change when another task is created. Requires policies:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "postPoliciesByIdValidationRuns",
+        "operationId": "postPoliciesByIdTestRuns",
         "parameters": [
           {
             "in": "path",
@@ -25876,7 +25876,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/postPoliciesByIdValidationRunsResponse"
+                  "$ref": "#/components/schemas/postPoliciesByIdTestRunsResponse"
                 }
               }
             },
@@ -25981,9 +25981,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Start an executable validation run",
+        "summary": "Start a Test Run",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -25999,10 +25999,10 @@
         }
       }
     },
-    "/api/v1/policies/{id}/validation-runs/latest": {
+    "/api/v1/policies/{id}/test-runs/latest": {
       "get": {
-        "description": "Reads current state without creating resources or advancing a lifecycle. The target can change when another run starts. To track your request, use the returned runId on /policies/{id}/validation-runs/{runId}. Requires policies:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getPoliciesByIdValidationRunsLatest",
+        "description": "Reads current state without creating resources or advancing a lifecycle. The target can change when another run starts. To track your request, use the returned runId on /policies/{id}/test-runs/{runId}. Requires policies:read for personal access tokens. Token access covers all resources in the selected module.",
+        "operationId": "getPoliciesByIdTestRunsLatest",
         "parameters": [
           {
             "in": "path",
@@ -26020,10 +26020,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse"
+                      "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2"
+                      "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2"
                     }
                   ]
                 }
@@ -26130,9 +26130,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read the most recent Policy validation run",
+        "summary": "Read the most recent Policy Test Run",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -26148,10 +26148,10 @@
         }
       }
     },
-    "/api/v1/policies/{id}/validation-runs/{runId}": {
+    "/api/v1/policies/{id}/test-runs/{runId}": {
       "get": {
         "description": "Reads current state without creating resources or advancing a lifecycle. Requires policies:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getPoliciesByIdValidationRunsByRunId",
+        "operationId": "getPoliciesByIdTestRunsByRunId",
         "parameters": [
           {
             "in": "path",
@@ -26175,7 +26175,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2"
+                  "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2"
                 }
               }
             },
@@ -26280,9 +26280,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read validation runs",
+        "summary": "Read test runs",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -30265,10 +30265,10 @@
         }
       }
     },
-    "/api/v1/validation-runs": {
+    "/api/v1/test-runs": {
       "get": {
         "description": "Reads current state without creating resources or advancing a lifecycle. Requires guardrails:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getValidationRuns",
+        "operationId": "getTestRuns",
         "parameters": [
           {
             "in": "query",
@@ -30284,7 +30284,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/getValidationRunsResponse"
+                  "$ref": "#/components/schemas/getTestRunsResponse"
                 }
               }
             },
@@ -30389,9 +30389,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read validation runs",
+        "summary": "Read test runs",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -30407,10 +30407,10 @@
         }
       }
     },
-    "/api/v1/validation-runs/{runId}": {
+    "/api/v1/test-runs/{runId}": {
       "get": {
         "description": "Reads current state without creating resources or advancing a lifecycle. Requires guardrails:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getValidationRunsByRunId",
+        "operationId": "getTestRunsByRunId",
         "parameters": [
           {
             "in": "path",
@@ -30531,9 +30531,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read validation runs",
+        "summary": "Read test runs",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -30578,8 +30578,8 @@
       "x-product-area": "Guardrail Design"
     },
     {
-      "description": "Guardrail Test Cases and executable Guardrail/Policy validation runs.",
-      "name": "validation",
+      "description": "Test Cases and Test Runs that check Guardrail/Policy Rule behavior against expected results.",
+      "name": "testing",
       "x-product-area": "Guardrail Design"
     },
     {

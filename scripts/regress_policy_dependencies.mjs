@@ -40,10 +40,10 @@ const created = (await call("/api/v1/policies", {
 const path = `/api/v1/policies/${created.id}`;
 console.log(JSON.stringify({ stage: "created", policyId: created.id }));
 async function validate() {
-  await call(`${path}/validation-runs`, {}, 202);
+  await call(`${path}/test-runs`, {}, 202);
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
-    const result = (await call(`${path}/validation-runs/latest`)).result;
+    const result = (await call(`${path}/test-runs/latest`)).result;
     if (["passed", "failed"].includes(result.status)) return result;
     await delay(500);
   }

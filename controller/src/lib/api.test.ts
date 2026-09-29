@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { analyzeComplianceDocuments, analyzeGuardrailIntent, excludeGuardrailTestCase, getIntentAnalysisStatus, publishGuardrail, publishProgrammablePolicy, updateGuardrail } from "./api";
+import { analyzeComplianceDocuments, analyzeGuardrailIntent, createValidationRun, excludeGuardrailTestCase, getIntentAnalysisStatus, getValidationRuns, publishGuardrail, publishProgrammablePolicy, updateGuardrail } from "./api";
 import { requestController } from "./controller-api";
 
 describe("API error responses", () => {
@@ -58,11 +58,33 @@ describe("API error responses", () => {
     );
   });
 
-  it("sends slash-containing Test Case IDs in the validation-scope body", async () => {
+  it("creates, polls, and lists Test Runs using the new paths", async () => {
+    vi.useFakeTimers();
+    try {
+      const run = { id: "run-1", guardrailId: "guard-1", status: "passed", metrics: {}, results: [], excludedCaseIds: [] };
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(Response.json({ ...run, status: "queued" }, { status: 202 }))
+        .mockResolvedValueOnce(Response.json(run))
+        .mockResolvedValueOnce(Response.json({ items: [run], count: 1 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const pending = createValidationRun("guard-1");
+      await vi.advanceTimersByTimeAsync(1000);
+      expect((await pending).status).toBe("passed");
+      expect((await getValidationRuns("guard-1")).count).toBe(1);
+      expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+        "/api/v1/guardrails/guard-1/test-runs", "/api/v1/test-runs/run-1", "/api/v1/test-runs?guardrailId=guard-1",
+      ]);
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends slash-containing Test Case IDs in the test-scope body", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
       ok: true,
-      url: "http://test/api/v1/guardrails/guardrail-1/validation-scope",
+      url: "http://test/api/v1/guardrails/guardrail-1/test-scope",
       json: async () => ({}),
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -73,7 +95,7 @@ describe("API error responses", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/guardrails/guardrail-1/validation-scope",
+      "/api/v1/guardrails/guardrail-1/test-scope",
       {
         credentials: "same-origin",
         method: "PATCH",

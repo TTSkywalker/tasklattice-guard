@@ -18,7 +18,7 @@ These `x-` fields describe an OpenAPI operation; they are **not** HTTP headers t
 <a id="api-contract-async" />
 ## Check the result after `202`
 
-`202 Accepted` means the request was accepted, but asynchronous work may still be running. For example, after starting a Guardrail validation run, use the returned `runId` with `GET /api/v1/validation-runs/{runId}` to read its result. Do not report “validation passed” based on `202` alone.
+`202 Accepted` means the request was accepted, but asynchronous work may still be running. For example, after starting a Guardrail validation run, use the returned `runId` with `GET /api/v1/test-runs/{runId}` to read its result. Do not report “validation passed” based on `202` alone.
 
 <a id="api-contract-router-publish" />
 ## Publish a Router by revision, then decide whether to retry

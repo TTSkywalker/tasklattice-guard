@@ -4,6 +4,13 @@ import { routeTree } from "./app-router";
 
 // Use the actual application route tree so renamed links cannot silently 404.
 describe("Integration navigation", () => {
+  it.each([["testing", "testing"], ["validation", undefined]])("handles Guardrail tab %s without a legacy alias", async (tab, expected) => {
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [`/guardrails/guardrail-default?tab=${tab}`] }) });
+    await router.load();
+    expect(router.state.matches.at(-1)?.routeId).toBe("/guardrails/$guardrailId");
+    expect(router.state.matches.at(-1)?.search.tab).toBe(expected);
+  });
+
   it.each([
     ["/account", "/account", {}],
     ["/account/security", "/account/security", {}],

@@ -295,7 +295,7 @@ export function GuardrailDetailPage() {
             <TabsTrigger value="runtime">{t("guardrails.runtimeTab")}</TabsTrigger>
             <TabsTrigger value="findings"><span className="flex items-center gap-2">{t("guardrails.securityFindingsTab")}{findingsQuery.data?.summary.total ? <Badge variant="outline" className={findingsQuery.data.summary.critical ? "border-red-200 bg-red-50 font-mono text-[10px] text-red-700" : "font-mono text-[10px]"}>{findingsQuery.data.summary.total}</Badge> : null}</span></TabsTrigger>
             <TabsTrigger value="immutable">{t("guardrails.versions")}</TabsTrigger>
-            <TabsTrigger value="validation"><span className="flex items-center gap-2">{t("guardrails.validationHistoryTab")}{validationRunsQuery.data?.items.length ? <Badge variant="outline" className="font-mono text-[10px]">{validationRunsQuery.data.items.length}</Badge> : null}</span></TabsTrigger>
+            <TabsTrigger value="testing"><span className="flex items-center gap-2">{t("guardrails.validationHistoryTab")}{validationRunsQuery.data?.items.length ? <Badge variant="outline" className="font-mono text-[10px]">{validationRunsQuery.data.items.length}</Badge> : null}</span></TabsTrigger>
             <TabsTrigger value="draft"><span className="flex items-center gap-2">{t("guardrails.draftReleaseTab")}{hasUnpublishedDraft ? <Circle className="size-2 fill-amber-500 text-amber-500" /> : null}</span></TabsTrigger>
           </TabsList>
         </div>
@@ -328,7 +328,7 @@ export function GuardrailDetailPage() {
             onCloseCompare={() => setCompareBaseVersionNumber(null)}
           />
         </TabsContent>
-        <TabsContent value="validation" className="pt-5">
+        <TabsContent value="testing" className="pt-5">
           <GuardrailValidationHistory
             runs={validationRunsQuery.data?.items ?? []}
             loading={validationRunsQuery.isLoading}

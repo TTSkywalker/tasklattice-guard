@@ -1,15 +1,15 @@
 export const protectionEn = {
   topicRules: { allow: "Allowlist Rule", deny: "Denylist Rule", independent: "Enable each Rule independently. Denylist matches always take priority. Keep at least one Rule enabled, or remove this Policy.", denyHint: "Reject requests matching any denied topic, even if they also match the Allowlist.", allowHint: "Define allowed topics and choose how to handle unmatched requests.", disabled: "Disabled. This Rule is not executed; its configuration is retained for reuse.", helper: "Generate Rule configuration from intent or documents", helperHint: "Describe what is allowed and what is denied. AI suggestions only fill this Policy’s lists when applied; Rule switches and other Policies stay unchanged.", upgrade: "Use independent Allowlist and Denylist Rules", upgradeHint: "Upgrade this draft to Topic Control v2. Existing lists are copied into Rule parameters; save to apply the change." },
   validationReadiness: {
-    blockedTitle: "Draft cannot run Validation: model dependencies are not ready",
+    blockedTitle: "Draft cannot run tests: model dependencies are not ready",
     warningTitle: "Draft dependency check needs attention",
     checking: "Checking draft model dependencies…",
-    unavailable: "Dependency status could not be verified. Retry before running Validation; this does not mean the model is missing.",
-    topicFix: "Remove the Topic Control Policy from this draft and save before running Validation. To keep Topic Control, assign a compatible model, pass capability validation, and activate it on the Runner first.",
-    fix: "Remove the affected Policies from this draft and save, or validate and activate their model dependencies before running Validation.",
+    unavailable: "Dependency status could not be verified. Retry before running tests; this does not mean the model is missing.",
+    topicFix: "Remove the Topic Control Policy from this draft and save before running tests. To keep Topic Control, assign a compatible model, pass capability validation, and activate it on the Runner first.",
+    fix: "Remove the affected Policies from this draft and save, or validate and activate their model dependencies before running tests.",
     policies: "Affected Policies: {{names}}", editTopic: "Edit and remove Topic Control", edit: "Edit affected Policies", removeTopic: "Remove Topic Control from draft", retry: "Recheck dependencies",
     states: { missing: "No model is assigned.", unverified: "The assigned model has no verified capability evidence.", failed: "Model capability validation failed.", validated: "The model is validated but has not been activated on the Runner.", activating: "Model activation on the Runner has not completed." },
-    failureTitle: "Validation execution failed", noFailureDetail: "This historical run failed without recording a failure reason or Case results. Its original cause cannot be determined from this record. Check the current draft dependencies before retrying.",
+    failureTitle: "Test execution failed", noFailureDetail: "This historical run failed without recording a failure reason or Case results. Its original cause cannot be determined from this record. Check the current draft dependencies before retrying.",
   },
   profile: { category: "Industry or use case", select: "Select a Profile", default: "Default Profile", defaultTag: "Default", enables: "Enables {{count}} Policies", blankHint: "No Profile selected. Choose protections manually in the next step.", categories: { general: "General", banking: "Banking", securities: "Securities", internet: "Internet support", singapore_finance: "Singapore finance", china_mainland: "China mainland", china_banking: "China mainland banking" } },
   correctness: {
@@ -125,15 +125,15 @@ export const protectionEn = {
 export const protectionZh = {
   topicRules: { allow: "白名单 Rule", deny: "黑名单 Rule", independent: "两条 Rule 可独立启用，黑名单命中始终优先。至少启用一条 Rule，或移除这条 Policy。", denyHint: "命中任一拒绝话题时直接阻止，即使同时命中白名单。", allowHint: "定义允许的话题，并选择如何处理未匹配的请求。", disabled: "已关闭。不会执行此 Rule，保留配置供下次启用。", helper: "从意图或文档生成 Rule 配置", helperHint: "描述允许什么、拒绝什么。应用 AI 建议只填充当前 Policy 的名单，不会改变 Rule 开关或其他 Policy。", upgrade: "改用独立的白名单与黑名单 Rule", upgradeHint: "将当前草稿升级为 Topic Control v2，已有名单复制到 Rule 参数中，保存后生效。" },
   validationReadiness: {
-    blockedTitle: "当前草稿无法进行 Validation：模型依赖未就绪",
+    blockedTitle: "当前草稿无法运行测试：模型依赖未就绪",
     warningTitle: "当前草稿的依赖检查需要注意",
     checking: "正在检查草稿的模型依赖…",
-    unavailable: "无法确认依赖状态，请重新检查后再进行 Validation。这不代表模型未配置。",
-    topicFix: "请移除当前草稿中的 Topic Control Policy，保存后再进行 Validation。如果需要保留话题控制，请先绑定兼容模型、通过能力验证并在 Runner 上启用。",
-    fix: "请移除当前草稿中受影响的 Policy 并保存，或者完成对应模型的能力验证与启用后，再进行 Validation。",
+    unavailable: "无法确认依赖状态，请重新检查后再运行测试。这不代表模型未配置。",
+    topicFix: "请移除当前草稿中的 Topic Control Policy，保存后再运行测试。如果需要保留话题控制，请先绑定兼容模型、通过能力验证并在 Runner 上启用。",
+    fix: "请移除当前草稿中受影响的 Policy 并保存，或者完成对应模型的能力验证与启用后，再运行测试。",
     policies: "受影响的 Policy：{{names}}", editTopic: "编辑并移除话题控制", edit: "编辑受影响的 Policy", removeTopic: "从草稿移除话题控制", retry: "重新检查依赖",
     states: { missing: "未配置对应模型。", unverified: "已绑定模型，但缺少有效的能力验证。", failed: "模型能力验证失败。", validated: "模型已通过验证，但尚未在 Runner 上启用。", activating: "模型尚未完成 Runner 启用。" },
-    failureTitle: "Validation 执行失败", noFailureDetail: "这次历史执行失败，但未记录具体失败原因和用例结果，无法从这条记录确定原始原因。请检查当前草稿的依赖后再重试。",
+    failureTitle: "测试执行失败", noFailureDetail: "这次历史执行失败，但未记录具体失败原因和用例结果，无法从这条记录确定原始原因。请检查当前草稿的依赖后再重试。",
   },
   profile: { category: "行业或使用场景", select: "选择 Profile", default: "默认 Profile", defaultTag: "默认", enables: "预启用 {{count}} 项 Policy", blankHint: "未选择 Profile，可在下一步手动选择防护。", categories: { general: "通用", banking: "银行", securities: "证券", internet: "互联网客服", singapore_finance: "新加坡金融", china_mainland: "中国大陆", china_banking: "中国大陆银行" } },
   correctness: {

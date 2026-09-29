@@ -472,17 +472,17 @@ export function createHttpApp(input: {
   app.get("/api/v1/policies/:id/draft/checks", authenticated, async (context) => {
     return context.json(await input.service.validatePolicy(context.req.param("id")));
   });
-  app.get("/api/v1/policies/:id/validation-runs/latest", authenticated, async (context) => {
+  app.get("/api/v1/policies/:id/test-runs/latest", authenticated, async (context) => {
     return context.json(await input.service.latestPolicyValidation(context.req.param("id")));
   });
-  app.get("/api/v1/policies/:id/validation-runs/:runId", authenticated, async context =>
+  app.get("/api/v1/policies/:id/test-runs/:runId", authenticated, async context =>
     context.json(await input.service.getPolicyValidation(context.req.param("id"), context.req.param("runId"))));
-  app.post("/api/v1/policies/:id/validation-runs", authenticated, administrator, async (context) => {
+  app.post("/api/v1/policies/:id/test-runs", authenticated, administrator, async (context) => {
     const run = await input.service.requestPolicyValidation({
       id: context.req.param("id"), actorId: context.get("actor").id,
       compilerAvailable: input.runnerControl.hasDefaultCompiler(),
     });
-    const statusUrl = `/api/v1/policies/${encodeURIComponent(context.req.param("id"))}/validation-runs/${encodeURIComponent(run.id)}`;
+    const statusUrl = `/api/v1/policies/${encodeURIComponent(context.req.param("id"))}/test-runs/${encodeURIComponent(run.id)}`;
     context.header("Location", statusUrl);
     return context.json({ ...run, statusUrl }, 202);
   });
@@ -724,21 +724,21 @@ export function createHttpApp(input: {
     await input.service.deleteTestCase({ guardrailId: context.req.param("guardrailId"), caseId: context.req.param("caseId"), actorId: context.get("actor").id });
     return context.body(null, 204);
   });
-  app.patch("/api/v1/guardrails/:id/validation-scope", authenticated, administrator, async (context) => {
+  app.patch("/api/v1/guardrails/:id/test-scope", authenticated, administrator, async (context) => {
     const body = validationScopeInput.parse(await context.req.json());
     return context.json(await input.service.setTestCaseExcluded({
       guardrailId: context.req.param("id"), caseId: body.caseId, excluded: body.excluded,
       actorId: context.get("actor").id,
     }));
   });
-  app.get("/api/v1/validation-runs", authenticated, async (context) => {
+  app.get("/api/v1/test-runs", authenticated, async (context) => {
     const items = await input.service.listValidationRuns(context.req.query("guardrailId"));
     return context.json({ items, count: items.length });
   });
-  app.get("/api/v1/validation-runs/:runId", authenticated, async (context) => {
+  app.get("/api/v1/test-runs/:runId", authenticated, async (context) => {
     return context.json(await input.service.getValidationRun(context.req.param("runId")));
   });
-  app.post("/api/v1/guardrails/:guardrailId/validation-runs", authenticated, administrator, async (context) => {
+  app.post("/api/v1/guardrails/:guardrailId/test-runs", authenticated, administrator, async (context) => {
     return context.json(await input.service.requestValidation({
       guardrailId: context.req.param("guardrailId"),
       actorId: context.get("actor").id,

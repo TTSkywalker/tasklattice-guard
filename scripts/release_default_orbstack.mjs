@@ -57,8 +57,8 @@ report('default-draft-prepared', { draftRevision: current.draftRevision, policie
   outputDelivery: desired.outputDelivery, previousActiveVersion: before.activeVersion });
 const previousRun = current.latestValidationRun;
 const job = previousRun?.sourceDraftRevision === current.draftRevision && ['passed', 'queued', 'running'].includes(previousRun.status)
-  ? previousRun : (await call('/api/v1/validation-runs', { guardrailId: 'guardrail-default' }, 'POST', 202)).data;
-const validation = await until(async () => (await call(`/api/v1/validation-runs/${job.id}`)).data,
+  ? previousRun : (await call('/api/v1/guardrails/guardrail-default/test-runs', { guardrailId: 'guardrail-default' }, 'POST', 202)).data;
+const validation = await until(async () => (await call(`/api/v1/test-runs/${job.id}`)).data,
   d => ['passed', 'failed'].includes(d.status));
 assert.equal(validation.status, 'passed', JSON.stringify({ reason: validation.failureReason, failures: validation.results.filter(x => !x.passed) }));
 assert.equal(validation.sourceDraftRevision, current.draftRevision);
