@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { tokenModules } from "../shared/access-tokens";
 
 function runtimeUiSources(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -13,6 +14,21 @@ function runtimeUiSources(directory: string): string[] {
 }
 
 describe("i18n source boundary", () => {
+  it("resolves Access Token copy in both languages without falling back", async () => {
+    const { default: i18n } = await import("./i18n");
+    const source = readFileSync(resolve("src/components/account/access-tokens.tsx"), "utf8");
+    const keys = [...source.matchAll(/\bt\("([\w.]+)"/g)].map(match => match[1]);
+    for (const module of tokenModules) {
+      keys.push(`accessTokens.modules.${module}.name`, `accessTokens.modules.${module}.description`);
+    }
+    for (const lng of ["en", "zh-CN"]) {
+      for (const key of keys) {
+        expect(i18n.exists(key, { lng, fallbackLng: false, count: 2 }), `${lng}: ${key}`).toBe(true);
+      }
+    }
+    expect(source).not.toMatch(/[\u3400-\u9fff]/u);
+  });
+
   it("keeps localized Chinese copy out of runtime UI components", () => {
     const files = [
       ...runtimeUiSources(resolve("src/components")),
