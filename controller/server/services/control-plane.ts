@@ -263,7 +263,7 @@ export class ControlPlaneService {
       if (!record) throw new NotFoundError("Policy", input.id);
       this.validatePolicyDraft(input.id, record.draft, true);
       if (!record.draft.test_cases.length) throw new ValidationError("Add at least one Test Case before creating a Validation Run.");
-      const runId = `policy-validation-${randomUUID()}`;
+      const runId = `policy-testing-report-${randomUUID()}`;
       const candidateVersion = guardrailVersionId();
       const snapshot = policySnapshot(record, String(record.draftRevision), "");
       snapshot.checksum = createHash("sha256").update(stableJson(snapshot)).digest("hex");
@@ -1122,7 +1122,7 @@ export class ControlPlaneService {
         policies: this.policyCatalog().list(),
         programmablePolicies,
       });
-      const runId = `validation-${randomUUID()}`;
+      const runId = `testing-report-${randomUUID()}`;
       await tx.insert(validationRuns).values({
         id: runId,
         guardrailId: guardrail.id,
