@@ -94,6 +94,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('bounded runtime observability (
         const page = await service.queryRuntimeEvents({ guardrailId:'classification', findingsOnly:true, severity });
         expect(page.items.map(row => row.id)).toEqual([id]);
       }
+      const first = await service.queryRuntimeEvents({ guardrailId:'classification', findingsOnly:true, severity:['informational','low'], limit:1 });
+      expect(first.items).toHaveLength(1);
+      expect(first.nextCursor).toBeTruthy();
+      const second = await service.queryRuntimeEvents({ guardrailId:'classification', findingsOnly:true, severity:['informational','low'], limit:1, cursor:first.nextCursor! });
+      expect([first.items[0]!.id, second.items[0]!.id].sort()).toEqual(['informational','low']);
+      expect(second.nextCursor).toBeNull();
       const security = await service.queryRuntimeEvents({guardrailId:'classification', findingsOnly:true});
       expect(security.items).toHaveLength(3);
       const runtime = await service.queryRuntimeEvents({guardrailId:'classification'});

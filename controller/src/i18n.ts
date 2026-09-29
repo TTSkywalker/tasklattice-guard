@@ -12,6 +12,8 @@ const resources = {
       providerRegistration: providerRegistrationEn,
       protection: protectionEn,
       securityEvents: {
+        filters: "Filters", clearFilters: "Clear filters", appliedFilters: "Applied filters", removeRiskFilter: "Remove risk level filter", filtersCleared: "All risk filters cleared", selectedLevels: "Selected risk levels: ", openFilter: "Open options", closeFilter: "Close options", levelGuide: "About risk levels", openLogs: "View runtime logs", retry: "Retry", updating: "Updating…", loadingSummary: "Loading event totals…", summaryUnavailable: "Event totals unavailable",
+        resultSummary: "{{matched}} matching events · {{total}} events in this time range, across {{interactions}} interactions",
         actions: { reject: "Block", redact: "Redact", rewrite: "Rewrite", regenerate: "Regenerate", redirect: "Redirect", fallback: "Fallback", clarify: "Clarify", pass: "Record only" },
         "riskLevel": "Risk level",
         "ruleLevelHint": "Describe the impact of this Rule’s risk. This level is independent of its action and detection confidence.",
@@ -2883,6 +2885,8 @@ const resources = {
       providerRegistration: providerRegistrationZh,
       protection: protectionZh,
       securityEvents: {
+        filters: "筛选", clearFilters: "清除筛选", appliedFilters: "已应用的筛选", removeRiskFilter: "移除风险级别筛选", filtersCleared: "已清除全部风险筛选", selectedLevels: "已选风险级别：", openFilter: "展开选项", closeFilter: "收起选项", levelGuide: "分级说明", openLogs: "查看运行日志", retry: "重试", updating: "正在更新…", loadingSummary: "正在加载事件总量…", summaryUnavailable: "事件总量暂不可用",
+        resultSummary: "匹配 {{matched}} 条事件 · 当前时段共 {{total}} 条事件，涉及 {{interactions}} 次交互",
         actions: { reject: "阻断", redact: "遮盖", rewrite: "重写", regenerate: "重新生成", redirect: "引导", fallback: "兜底", clarify: "澄清", pass: "仅记录" },
         "riskLevel": "风险级别",
         "ruleLevelHint": "按这条 Rule 所检测问题的影响选择级别；处理动作和检测置信度不会改变级别。",

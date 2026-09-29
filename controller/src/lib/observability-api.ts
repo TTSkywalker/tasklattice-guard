@@ -1,3 +1,4 @@
+import { selectedSeverities, type EventSeverity } from "../../shared/security-severity";
 import * as controllerApi from "@/lib/controller-api";
 import {
   arrayOfRecords,
@@ -29,14 +30,15 @@ export function metricWindowMilliseconds(window: MetricWindow): number {
 }
 
 export const getGuardrailFindings = async (
-  guardrailId: string, window: MetricWindow, limit = 100, cursor?: string, signal?: AbortSignal, severity?: string,
+  guardrailId: string, window: MetricWindow, limit = 100, cursor?: string, signal?: AbortSignal, severity?: string | EventSeverity[],
 ): Promise<GuardrailFindingPage> => {
   const since = new Date(Date.now() - metricWindowMilliseconds(window)).toISOString();
+  const severities = selectedSeverities(severity);
   const [events, metrics] = await Promise.all([
-    controllerApi.listRuntimeEvents(limit, { guardrailId, since, findingsOnly: 'true', ...(cursor ? { cursor } : {}), ...(severity && severity !== 'all' ? { severity } : {}) }, signal),
+    controllerApi.listRuntimeEvents(limit, { guardrailId, since, findingsOnly: 'true', ...(cursor ? { cursor } : {}), ...(severities.length ? { severity: severities.join(',') } : {}) }, signal),
     controllerApi.requestController<Metrics>(`/api/v1/telemetry/metrics?${new URLSearchParams({guardrailId,window})}`, signal ? { signal } : undefined),
   ]);
-  const items = events.items.flatMap(runtimeFindings).filter(f => !severity || severity === 'all' || f.severity === severity);
+  const items = events.items.flatMap(runtimeFindings).filter(f => !severities.length || severities.includes(f.severity));
   if (!metrics.findings_summary) throw new Error("Runtime findings summary is unavailable. Update the Controller and retry.");
   return {
     items, count: items.length, nextCursor: events.nextCursor,

@@ -7890,14 +7890,7 @@
             "type": "integer"
           },
           "severity": {
-            "enum": [
-              "critical",
-              "high",
-              "medium",
-              "low",
-              "informational",
-              "unclassified"
-            ],
+            "description": "One or more comma-separated Rule risk levels: critical, high, medium, low, informational, unclassified. Matches any selected level before pagination.",
             "type": "string"
           },
           "since": {
@@ -29948,14 +29941,7 @@
             "name": "severity",
             "required": false,
             "schema": {
-              "enum": [
-                "critical",
-                "high",
-                "medium",
-                "low",
-                "informational",
-                "unclassified"
-              ],
+              "description": "One or more comma-separated Rule risk levels: critical, high, medium, low, informational, unclassified. Matches any selected level before pagination.",
               "type": "string"
             }
           }

@@ -9,3 +9,9 @@ export function eventSeverity(value: unknown): EventSeverity {
 export function highestSeverity(values: EventSeverity[]): EventSeverity | null {
   return eventSeverities.find(level => values.includes(level)) ?? null;
 }
+
+// Canonical order also keeps URL and query-cache keys stable for multi-selection.
+export function selectedSeverities(value: unknown): EventSeverity[] {
+  const values = typeof value === "string" ? value.split(",") : Array.isArray(value) ? value : [];
+  return eventSeverities.filter(level => values.includes(level));
+}

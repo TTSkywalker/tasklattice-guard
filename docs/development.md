@@ -16,6 +16,16 @@ focus, browser zoom and layout at desktop window sizes. Existing mobile styles
 and historical tests may remain; this is a scope change, not a request to remove
 working code. Feature-specific QA instructions must follow this desktop-only scope.
 
+## Carbon filter components
+
+The Security Events toolbar uses `@carbon/react` through `EventFilterToolbar`.
+Reuse this surface for matching list-filter interactions. Its Sass imports only
+used components under `.guard-carbon`, including local theme and layout tokens.
+Do not import Carbon's global reset or full stylesheet into the console. The
+scoped surface keeps the site typography and defines local white/g100 theme tokens.
+Risk filters are multi-select and URL-backed; the server filters before cursor
+pagination, while option counts describe the complete selected time window.
+
 ## Run from source
 
 Requirements: Python 3.13, uv, Node.js 24+, npm, and PostgreSQL.

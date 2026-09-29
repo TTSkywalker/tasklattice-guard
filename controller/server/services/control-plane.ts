@@ -1,3 +1,4 @@
+import type { EventSeverity } from "../../shared/security-severity.js";
 import { readGuardrailProfiles } from "./guardrail-profiles.js";
 import { expandProtectionPreset } from "../policy-catalog/presets.js";
 import { TrafficRoutingService } from "./traffic-routing.js";
@@ -1434,7 +1435,7 @@ export class ControlPlaneService {
     outcome?: string | undefined;
     captured?: boolean | undefined;
     findingsOnly?: boolean | undefined;
-    severity?: 'critical' | 'high' | 'medium' | 'low' | 'informational' | 'unclassified' | undefined;
+    severity?: EventSeverity | EventSeverity[] | undefined;
   }) {
     let cursor: { at: string; id: string } | undefined;
     if (input.cursor) {
@@ -1444,8 +1445,9 @@ export class ControlPlaneService {
       } catch { throw new ValidationError("Invalid event cursor"); }
     }
     const findings = jsonElements(jsonValue(runtimeEvents.metadata, 'findings'), 'finding');
+    const severities = input.severity ? (Array.isArray(input.severity) ? input.severity : [input.severity]) : [];
     const conditions = [
-      input.severity ? exists(this.db.select({ severity: findingSeverity(findings.item) }).from(findings.source).where(and(securityFinding(findings.item), eq(findingSeverity(findings.item), input.severity)))) : undefined,
+      severities.length ? exists(this.db.select({ severity: findingSeverity(findings.item) }).from(findings.source).where(and(securityFinding(findings.item), inArray(findingSeverity(findings.item), severities)))) : undefined,
       cursor ? lt(rowValue(runtimeEvents.occurredAt, runtimeEvents.id), rowValue(timestampValue(cursor.at), literal(cursor.id))) : undefined,
       input.requestId ? eq(runtimeEvents.requestId, input.requestId) : undefined,
       input.direction ? eq(runtimeEvents.direction, input.direction) : undefined,

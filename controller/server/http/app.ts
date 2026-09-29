@@ -931,7 +931,7 @@ export function createHttpApp(input: {
       outcome: z.enum(['allow','block','transform','error']).optional(),
       captured: z.enum(['true']).transform(() => true).optional(),
       findingsOnly: z.enum(['true']).transform(() => true).optional(),
-      severity: z.enum(['critical','high','medium','low','informational','unclassified']).optional(),
+      severity: z.string().describe('One or more comma-separated Rule risk levels: critical, high, medium, low, informational, unclassified. Matches any selected level before pagination.').transform(value => value.split(',')).pipe(z.array(z.enum(['critical','high','medium','low','informational','unclassified'])).min(1).max(6)).optional(),
     }).parse(context.req.query());
     return context.json(await input.service.queryRuntimeEvents(query));
   });

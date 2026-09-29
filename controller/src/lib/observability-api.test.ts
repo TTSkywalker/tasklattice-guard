@@ -87,6 +87,18 @@ describe("privacy-safe runtime observability", () => {
     expect(JSON.stringify(traces)).not.toContain("sensitive prompt fragment");
   });
 
+  it("sends all selected levels to the server and excludes unmatched findings from mixed checkpoints", async () => {
+    const fetchMock = vi.fn(async (path: string) => Response.json(path.startsWith('/api/v1/telemetry/metrics') ? {
+      total_decisions: 2, findings_summary: { total: 3, critical: 1, high: 1, low: 1, affected_traces: 2 },
+    } : { items: [{ ...event, metadata: { ...event.metadata, findings: ["high", "low"].map(riskSeverity => ({ ...event.metadata.findings[0], riskSeverity })) } }], nextCursor: "older" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getGuardrailFindings("guardrail-1", "24h", 1, undefined, undefined, ["high", "critical"]);
+    expect(new URL(String(fetchMock.mock.calls[0]![0]), "http://test").searchParams.get("severity")).toBe("critical,high");
+    expect(result.items.map(item => item.severity)).toEqual(["high"]);
+    expect(result.nextCursor).toBe("older");
+    expect(result.summary.total).toBe(3);
+  });
+
   it("marks legacy events as not collected instead of reporting a clean result", async () => {
     const legacy = { ...event, metadata: { protocol: "litellm", action: "allow" }, decision: "allow" };
     vi.stubGlobal("fetch", vi.fn(async (path: string) => new Response(JSON.stringify(path.startsWith('/api/v1/telemetry/metrics') ? {
