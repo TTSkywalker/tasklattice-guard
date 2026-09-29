@@ -39,10 +39,14 @@ export interface RiskFinding {
   'claims'?: (_tasklattice_guard_control_v1_GroundingClaimEvidence)[];
   'reasoning'?: (_tasklattice_guard_control_v1_AutomatedReasoningFinding)[];
   'providerEvidence'?: (_tasklattice_guard_control_v1_ProviderEvidence)[];
+  'riskSeverity'?: (string);
+  'policyVersion'?: (string);
   '_confidence'?: "confidence";
   '_replacement'?: "replacement";
   '_policyId'?: "policyId";
   '_ruleId'?: "ruleId";
+  '_riskSeverity'?: "riskSeverity";
+  '_policyVersion'?: "policyVersion";
 }
 
 /**
@@ -77,8 +81,12 @@ export interface RiskFinding__Output {
   'claims': (_tasklattice_guard_control_v1_GroundingClaimEvidence__Output)[];
   'reasoning': (_tasklattice_guard_control_v1_AutomatedReasoningFinding__Output)[];
   'providerEvidence': (_tasklattice_guard_control_v1_ProviderEvidence__Output)[];
+  'riskSeverity'?: (string);
+  'policyVersion'?: (string);
   '_confidence'?: "confidence";
   '_replacement'?: "replacement";
   '_policyId'?: "policyId";
   '_ruleId'?: "ruleId";
+  '_riskSeverity'?: "riskSeverity";
+  '_policyVersion'?: "policyVersion";
 }

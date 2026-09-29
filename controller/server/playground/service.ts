@@ -1,3 +1,4 @@
+import { eventSeverity } from "../../shared/security-severity.js";
 import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
@@ -467,15 +468,16 @@ function checkResult(
     triggered_policy: firstFinding?.policy_id ? { id: firstFinding.policy_id, name: firstFinding.policy_id } : null,
     triggered_rule: firstFinding?.rule_id ? { id: firstFinding.rule_id, name: firstFinding.rule_id } : null,
     policies,
-    findings: result.decision.findings.map((finding, index) => ({
+    findings: result.decision.findings.filter(finding => finding.verdict === "unsafe" || finding.verdict === "uncertain").map((finding, index) => ({
       id: `finding-${index + 1}`,
-      severity: (finding.verdict === "unsafe" ? "high" : finding.verdict === "uncertain" ? "medium" : "low") as "high" | "medium" | "low",
+      severity: eventSeverity(finding.risk_severity),
       title: finding.taxonomy_id,
       taxonomy_id: finding.taxonomy_id,
       detail: finding.evidence,
       confidence: finding.confidence,
       recommended_action: finding.recommended_action,
       policy_id: finding.policy_id ?? null,
+      policy_version: typeof finding.policy_version === "string" ? finding.policy_version : null,
       rule_id: finding.rule_id ?? null,
     })),
     trace_summary: {

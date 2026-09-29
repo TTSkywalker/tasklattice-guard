@@ -801,6 +801,8 @@ def _telemetry_metadata(decision: ProtectionDecision) -> dict[str, Any]:
             "recommendedAction": item.recommended_action,
             "policyId": item.policy_id,
             "ruleId": item.rule_id,
+            "riskSeverity": item.risk_severity,
+            "policyVersion": item.policy_version,
             "providerEvidence": [asdict(evidence) for evidence in item.provider_evidence],
         }
         for index, item in enumerate(decision.findings, start=1)
@@ -857,6 +859,7 @@ def _telemetry_metadata(decision: ProtectionDecision) -> dict[str, Any]:
         "action": decision.action,
         "risks": risks,
         "findings": findings,
+        "executionStatus": "error" if any(item.verdict == "error" for item in decision.findings) or any(item.timed_out or item.verdict == "error" or item.status in {"error", "failed", "timeout"} for item in decision.trace) else "complete",
         "trace": trace,
         "usage": usage,
         "coverage": coverage,

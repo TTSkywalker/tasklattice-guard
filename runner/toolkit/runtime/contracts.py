@@ -10,6 +10,8 @@ from .enforcement_action_generated import (
 )
 
 
+RISK_SEVERITIES = frozenset({"critical", "high", "medium", "low", "informational"})
+
 GuardrailPhase = Literal["input", "output"]
 RailType = Literal["input", "output", "retrieval", "dialog", "execution"]
 # Raw evaluator evidence. It does not directly determine how an interaction is
@@ -304,6 +306,7 @@ class PolicyRailBindingSnapshot:
     flow_name: str
     execution_mode: PolicyExecutionMode
     on_unsafe: EnforcementAction
+    risk_severity: str | None = None
     parallel_group: str | None = None
     priority: int | None = None
     timeout_ms: int = 2_000
@@ -346,8 +349,16 @@ class GuardrailPolicyBindingSnapshot:
     parameter_values: tuple[tuple[str, str], ...] = ()
     enabled_rule_ids: tuple[str, ...] = ()
     rule_actions: tuple[tuple[str, str], ...] = ()
+    rule_severities: tuple[tuple[str, str], ...] = ()
     enabled_rails: tuple[RailType, ...] = ()
     rule_order: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        keys = [rule_id for rule_id, _ in self.rule_severities]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Rule risk snapshots must have unique Rule IDs.")
+        if any(rule_id not in self.enabled_rule_ids or level not in RISK_SEVERITIES for rule_id, level in self.rule_severities):
+            raise ValueError("Rule risk snapshots require enabled Rule IDs and a supported risk level.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,6 +537,8 @@ class RiskFinding:
     claims: tuple[GroundingClaimEvidence, ...] = ()
     reasoning: tuple[AutomatedReasoningFinding, ...] = ()
     provider_evidence: tuple[ProviderEvidence, ...] = ()
+    risk_severity: str | None = None
+    policy_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

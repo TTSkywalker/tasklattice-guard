@@ -23,6 +23,8 @@ const event = {
       risk: "secrets",
       verdict: "unsafe",
       confidence: 0.98,
+      riskSeverity: "high",
+      policyVersion: "1",
       evidence: "sensitive prompt fragment",
       recommendedAction: "reject",
       policyId: "builtin-secrets",

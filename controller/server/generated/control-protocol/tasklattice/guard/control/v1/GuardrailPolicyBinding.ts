@@ -28,6 +28,10 @@ export interface GuardrailPolicyBinding {
    * Guardrail-local order. Unlisted Rules retain pinned template order after these.
    */
   'ruleOrder'?: (string)[];
+  /**
+   * Compiler-owned Rule risk levels, pinned to this Policy version.
+   */
+  'ruleSeverities'?: (_tasklattice_guard_control_v1_StringPair)[];
   '_action'?: "action";
 }
 
@@ -55,5 +59,9 @@ export interface GuardrailPolicyBinding__Output {
    * Guardrail-local order. Unlisted Rules retain pinned template order after these.
    */
   'ruleOrder': (string)[];
+  /**
+   * Compiler-owned Rule risk levels, pinned to this Policy version.
+   */
+  'ruleSeverities': (_tasklattice_guard_control_v1_StringPair__Output)[];
   '_action'?: "action";
 }

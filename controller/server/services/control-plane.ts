@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { programmablePolicyProtection } from "../policy-studio/protection.js";
 import { queryRuntimeMetrics, type MetricScope } from "./runtime-metrics.js";
 import { boundedRead } from '../db/read-budget.js';
-import { asText, findingSeverity, increment, jsonAggregate, jsonArrayLength, jsonElements, jsonObject, jsonText, jsonValue, literal, lowerText, rowValue, scalar, timestampValue } from '../db/postgres-expressions.js';
+import { asText, findingSeverity, securityFinding, increment, jsonAggregate, jsonArrayLength, jsonElements, jsonObject, jsonText, jsonValue, literal, lowerText, rowValue, scalar, timestampValue } from '../db/postgres-expressions.js';
 import { advisoryTransactionLock } from '../db/postgres-locks.js';
 
 import { and, asc, count, countDistinct, desc, eq, exists, getTableColumns, gt, gte, inArray, isNotNull, isNull, lt, lte, max, min, ne, or, sql, type SQL } from "drizzle-orm";
@@ -1434,7 +1434,7 @@ export class ControlPlaneService {
     outcome?: string | undefined;
     captured?: boolean | undefined;
     findingsOnly?: boolean | undefined;
-    severity?: 'critical' | 'high' | 'medium' | 'low' | undefined;
+    severity?: 'critical' | 'high' | 'medium' | 'low' | 'informational' | 'unclassified' | undefined;
   }) {
     let cursor: { at: string; id: string } | undefined;
     if (input.cursor) {
@@ -1445,13 +1445,13 @@ export class ControlPlaneService {
     }
     const findings = jsonElements(jsonValue(runtimeEvents.metadata, 'findings'), 'finding');
     const conditions = [
-      input.severity ? exists(this.db.select({ severity: findingSeverity(findings.item) }).from(findings.source).where(eq(findingSeverity(findings.item), input.severity))) : undefined,
+      input.severity ? exists(this.db.select({ severity: findingSeverity(findings.item) }).from(findings.source).where(and(securityFinding(findings.item), eq(findingSeverity(findings.item), input.severity)))) : undefined,
       cursor ? lt(rowValue(runtimeEvents.occurredAt, runtimeEvents.id), rowValue(timestampValue(cursor.at), literal(cursor.id))) : undefined,
       input.requestId ? eq(runtimeEvents.requestId, input.requestId) : undefined,
       input.direction ? eq(runtimeEvents.direction, input.direction) : undefined,
       input.outcome ? inArray(lowerText(runtimeEvents.decision), input.outcome === 'allow' ? ['allow','allowed','pass','passed'] : input.outcome === 'block' ? ['block','blocked','reject','rejected','deny','denied'] : input.outcome === 'transform' ? ['transform','transformed','redact','redacted','rewrite','rewritten','intervene','intervened'] : ['error','failed','failure','timeout','timed_out']) : undefined,
       input.captured ? eq(jsonText(runtimeEvents.metadata, 'runtimeLogCaptured'), 'true') : undefined,
-      input.findingsOnly ? gt(jsonArrayLength(jsonValue(runtimeEvents.metadata, 'findings')), 0) : undefined,
+      input.findingsOnly ? exists(this.db.select({ item: findings.item }).from(findings.source).where(securityFinding(findings.item))) : undefined,
       input.guardrailId ? eq(runtimeEvents.guardrailId, input.guardrailId) : undefined,
       input.routerId ? eq(runtimeEvents.routerId, input.routerId) : undefined,
       input.routeId ? eq(jsonText(runtimeEvents.metadata, "routeId"), input.routeId) : undefined,
@@ -1464,9 +1464,9 @@ export class ControlPlaneService {
     const predicate = conditions.length ? and(...conditions) : undefined;
     // SQL projection is essential: discarding metadata after SELECT still allocates the full payload in Node.
     return boundedRead(this.db, async tx => {
-    const findingSummary = jsonObject(Object.fromEntries(['id','risk','verdict','confidence','taxonomyId','recommendedAction','policyId','ruleId'].map(key => [key, jsonValue(findings.item, key)])));
+    const findingSummary = jsonObject(Object.fromEntries(['id','risk','verdict','confidence','taxonomyId','recommendedAction','policyId','ruleId','riskSeverity','policyVersion'].map(key => [key, jsonValue(findings.item, key)])));
     const metadata = jsonObject({
-      ...Object.fromEntries(['captureLevel','runtimeLogCaptured','protocol','action','timedOut','timed_out','streamFinalCheck','routeId','targetId','routerRevision','decisionId'].map(key => [key,jsonValue(runtimeEvents.metadata, key)])),
+      ...Object.fromEntries(['executionStatus','captureLevel','runtimeLogCaptured','protocol','action','timedOut','timed_out','streamFinalCheck','routeId','targetId','routerRevision','decisionId'].map(key => [key,jsonValue(runtimeEvents.metadata, key)])),
       findings: scalar(tx.select({ value: jsonAggregate(findingSummary) }).from(findings.source)),
     });
     let itemsQuery = tx.select({
@@ -2339,6 +2339,7 @@ export class ControlPlaneService {
     }
     validateBindingGraph(draft);
     if (!validateDependencies) return;
+    if (draft.rail_bindings.some(binding => !binding.risk_severity)) throw new ValidationError("Choose a risk level for every Rule before testing or publishing.");
     const rules = new Map(draft.rail_bindings.map((item) => [flowRuleId(item.rail_type, item.flow_name), item]));
     const covered = new Set<string>();
     const caseIds = draft.test_cases.map((item) => item.id).filter(Boolean);
@@ -2913,6 +2914,7 @@ function programmablePolicySurface(
     description: `Runs ${binding.flow_name} on the ${binding.rail_type} Rail and applies ${binding.on_unsafe} when the Flow reports unsafe content.`,
     form: "colang_flow" as const,
     effect: binding.on_unsafe,
+    risk_severity: binding.risk_severity ?? null,
     rails: [binding.rail_type],
     implementation: {
       engine: "nemo-guardrails",
@@ -3093,6 +3095,7 @@ function programmablePolicyPlan(
       parameter_values: snapshot.parameter_schema.flatMap((item) => item.default === null ? [] : [[item.name, item.default]]),
       enabled_rule_ids: snapshot.rail_bindings.map((item) => flowRuleId(item.rail_type, item.flow_name)),
       rule_actions: [],
+      rule_severities: snapshot.rail_bindings.filter(item => item.risk_severity).map(item => [flowRuleId(item.rail_type, item.flow_name), item.risk_severity]),
       enabled_rails: phases,
     }],
   };

@@ -45,6 +45,7 @@
         "description": "Redacts 18-character resident identity card candidates only after birth-date and MOD 11-2 checksum validation. It does not verify issuance, holder identity, or the six-digit administrative division code.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -70,6 +71,7 @@
         "description": "Redacts standalone +86/86-prefixed or domestic 11-digit mobile-number patterns. It does not verify allocation, ownership, or whether a number identifies a person in context.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -95,6 +97,7 @@
         "description": "Redacts labelled 16–19 digit 62-prefixed card candidates that pass a Luhn check. It does not identify every Chinese bank account, establish ownership, or validate account status.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -297,6 +300,7 @@
         "description": "Redacts an 18-character candidate only when a nearby Chinese label is present and the GB 32100 checksum is valid. It does not verify registration or organization status.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -420,6 +424,7 @@
         "description": "Rejects selected explicit Chinese phrases that ask the model to ignore, override, or bypass trusted instructions. It does not detect arbitrary paraphrases or establish instruction trust.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -443,6 +448,7 @@
         "description": "Rejects selected explicit Chinese requests to reveal or reproduce protected system or developer instructions. It does not prevent every disclosure path.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -466,6 +472,7 @@
         "description": "Rejects selected explicit Chinese requests to enter jailbreak, developer, or unrestricted mode. It is a phrase control, not a semantic jailbreak detector.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -599,6 +606,7 @@
         "description": "Rejects selected explicit requests to steal, trick, or collect a customer's verification code, dynamic password, payment password, or card PIN. It is not transaction-fraud monitoring.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -624,6 +632,7 @@
         "description": "Rejects selected response phrases directing a customer to send a verification code, dynamic password, payment password, or card PIN. It cannot determine whether an authenticated channel or approved workflow applies.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "output"
         ],
@@ -648,6 +657,7 @@
         "description": "Rejects selected explicit Chinese or English requests to bypass bank identity verification, customer due diligence, or anti-money-laundering checks. It does not perform KYC or AML decisions.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -673,6 +683,7 @@
         "description": "Rejects selected positive response claims that a named product or the bank guarantees principal, profit, or return. It does not assess suitability, disclosure completeness, product terms, or financial-advice legality.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "output"
         ],

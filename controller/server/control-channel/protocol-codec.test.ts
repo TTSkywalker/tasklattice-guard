@@ -43,7 +43,7 @@ const plan = {
     colang_version: "2.x", sources: [{ path: "rails/passport.co", content: "define flow passport" }],
     parameter_schema: [["entity_types", "string"]],
     rail_bindings: [{
-      rail_type: "input", flow_name: "passport input", execution_mode: "mutate", on_unsafe: "redact",
+      rail_type: "input", flow_name: "passport input", execution_mode: "mutate", on_unsafe: "redact", risk_severity: "high",
       parallel_group: "data-protection", priority: 10, timeout_ms: 500, failure_mode: "fail_closed",
       required: true, depends_on: [],
     }],
@@ -54,7 +54,7 @@ const plan = {
   policy_bindings: [{
     policy_id: "passport-policy", policy_version: "1.0.0", action: "redact",
     parameter_values: [["entity_types", "passport"]], enabled_rule_ids: ["pii/passport"],
-    rule_actions: [["pii/passport", "redact"]], enabled_rails: ["input", "output"], rule_order: ["pii/passport"],
+    rule_actions: [["pii/passport", "redact"]], rule_severities: [["pii/passport", "high"]], enabled_rails: ["input", "output"], rule_order: ["pii/passport"],
   }],
 };
 

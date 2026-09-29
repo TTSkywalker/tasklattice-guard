@@ -59,6 +59,7 @@ function runtimeLogEntry(event: controllerApi.RuntimeEvent): RuntimeLogInteracti
     risk: runtimeFindings(event)[0]?.risk ?? arrayOfStrings(event.metadata.risks)[0] ?? null,
     latency_ms: event.durationMs,
     timed_out: isTimedOut(event),
+    execution_status: event.metadata.executionStatus === "error" || isTimedOut(event) || arrayOfRecords(event.metadata.findings).some(f => f.verdict === "error") ? "error" : event.metadata.executionStatus === "complete" ? "complete" : "unknown",
     detail: `Runner ${event.runnerId} reported ${event.direction} decision “${event.decision}” in ${event.durationMs} ms.`,
     http_request: httpRequest,
     content_before: before,

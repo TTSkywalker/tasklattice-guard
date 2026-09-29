@@ -1,3 +1,4 @@
+import { SecuritySeverityBadge } from "@/components/security-severity";
 import { isSplitTopicPolicy, TOPIC_POLICY_ID } from "../../shared/topic-policy";
 import { upgradeTopicBinding } from "@/lib/topic-policy-upgrade";
 import { GuardrailValidationReadiness, useGuardrailValidationReadiness } from "@/components/guardrail-validation-readiness";
@@ -299,11 +300,11 @@ export function GuardrailDetailPage() {
             <TabsTrigger value="draft"><span className="flex items-center gap-2">{t("guardrails.draftReleaseTab")}{hasUnpublishedDraft ? <Circle className="size-2 fill-amber-500 text-amber-500" /> : null}</span></TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="runtime" className="pt-5">
+        <TabsContent value="runtime" className="space-y-5 pt-5">
+          <GuardrailLoggingCard guardrailId={guardrail.id} />
           <GuardrailRuntimeView guardrailId={guardrail.id} metrics={metricsQuery.data} loading={metricsQuery.isLoading} error={metricsQuery.error} routers={routers} versions={guardrailVersions} window={window} onWindowChange={setWindow} />
         </TabsContent>
         <TabsContent value="findings" className="space-y-5 pt-5">
-          <GuardrailLoggingCard guardrailId={guardrail.id} />
           <GuardrailFindingsView data={findingsQuery.data} loading={findingsQuery.isLoading} error={findingsQuery.error} policies={policies} routers={routers} endpoints={endpointsQuery.data?.items ?? []} window={window} onWindowChange={setWindow} severity={findingSeverity} onSeverityChange={setFindingSeverity} />
           <EventPagination page={findingsPaging.page} busy={findingsQuery.isFetching} nextCursor={findingsQuery.data?.nextCursor} onNext={findingsPaging.next} onPrevious={findingsPaging.previous} onLatest={findingsPaging.latest} />
         </TabsContent>
@@ -422,9 +423,11 @@ export function GuardrailFindingsView({ data, loading, error, policies, routers,
     high: summary?.high ?? 0,
     medium: summary?.medium ?? 0,
     low: summary?.low ?? 0,
+    informational: summary?.informational ?? 0,
+    unclassified: summary?.unclassified ?? 0,
   }), [summary]);
   const visibleFindings = severity === "all" ? findings : findings.filter((finding) => finding.severity === severity);
-  const filters: GuardrailFindingSeverityFilter[] = ["all", "critical", "high", "medium", "low"];
+  const filters: GuardrailFindingSeverityFilter[] = ["all", "critical", "high", "medium", "low", "informational", "unclassified"];
 
   return <div className="space-y-4">
     <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -435,12 +438,15 @@ export function GuardrailFindingsView({ data, loading, error, policies, routers,
       </div>
     </div>
 
-    <dl className="grid overflow-hidden rounded-lg border border-border/65 bg-card sm:grid-cols-3 xl:grid-cols-6">
+    <p className="text-xs leading-5 text-muted-foreground">{t("securityEvents.boundaryHint")}</p>
+    <dl className="grid overflow-hidden rounded-lg border border-border/65 bg-card sm:grid-cols-2 xl:grid-cols-4">
       <FindingStat label={t("guardrails.totalFindings")} value={summary?.total ?? 0} />
       <FindingStat label={t("routerDetail.severity.critical")} value={summary?.critical ?? 0} danger={Boolean(summary?.critical)} />
       <FindingStat label={t("routerDetail.severity.high")} value={summary?.high ?? 0} />
       <FindingStat label={t("routerDetail.severity.medium")} value={summary?.medium ?? 0} />
       <FindingStat label={t("routerDetail.severity.low")} value={summary?.low ?? 0} />
+      <FindingStat label={t("routerDetail.severity.informational")} value={summary?.informational ?? 0} />
+      <FindingStat label={t("routerDetail.severity.unclassified")} value={summary?.unclassified ?? 0} />
       <FindingStat label={t("guardrails.affectedInteractions")} value={summary?.affected_traces ?? 0} />
     </dl>
 
@@ -448,7 +454,7 @@ export function GuardrailFindingsView({ data, loading, error, policies, routers,
       <CardHeader className="border-b">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-red-50 text-red-700"><ShieldAlert className="size-4" /></span><div><CardTitle>{t("guardrails.findings")}</CardTitle><CardDescription className="mt-1 max-w-2xl leading-5">{t("guardrails.findingsPrivacy")}</CardDescription></div></div>
-          <div className="grid w-full grid-cols-2 gap-1 rounded-lg border bg-background p-1 sm:grid-cols-5 xl:w-auto" role="group" aria-label={t("guardrails.filterSeverity")}>{filters.map((filter) => <Button key={filter} type="button" size="sm" variant={severity === filter ? "secondary" : "ghost"} className="min-h-10 w-full gap-1 px-2.5" aria-pressed={severity === filter} onClick={() => setSeverity(filter)}><span>{filter === "all" ? t("guardrails.allSeverities") : t(`routerDetail.severity.${filter}`)}</span><span className="font-mono text-[10px] text-muted-foreground">{counts[filter]}</span></Button>)}</div>
+          <div className="grid w-full grid-cols-2 gap-1 rounded-lg border bg-background p-1 sm:grid-cols-4 xl:w-auto" role="group" aria-label={t("guardrails.filterSeverity")}>{filters.map((filter) => <Button key={filter} type="button" size="sm" variant={severity === filter ? "secondary" : "ghost"} className="min-h-11 w-full gap-1 px-2.5" aria-pressed={severity === filter} onClick={() => setSeverity(filter)}><span>{filter === "all" ? t("guardrails.allSeverities") : t(`routerDetail.severity.${filter}`)}</span><span className="font-mono text-[10px] text-muted-foreground">{counts[filter]}</span></Button>)}</div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -459,22 +465,21 @@ export function GuardrailFindingsView({ data, loading, error, policies, routers,
           const source = router?.name ?? endpoint?.name ?? (finding.protocol === "playground" ? t("guardrails.playgroundSource") : finding.protocol?.toUpperCase()) ?? t("guardrails.directRuntimeSource");
           return <article key={`${finding.trace_id}:${finding.id}`} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2"><GuardrailSeverityBadge severity={finding.severity} /><strong className="text-sm">{guardrailFindingTitle(finding, policies)}</strong>{finding.recommended_action === "pass" ? <Badge variant="outline">{t("guardrails.observationOnly")}</Badge> : null}</div>
+              <div className="flex flex-wrap items-center gap-2"><SecuritySeverityBadge severity={finding.severity} /><strong className="text-sm">{guardrailFindingTitle(finding, policies)}</strong><Badge variant="outline">{t("securityEvents.requestedAction")}: {t(`securityEvents.actions.${finding.recommended_action}`, { defaultValue: finding.recommended_action })}</Badge></div>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{finding.detail}</p>
-              <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{finding.policy_id ?? "—"}{finding.rule_id ? ` · ${finding.rule_id}` : ""}</p>
-              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span>{t("guardrails.sourceLabel")}: <strong className="font-medium text-foreground">{source}</strong></span><span>{t("guardrails.versionLabel")}: <code>{finding.guardrail_version ?? "—"}</code></span><span>{t("guardrails.phaseLabel")}: <code>{finding.phase}</code></span><span>{t("guardrails.confidenceLabel")}: <code>{finding.confidence === null ? "—" : `${Math.round(finding.confidence * 100)}%`}</code></span></div>
+              <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{finding.policy_id ?? "—"}{finding.policy_version ? ` @ ${finding.policy_version}` : ""}{finding.rule_id ? ` · ${finding.rule_id}` : ""}</p>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span>{t("guardrails.sourceLabel")}: <strong className="font-medium text-foreground">{source}</strong></span><span>{t("guardrails.versionLabel")}: <code>{finding.guardrail_version ?? "—"}</code></span><span>{t("guardrails.phaseLabel")}: <code>{finding.phase}</code></span><span>{t("guardrails.confidenceLabel")}: <code>{finding.confidence === null ? t("securityEvents.notProvided") : `${Math.round(finding.confidence * 100)}%`}</code></span></div>
             </div>
             <div className="flex items-center gap-3 sm:flex-col sm:items-end"><time className="self-start font-mono text-[11px] text-muted-foreground" dateTime={finding.created_at}><span className="sm:hidden">{timestamp.date} · </span>{timestamp.time}<span className="hidden sm:mt-1 sm:block sm:text-right">{timestamp.date}</span></time><Button asChild variant="outline" size="sm" className="min-h-11"><Link to="/logs" search={{ requestId: finding.trace_id, checkpointId: finding.event_id, guardrailId: finding.guardrail_id ?? undefined }}><ScrollText />{t("logs.viewLog")}</Link></Button></div>
           </article>;
-        })}</div> : <div className="flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center"><span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground"><ShieldCheck className="size-5" /></span><p className="mt-3 text-sm font-medium">{t(findings.length ? "guardrails.noMatchingFindings" : data?.collection_status === "not_collected" ? "guardrails.findingsNotCollected" : data?.collection_status === "no_events" ? "guardrails.noRuntimeEvidence" : "guardrails.noSecurityFindings")}</p><p className="mt-1 max-w-lg text-xs leading-5 text-muted-foreground">{t(findings.length ? "guardrails.noMatchingFindingsDescription" : data?.collection_status === "not_collected" ? "guardrails.findingsNotCollectedDescription" : data?.collection_status === "no_events" ? "guardrails.noRuntimeEvidenceDescription" : "guardrails.noSecurityFindingsDescription")}</p></div>}
-        {!loading && !error && data && data.summary.total > data.count ? <div className="border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">{t("guardrails.findingsTruncated", { shown: data.count, total: data.summary.total })}</div> : null}
+        })}</div> : <div className="flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center"><span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground"><ShieldCheck className="size-5" /></span><p className="mt-3 text-sm font-medium">{t(severity !== "all" ? "guardrails.noMatchingFindings" : data?.collection_status === "not_collected" ? "guardrails.findingsNotCollected" : data?.collection_status === "no_events" ? "guardrails.noRuntimeEvidence" : "guardrails.noSecurityFindings")}</p><p className="mt-1 max-w-lg text-xs leading-5 text-muted-foreground">{t(severity !== "all" ? "guardrails.noMatchingFindingsDescription" : data?.collection_status === "not_collected" ? "guardrails.findingsNotCollectedDescription" : data?.collection_status === "no_events" ? "guardrails.noRuntimeEvidenceDescription" : "guardrails.noSecurityFindingsDescription")}</p></div>}
+        {!loading && !error && data && counts[severity] > data.count ? <div className="border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">{t("guardrails.findingsTruncated", { shown: data.count, total: counts[severity] })}</div> : null}
       </CardContent>
     </Card>
   </div>;
 }
 
-function FindingStat({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) { return <div className="border-b px-4 py-3 last:border-b-0 sm:border-r sm:[&:nth-child(3n)]:border-r-0 xl:border-b-0 xl:[&:nth-child(3n)]:border-r xl:last:border-r-0"><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className={`mt-0.5 font-display text-xl font-semibold tabular-nums ${danger ? "text-red-700" : ""}`}>{value.toLocaleString()}</dd></div>; }
-function GuardrailSeverityBadge({ severity }: { severity: RouterTraceFinding["severity"] }) { const { t } = useTranslation(); const classes = { critical: "border-red-200 bg-red-50 text-red-700", high: "border-orange-200 bg-orange-50 text-orange-700", medium: "border-amber-200 bg-amber-50 text-amber-700", low: "border-slate-200 bg-slate-50 text-slate-700" }[severity]; return <Badge variant="outline" className={classes}>{t(`routerDetail.severity.${severity}`)}</Badge>; }
+function FindingStat({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) { return <div className="border-b px-4 py-3 sm:border-r"><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className={`mt-0.5 font-display text-xl font-semibold tabular-nums ${danger ? "text-red-700" : ""}`}>{value.toLocaleString()}</dd></div>; }
 function guardrailFindingTitle(finding: RouterTraceFinding, policies: Policy[]) { const policy = policies.find((item) => item.id === finding.policy_id); const rule = policy?.rules.find((item) => item.id === finding.rule_id); return rule?.name ?? policy?.name ?? finding.rule_id ?? finding.risk.replaceAll("_", " "); }
 
 export function GuardrailLoggingCard({ guardrailId }: { guardrailId: string }) {

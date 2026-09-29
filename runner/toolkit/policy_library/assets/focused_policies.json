@@ -33,6 +33,7 @@
         "description": "Detects AWS access keys (AKIA...)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -66,6 +67,7 @@
         "description": "Detects AWS secret keys (40 characters)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -99,6 +101,7 @@
         "description": "Detects GitHub personal access tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -132,6 +135,7 @@
         "description": "Detects Slack API tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -165,6 +169,7 @@
         "description": "Detects generic API key patterns",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -198,6 +203,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -516,6 +522,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -554,6 +561,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -592,6 +600,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -630,6 +639,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -668,6 +678,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -706,6 +717,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -744,6 +756,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -782,6 +795,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -820,6 +834,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -858,6 +873,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -896,6 +912,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -934,6 +951,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -972,6 +990,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1010,6 +1029,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1554,6 +1574,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1592,6 +1613,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1630,6 +1652,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1668,6 +1691,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1706,6 +1730,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1744,6 +1769,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1782,6 +1808,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -1820,6 +1847,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2184,6 +2212,7 @@
         "description": "Code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2222,6 +2251,7 @@
         "description": "Code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2260,6 +2290,7 @@
         "description": "Python code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2298,6 +2329,7 @@
         "description": "Command injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2336,6 +2368,7 @@
         "description": "Command injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2610,6 +2643,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2643,6 +2677,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -2822,6 +2857,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -2857,6 +2893,7 @@
         "description": "Detects US phone numbers in various formats",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -3038,6 +3075,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -3295,6 +3333,7 @@
         "description": "Detects Singapore NRIC and FIN numbers (S/T for citizens/PRs, F/G/M for foreigners + 7 digits + checksum letter)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -3328,6 +3367,7 @@
         "description": "Detects Singapore phone numbers (+65/0065/65 prefix with 6/8/9 starting digit for landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -3361,6 +3401,7 @@
         "description": "Detects Singapore bank account numbers (XXX-XXXXX(X)-X(XX) format for DBS/POSB/OCBC/UOB)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -3576,6 +3617,7 @@
         "description": "PDPA s.13 — Blocks unauthorized collection, harvesting, or extraction of Singapore personal identifiers (NRIC/FIN, SingPass, passports)",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -3698,6 +3740,7 @@
         "description": "PDPA Advisory Guidelines — Blocks profiling or inference of sensitive personal data categories (race, religion, health, politics) for Singapore residents",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -3817,6 +3860,7 @@
         "description": "PDPA Part IX — Blocks generation of unsolicited marketing lists and DNC Registry bypass attempts for Singapore phone numbers",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -3924,6 +3968,7 @@
         "description": "PDPA s.26 — Blocks unprotected overseas transfer of Singapore personal data without adequate safeguards",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -4023,6 +4068,7 @@
         "description": "PDPA + Model AI Governance Framework — Blocks automated profiling and decision-making systems for consequential decisions about Singapore residents without human oversight",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -4366,6 +4412,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -4388,6 +4435,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -4616,6 +4664,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -4638,6 +4687,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -4866,6 +4916,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -4888,6 +4939,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -5142,6 +5194,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -5164,6 +5217,7 @@
         "description": "Matches this reviewed text pattern, not arbitrary semantic variants.",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -5392,6 +5446,7 @@
         "description": "Detects UAE Emirates ID numbers (784-YYYY-NNNNNNN-C format, 15 digits starting with 784)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5427,6 +5482,7 @@
         "description": "Detects Ontario driver's licence numbers (1 letter + 14 digits, dashed format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5462,6 +5518,7 @@
         "description": "Detects Canadian immigration document numbers including UCI (10-digit), work/study permits, and IMM document references",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5497,6 +5554,7 @@
         "description": "Detects French National Identification Number (Numéro d'Inscription au Répertoire) - 15 digits with specific format: sex + year + month + department + commune + order + key",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5532,6 +5590,7 @@
         "description": "Detects University of Toronto TCard campus ID card numbers (16-digit). Context keywords are critical to distinguish from payment card numbers.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5567,6 +5626,7 @@
         "description": "Detects Singapore Unique Entity Numbers for business registration (various formats: 8/9 digits + letter, or T/R prefix)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5602,6 +5662,7 @@
         "description": "Detects Ontario Health Insurance Plan numbers (10 digits + 2-letter version code)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -5637,6 +5698,7 @@
         "description": "Detects Canadian Social Insurance Numbers (9-digit federal identifier, dashed or spaced format, first digit 1-9)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5672,6 +5734,7 @@
         "description": "Detects EU VAT identification numbers (2-letter country code + 8-12 alphanumeric characters covering all EU member states)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5707,6 +5770,7 @@
         "description": "Detects Dutch BSN numbers with contextual keywords",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5742,6 +5806,7 @@
         "description": "Detects Australian Tax File Numbers (8-9 digits) only when near TFN/tax file context to avoid false positives on arbitrary numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5777,6 +5842,7 @@
         "description": "Detects University of Toronto student and employee numbers (10-digit, prefix '10'). Subject to Ontario FIPPA.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5812,6 +5878,7 @@
         "description": "Detects US Social Security Numbers (XXX-XX-XXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5847,6 +5914,7 @@
         "description": "Detects US SSN without dashes (XXXXXXXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -5882,6 +5950,7 @@
         "description": "Detects Brazilian CPF numbers (XXX.XXX.XXX-XX or XXX.XXX.XXX/XX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5917,6 +5986,7 @@
         "description": "Detects Brazilian CPF numbers without formatting (11 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5952,6 +6022,7 @@
         "description": "Detects Brazilian CNPJ company registration numbers (XX.XXX.XXX/XXXX-XX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -5987,6 +6058,7 @@
         "description": "Detects Brazilian RG identity card numbers (common pattern for SP, RJ, MG states)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -6022,6 +6094,7 @@
         "description": "Detects Australian Business Numbers (11 digits, optional spaces: XX XXX XXX XXX)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -6057,6 +6130,7 @@
         "description": "Detects Australian Medicare numbers (formatted XXXX XXXXX X or 11 consecutive digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -6092,6 +6166,7 @@
         "description": "Detects Singapore NRIC and FIN numbers (S/T for citizens/PRs, F/G/M for foreigners + 7 digits + checksum letter)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -6127,6 +6202,7 @@
         "description": "Detects University of Toronto UTORid login identifiers (e.g. smithj12). Context keywords are essential due to the generic format.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -6908,6 +6984,7 @@
         "description": "Detects Singapore passport numbers (E/K prefix + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -6943,6 +7020,7 @@
         "description": "Chinese passport numbers (E/G prefix + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -6978,6 +7056,7 @@
         "description": "US passport numbers (9 digits or alphanumeric letter + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7013,6 +7092,7 @@
         "description": "German passport numbers (9 alphanumeric, no vowels)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7048,6 +7128,7 @@
         "description": "French passport numbers (2 digits, 2 letters, 5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7083,6 +7164,7 @@
         "description": "Dutch passport numbers (2 letters + 6 alphanumeric + 1 digit)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7118,6 +7200,7 @@
         "description": "Canadian passport numbers (old: 2 letters + 6 digits; new: 1 letter + 6 digits + 2 letters)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7153,6 +7236,7 @@
         "description": "Indian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7634,6 +7718,7 @@
         "description": "Detects Singapore phone numbers (+65/0065/65 prefix with 6/8/9 starting digit for landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7669,6 +7754,7 @@
         "description": "Detects UAE phone numbers (+971/00971/0 prefix, landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7704,6 +7790,7 @@
         "description": "Detects French phone numbers in various formats (+33, 0033, or 0 prefix followed by 9 digits starting with 1-9)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7739,6 +7826,7 @@
         "description": "Detects Brazilian mobile phone numbers (9 prefix for mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7774,6 +7862,7 @@
         "description": "Detects Brazilian landline phone numbers with optional area code",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7809,6 +7898,7 @@
         "description": "Detects Brazilian CEP postal codes (XXXXX-XXX or XXXXXXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7844,6 +7934,7 @@
         "description": "Detects French postal codes (5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7879,6 +7970,7 @@
         "description": "Detects street addresses (number + street name + street type)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7914,6 +8006,7 @@
         "description": "Detects Singapore 6-digit postal codes (ranges 01xxxx to 83xxxx)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -7949,6 +8042,7 @@
         "description": "Detects Canadian postal codes (A1A 1A1 format, excludes invalid first-letter characters per Canada Post spec)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -8400,6 +8494,7 @@
         "description": "Detects Canadian bank account routing information (transit-institution-account format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -8435,6 +8530,7 @@
         "description": "Detects Singapore bank account numbers (XXX-XXXXX(X)-X(XX) format for DBS/POSB/OCBC/UOB)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -8616,6 +8712,7 @@
         "description": "Detects Emirates Skywards frequent flyer numbers (9-10 digits, optional EK prefix) when near loyalty/frequent flyer context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -8651,6 +8748,7 @@
         "description": "Detects airline PNR / booking references (6 uppercase alpha characters) when near booking context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -8686,6 +8784,7 @@
         "description": "Detects airline flight numbers (major IATA 2-letter codes + 1-4 digit flight number) when near flight context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -8897,6 +8996,7 @@
         "description": "Detects IPv4 addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -8932,6 +9032,7 @@
         "description": "Detects IPv6 addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -8967,6 +9068,7 @@
         "description": "Detects URLs (http/https)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -9178,6 +9280,7 @@
         "description": "Detects gender identity and sexual orientation terms - protected under fair lending regulations",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9213,6 +9316,7 @@
         "description": "Detects race, ethnicity and national origin terms - protected under ECOA and Fair Housing Act",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9248,6 +9352,7 @@
         "description": "Detects religious affiliation and practice terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9283,6 +9388,7 @@
         "description": "Detects age-related terms - protected under ECOA for applicants 62+",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9318,6 +9424,7 @@
         "description": "Detects disability-related terms - protected under ECOA and ADA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9353,6 +9460,7 @@
         "description": "Detects marital and family status terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9388,6 +9496,7 @@
         "description": "Detects military status terms - protected under SCRA and MLA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9423,6 +9532,7 @@
         "description": "Detects public assistance terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9784,6 +9894,7 @@
         "description": "Detects explosives and bomb-making terminology",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -9819,6 +9930,7 @@
         "description": "Detects firearms and ammunition terminology",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -9854,6 +9966,7 @@
         "description": "Detects non-firearm weapons terminology",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -9889,6 +10002,7 @@
         "description": "Detects violent threats and terminology",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -9924,6 +10038,7 @@
         "description": "Detects terrorism and extremism terminology",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -9959,6 +10074,7 @@
         "description": "Detects self-harm and suicide terminology - recommend human review",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"
@@ -9994,6 +10110,7 @@
         "description": "Detects illegal activity terminology - relevant to SAR filing",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -10029,6 +10146,7 @@
         "description": "Detects slurs, hate speech and harassment",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -10390,6 +10508,7 @@
         "description": "Detects Australian Tax File Numbers (8-9 digits) only when near TFN/tax file context to avoid false positives on arbitrary numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input",
           "output"
@@ -10423,6 +10542,7 @@
         "description": "Detects Australian Business Numbers (11 digits, optional spaces: XX XXX XXX XXX)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input",
           "output"
@@ -10456,6 +10576,7 @@
         "description": "Detects Australian Medicare numbers (formatted XXXX XXXXX X or 11 consecutive digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input",
           "output"

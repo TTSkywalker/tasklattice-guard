@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { riskSeverities } from "../../shared/security-severity.js";
 import { enforcementActions } from "../../shared/enforcement-action.generated.js";
 import { guardrailCategoryIds } from "../../shared/guardrail-catalog.js";
 import { protectionDirectoryIds } from "../../shared/protection-map.js";
@@ -25,6 +26,7 @@ const railBindingSchema = z.object({
   // on_unsafe is an EnforcementAction directive, not a PolicyDecision. The
   // values come from the shared Controller/Runner wire contract.
   on_unsafe: z.enum(enforcementActions),
+  risk_severity: z.enum(riskSeverities).nullable().default(null),
   parallel_group: z.string().trim().min(1).max(120).nullable().default(null),
   priority: z.number().int().nullable().default(null),
   timeout_ms: z.number().int().positive().max(120_000).default(2_000),

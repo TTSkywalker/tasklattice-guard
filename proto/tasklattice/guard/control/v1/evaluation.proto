@@ -97,6 +97,8 @@ message RiskFinding {
   repeated GroundingClaimEvidence claims = 11;
   repeated AutomatedReasoningFinding reasoning = 12;
   repeated ProviderEvidence provider_evidence = 13;
+  optional string risk_severity = 14;
+  optional string policy_version = 15;
 }
 
 // Stable execution trace envelope. Provider-specific diagnostic text stays in

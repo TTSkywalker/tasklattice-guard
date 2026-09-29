@@ -37,6 +37,8 @@ export interface PolicyRailBinding {
    * Flow names that must complete before this binding becomes runnable.
    */
   'dependsOn'?: (string)[];
+  'riskSeverity'?: (string);
+  '_riskSeverity'?: "riskSeverity";
   '_parallelGroup'?: "parallelGroup";
   '_priority'?: "priority";
 }
@@ -73,6 +75,8 @@ export interface PolicyRailBinding__Output {
    * Flow names that must complete before this binding becomes runnable.
    */
   'dependsOn': (string)[];
+  'riskSeverity'?: (string);
+  '_riskSeverity'?: "riskSeverity";
   '_parallelGroup'?: "parallelGroup";
   '_priority'?: "priority";
 }

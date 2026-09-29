@@ -11,6 +11,20 @@ const resources = {
     translation: {
       providerRegistration: providerRegistrationEn,
       protection: protectionEn,
+      securityEvents: {
+        actions: { reject: "Block", redact: "Redact", rewrite: "Rewrite", regenerate: "Regenerate", redirect: "Redirect", fallback: "Fallback", clarify: "Clarify", pass: "Record only" },
+        "riskLevel": "Risk level",
+        "ruleLevelHint": "Describe the impact of this Rule’s risk. This level is independent of its action and detection confidence.",
+        "requestedAction": "Requested action",
+        "notProvided": "Not provided",
+        "levelExplanation": "Risk level comes from the Rule version used for this check.",
+        "boundaryHint": "Risk level, detection confidence, and requested action are independent. Checks that fail appear in runtime logs. Events without a recorded Rule level remain unclassified.",
+        "completionHint": "The requested action is a directive. Completion by the connected application has not been confirmed.",
+        "runtimeError": "Check failed",
+        "runtimeErrorHint": "The check did not complete normally. The outcome below shows whether traffic was allowed or blocked.",
+        "policyVersion": "Policy version",
+        "classificationPending": "Choose a risk level for every Rule before testing and publishing."
+},
       topicControl: {
         boundariesTitle: "Topic boundaries and handling",
         availability: {
@@ -2092,9 +2106,9 @@ const resources = {
         noSecurityDescription: "No Rule match was emitted in the recent Router trace window.",
         noMatchingFindings: "No security events match this severity",
         noMatchingFindingsDescription: "Choose another severity to inspect the available security events.",
-        criticalDescription: "High-confidence unsafe requests that caused the Guardrail to reject or fall back.",
+        criticalDescription: "Events classified as Critical by their versioned Rules, regardless of the action requested.",
         noCriticalTitle: "No critical security events",
-        noCriticalDescription: "No high-confidence blocking security event appears in the recent Router trace window.",
+        noCriticalDescription: "No Critical security event appears in the recent Router trace window.",
         eventLog: "Runtime events",
         eventLogDescription: "Every recent allow, transform, block, and error decision. Request and response content is not stored.",
         liveEvents: "Latest page refreshes every 15s",
@@ -2167,7 +2181,7 @@ const resources = {
         executionTraceDescription: "The ordered Rails and version-pinned Python Actions activated for this decision.",
         noStepsTitle: "No persisted execution steps",
         noStepsDescription: "Older decisions or failures before NeMo activation may not include correlated step telemetry.",
-        severity: { critical: "Critical", high: "High", medium: "Medium", low: "Low" },
+        severity: { critical: "Critical", high: "High", medium: "Medium", low: "Low", informational: "Informational", unclassified: "Unclassified" },
       },
       validation: {
         noGuardrails: "No Guardrails available",
@@ -2868,6 +2882,20 @@ const resources = {
     translation: {
       providerRegistration: providerRegistrationZh,
       protection: protectionZh,
+      securityEvents: {
+        actions: { reject: "阻断", redact: "遮盖", rewrite: "重写", regenerate: "重新生成", redirect: "引导", fallback: "兜底", clarify: "澄清", pass: "仅记录" },
+        "riskLevel": "风险级别",
+        "ruleLevelHint": "按这条 Rule 所检测问题的影响选择级别；处理动作和检测置信度不会改变级别。",
+        "requestedAction": "要求处理",
+        "notProvided": "未提供",
+        "levelExplanation": "风险级别来自本次检查使用的 Rule 版本。",
+        "boundaryHint": "风险级别、检测置信度和要求的处理动作分别记录。检查失败请查看运行日志；未记录 Rule 级别的事件显示为“未分级”。",
+        "completionHint": "这里记录的是要求执行的动作，尚未确认接入应用是否已完成处理。",
+        "runtimeError": "检查异常",
+        "runtimeErrorHint": "检查未正常完成。下方结果表示最终放行或阻断情况。",
+        "policyVersion": "Policy 版本",
+        "classificationPending": "请为每条 Rule 选择风险级别，再进行测试和发布。"
+},
       topicControl: {
         boundariesTitle: "主题范围与处理方式",
         availability: {
@@ -4934,9 +4962,9 @@ const resources = {
         noSecurityDescription: "该 Router 最近的 Trace 中没有产生安全事件。",
         noMatchingFindings: "该严重级别没有安全事件",
         noMatchingFindingsDescription: "请选择其他严重级别查看已有安全事件。",
-        criticalDescription: "被 Guardrail 高置信度判定为不安全，并执行拒绝或回退的请求。",
+        criticalDescription: "Rule 版本定义为严重级别的安全事件，不受处理动作影响。",
         noCriticalTitle: "暂无严重安全事件",
-        noCriticalDescription: "该 Router 最近的 Trace 中没有高置信度阻断安全事件。",
+        noCriticalDescription: "该 Router 最近的 Trace 中没有严重级别的安全事件。",
         eventLog: "运行事件",
         eventLogDescription: "最近的 Allow、Transform、Block 与 Error 决策；不会保存请求或响应内容。",
         liveEvents: "最新页每 15 秒刷新",
@@ -5009,7 +5037,7 @@ const resources = {
         executionTraceDescription: "本次决策实际激活的有序 Rails 和固定版本 Python Actions。",
         noStepsTitle: "没有持久化执行步骤",
         noStepsDescription: "旧决策或在 NeMo 激活前发生的失败可能没有可关联的步骤遥测。",
-        severity: { critical: "严重", high: "高", medium: "中", low: "低" },
+        severity: { critical: "严重", high: "高", medium: "中", low: "低", informational: "信息", unclassified: "未分级" },
       },
       validation: {
         noGuardrails: "暂无可用 Guardrail",

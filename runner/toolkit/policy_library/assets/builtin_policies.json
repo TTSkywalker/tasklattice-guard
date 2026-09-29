@@ -106,6 +106,7 @@
         "description": "Detects Australian Tax File Numbers (8-9 digits) only when near TFN/tax file context to avoid false positives on arbitrary numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -138,6 +139,7 @@
         "description": "Detects Australian Business Numbers (11 digits, optional spaces: XX XXX XXX XXX)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -170,6 +172,7 @@
         "description": "Detects Australian Medicare numbers (formatted XXXX XXXXX X or 11 consecutive digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -202,6 +205,7 @@
         "description": "Australian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -234,6 +238,7 @@
         "description": "Detects US Social Security Numbers (XXX-XX-XXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -266,6 +271,7 @@
         "description": "Detects US SSN without dashes (XXXXXXXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -298,6 +304,7 @@
         "description": "US passport numbers (9 digits or alphanumeric letter + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -330,6 +337,7 @@
         "description": "UK passport numbers (9 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -362,6 +370,7 @@
         "description": "German passport numbers (9 alphanumeric, no vowels)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -394,6 +403,7 @@
         "description": "French passport numbers (2 digits, 2 letters, 5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -426,6 +436,7 @@
         "description": "Dutch passport numbers (2 letters + 6 alphanumeric + 1 digit)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -458,6 +469,7 @@
         "description": "Detects Dutch BSN numbers with contextual keywords",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -490,6 +502,7 @@
         "description": "Chinese passport numbers (E/G prefix + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -522,6 +535,7 @@
         "description": "Indian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -554,6 +568,7 @@
         "description": "Japanese passport numbers (2 letters + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -586,6 +601,7 @@
         "description": "Canadian passport numbers (old: 2 letters + 6 digits; new: 1 letter + 6 digits + 2 letters)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -618,6 +634,7 @@
         "description": "Detects Brazilian CPF numbers (XXX.XXX.XXX-XX or XXX.XXX.XXX/XX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -650,6 +667,7 @@
         "description": "Detects Brazilian CPF numbers without formatting (11 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -682,6 +700,7 @@
         "description": "Detects Brazilian RG identity card numbers (common pattern for SP, RJ, MG states)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -714,6 +733,7 @@
         "description": "Detects Brazilian CNPJ company registration numbers (XX.XXX.XXX/XXXX-XX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -746,6 +766,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -778,6 +799,7 @@
         "description": "Detects US phone numbers in various formats",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -810,6 +832,7 @@
         "description": "Detects Brazilian landline phone numbers with optional area code",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -842,6 +865,7 @@
         "description": "Detects Brazilian mobile phone numbers (9 prefix for mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -874,6 +898,7 @@
         "description": "Detects street addresses (number + street name + street type)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -906,6 +931,7 @@
         "description": "Detects Brazilian CEP postal codes (XXXXX-XXX or XXXXXXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -938,6 +964,7 @@
         "description": "Detects Visa credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -970,6 +997,7 @@
         "description": "Detects Mastercard credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1002,6 +1030,7 @@
         "description": "Detects American Express credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1034,6 +1063,7 @@
         "description": "Detects Discover credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1066,6 +1096,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1098,6 +1129,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1130,6 +1162,7 @@
         "description": "Detects AWS access keys (AKIA...)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1162,6 +1195,7 @@
         "description": "Detects AWS secret keys (40 characters)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1194,6 +1228,7 @@
         "description": "Detects GitHub personal access tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1226,6 +1261,7 @@
         "description": "Detects Slack API tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1258,6 +1294,7 @@
         "description": "Detects generic API key patterns",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1290,6 +1327,7 @@
         "description": "Detects IPv4 addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1322,6 +1360,7 @@
         "description": "Detects IPv6 addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1354,6 +1393,7 @@
         "description": "Detects gender identity and sexual orientation terms - protected under fair lending regulations",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1386,6 +1426,7 @@
         "description": "Detects race, ethnicity and national origin terms - protected under ECOA and Fair Housing Act",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1418,6 +1459,7 @@
         "description": "Detects religious affiliation and practice terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1450,6 +1492,7 @@
         "description": "Detects age-related terms - protected under ECOA for applicants 62+",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1482,6 +1525,7 @@
         "description": "Detects disability-related terms - protected under ECOA and ADA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1514,6 +1558,7 @@
         "description": "Detects marital and family status terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1546,6 +1591,7 @@
         "description": "Detects military status terms - protected under SCRA and MLA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1578,6 +1624,7 @@
         "description": "Detects public assistance terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2355,6 +2402,7 @@
         "description": "Inline keyword category bundled with this Policy.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -2485,6 +2533,7 @@
         "description": "Detects airline PNR / booking references (6 uppercase alpha characters) when near booking context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2517,6 +2566,7 @@
         "description": "Detects Emirates Skywards frequent flyer numbers (9-10 digits, optional EK prefix) when near loyalty/frequent flyer context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2549,6 +2599,7 @@
         "description": "US passport numbers (9 digits or alphanumeric letter + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2581,6 +2632,7 @@
         "description": "UK passport numbers (9 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2613,6 +2665,7 @@
         "description": "German passport numbers (9 alphanumeric, no vowels)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2645,6 +2698,7 @@
         "description": "French passport numbers (2 digits, 2 letters, 5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2677,6 +2731,7 @@
         "description": "Indian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2709,6 +2764,7 @@
         "description": "Chinese passport numbers (E/G prefix + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2741,6 +2797,7 @@
         "description": "Australian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2773,6 +2830,7 @@
         "description": "Japanese passport numbers (2 letters + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2805,6 +2863,7 @@
         "description": "Canadian passport numbers (old: 2 letters + 6 digits; new: 1 letter + 6 digits + 2 letters)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2837,6 +2896,7 @@
         "description": "Dutch passport numbers (2 letters + 6 alphanumeric + 1 digit)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2869,6 +2929,7 @@
         "description": "Detects UAE Emirates ID numbers (784-YYYY-NNNNNNN-C format, 15 digits starting with 784)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2901,6 +2962,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2933,6 +2995,7 @@
         "description": "Detects Visa credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2965,6 +3028,7 @@
         "description": "Detects Mastercard credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2997,6 +3061,7 @@
         "description": "Detects American Express credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -3029,6 +3094,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -3061,6 +3127,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -3093,6 +3160,7 @@
         "description": "Detects UAE phone numbers (+971/00971/0 prefix, landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -3125,6 +3193,7 @@
         "description": "Detects US phone numbers in various formats",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -3553,6 +3622,7 @@
         "description": "Detects airline flight numbers (major IATA 2-letter codes + 1-4 digit flight number) when near flight context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3585,6 +3655,7 @@
         "description": "Custom regular-expression rule.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3617,6 +3688,7 @@
         "description": "Crew scheduling data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3654,6 +3726,7 @@
         "description": "Crew scheduling data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3691,6 +3764,7 @@
         "description": "Staff duty data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3728,6 +3802,7 @@
         "description": "Pilot scheduling data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3765,6 +3840,7 @@
         "description": "Crew manifest data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3802,6 +3878,7 @@
         "description": "Blocks AI from generating content about aviation security vulnerabilities, bypass procedures, and restricted operations data",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3967,6 +4044,7 @@
         "description": "Fake crash report",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4004,6 +4082,7 @@
         "description": "Fake crash report",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4041,6 +4120,7 @@
         "description": "Fake incident",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4078,6 +4158,7 @@
         "description": "Fake emergency",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4115,6 +4196,7 @@
         "description": "Fake fatality report",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4152,6 +4234,7 @@
         "description": "Fake fatality confirmation",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4189,6 +4272,7 @@
         "description": "Fake scandal",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4226,6 +4310,7 @@
         "description": "Fake coverup claim",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4263,6 +4348,7 @@
         "description": "Fake grounding claim",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4300,6 +4386,7 @@
         "description": "Fake lawsuit",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4337,6 +4424,7 @@
         "description": "Prevents AI from generating fake incident reports, unauthorized airline statements, or reputation-damaging content",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4493,6 +4581,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4530,6 +4619,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4567,6 +4657,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4604,6 +4695,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4641,6 +4733,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4678,6 +4771,7 @@
         "description": "Blocks airline ranking, comparison, recommendation, and switching requests while allowing destination and service-policy questions.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4729,6 +4823,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -5599,6 +5694,7 @@
         "description": "Detects Australian Tax File Numbers (8-9 digits) only when near TFN/tax file context to avoid false positives on arbitrary numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -5631,6 +5727,7 @@
         "description": "Detects Australian Business Numbers (11 digits, optional spaces: XX XXX XXX XXX)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -5663,6 +5760,7 @@
         "description": "Detects Australian Medicare numbers (formatted XXXX XXXXX X or 11 consecutive digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5695,6 +5793,7 @@
         "description": "Detects AWS access keys (AKIA...)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5727,6 +5826,7 @@
         "description": "Detects AWS secret keys (40 characters)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5759,6 +5859,7 @@
         "description": "Detects GitHub personal access tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5791,6 +5892,7 @@
         "description": "Detects Slack API tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5823,6 +5925,7 @@
         "description": "Detects generic API key patterns",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5855,6 +5958,7 @@
         "description": "Detects Visa credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5887,6 +5991,7 @@
         "description": "Detects Mastercard credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5919,6 +6024,7 @@
         "description": "Detects American Express credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5951,6 +6057,7 @@
         "description": "Detects Discover credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5983,6 +6090,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -6015,6 +6123,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -6297,6 +6406,7 @@
         "description": "Detects coaching on fraudulent insurance claims including exaggeration, fabrication, and document forgery",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -6505,6 +6615,7 @@
         "description": "Detects unauthorized PHI disclosure requests, bulk data extraction, and HIPAA violations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -6713,6 +6824,7 @@
         "description": "Detects attempts to game prior authorization through code manipulation, misrepresentation, and circumvention",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -6916,6 +7028,7 @@
         "description": "Detects system override injection, unauthorized role impersonation, and claims rule bypass attempts",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -7131,6 +7244,7 @@
         "description": "Detects medical advice requests while allowing legitimate claims-related medical terminology",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -7491,6 +7605,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7528,6 +7643,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -7565,6 +7681,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7602,6 +7719,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -7639,6 +7757,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7676,6 +7795,7 @@
         "description": "Blocks airline ranking, comparison, recommendation, and switching requests while allowing destination and service-policy questions.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7727,6 +7847,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -8304,6 +8425,7 @@
         "description": "Art. 5.1(a) — Blocks subliminal manipulation, deceptive AI techniques, and covert behavioral influence",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8422,6 +8544,7 @@
         "description": "Art. 5.1(b) — Blocks AI systems that exploit vulnerabilities of children, elderly, or disabled persons",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8559,6 +8682,7 @@
         "description": "Art. 5.1(c) — Blocks social scoring, citizen rating, and trustworthiness classification systems",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8702,6 +8826,7 @@
         "description": "Art. 5.1(f) — Blocks emotion recognition and sentiment analysis in workplace and educational settings",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8870,6 +8995,7 @@
         "description": "Art. 5.1(d)(g)(h) — Blocks biometric categorization, facial recognition databases, and predictive profiling",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -9041,6 +9167,7 @@
         "description": "Art. 5.1(a) — Bloque la manipulation subliminale, les techniques d'IA trompeuses et l'influence comportementale cachée",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9163,6 +9290,7 @@
         "description": "Art. 5.1(b) — Bloque les systèmes d'IA qui exploitent les vulnérabilités des enfants, personnes âgées ou handicapées",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9295,6 +9423,7 @@
         "description": "Art. 5.1(c) — Bloque les systèmes de notation sociale, de notation des citoyens et de classification de fiabilité",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9448,6 +9577,7 @@
         "description": "Art. 5.1(f) — Bloque la reconnaissance des émotions et l'analyse des sentiments au travail et dans l'éducation",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9607,6 +9737,7 @@
         "description": "Art. 5.1(d)(g)(h) — Bloque la catégorisation biométrique, les bases de reconnaissance faciale et le profilage prédictif",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -9987,6 +10118,7 @@
         "description": "Detects French National Identification Number (Numéro d'Inscription au Répertoire) - 15 digits with specific format: sex + year + month + department + commune + order + key",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10019,6 +10151,7 @@
         "description": "Detects generic EU passport format (2 digits + 2 letters + 5 digits) - covers France and similar EU formats",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10051,6 +10184,7 @@
         "description": "Enhanced IBAN detection with more specific format validation (2 letter country + 2 check digits + 4 char bank code + 7 digit account base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -10083,6 +10217,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -10115,6 +10250,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10147,6 +10283,7 @@
         "description": "Detects French phone numbers in various formats (+33, 0033, or 0 prefix followed by 9 digits starting with 1-9)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10179,6 +10316,7 @@
         "description": "Detects French postal codes (5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10211,6 +10349,7 @@
         "description": "Detects EU VAT identification numbers (2-letter country code + 8-12 alphanumeric characters covering all EU member states)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10397,6 +10536,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -14154,6 +14294,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -14459,6 +14600,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -14856,6 +14998,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -15149,6 +15292,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -15490,6 +15634,7 @@
         "description": "Detects content related to self-harm, suicide, and eating disorders",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -15851,6 +15996,7 @@
         "description": "Detects inappropriate content involving minors using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -16995,6 +17141,7 @@
         "description": "Detects racial and ethnic discrimination, hate speech, and biased content using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -18589,6 +18736,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -22346,6 +22494,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -22687,6 +22836,7 @@
         "description": "Detects content related to self-harm, suicide, and eating disorders",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -23048,6 +23198,7 @@
         "description": "Detects inappropriate content involving minors using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -24192,6 +24343,7 @@
         "description": "Detects racial and ethnic discrimination, hate speech, and biased content using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -25735,6 +25887,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -29492,6 +29645,7 @@
         "description": "Detects content related to self-harm, suicide, and eating disorders",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -29853,6 +30007,7 @@
         "description": "Detects inappropriate content involving minors using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -30997,6 +31152,7 @@
         "description": "Detects racial and ethnic discrimination, hate speech, and biased content using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -32525,6 +32681,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32562,6 +32719,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32599,6 +32757,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32636,6 +32795,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32673,6 +32833,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32710,6 +32871,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32747,6 +32909,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32784,6 +32947,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32821,6 +32985,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32858,6 +33023,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32895,6 +33061,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32932,6 +33099,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32969,6 +33137,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33006,6 +33175,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33043,6 +33213,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33080,6 +33251,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33117,6 +33289,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33154,6 +33327,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33191,6 +33365,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33228,6 +33403,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33265,6 +33441,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33302,6 +33479,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33339,6 +33517,7 @@
         "description": "XSS injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33376,6 +33555,7 @@
         "description": "XSS injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33413,6 +33593,7 @@
         "description": "Code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33450,6 +33631,7 @@
         "description": "Code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33487,6 +33669,7 @@
         "description": "Python code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33524,6 +33707,7 @@
         "description": "Command injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33561,6 +33745,7 @@
         "description": "Command injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -34091,6 +34276,7 @@
         "description": "Detects Singapore NRIC and FIN numbers (S/T for citizens/PRs, F/G/M for foreigners + 7 digits + checksum letter)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34123,6 +34309,7 @@
         "description": "Detects Singapore passport numbers (E/K prefix + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34155,6 +34342,7 @@
         "description": "Detects Singapore phone numbers (+65/0065/65 prefix with 6/8/9 starting digit for landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34187,6 +34375,7 @@
         "description": "Detects Singapore 6-digit postal codes (ranges 01xxxx to 83xxxx)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34219,6 +34408,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34251,6 +34441,7 @@
         "description": "Detects Singapore bank account numbers (XXX-XXXXX(X)-X(XX) format for DBS/POSB/OCBC/UOB)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -34283,6 +34474,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -34315,6 +34507,7 @@
         "description": "Detects Singapore Unique Entity Numbers for business registration (various formats: 8/9 digits + letter, or T/R prefix)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -34347,6 +34540,7 @@
         "description": "PDPA s.13 — Blocks unauthorized collection, harvesting, or extraction of Singapore personal identifiers (NRIC/FIN, SingPass, passports)",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34468,6 +34662,7 @@
         "description": "PDPA Advisory Guidelines — Blocks profiling or inference of sensitive personal data categories (race, religion, health, politics) for Singapore residents",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34586,6 +34781,7 @@
         "description": "PDPA Part IX — Blocks generation of unsolicited marketing lists and DNC Registry bypass attempts for Singapore phone numbers",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34692,6 +34888,7 @@
         "description": "PDPA s.26 — Blocks unprotected overseas transfer of Singapore personal data without adequate safeguards",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -34790,6 +34987,7 @@
         "description": "PDPA + Model AI Governance Framework — Blocks automated profiling and decision-making systems for consequential decisions about Singapore residents without human oversight",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35131,6 +35329,7 @@
         "description": "Off-topic: news",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35168,6 +35367,7 @@
         "description": "Off-topic: news",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35205,6 +35405,7 @@
         "description": "Off-topic: current events",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35242,6 +35443,7 @@
         "description": "Off-topic: politics",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35279,6 +35481,7 @@
         "description": "Off-topic: sports/entertainment",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35316,6 +35519,7 @@
         "description": "Off-topic: weather",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35353,6 +35557,7 @@
         "description": "Off-topic: finance",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35390,6 +35595,7 @@
         "description": "Off-topic: entertainment",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35427,6 +35633,7 @@
         "description": "Off-topic: entertainment",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35464,6 +35671,7 @@
         "description": "Off-topic: sports",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35501,6 +35709,7 @@
         "description": "Inline keyword category bundled with this Policy.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35781,6 +35990,7 @@
         "description": "Detects UAE Emirates ID numbers (784-YYYY-NNNNNNN-C format, 15 digits starting with 784)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -35813,6 +36023,7 @@
         "description": "Detects UAE phone numbers (+971/00971/0 prefix, landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -35845,6 +36056,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -35877,6 +36089,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -35909,6 +36122,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -35941,6 +36155,7 @@
         "description": "Custom regular-expression rule.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -35973,6 +36188,7 @@
         "description": "Ensures AI output respects UAE cultural norms, royal family, and religious content policies",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36084,6 +36300,7 @@
         "description": "Blocks content violating UAE Federal anti-discrimination laws (Decree-Law No. 2/2015)",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],

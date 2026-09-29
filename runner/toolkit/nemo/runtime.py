@@ -1668,6 +1668,7 @@ def _decision(
         action = "pass"
         reason = "All activated NeMo rails passed."
 
+    native_identity = _native_finding_identity(request.plan, native_risk, request.phase)
     findings = tuple(
         finding
         for item in runtime_results
@@ -1683,8 +1684,11 @@ def _decision(
                 confidence=None,
                 evidence=reason,
                 recommended_action=native_action,
+                policy_id=native_identity[0],
+                rule_id=native_identity[1],
             ),
         )
+    findings = _snapshot_finding_risks(request.plan, findings)
     trace = _trace(
         request,
         config,
@@ -2198,6 +2202,29 @@ def _trace(
     return tuple(trace)
 
 
+def _native_finding_identity(plan, risk, phase):
+    native = _native_policy_rail(plan, risk, phase)
+    if native:
+        return native[0].policy_id, flow_rule_id(phase, native[2].flow_name)
+    policy_ids = {step.parameter("policy_id") for step in plan.steps if step.capability == risk and phase in step.phases}
+    candidates = [binding for binding in plan.policy_bindings if binding.policy_id in policy_ids and phase in binding.enabled_rails]
+    if len(candidates) == 1 and len(candidates[0].enabled_rule_ids) == 1:
+        return candidates[0].policy_id, candidates[0].enabled_rule_ids[0]
+    return None, None
+
+
+def _snapshot_finding_risks(plan, findings):
+    """Only the pinned Rule defines severity; never trust evaluator-supplied levels."""
+    bindings = {item.policy_id: item for item in plan.policy_bindings}
+    return tuple(
+        replace(finding,
+            risk_severity=(dict(bindings[finding.policy_id].rule_severities).get(finding.rule_id)
+                if finding.policy_id in bindings and finding.verdict in {"unsafe", "uncertain"} else None),
+            policy_version=(bindings[finding.policy_id].policy_version if finding.policy_id in bindings else None))
+        for finding in findings
+    )
+
+
 def _policy_rail_binding(plan, binding, phase):
     if binding.policy_id is None or binding.policy_version is None:
         return None
@@ -2344,6 +2371,7 @@ def _assessments(request, results, trace, all_findings=(), *, force_error=False)
                 )
             )
         )
+        findings = _snapshot_finding_risks(request.plan, findings)
         reason = next(
             (item.result.reason for item in selected if item.result.reason),
             (

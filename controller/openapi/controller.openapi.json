@@ -4020,6 +4020,33 @@
           "required": {
             "type": "boolean"
           },
+          "risk_severity": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": "critical",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "type": "string"
+              },
+              {
+                "const": "informational",
+                "type": "string"
+              },
+              {
+                "const": "low",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "type": "string"
+              }
+            ]
+          },
           "timeout_ms": {
             "type": "number"
           }
@@ -4029,6 +4056,7 @@
           "flow_name",
           "execution_mode",
           "on_unsafe",
+          "risk_severity",
           "parallel_group",
           "priority",
           "timeout_ms",
@@ -4616,6 +4644,33 @@
           "redaction": {
             "type": "null"
           },
+          "risk_severity": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": "critical",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "type": "string"
+              },
+              {
+                "const": "informational",
+                "type": "string"
+              },
+              {
+                "const": "low",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "type": "string"
+              }
+            ]
+          },
           "severity_threshold": {
             "type": "null"
           }
@@ -4626,6 +4681,7 @@
           "description",
           "form",
           "effect",
+          "risk_severity",
           "rails",
           "implementation",
           "expression",
@@ -5347,6 +5403,33 @@
               }
             ]
           },
+          "risk_severity": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": "critical",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "type": "string"
+              },
+              {
+                "const": "informational",
+                "type": "string"
+              },
+              {
+                "const": "low",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "type": "string"
+              }
+            ]
+          },
           "severity_threshold": {
             "anyOf": [
               {
@@ -5370,6 +5453,7 @@
           "description",
           "form",
           "effect",
+          "risk_severity",
           "rails",
           "implementation",
           "expression",
@@ -7810,7 +7894,9 @@
               "critical",
               "high",
               "medium",
-              "low"
+              "low",
+              "informational",
+              "unclassified"
             ],
             "type": "string"
           },
@@ -8262,6 +8348,9 @@
           "high": {
             "type": "number"
           },
+          "informational": {
+            "type": "number"
+          },
           "latest_at": {
             "anyOf": [
               {
@@ -8281,6 +8370,9 @@
           },
           "total": {
             "type": "number"
+          },
+          "unclassified": {
+            "type": "number"
           }
         },
         "required": [
@@ -8289,6 +8381,8 @@
           "high",
           "medium",
           "low",
+          "informational",
+          "unclassified",
           "affected_traces",
           "latest_at"
         ],
@@ -9342,6 +9436,24 @@
                     "required": {
                       "default": true,
                       "type": "boolean"
+                    },
+                    "risk_severity": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "critical",
+                            "high",
+                            "medium",
+                            "low",
+                            "informational"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
                     },
                     "timeout_ms": {
                       "default": 2000,
@@ -12501,6 +12613,16 @@
               }
             ]
           },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
           "recommended_action": {
             "type": "string"
           },
@@ -12516,9 +12638,12 @@
           },
           "severity": {
             "enum": [
+              "critical",
               "high",
+              "informational",
               "low",
-              "medium"
+              "medium",
+              "unclassified"
             ],
             "type": "string"
           },
@@ -12538,6 +12663,7 @@
           "confidence",
           "recommended_action",
           "policy_id",
+          "policy_version",
           "rule_id"
         ],
         "type": "object"
@@ -13714,6 +13840,24 @@
                     "required": {
                       "default": true,
                       "type": "boolean"
+                    },
+                    "risk_severity": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "critical",
+                            "high",
+                            "medium",
+                            "low",
+                            "informational"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
                     },
                     "timeout_ms": {
                       "default": 2000,
@@ -29808,7 +29952,9 @@
                 "critical",
                 "high",
                 "medium",
-                "low"
+                "low",
+                "informational",
+                "unclassified"
               ],
               "type": "string"
             }
