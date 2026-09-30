@@ -35,9 +35,9 @@ vi.mock("react-i18next", () => ({
         "policyLibrary.tabs.compliance": "Sources & Compliance",
         "policyLibrary.compliance.empty": "Sources and compliance documentation have not been provided for this Policy version.",
         "policyLibrary.tabs.implementation": "NeMo implementation",
-        "policyLibrary.ruleListTitle": "Rules ({{count}})",
+        "policyLibrary.ruleListTitle": "Rules",
         "policyLibrary.ruleListDescription": "Each Rule is linked to Test Cases.",
-        "policyLibrary.testCasesTitle": "Test Cases ({{count}})",
+        "policyLibrary.testCasesTitle": "Test Cases",
         "policyLibrary.testCasesDescription": "Executable Test Cases.",
         "policyLibrary.implementationTitle": "NeMo Guardrails implementation",
         "policyLibrary.implementationDescription": "Technical Rule bindings.",
@@ -158,19 +158,19 @@ describe("Policy detail", () => {
 
     expect(screen.getByRole("heading", { name: "Competitor Discussion Policy" })).toBeTruthy();
     expect(screen.getByRole("tablist", { name: "Policy detail views" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Policy" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Policy 1" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getAllByText("Input rail").length).toBeGreaterThan(0);
     expect(screen.getByText("Australia").parentElement?.textContent).toBe("🇦🇺Australia");
     expect(screen.queryByText("Category classifier")).toBeNull();
-    expect(screen.getByText("Rules (1)")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Rules" })).toBeTruthy();
     expect(screen.getByText("Competitor comparison intent")).toBeTruthy();
 
-    clickTab(screen.getByRole("tab", { name: "Test Cases" }));
-    expect(screen.getByText("Test Cases (2)")).toBeTruthy();
+    clickTab(screen.getByRole("tab", { name: "Test Cases 2" }));
+    expect(screen.getByRole("heading", { name: "Test Cases" })).toBeTruthy();
     expect(screen.getByText("Block airline comparison")).toBeTruthy();
     expect(screen.getByText("Allow destination question")).toBeTruthy();
 
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Policy", "Test Cases", "Sources & Compliance", expect.stringContaining("NeMo implementation")]);
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Policy1", "Test Cases2", "Sources & Compliance", expect.stringContaining("NeMo implementation")]);
     clickTab(screen.getByRole("tab", { name: "Sources & Compliance" }));
     expect(screen.getByText("Sources and compliance documentation have not been provided for this Policy version.")).toBeTruthy();
 

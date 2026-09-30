@@ -401,8 +401,8 @@ export function PolicyDetail({ policy, onClose, onEdit, onExport, onDelete }: { 
       <Tabs key={policy.id} defaultValue="policy" className="mt-5">
         <div className="overflow-x-auto">
           <TabsList aria-label={t("policyLibrary.detailViews")} className="min-w-max">
-            <TabsTrigger value="policy"><ShieldCheck aria-hidden="true" />{t("policyLibrary.tabs.policy")}</TabsTrigger>
-            <TabsTrigger value="validation"><FlaskConical aria-hidden="true" />{t("policyLibrary.tabs.testCases")}</TabsTrigger>
+            <TabsTrigger value="policy"><ShieldCheck aria-hidden="true" /><span className="flex items-center gap-2">{t("policyLibrary.tabs.policy")}<Badge variant="outline" className="font-mono text-[10px]">{policy.rules.length}</Badge></span></TabsTrigger>
+            <TabsTrigger value="validation"><FlaskConical aria-hidden="true" /><span className="flex items-center gap-2">{t("policyLibrary.tabs.testCases")}<Badge variant="outline" className="font-mono text-[10px]">{policy.test_count}</Badge></span></TabsTrigger>
             <TabsTrigger value="compliance"><BookOpen aria-hidden="true" />{t("policyLibrary.tabs.compliance")}</TabsTrigger>
             <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><FileCode2 aria-hidden="true" /><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
           </TabsList>
@@ -452,7 +452,7 @@ function RuleList({ policy }: { policy: Policy }) {
   const { t } = useTranslation();
   return (
     <section>
-      <h3 className="text-sm font-semibold">{t("policyLibrary.ruleListTitle", { count: policy.rules.length })}</h3>
+      <h3 className="text-sm font-semibold">{t("policyLibrary.ruleListTitle")}</h3>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("policyLibrary.ruleListDescription")}</p>
       <div className="mt-4 divide-y overflow-hidden rounded-lg border">
         {policy.rules.map((rule) => <RuleRow key={rule.id} rule={rule} />)}
@@ -489,7 +489,7 @@ function PolicyTestCases({ policy }: { policy: Policy }) {
   const groups = Array.from(new Set(policy.test_cases.map((testCase) => testCase.group)));
   return (
     <section>
-      <h3 className="text-sm font-semibold">{t("policyLibrary.testCasesTitle", { count: policy.test_count })}</h3>
+      <h3 className="text-sm font-semibold">{t("policyLibrary.testCasesTitle")}</h3>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("policyLibrary.testCasesDescription")}</p>
       <div className="mt-4 space-y-4">
         {groups.map((group) => (
