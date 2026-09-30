@@ -20,10 +20,12 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { LoginPage } from "@/routes/login";
+import { MockSsoPage } from "@/routes/mock-sso";
 
 const names: Record<string, { group?: string; page: string }> = {
   "/": { page: "nav.dashboard" },
   "/dashboard": { page: "nav.dashboard" },
+  "/sharing": { group: "nav.system", page: "nav.sharing" },
   "/guardrails": { group: "nav.guardrailDesign", page: "nav.guardrails" },
   "/policy-library": { group: "nav.guardrailDesign", page: "nav.policyLibrary" },
   "/playground": { group: "nav.guardrailDesign", page: "nav.playground" },
@@ -51,6 +53,7 @@ export function ControlPlaneLayout() {
     ?? (pathname.startsWith("/guardrails/") ? names["/guardrails"] : undefined)
     ?? (pathname.startsWith("/integration/routers/") ? names["/integration/routers"] : undefined)
     ?? { page: "nav.dashboard" };
+  if (pathname === "/mock-sso") return <MockSsoPage />;
   if (auth.isLoading) {
     return <div className="flex min-h-dvh items-center justify-center bg-background"><div className="flex items-center gap-3 text-sm text-muted-foreground"><ShieldCheck className="size-5 animate-pulse text-primary" />{t("auth.sessionLoading")}</div></div>;
   }

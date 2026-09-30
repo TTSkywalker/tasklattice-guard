@@ -5,6 +5,7 @@ import { ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StateBadge } from "@/components/product-shell";
+import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Guardrail } from "@/lib/api";
 
@@ -16,7 +17,8 @@ export function GuardrailRegistry({
   onOpen: (guardrailId: string) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const canEdit = useAuth().user?.role === "admin";
+  const user = useAuth().user;
+  const canEdit = user?.role === "admin";
 
   return (
     <section className="mt-5 min-w-0 overflow-hidden rounded-xl border bg-card shadow-xs">
@@ -54,6 +56,7 @@ export function GuardrailRegistry({
                   </span>
                   <span className="min-w-0 flex-1">
                     <strong className="block truncate text-sm group-hover:text-primary">{guardrail.name}</strong>
+                    {guardrail.tenant_id && guardrail.tenant_id !== user?.tenant_id ? <Badge variant="outline" className="mt-1">{t("sharing.sharedFrom", { tenant: guardrail.tenant_id })}</Badge> : null}
                   </span>
                 </Link>
               </TableCell>
@@ -70,7 +73,7 @@ export function GuardrailRegistry({
               <TableCell className="hidden text-xs text-muted-foreground xl:table-cell">
                 {new Date(guardrail.updated_at).toLocaleString(i18n.language)}
               </TableCell>
-              {canEdit && <TableCell className="text-right" onClick={event => event.stopPropagation()}><GuardrailRowActions guardrail={guardrail} /></TableCell>}
+              {canEdit && <TableCell className="text-right" onClick={event => event.stopPropagation()}>{!guardrail.tenant_id || guardrail.tenant_id === user?.tenant_id ? <GuardrailRowActions guardrail={guardrail} /> : null}</TableCell>}
             </TableRow>
           ))}
         </TableBody>

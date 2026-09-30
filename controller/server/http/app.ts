@@ -38,12 +38,15 @@ import {
   runPlaygroundInteraction,
 } from "../playground/service.js";
 import { isGuardrailVersionId } from "../../shared/guardrail-version.js";
+import { signInMockSsoIdentity } from "../mock-sso.js";
+import { TenantShareService } from "../services/tenant-shares.js";
+import { LEGACY_TENANT_ID, runWithTenantContext } from "../services/tenant-context.js";
 import type { PlatformStatusSnapshot } from "../../shared/platform-status.js";
 import { protectionDirectories } from "../../shared/protection-map.js";
 import { protectionPresets } from "../../shared/protection-presets.js";
 import { expandProtectionPreset } from "../policy-catalog/presets.js";
 
-type Actor = { id: string; role: string; tokenId?: string; permissions?: TokenIdentity["permissions"] };
+type Actor = { id: string; role: string; tenantId: string; tokenId?: string; permissions?: TokenIdentity["permissions"] };
 type Variables = { actor: Actor };
 const guardrailVersionInput = z.string().refine(isGuardrailVersionId, "Guardrail Version must be a canonical UTC timestamp.")
   .describe("Immutable Guardrail Version ID in YYYYMMDD-HHmmss.SSSZ UTC format, for example 20260912-083000.123Z. Use a version returned by the API; numeric revisions and ISO date strings are not version IDs.");
@@ -178,11 +181,17 @@ const runtimeEventBatchInput = z.object({
   }
 });
 const modelCredentialRefsInput = z.object({ refs: z.array(z.string().uuid()).max(64), leaseId: z.string().uuid().optional() });
+const shareInput = z.object({
+  resourceType: z.enum(["guardrail", "router", "endpoint", "policy", "model_provider", "model"]),
+  resourceId: z.string().trim().min(1).max(256),
+  recipientTenantId: z.string().trim().min(1).max(128),
+});
 
 export function createHttpApp(input: {
   config: ControllerConfig;
   auth: ControllerAuth;
   accessTokens?: AccessTokenService;
+  tenantShares?: TenantShareService;
   service: ControlPlaneService;
   runnerControl: RunnerControlServer;
   metrics: ControllerMetrics;
@@ -309,10 +318,31 @@ export function createHttpApp(input: {
     return context.json(snapshot, ["healthy", "degraded"].includes(snapshot.status) ? 200 : 503);
   });
 
+  // Better Auth's admin plugin operates on every user in its database. Until
+  // tenant-scoped account administration exists, these endpoints must not be
+  // reachable by any tenant administrator.
+  app.all("/api/auth/admin/*", context => context.json({ error: { code: "forbidden", message: "Tenant-scoped user administration is unavailable." } }, 403));
   app.on(["GET", "POST"], "/api/auth/*", (context) => input.auth.handler(context.req.raw));
 
-  const authenticated = authentication(input.auth, input.accessTokens);
+  app.get("/api/mock-sso/config", context => context.json({ enabled: input.config.mockSsoEnabled }));
+  app.post("/api/mock-sso/sign-in", async context => {
+    if (!input.config.mockSsoEnabled) return context.json({ error: { code: "not_found", message: "Mock SSO is disabled." } }, 404);
+    const origin = context.req.header("origin");
+    if (context.req.header("sec-fetch-site") === "cross-site" || (origin && !input.config.trustedOrigins.includes(origin)))
+      return context.json({ error: { code: "forbidden", message: "Untrusted request origin." } }, 403);
+    if (!context.req.header("content-type")?.toLowerCase().startsWith("application/json"))
+      return context.json({ error: { code: "unsupported_content_type", message: "JSON content type is required." } }, 415);
+    const { identity } = z.object({ identity: z.enum(["tenantA", "tenantB", "tenantC"]) }).parse(await context.req.json());
+    return signInMockSsoIdentity(input.auth, input.config, identity);
+  });
+
+  const authenticated = authentication(input.auth, input.accessTokens, Boolean(input.tenantShares));
   const administrator = authorization("admin");
+  const platformAdministrator: MiddlewareHandler<{ Variables: Variables }> = async (context, next) => {
+    if (context.get("actor").tenantId !== LEGACY_TENANT_ID)
+      return context.json({ error: { code: "forbidden", message: "Platform administration belongs to tenantA." } }, 403);
+    await next();
+  };
   const accountSession: MiddlewareHandler<{ Variables: Variables }> = async (context, next) => {
     context.header("Cache-Control", "no-store");
     if (context.get("actor").tokenId) throw new ControllerError("Use your browser session to manage access tokens.", 403, "session_required");
@@ -336,9 +366,28 @@ export function createHttpApp(input: {
   app.get("/api/v1/account/identity", authenticated, context => {
     context.header("Cache-Control", "no-store");
     const actor = context.get("actor");
-    return context.json({ userId: actor.id, role: actor.role, authentication: actor.tokenId ? "access_token" : "session",
+    return context.json({ userId: actor.id, tenantId: actor.tenantId, role: actor.role, authentication: actor.tokenId ? "access_token" : "session",
       tokenId: actor.tokenId ?? null, permissions: actor.permissions ?? null,
       effectivePermissions: actor.permissions ? Object.fromEntries(Object.entries(actor.permissions).map(([module, access]) => [module, actor.role === "admin" ? access : "read"])) : null });
+  });
+
+  const shareService = () => {
+    if (!input.tenantShares) throw new ControllerError("Tenant sharing is unavailable.", 503, "sharing_unavailable");
+    return input.tenantShares;
+  };
+  app.get("/api/v1/account/tenants", authenticated, accountSession, async context =>
+    context.json({ items: await shareService().listTenants() }));
+  app.get("/api/v1/account/shareable-resources", authenticated, accountSession, async context =>
+    context.json({ items: await shareService().listOwnedResources() }));
+  app.get("/api/v1/account/shares", authenticated, accountSession, async context =>
+    context.json({ items: await shareService().listShares() }));
+  app.post("/api/v1/account/shares", authenticated, administrator, accountSession, async context => {
+    const body = shareInput.parse(await context.req.json());
+    return context.json({ share: await shareService().createShare(body, context.get("actor").id) }, 201);
+  });
+  app.delete("/api/v1/account/shares/:id", authenticated, administrator, accountSession, async context => {
+    await shareService().revokeShare(context.req.param("id"), context.get("actor").id);
+    return context.body(null, 204);
   });
 
 
@@ -561,6 +610,7 @@ export function createHttpApp(input: {
     return context.json({ items, count: items.length });
   });
   app.post("/api/v1/playground/guardrails/:guardrailId/draft-previews", authenticated, administrator, async (context) => {
+    if (input.tenantShares) await input.tenantShares.assertOwner("guardrail", context.req.param("guardrailId"));
     const playgroundModel = await currentPlaygroundModel();
     if (!playgroundModel || !playgroundRunner) {
       throw new ControllerError("Guardrail Playground has no model connection configured.", 503, "playground_unavailable");
@@ -594,6 +644,7 @@ export function createHttpApp(input: {
     }
   });
   app.post("/api/v1/playground/guardrails/:guardrailId/draft-interactions", authenticated, administrator, async (context) => {
+    if (input.tenantShares) await input.tenantShares.assertOwner("guardrail", context.req.param("guardrailId"));
     const playgroundModel = await currentPlaygroundModel();
     if (!playgroundModel || !playgroundRunner) {
       throw new ControllerError("Guardrail Playground has no model connection configured.", 503, "playground_unavailable");
@@ -811,11 +862,11 @@ export function createHttpApp(input: {
   });
 
   app.get("/api/v1/runner-pools", authenticated, async (context) => context.json({ items: await input.service.listRunnerPoolsWithCapacity() }));
-  app.patch("/api/v1/runner-pools/:id", authenticated, administrator, async (context) => {
+  app.patch("/api/v1/runner-pools/:id", authenticated, administrator, platformAdministrator, async (context) => {
     const body = runnerPoolInput.parse(await context.req.json());
     return context.json(await input.service.updateRunnerPool({ id: context.req.param("id"), actorId: context.get("actor").id, ...body }));
   });
-  app.delete("/api/v1/runner-instances/:runnerId", authenticated, administrator, async (context) => {
+  app.delete("/api/v1/runner-instances/:runnerId", authenticated, administrator, platformAdministrator, async (context) => {
     const query = z.object({
       force: z.enum(["true", "false"]).default("false"),
       bootId: z.string().min(1).max(256).optional(),
@@ -906,11 +957,16 @@ export function createHttpApp(input: {
             note: "Draft matching only. Target weights are candidates; no runtime assignment or GuardRail execution." } });
       }
       if (!router.activeRevision || router.activeRevision !== body.expectedRevision) throw new ValidationError("Published Router revision changed. Reload before testing.");
+      if (input.tenantShares) {
+        await input.tenantShares.assertOwner("router", body.targetId);
+        await input.tenantShares.assertOwner("endpoint", body.endpointId);
+      }
       if (!router.endpointIds.includes(body.endpointId)) throw new ValidationError("Select an Endpoint bound to this Router.");
       routingInputSchema.parse({ endpointId: body.endpointId, fields: body.fields, business_request: businessRequest, endpoint_request: body.endpointRequest });
     } else {
       await input.service.getEndpoint(body.targetId);
       if (body.configuration !== "published" || body.action !== "execute") throw new ValidationError("Endpoint tests execute the deployed configuration.");
+      if (input.tenantShares) await input.tenantShares.assertOwner("endpoint", body.targetId);
     }
     if (!playgroundRunner) throw new ControllerError("Runner is not configured.", 503, "playground_runner_unavailable");
     return context.json(await playgroundRunner.testPath(body));
@@ -1015,7 +1071,7 @@ export function createHttpApp(input: {
   return app;
 }
 
-function authentication(auth: ControllerAuth, tokens?: AccessTokenService): MiddlewareHandler<{ Variables: Variables }> {
+function authentication(auth: ControllerAuth, tokens?: AccessTokenService, requireTenantId = false): MiddlewareHandler<{ Variables: Variables }> {
   return async (context, next) => {
     const authorizationHeader = context.req.header("authorization");
     if (authorizationHeader !== undefined) {
@@ -1032,8 +1088,10 @@ function authentication(auth: ControllerAuth, tokens?: AccessTokenService): Midd
         if (!permission || !allowsTokenPermission(actor.permissions, permission[2], permission[3], actor.role))
           return context.json({ error: { code: "insufficient_token_permission", message: "This token does not allow the requested operation." } }, 403);
       }
-      context.set("actor", actor);
-      await next();
+      const tenantId = actor.tenantId || (requireTenantId ? null : LEGACY_TENANT_ID);
+      if (!tenantId) return context.json({ error: { code: "unauthenticated", message: "Account has no tenant." } }, 401);
+      context.set("actor", { ...actor, tenantId });
+      await runWithTenantContext({ tenantId, actorId: actor.id }, () => next());
       if (!["GET", "HEAD"].includes(context.req.method))
         await tokens!.recordRequest(actor, context.req.method, permission![1], context.res.status);
       return;
@@ -1045,8 +1103,10 @@ function authentication(auth: ControllerAuth, tokens?: AccessTokenService): Midd
       query: { disableCookieCache: true },
     });
     if (!session) return context.json({ error: { code: "unauthenticated", message: "Authentication is required." } }, 401);
-    context.set("actor", { id: session.user.id, role: session.user.role ?? "user" });
-    await next();
+    const tenantId = session.user.tenantId || (requireTenantId ? null : LEGACY_TENANT_ID);
+    if (!tenantId) return context.json({ error: { code: "unauthenticated", message: "Account has no tenant." } }, 401);
+    context.set("actor", { id: session.user.id, role: session.user.role ?? "user", tenantId });
+    await runWithTenantContext({ tenantId, actorId: session.user.id }, () => next());
   };
 }
 

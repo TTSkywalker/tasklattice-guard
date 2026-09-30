@@ -36,7 +36,7 @@ describe.skipIf(!url)("Personal access tokens in PostgreSQL", () => {
     expect(JSON.stringify(await service.list("owner"))).not.toContain(first.secret);
     expect(await service.list("other")).toEqual([]);
     expect(JSON.stringify((await pool.query("SELECT * FROM audit_event")).rows)).not.toContain(first.secret);
-    expect(await service.authenticate(first.secret)).toMatchObject({ id: "owner", role: "admin", tokenId: first.token.id, permissions: input.permissions });
+    expect(await service.authenticate(first.secret)).toMatchObject({ id: "owner", role: "admin", tenantId: "tenantA", tokenId: first.token.id, permissions: input.permissions });
     expect((await service.list("owner")).find(t => t.id === first.token.id)?.lastUsedAt).not.toBeNull();
   });
   it("rejects tampered, expired and revoked tokens immediately, with owner-only idempotent revocation", async () => {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearch, useBlocker } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth";
 import { getEndpoints } from "@/lib/endpoints-api";
 import { listControllerGuardrails } from "@/lib/controller-api";
@@ -12,6 +13,7 @@ import * as api from "@/lib/traffic-routing-api";
 import { PageHeader, ErrorNotice } from "@/components/product-shell";
 import { EntitySheet } from "@/components/entity-sheet";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import { RouterEndpoints } from "@/components/traffic-routing/router-endpoints";
@@ -65,8 +67,10 @@ export function RouterDetailPage() {
   );
 }
 export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
-  const auth = useAuth(),
-    canEdit = auth.user?.role === "admin";
+  const auth = useAuth();
+  const { t } = useTranslation();
+  const shared = Boolean(router.tenantId && router.tenantId !== auth.user?.tenant_id);
+  const canEdit = auth.user?.role === "admin" && !shared;
   const client = useQueryClient();
   const search = useSearch({ strict: false }) as { routeId?: string; tab?: string };
   const [tab, setTab] = useState(search.routeId ? "routing" : search.tab ?? "overview");
@@ -220,8 +224,9 @@ export function RouterWorkspace({ router }: { router: api.TrafficRouter }) {
       <PageHeader
         title={router.name}
         description="Manage traffic routing from incoming Endpoints to GuardRails."
-        action={<Button asChild variant="outline" className="min-h-11"><Link to="/playground" search={{ mode: "advanced", router: router.id }}>Test Router</Link></Button>}
+        action={canEdit ? <Button asChild variant="outline" className="min-h-11"><Link to="/playground" search={{ mode: "advanced", router: router.id }}>Test Router</Link></Button> : undefined}
       />
+      {shared ? <Badge variant="outline">{t("sharing.sharedFrom", { tenant: router.tenantId })}</Badge> : null}
       <div className="space-y-2 text-sm">
         <RouterStatus
           router={router}

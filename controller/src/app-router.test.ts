@@ -11,6 +11,8 @@ describe("Integration navigation", () => {
     ["/integration/routers", "/integration/routers", {}],
     ["/integration/routers/router-123", "/integration/routers/$routerId", { routerId: "router-123" }],
     ["/integration/endpoint", "/integration/endpoint", {}],
+    ["/sharing", "/sharing", {}],
+    ["/mock-sso", "/mock-sso", {}],
   ])("resolves %s", async (path, routeId, params) => {
     const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
     await router.load();

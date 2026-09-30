@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Cable, CircleHelp, FlaskConical, History, LibraryBig, Rocket, ScrollText, Settings, ShieldCheck } from "lucide-react";
+import { Cable, CircleHelp, FlaskConical, History, LibraryBig, Rocket, ScrollText, Settings, ShieldCheck, Share2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -41,6 +41,12 @@ const navigation = [
     items: [
       { label: "nav.logs", to: "/logs", icon: ScrollText },
       { label: "nav.auditLog", to: "/audit-log", icon: History },
+    ],
+  },
+  {
+    label: "nav.system",
+    items: [
+      { label: "nav.sharing", to: "/sharing", icon: Share2 },
     ],
   },
 ] as const;

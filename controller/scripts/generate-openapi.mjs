@@ -46,7 +46,7 @@ try {
     const specifier = n.moduleSpecifier.text;
     return n.getText().replace(n.moduleSpecifier.getText(), JSON.stringify(specifier.startsWith('.') ? resolve(dirname(source.fileName),specifier) : specifier));
   });
-  const declarations = source.statements.filter(n => n.end < createApp.pos && !ast.isImportDeclaration(n)).map(n=>n.getText());
+  const declarations = source.statements.filter(n => n.end <= createApp.pos && !ast.isImportDeclaration(n)).map(n=>n.getText());
   const distribution = allNodes.find(n => ast.isVariableDeclaration(n) && n.name.getText() === 'distributionQuery');
   if (distribution) declarations.push(`const distributionQuery = ${distribution.initializer.getText()};`);
   const parsers = [];
@@ -134,10 +134,11 @@ try {
     const {id,method,path,middleware} = route; const template = path.replace(/:([^/]+)/g,'{$1}');
     const permission = tokenRoutePermissions.find(([m,p])=>m===method && p===path);
     const sessionOnly = middleware.includes('accountSession'); const authenticated = middleware.includes('authenticated');
+    const sharingRoute = path.startsWith('/api/v1/account/shares') || path === '/api/v1/account/shareable-resources' || path === '/api/v1/account/tenants';
     assert(!authenticated || permission || sessionOnly || path === '/api/v1/account/identity', `Missing token policy: ${method} ${path}`);
     const role = middleware.includes('administrator') ? 'admin' : 'user';
     const operation = { operationId:id, summary: `${method} ${template}`, tags:[sessionOnly || path==='/api/v1/account/identity' ? 'Account' : permission?.[2] ?? 'System'],
-      description: permission ? `Requires ${permission[2]}:${permission[3]} for personal access tokens. ${permission[3]==='write' ? 'Write includes read access and requires a current administrator account. ' : ''}${role==='admin' ? 'This operation also requires the admin account role. ' : ''}Token access covers all resources in the selected module.` : sessionOnly ? 'Browser session only. Personal access tokens cannot manage credentials. Ownership is taken from the authenticated session.' : path==='/api/v1/account/identity' ? 'Returns the authenticated identity and token permissions. Effective permissions are capped by the current account role.' : 'Public system health information; no credential is required.',
+      description: permission ? `Requires ${permission[2]}:${permission[3]} for personal access tokens. ${permission[3]==='write' ? 'Write includes read access and requires a current administrator account. ' : ''}${role==='admin' ? 'This operation also requires the admin account role. ' : ''}${middleware.includes('platformAdministrator') ? 'Only tenantA administrators can mutate deployment-wide Runner infrastructure. ' : ''}Token access covers all resources in the selected module.` : sessionOnly ? sharingRoute ? `Browser session only. Sharing is scoped to the authenticated tenant; grants are read-only for recipients. ${role==='admin' ? 'Changes require a tenant administrator. ' : ''}Personal access tokens cannot manage shares.` : 'Browser session only. Personal access tokens cannot manage credentials. Ownership is taken from the authenticated session.' : path==='/api/v1/account/identity' ? 'Returns the authenticated identity and tenant, plus token permissions. Effective permissions are capped by the current account role.' : 'Public system health information; no credential is required.',
       security: authenticated ? sessionOnly ? [{sessionCookie:[]}] : [{personalAccessToken:[]},{sessionCookie:[]}] : [],
       ...(permission ? {'x-token-permission':{module:permission[2],access:permission[3]}} : {}),
       'x-account-role':role, ...(permission ? {'x-token-account-role':permission[3]==='write' ? 'admin' : role} : {}), 'x-source':`server/http/app.ts#${source.getLineAndCharacterOfPosition(route.handler.pos).line+1}`,

@@ -22,6 +22,7 @@ export type ModelAssignments = {
 };
 
 export type ModelProvider = {
+  tenantId?: string;
   skipTlsVerify?: boolean;
   id: string;
   name: string;
@@ -42,6 +43,7 @@ export type DiscoveredProviderModels = {
 };
 
 export type ModelDefinition = {
+  tenantId?: string;
   protocolEditable?: boolean;
   connectionStatus?: "pending" | "validated" | "failed";
   connectionMessage?: string | null;
@@ -127,6 +129,7 @@ export type GuardrailDraftConfig = {
 };
 
 export type Guardrail = {
+  tenantId?: string;
   copyOrigin?: { sourceGuardrailId: string; sourceName: string; sourceVersion: string | null; sourceDraftRevision: number | null; copiedAt: string; contentDigest: string } | null;
   id: string;
   name: string;
@@ -197,6 +200,7 @@ export type GuardrailPlanPreview = {
 };
 
 export type Endpoint = {
+  tenantId?: string;
   id: string;
   name: string;
   adapter: string;

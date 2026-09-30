@@ -11,6 +11,8 @@ import * as schema from "../db/schema.js";
 import type { RouterDraft } from "../../shared/traffic-routing.js";
 import { ControlPlaneService } from "./control-plane.js";
 import { routingEventSchema, type RoutingEvent } from "./traffic-routing.js";
+import { runWithTenantContext } from "./tenant-context.js";
+import { TenantShareService } from "./tenant-shares.js";
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -59,6 +61,73 @@ describe.skipIf(!url)("Traffic composition transactions in PostgreSQL", () => {
   async function publish(value = draft()) { const router = await create(value); return service.trafficRouting.publish(router.id, 1, randomUUID(), actor); }
   async function generation() { return Number((await pool.query("SELECT desired_generation FROM controller_state WHERE id='singleton'")).rows[0].desired_generation); }
   async function count(table: string, where = "TRUE") { return (await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`)).rows[0].n as number; }
+
+  it("isolates tenant resources and allows read-only sharing", async () => {
+    await pool.query("INSERT INTO auth_user (id,name,email,role,tenant_id) VALUES ('admin-b','Admin B','admin-b@example.test','admin','tenantB')");
+    const asB = <T>(callback: () => T) => runWithTenantContext({ tenantId: "tenantB", actorId: "admin-b" }, callback);
+    const asA = <T>(callback: () => T) => runWithTenantContext({ tenantId: "tenantA", actorId: actor }, callback);
+
+    await expect(asB(() => service.getEndpoint("http"))).rejects.toMatchObject({ code: "not_found" });
+    const owned = await asB(() => service.createEndpoint({ name: "B endpoint", adapter: "HTTP", actorId: "admin-b" }));
+    expect((await asB(() => service.listEndpoints())).map(item => item.id)).toEqual([owned.id]);
+    expect((await asA(() => service.listEndpoints())).map(item => item.id)).not.toContain(owned.id);
+    await expect(asB(() => service.trafficRouting.create("B router", "", draft(), "admin-b")))
+      .rejects.toMatchObject({ code: "validation_failed" });
+
+    await pool.query(`INSERT INTO resource_share (id,owner_tenant_id,recipient_tenant_id,resource_type,resource_id,created_by)
+      VALUES ('share-endpoint','tenantA','tenantB','endpoint','http','admin'),
+        ('share-guardrail','tenantA','tenantB','guardrail','guard-a','admin')`);
+    expect((await asB(() => service.getEndpoint("http"))).id).toBe("http");
+    await expect(asB(() => service.setEndpointEnabled({ id: "http", enabled: false, actorId: "admin-b" })))
+      .rejects.toMatchObject({ code: "not_found" });
+
+    const router = await asB(() => service.trafficRouting.create("B router", "", draft(), "admin-b", [owned.id]));
+    expect(router.tenantId).toBe("tenantB");
+    await expect(asA(() => service.trafficRouting.get(router.id))).rejects.toMatchObject({ code: "not_found" });
+    expect((await asB(() => service.trafficRouting.get(router.id))).id).toBe(router.id);
+    expect((await pool.query("SELECT tenant_id FROM audit_event WHERE resource_id = $1 AND kind = 'router.created'", [router.id])).rows)
+      .toEqual([{ tenant_id: "tenantB" }]);
+
+    await pool.query(`INSERT INTO runtime_event (id,tenant_id,occurred_at,request_id,runner_id,endpoint_id,direction,decision,duration_ms)
+      VALUES ('event-a','tenantA',now(),'request-a','runner','http','incoming','allow',1),
+        ('event-b','tenantB',now(),'request-b','runner',$1,'incoming','allow',1)`, [owned.id]);
+    expect((await asB(() => service.queryRuntimeEvents({}))).items.map(item => item.id)).toEqual(["event-b"]);
+    await expect(asB(() => service.getRuntimeEvent("event-a"))).rejects.toMatchObject({ code: "not_found" });
+
+    await pool.query("DELETE FROM resource_share WHERE id = 'share-guardrail'");
+    await expect(asB(() => service.trafficRouting.save(router.id, 1, draft(), "admin-b")))
+      .rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("keeps shared Guardrail dependents private and leaves another tenant's legacy Router pinned", async () => {
+    await pool.query("INSERT INTO auth_user (id,name,email,role,tenant_id) VALUES ('admin-b','Admin B','admin-b@example.test','admin','tenantB')");
+    await pool.query(`UPDATE guardrail SET status = 'active', active_version = '1', active_artifact_id = 'artifact-a' WHERE id = 'guard-a';
+      INSERT INTO guardrail_version (guardrail_id,version,generation,status,runtime_profile,plan,artifact_id)
+      VALUES ('guard-a','2',3,'ready','auto','{}','artifact-a-2');
+      INSERT INTO resource_share (id,owner_tenant_id,recipient_tenant_id,resource_type,resource_id,created_by)
+      VALUES ('share-guardrail','tenantA','tenantB','guardrail','guard-a','admin');
+      INSERT INTO endpoint (id,name,adapter,tenant_id) VALUES ('endpoint-b','Endpoint B','HTTP','tenantB');`);
+    const asA = <T>(callback: () => T) => runWithTenantContext({ tenantId: "tenantA", actorId: actor }, callback);
+    const asB = <T>(callback: () => T) => runWithTenantContext({ tenantId: "tenantB", actorId: "admin-b" }, callback);
+    const [routerB] = await asB(() => service.createRouterBindings({
+      name: "Private B router", guardrailId: "guard-a", endpointIds: ["endpoint-b"], poolId: "default",
+      trafficScope: { combinator: "and", conditions: [] }, actorId: "admin-b",
+    }));
+    expect(routerB?.guardrailVersion).toBe("1");
+    await asA(() => service.rollbackGuardrail({ guardrailId: "guard-a", version: "2", actorId: actor }));
+    expect((await pool.query("SELECT guardrail_version FROM guardrail_router WHERE id = $1", [routerB!.id])).rows)
+      .toEqual([{ guardrail_version: "1" }]);
+
+    await pool.query("INSERT INTO traffic_router (id,tenant_id,name,draft,active_snapshot) VALUES ('private-b-router','tenantB','Private B name',$1,$1)", [JSON.stringify(draft())]);
+    await expect(asA(() => service.trafficRouting.assertGuardrailUnused("guard-a")))
+      .rejects.toMatchObject({ code: "guardrail_in_use", message: "Guardrail is referenced by published Routers." });
+    const shares = new TenantShareService(drizzle(pool, { schema }));
+    await expect(asA(() => shares.revokeShare("share-guardrail", actor)))
+      .rejects.toMatchObject({ code: "share_in_use" });
+    await pool.query("UPDATE traffic_router SET active_snapshot = NULL WHERE id = 'private-b-router'; UPDATE guardrail_router SET enabled = false WHERE tenant_id = 'tenantB'");
+    await asA(() => shares.revokeShare("share-guardrail", actor));
+    expect((await pool.query("SELECT id FROM resource_share WHERE id = 'share-guardrail'")).rows).toEqual([]);
+  });
 
   it("scopes deletion to the Guardrail even when a copied case has the same ID", async () => {
     await pool.query(`INSERT INTO guardrail_test_case (guardrail_id,id,name,policy_id,phase,content,expected_decision,origin)

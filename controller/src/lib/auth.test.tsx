@@ -7,11 +7,12 @@ import type { AuthStatus, IdentityUser } from "./identity-api";
 
 const mocks = vi.hoisted(() => ({ getAuthStatus: vi.fn(), login: vi.fn() }));
 vi.mock("./identity-api", () => ({
-  getAuthStatus: mocks.getAuthStatus, login: mocks.login, logout: vi.fn(), updateMe: vi.fn(),
+  getAuthStatus: mocks.getAuthStatus, login: mocks.login, loginMockSso: vi.fn(), logout: vi.fn(), updateMe: vi.fn(),
 }));
 vi.mock("@/i18n", () => ({ default: { language: "en" }, setApplicationLanguage: vi.fn() }));
 
 const user: IdentityUser = { id: "first", display_name: "First", email: "first@guard.test", role: "admin",
+  tenant_id: "tenantA",
   enabled: true, preferred_language: "en", last_login_at: null, created_at: "2026-09-06", updated_at: "2026-09-06" };
 function Probe() { const auth = useAuth(); return <><p>{auth.user ? `${auth.user.id}:${auth.user.role}` : "signed-out"}</p>
   <button onClick={() => void auth.login({ email: "second@guard.test", password: "test-only" })}>Sign in</button></>; }
@@ -22,6 +23,7 @@ describe("Authenticated cache boundaries", () => {
     { authenticated: false, user: null },
     { authenticated: true, user: { ...user, id: "second" } },
     { authenticated: true, user: { ...user, role: "member" as const } },
+    { authenticated: true, user: { ...user, tenant_id: "tenantB" } },
   ])("clears prior resource data before exposing changed identity $user.id", async (next: AuthStatus) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(queryKeys.auth, { authenticated: true, user });

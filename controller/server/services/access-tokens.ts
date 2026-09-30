@@ -5,7 +5,7 @@ import type { ControllerDatabase } from "../db/client.js";
 import { auditEvents, personalAccessTokens, user } from "../db/schema.js";
 import { ControllerError, NotFoundError } from "../domain/errors.js";
 
-export type TokenIdentity = { id: string; role: string; tokenId: string; permissions: TokenPermissions };
+export type TokenIdentity = { id: string; role: string; tenantId: string; tokenId: string; permissions: TokenPermissions };
 const digest = (token: string) => createHash("sha256").update(token).digest("hex");
 function view(row: typeof personalAccessTokens.$inferSelect): AccessTokenView {
   return { id: row.id, name: row.name, prefix: row.prefix, permissions: row.permissions,
@@ -35,7 +35,7 @@ export class AccessTokenService {
         prefix: secret.slice(0, 15), tokenHash: digest(secret), permissions: input.permissions,
         expiresAt: new Date(now.getTime() + input.expiresInDays * 86_400_000) };
       const [row] = await tx.insert(personalAccessTokens).values(values).returning();
-      await tx.insert(auditEvents).values({ id: randomUUID(), kind: "access_token.created", actorId: userId,
+      await tx.insert(auditEvents).values({ id: randomUUID(), tenantId: owner.tenantId, kind: "access_token.created", actorId: userId,
         resourceType: "access_token", resourceId: row!.id, detail: { name: input.name, permissions: input.permissions, expiresAt: row!.expiresAt.toISOString() } });
       return view(row!);
     });
@@ -48,7 +48,9 @@ export class AccessTokenService {
       if (!row) throw new NotFoundError("Access token", id);
       if (row.revokedAt) return;
       await tx.update(personalAccessTokens).set({ revokedAt: new Date() }).where(eq(personalAccessTokens.id, id));
-      await tx.insert(auditEvents).values({ id: randomUUID(), kind: "access_token.revoked", actorId: userId,
+      const [owner] = await tx.select({ tenantId: user.tenantId }).from(user).where(eq(user.id, userId)).limit(1);
+      if (!owner) throw new ControllerError("Account is unavailable.", 403, "forbidden");
+      await tx.insert(auditEvents).values({ id: randomUUID(), tenantId: owner.tenantId, kind: "access_token.revoked", actorId: userId,
         resourceType: "access_token", resourceId: id, detail: { name: row.name } });
     });
   }
@@ -62,10 +64,11 @@ export class AccessTokenService {
     // Conditional update also rejects a revocation that raced the lookup.
     const touched = await this.db.update(personalAccessTokens).set({ lastUsedAt: now })
       .where(and(eq(personalAccessTokens.id, row.token.id), isNull(personalAccessTokens.revokedAt), gt(personalAccessTokens.expiresAt, now))).returning({ id: personalAccessTokens.id });
-    return touched.length ? { id: row.owner.id, role: row.owner.role, tokenId: row.token.id, permissions: row.token.permissions } : null;
+    return touched.length ? { id: row.owner.id, role: row.owner.role, tenantId: row.owner.tenantId,
+      tokenId: row.token.id, permissions: row.token.permissions } : null;
   }
   async recordRequest(actor: TokenIdentity, method: string, route: string, status: number) {
-    await this.db.insert(auditEvents).values({ id: randomUUID(), kind: "access_token.request", actorId: actor.id,
+    await this.db.insert(auditEvents).values({ id: randomUUID(), tenantId: actor.tenantId, kind: "access_token.request", actorId: actor.id,
       resourceType: "access_token", resourceId: actor.tokenId, detail: { method, route, status } });
   }
 }

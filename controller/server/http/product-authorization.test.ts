@@ -81,13 +81,47 @@ describe.each([null, "user", "unknown-role"])("Product API authorization for rol
 });
 
 describe("Session freshness and read-only access", () => {
+  it("rejects public signup before a visitor can acquire tenantA read access", async () => {
+    const data: Record<string, Array<Record<string, unknown>>> = { user: [], session: [], account: [], verification: [] };
+    const options = createAuth({ ...config, publicUrl: "http://localhost:8093", trustedOrigins: ["http://localhost:8093"] }, {} as ControllerDatabase).options;
+    const auth = betterAuth({ ...options, database: memoryAdapter(data), databaseHooks: undefined });
+    const unexpected = vi.fn(() => { throw new Error("Protected service was reached"); });
+    const service = new Proxy({}, { get: () => unexpected });
+    const app = createHttpApp({ config, auth, service: service as ControlPlaneService,
+      runnerControl: service as RunnerControlServer, metrics: {} as ControllerMetrics });
+    const signup = await app.request("/api/auth/sign-up/email", {
+      method: "POST", headers: { origin: "http://localhost:8093", "content-type": "application/json" },
+      body: JSON.stringify({ name: "Visitor", email: "visitor@guard.test", password: "synthetic-auth-password-2026" }),
+    });
+    expect(signup.status).toBe(400);
+    expect(data.user).toHaveLength(0);
+    expect((await app.request("/api/v1/policies")).status).toBe(401);
+    expect(unexpected).not.toHaveBeenCalled();
+  });
+
+  it("does not accept a client-supplied tenant on Better Auth profile updates", async () => {
+    const data: Record<string, Array<Record<string, unknown>>> = { user: [], session: [], account: [], verification: [] };
+    const options = createAuth({ ...config, publicUrl: "http://localhost:8093", trustedOrigins: ["http://localhost:8093"] }, {} as ControllerDatabase).options;
+    const auth = betterAuth({ ...options, database: memoryAdapter(data), databaseHooks: undefined });
+    await auth.api.createUser({ body: { name: "Tenant fixture", email: "tenant@guard.test", password: "synthetic-auth-password-2026" } });
+    const signedIn = await auth.api.signInEmail({ body: { email: "tenant@guard.test", password: "synthetic-auth-password-2026" }, asResponse: true });
+    const cookie = signedIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
+    await auth.handler(new Request("http://localhost:8093/api/auth/update-user", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost:8093", "content-type": "application/json" },
+      body: JSON.stringify({ name: "Updated fixture", tenantId: "tenantB" }),
+    }));
+    expect((await auth.api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } }))?.user.tenantId).toBe("tenantA");
+    expect(data.user![0]!.tenantId).toBe("tenantA");
+  });
+
   it.each(["active", "demoted", "revoked", "expired"])("uses current authority for a %s session despite a still-valid signed cookie cache", async (state) => {
     const data: Record<string, Array<Record<string, unknown>>> = { user: [], session: [], account: [], verification: [] };
     const options = createAuth({ ...config, publicUrl: "http://localhost:8093", trustedOrigins: ["http://localhost:8093"] }, {} as ControllerDatabase).options;
     // Real Better Auth signing, cookie cache and session lookup. Only the DB
     // adapter changes; its login timestamp hook is unrelated to authorization.
     const auth = betterAuth({ ...options, database: memoryAdapter(data), databaseHooks: undefined });
-    await auth.api.signUpEmail({ body: { name: "Authorization fixture", email: "authorization@guard.test", password: "synthetic-auth-password-2026" } });
+    await auth.api.createUser({ body: { name: "Authorization fixture", email: "authorization@guard.test", password: "synthetic-auth-password-2026" } });
     data.user![0]!.role = "admin";
     const signedIn = await auth.api.signInEmail({ body: { email: "authorization@guard.test", password: "synthetic-auth-password-2026" }, asResponse: true });
     expect(signedIn.status).toBe(200);
@@ -95,6 +129,7 @@ describe("Session freshness and read-only access", () => {
     expect(cookie).toContain("tali-guard.session_data=");
     const headers = new Headers({ cookie, "content-type": "application/json" });
     expect((await auth.api.getSession({ headers }))?.user.role).toBe("admin");
+    expect((await auth.api.getSession({ headers }))?.user.tenantId).toBe("tenantA");
     if (state === "demoted") data.user![0]!.role = "user";
     else if (state === "revoked") data.session!.splice(0);
     else if (state === "expired") for (const session of data.session!) session.expiresAt = new Date(0);

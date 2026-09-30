@@ -50,6 +50,7 @@ import {
   metricWindows,
   type MetricScope,
 } from "./runtime-metric-results.js";
+import { currentTenantId, resourceReadPredicate, resourceWritePredicate } from "./tenant-context.js";
 
 export {
   assembleMetrics,
@@ -75,6 +76,7 @@ export async function queryRuntimeMetrics(
     "1d": 86_400_000,
   }[interval];
   const predicate = and(
+    currentTenantId() ? eq(event.tenantId, currentTenantId()!) : undefined,
     gte(event.occurredAt, new Date(now - duration * 2)),
     // Allow small clock skew between the app process and PostgreSQL.
     lte(event.occurredAt, new Date(now + 60_000)),
@@ -474,7 +476,7 @@ export async function queryRuntimeMetrics(
         })
         .from(guardrails)
         .leftJoinLateral(validation, eq(guardrails.id, guardrails.id))
-        .where(isNull(guardrails.deletedAt)),
+        .where(and(isNull(guardrails.deletedAt), resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId))),
     );
     const deps = await execute(
       tx
@@ -485,13 +487,13 @@ export async function queryRuntimeMetrics(
           enabled: routers.enabled,
         })
         .from(routers)
-        .where(isNull(routers.deletedAt)),
+        .where(and(isNull(routers.deletedAt), resourceWritePredicate(routers.tenantId))),
     );
     const ints = await execute(
       tx
         .select({ id: endpoints.id, name: endpoints.name })
         .from(endpoints)
-        .where(isNull(endpoints.deletedAt)),
+        .where(and(isNull(endpoints.deletedAt), resourceReadPredicate("endpoint", endpoints.id, endpoints.tenantId))),
     );
     return {
       ...assembleMetrics(

@@ -25,6 +25,7 @@ export function createAuth(config: ControllerConfig, db: ControllerDatabase) {
     }),
     emailAndPassword: {
       enabled: true,
+      disableSignUp: true,
       minPasswordLength: config.minPasswordLength,
       autoSignIn: true,
     },
@@ -44,6 +45,12 @@ export function createAuth(config: ControllerConfig, db: ControllerDatabase) {
         lastLoginAt: {
           type: "date",
           required: false,
+          input: false,
+        },
+        tenantId: {
+          type: "string",
+          required: false,
+          defaultValue: "tenantA",
           input: false,
         },
       },

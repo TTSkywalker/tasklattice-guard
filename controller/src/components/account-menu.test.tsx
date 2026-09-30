@@ -49,7 +49,7 @@ describe("AccountMenu", () => {
     expect(screen.getByText("Local Administrator")).toBeTruthy();
     expect(screen.getByText("admin@tasklattice.local")).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Account" })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: "Manage users" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Manage users" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
   });
 });

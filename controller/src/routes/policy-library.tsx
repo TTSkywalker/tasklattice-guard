@@ -67,6 +67,7 @@ export function PolicyLibraryPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const canManage = user?.role === "admin";
+  const canManagePolicy = (policy: Policy) => canManage && (!policy.tenant_id || policy.tenant_id === user?.tenant_id);
   const query = useQuery({ queryKey: queryKeys.policies, queryFn: getPolicies });
   const policies = query.data?.items ?? EMPTY_POLICIES;
   const [search, setSearch] = useState("");
@@ -225,9 +226,10 @@ export function PolicyLibraryPage() {
                   <PolicyCard
                     key={policy.id}
                     policy={policy}
+                    tenantId={user?.tenant_id}
                     onOpen={() => openPolicy(policy)}
                     onExport={policy.source === "custom" ? () => exportPolicy(policy) : undefined}
-                    onDelete={canManage && policy.source === "custom" ? () => requestPolicyDelete(policy) : undefined}
+                    onDelete={canManagePolicy(policy) && policy.source === "custom" ? () => requestPolicyDelete(policy) : undefined}
                   />
                 ))}
               </div>
@@ -247,8 +249,8 @@ export function PolicyLibraryPage() {
         policy={selected}
         onClose={closePolicy}
         onExport={!searchParams.version && selected?.source === "custom" ? exportPolicy : undefined}
-        onDelete={!searchParams.version && canManage && selected?.source === "custom" ? requestPolicyDelete : undefined}
-        onEdit={!searchParams.version && canManage && selected?.source === "custom" ? (policy, trigger) => { studioOpenerRef.current = trigger; setPolicyImport(null); setStudioPolicy(policy.implementation_detail ?? null); } : undefined}
+        onDelete={!searchParams.version && selected && canManagePolicy(selected) && selected.source === "custom" ? requestPolicyDelete : undefined}
+        onEdit={!searchParams.version && selected && canManagePolicy(selected) && selected.source === "custom" ? (policy, trigger) => { studioOpenerRef.current = trigger; setPolicyImport(null); setStudioPolicy(policy.implementation_detail ?? null); } : undefined}
       />
       <DeletePolicyDialog
         policy={pendingDelete}
@@ -341,7 +343,7 @@ export function TagFilters({ facets, selected, onChange }: { facets: Map<string,
   </div>;
 }
 
-export function PolicyCard({ policy, onOpen, onExport, onDelete }: { policy: Policy; onOpen: () => void; onExport?: () => void; onDelete?: () => void }) {
+export function PolicyCard({ policy, tenantId, onOpen, onExport, onDelete }: { policy: Policy; tenantId?: string; onOpen: () => void; onExport?: () => void; onDelete?: () => void }) {
   const { t } = useTranslation();
   const custom = policy.source === "custom";
   return (
@@ -349,6 +351,7 @@ export function PolicyCard({ policy, onOpen, onExport, onDelete }: { policy: Pol
       <div className="flex min-w-0 items-start justify-between gap-3">
         <h3 className="line-clamp-2 min-w-0 flex-1 text-sm leading-5 font-semibold">{policy.name}</h3>
         <PolicySourceBadge source={policy.source} />
+        {policy.tenant_id && policy.tenant_id !== tenantId ? <Badge variant="outline">{t("sharing.sharedFrom", { tenant: policy.tenant_id })}</Badge> : null}
       </div>
       <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-muted-foreground">{policy.description}</p>
       <div className="mt-3 flex flex-wrap gap-1.5">

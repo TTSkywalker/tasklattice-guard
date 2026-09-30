@@ -245,7 +245,8 @@ export function GuardrailDetailPage() {
   const guardrail = guardrailQuery.data;
   const policies = policiesQuery.data?.items ?? EMPTY_POLICIES;
   const routers = routersQuery.data?.items.filter((item) => item.activeSnapshot?.routes.some(route => route.enabled && route.targets.some(target => target.guardrailId === guardrail.id && target.weightBps > 0))) ?? [];
-  const canManageDraft = auth.user?.role === "admin" && isGuardrailDraftManageable(guardrail);
+  const shared = Boolean(guardrail.tenant_id && guardrail.tenant_id !== auth.user?.tenant_id);
+  const canManageDraft = auth.user?.role === "admin" && !shared && isGuardrailDraftManageable(guardrail);
   const hasUnpublishedDraft = canManageDraft && !guardrail.published_current;
 
   return (
@@ -255,6 +256,7 @@ export function GuardrailDetailPage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="font-display text-2xl font-semibold tracking-[-0.015em] sm:text-3xl">{guardrail.name}</h1>
+            {shared ? <Badge variant="outline">{t("sharing.sharedFrom", { tenant: guardrail.tenant_id })}</Badge> : null}
             {activeVersion ? <Badge className="border-emerald-200 bg-emerald-50 font-mono text-[11px] text-emerald-700 hover:bg-emerald-50">{t("guardrails.activeVersion", { version: activeVersion.version })}</Badge> : <StateBadge state={guardrail.tested_current ? "ready" : "needs_validation"} />}
             {routers.length ? <StateBadge state="protected" /> : activeVersion ? <StateBadge state="ready" /> : null}
             {guardrail.is_default ? <Badge variant="outline">{t("guardrails.defaultBadge")}</Badge> : guardrail.system_managed ? <Badge variant="outline">{t("guardrails.systemManaged")}</Badge> : null}
@@ -265,7 +267,7 @@ export function GuardrailDetailPage() {
         <div className="flex flex-wrap gap-2">
           {canManageDraft ? <Button asChild className="min-h-11" variant="outline"><Link to="/playground" search={{ guardrail: guardrail.id, target: "draft", version: undefined }}><FlaskConical />{t("guardrails.testDraft")}</Link></Button> : null}
           {canManageDraft ? <Button className="min-h-11" variant="edit" onClick={() => setEditOpen(true)}><Pencil />{t("common.edit")}</Button> : null}
-          {auth.user?.role === "admin" && !guardrail.is_default ? <Button className="min-h-11" variant="destructive" onClick={() => {
+          {auth.user?.role === "admin" && !shared && !guardrail.is_default ? <Button className="min-h-11" variant="destructive" onClick={() => {
             deleteMutation.reset();
             queryClient.removeQueries({ queryKey: queryKeys.guardrailDeletionImpact(guardrailId), exact: true });
             setDeleteOpen(true);

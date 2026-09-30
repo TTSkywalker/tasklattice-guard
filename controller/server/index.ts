@@ -11,8 +11,11 @@ import { RunnerControlServer } from "./control-channel/control-server.js";
 import { ControlPlaneService } from "./services/control-plane.js";
 import { ControllerMetrics } from "./metrics.js";
 import { ensureBootstrapAdmin } from "./bootstrap.js";
+import { ensureMockSsoUsers } from "./mock-sso.js";
 import { OpenAICompatiblePlaygroundModel, RunnerPlaygroundClient } from "./playground/service.js";
 import { ModelConfigurationService } from "./model-config/service.js";
+import { TenantShareService } from "./services/tenant-shares.js";
+import { runWithTenantContext } from "./services/tenant-context.js";
 
 const config = loadConfig();
 const { db, pool } = createDatabase(config);
@@ -26,6 +29,15 @@ const auth = createAuth(config, db);
 if (config.bootstrapAdmin) {
   const status = await ensureBootstrapAdmin({ auth, db, ...config.bootstrapAdmin });
   if (status === "created") process.stdout.write(`Created Better Auth bootstrap administrator ${config.bootstrapAdmin.email}.\n`);
+}
+if (config.mockSsoEnabled) {
+  const identities = await ensureMockSsoUsers({ auth, db, config });
+  // Model configuration reads stay read-only, so create each demo tenant's
+  // initial draft during startup before its settings page is opened.
+  for (const { tenantId } of identities) {
+    if (tenantId !== "tenantA") await runWithTenantContext({ tenantId }, () => models.initialize());
+  }
+  process.stdout.write(`Mock SSO ready for ${identities.map((identity) => identity.tenantId).join(", ")}.\n`);
 }
 const metrics = new ControllerMetrics();
 const runnerControl = new RunnerControlServer(config, service, metrics, models);
@@ -45,6 +57,7 @@ const app = createHttpApp({
   config,
   auth,
   accessTokens: new AccessTokenService(db),
+  tenantShares: new TenantShareService(db),
   service,
   runnerControl,
   metrics,

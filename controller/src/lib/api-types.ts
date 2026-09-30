@@ -449,6 +449,7 @@ export type TrafficScopeField = {
 };
 
 export type Guardrail = {
+  tenant_id?: string;
   copy_origin?: import("./controller-api").Guardrail["copyOrigin"];
   id: string;
   name: string;
@@ -618,6 +619,7 @@ export type PolicyParameter = {
 };
 
 export type Policy = {
+  tenant_id?: string;
   implementation: "rules" | "nemo_native";
   id: string;
   name: string;
@@ -813,6 +815,7 @@ export type OneTimeEndpointCredential = EndpointCredential & {
 };
 
 export type Endpoint = {
+  tenant_id?: string;
   id: string;
   adapter_id: EndpointAdapterId;
   protocol: EndpointProtocol;

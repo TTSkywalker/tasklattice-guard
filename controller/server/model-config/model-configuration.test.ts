@@ -4,6 +4,7 @@ import type { ControllerDatabase } from "../db/client.js";
 import { modelAssignmentValidations, controllerState, outboxEvents, modelConfigurationRevisions, modelDefinitions, modelProviders, policyVersions } from "../db/schema.js";
 import { emptyModelAssignments } from "./domain.js";
 import { ModelConfigurationService } from "./service.js";
+import { runWithTenantContext } from "../services/tenant-context.js";
 import { jailbreakDetectAttackInput, jailbreakDetectProfile, jailbreakDetectSafeInput } from "./jailbreak-detect.js";
 
 const id = "7471c0eb-a533-449a-8814-98c3bc23aa98";
@@ -17,9 +18,9 @@ function setup(state = "draft", assigned = false, failProbe = false) {
     ? { ...empty, bindings: { ...empty.bindings, "content_safety.input": id, "jailbreak.input": id } }
     : empty;
   const rows = new Map<unknown, Array<Record<string, unknown>>>([
-    [modelProviders, [{ id: "provider-1", name: "Mock", kind: "custom-openai-compatible", baseUrl: "https://provider.test/v1", credentialCiphertext: null }]],
-    [modelDefinitions, [{ id, providerId: "provider-1", name: "Guard alias", model: "guard-alias", ...input, status: "pending", validatedAt: null }]],
-    [modelConfigurationRevisions, [{ id: "revision-1", revision: 1, state, assignments, rowVersion: "synthetic-tx-1" }]],
+    [modelProviders, [{ id: "provider-1", tenantId: "tenantA", name: "Mock", kind: "custom-openai-compatible", baseUrl: "https://provider.test/v1", credentialCiphertext: null }]],
+    [modelDefinitions, [{ id, tenantId: "tenantA", providerId: "provider-1", name: "Guard alias", model: "guard-alias", ...input, status: "pending", validatedAt: null }]],
+    [modelConfigurationRevisions, [{ id: "revision-1", tenantId: "tenantA", revision: 1, state, assignments, rowVersion: "synthetic-tx-1" }]],
   ]);
   const query = (table: unknown) => {
     const result = rows.get(table) ?? [];
@@ -45,6 +46,13 @@ function setup(state = "draft", assigned = false, failProbe = false) {
 }
 
 describe("Capability configuration after registration", () => {
+  it("does not activate another tenant's revision through the global Runner channel", async () => {
+    const { service, tx } = setup("validated");
+    await expect(runWithTenantContext({ tenantId: "tenantB", actorId: "group_b" }, () =>
+      service.beginActivation("revision-1", "group_b")))
+      .rejects.toMatchObject({ code: "tenant_model_activation_unavailable" });
+    expect(tx.update).not.toHaveBeenCalled();
+  });
   it("requires a successful preview before saving and preserves the evidence", async () => {
     const { service, rows } = setup();
     await expect(service.updateAssignment("content_safety.input", id, "admin"))

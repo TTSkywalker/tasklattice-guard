@@ -4,6 +4,7 @@ import { auditEvents, modelDefinitions, modelProviders } from "../db/schema.js";
 import { decryptModelCredential } from "./secret-crypto.js";
 import { ModelConfigurationService } from "./service.js";
 import { providerRegistrationSchema } from "./domain.js";
+import { runWithTenantContext } from "../services/tenant-context.js";
 
 const connection = { name: "Test NVIDIA", kind: "custom-openai-compatible", baseUrl: "https://provider.test/v1/", apiKey: "test-registration-credential" };
 const model = (id: string) => ({ name: id, model: id, profile: "generic-chat", timeoutSeconds: 20, maxTokens: 128 });
@@ -106,6 +107,14 @@ describe("Relay-style Provider registration", () => {
     expect(result.provider).not.toHaveProperty("credentialCiphertext");
   });
 
+  it("persists the authenticated tenant on a registered Provider and its Models", async () => {
+    const { service, rows } = setup();
+    await runWithTenantContext({ tenantId: "tenantB", actorId: "group_b" }, () =>
+      service.registerProviderModels({ connection, models: [model("chat")] }, "group_b"));
+    expect(rows.get(modelProviders)?.[0]?.tenantId).toBe("tenantB");
+    expect(rows.get(modelDefinitions)?.[0]?.tenantId).toBe("tenantB");
+  });
+
   it("can prove a manual model is callable even when the Provider catalog is unavailable", async () => {
     const { service, db, fetcher } = setup(true);
     const result = await service.registerProviderModels({ connection, models: [model("example/jailbreak-judge")] }, "admin");
@@ -132,13 +141,24 @@ describe("Relay-style Provider registration", () => {
   it("registers a model on a saved Provider without discovery or capability validation", async () => {
     const { service, rows, fetcher } = setup();
     const providerId = "fe3671e8-a707-4d9b-a6a4-ea804ae76ec4";
-    rows.set(modelProviders, [{ id: providerId, name: "Saved provider", kind: "custom-openai-compatible", baseUrl: connection.baseUrl, credentialCiphertext: "", skipTlsVerify: false }]);
+    rows.set(modelProviders, [{ id: providerId, tenantId: "tenantA", name: "Saved provider", kind: "custom-openai-compatible", baseUrl: connection.baseUrl, credentialCiphertext: "", skipTlsVerify: false }]);
     const result = await service.createModel({ providerId, ...model("bad") }, "admin");
     expect(result).toMatchObject({ model: "bad", status: "pending", validatedAt: null, validationLatencyMs: null });
     expect(result.connectionStatus).toBe("failed");
     expect(fetcher).toHaveBeenCalledOnce();
     expect(String(fetcher.mock.calls[0]?.[0])).toContain("/chat/completions");
     expect(rows.get(modelDefinitions)).toHaveLength(1);
+  });
+
+  it("does not create a tenantB Model on a tenantA Provider", async () => {
+    const { service, rows, fetcher } = setup();
+    const providerId = "fe3671e8-a707-4d9b-a6a4-ea804ae76ec4";
+    rows.set(modelProviders, [{ id: providerId, tenantId: "tenantA", name: "Shared provider", kind: "custom-openai-compatible", baseUrl: connection.baseUrl, credentialCiphertext: "", skipTlsVerify: false }]);
+    await expect(runWithTenantContext({ tenantId: "tenantB", actorId: "group_b" }, () =>
+      service.createModel({ providerId, ...model("chat") }, "group_b")))
+      .rejects.toThrow("Register Models on a Provider owned by your tenant");
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(rows.get(modelDefinitions)).toBeUndefined();
   });
 
   it("rejects empty and duplicate selections before making external requests", async () => {

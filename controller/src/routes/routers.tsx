@@ -1,11 +1,13 @@
 import { CreateRouterSheet } from '@/components/traffic-routing/create-router-sheet';
 export { CreateRouterSheet } from '@/components/traffic-routing/create-router-sheet';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Plus, MoreHorizontal, History, ArrowUpRight, GitBranch } from 'lucide-react';
 import { EmptyState, ErrorNotice, PageHeader } from '@/components/product-shell';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { share, useRoutingText } from '@/components/traffic-routing/form';
@@ -29,10 +31,12 @@ export function RoutersPage() {
 }
 function RouterRow({ router, endpointName }: { router: TrafficRouter; endpointName: (id: string) => string }) {
   const t = useRoutingText();
+  const { t: translate } = useTranslation();
+  const user = useAuth().user;
   const metrics = useQuery({ queryKey: [...trafficRouterKeys.detail(router.id), 'distribution', 24], queryFn: () => getRouterDistribution(router.id), retry: false });
   const fallbackIds = new Set(router.activeSnapshot?.routes.filter(r => r.kind === 'fallback').map(r => r.id));
   const fallback = metrics.data?.rows.filter(r => r.routeId !== null && fallbackIds.has(r.routeId)).reduce((n, r) => n + r.count, 0) ?? 0;
-  return <tr className="border-b last:border-0"><td className="p-4"><Link className="inline-flex min-h-11 items-center gap-2 font-medium text-primary" to="/integration/routers/$routerId" params={{ routerId: router.id }}><GitBranch aria-hidden="true" className="size-4 shrink-0" /><span>{router.name}</span></Link><p className="max-w-xs text-xs text-muted-foreground">{router.description}</p></td><td className="p-4">{router.endpointIds.length ? router.endpointIds.map(endpointName).join(', ') : t('未接入', 'Unbound')}</td><td className="p-4 tabular-nums">{router.draft.routes.filter(r => r.kind === 'normal' && r.enabled).length} + 1 Fallback</td><td className="p-4 tabular-nums">{metrics.error ? t('数据暂不可用', 'Data unavailable') : metrics.data ? metrics.data.total.toLocaleString() : '—'}</td><td className="p-4">{metrics.data ? share(fallback, metrics.data.total) : '—'}</td><td className="p-4"><RouterStatus router={router} /></td><td className="p-4 text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${router.name}`}><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+  return <tr className="border-b last:border-0"><td className="p-4"><Link className="inline-flex min-h-11 items-center gap-2 font-medium text-primary" to="/integration/routers/$routerId" params={{ routerId: router.id }}><GitBranch aria-hidden="true" className="size-4 shrink-0" /><span>{router.name}</span></Link>{router.tenantId && router.tenantId !== user?.tenant_id ? <Badge variant="outline" className="ml-2">{translate('sharing.sharedFrom', { tenant: router.tenantId })}</Badge> : null}<p className="max-w-xs text-xs text-muted-foreground">{router.description}</p></td><td className="p-4">{router.endpointIds.length ? router.endpointIds.map(endpointName).join(', ') : t('未接入', 'Unbound')}</td><td className="p-4 tabular-nums">{router.draft.routes.filter(r => r.kind === 'normal' && r.enabled).length} + 1 Fallback</td><td className="p-4">{metrics.error ? t('数据暂不可用', 'Data unavailable') : metrics.data ? metrics.data.total.toLocaleString() : '—'}</td><td className="p-4">{metrics.data ? share(fallback, metrics.data.total) : '—'}</td><td className="p-4"><RouterStatus router={router} /></td><td className="p-4 text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${router.name}`}><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
     <DropdownMenuItem asChild><Link to="/integration/routers/$routerId" params={{routerId: router.id}}><ArrowUpRight />{t('查看详情', 'View details')}</Link></DropdownMenuItem>
     <DropdownMenuItem asChild><Link to="/integration/routers/$routerId" params={{routerId: router.id}} search={{tab: 'revisions'}}><History />{t('查看版本', 'View revisions')}</Link></DropdownMenuItem>
   </DropdownMenuContent></DropdownMenu></td></tr>;

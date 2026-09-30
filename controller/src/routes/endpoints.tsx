@@ -186,7 +186,7 @@ export function EndpointsPage({ endpointId, onEndpointChange }: {
         endpoint={selected}
         onOpenChange={(open) => !open && setSelected(null)}
         onUpdated={refreshEndpoints}
-        onDelete={auth.user?.role === "admin" ? (endpoint) => {
+        onDelete={auth.user?.role === "admin" && (!selected?.tenant_id || selected.tenant_id === auth.user.tenant_id) ? (endpoint) => {
           setSelected(null);
           deleteMutation.reset();
           queryClient.removeQueries({ queryKey: queryKeys.endpointDeletionImpact(endpoint.id), exact: true });
@@ -216,6 +216,7 @@ export function EndpointsPage({ endpointId, onEndpointChange }: {
 
 function EndpointRow({ endpoint, onOpen }: { endpoint: Endpoint; onOpen: () => void }) {
   const { t, i18n } = useTranslation();
+  const user = useAuth().user;
   return (
     <button
       type="button"
@@ -227,6 +228,7 @@ function EndpointRow({ endpoint, onOpen }: { endpoint: Endpoint; onOpen: () => v
         <span className="flex items-center gap-2.5">
           <EndpointProtocolIcon protocol={endpoint.protocol} size="sm" />
           <strong className="truncate text-sm font-medium">{endpoint.name}</strong>
+          {endpoint.tenant_id && endpoint.tenant_id !== user?.tenant_id ? <Badge variant="outline">{t("sharing.sharedFrom", { tenant: endpoint.tenant_id })}</Badge> : null}
         </span>
         <span className="mt-1.5 block truncate pl-9 text-xs text-muted-foreground">
           {t(`endpoints.adapters.${endpoint.adapter_id}`)} · {shortId(endpoint.id)}
@@ -298,7 +300,7 @@ function EndpointDetailContent({
 }) {
   const { t, i18n } = useTranslation();
   const auth = useAuth();
-  const canManage = auth.user?.role === "admin";
+  const canManage = auth.user?.role === "admin" && (!initialEndpoint.tenant_id || initialEndpoint.tenant_id === auth.user.tenant_id);
   const queryClient = useQueryClient();
   const copy = useCopyText();
   const query = useQuery({

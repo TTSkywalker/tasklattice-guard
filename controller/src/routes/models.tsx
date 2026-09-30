@@ -530,6 +530,7 @@ function ModelOption({ model }: { model: ModelDefinition }) {
 
 function ResourceManagement({ resource, view, administrator, onChanged }: { resource: "provider" | "model"; view: ModelConfigurationView; administrator: boolean; onChanged: () => Promise<void> }) {
   const { t } = useTranslation();
+  const tenantId = useAuth().user?.tenant_id;
   const isMobile = useIsMobile();
   const [createMode, setCreateMode] = useState<"provider" | "model" | null>(null);
   const [initialProviderId, setInitialProviderId] = useState<string>();
@@ -585,7 +586,7 @@ function ResourceManagement({ resource, view, administrator, onChanged }: { reso
                   <div className="flex items-start gap-3">
                     <ProviderMark provider={provider.name} kind={provider.kind} />
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{provider.name}</h3><StateBadge state={provider.status === "validated" ? "ready" : provider.status === "failed" ? "failed" : "not evaluated"} label={t(provider.status === "validated" ? "modelSettings.connected" : provider.status === "failed" ? "modelSettings.connectionFailed" : "modelSettings.notChecked")} /></div>
+                      <div className="flex flex-wrap items-center gap-2"><h3 className="font-medium">{provider.name}</h3><StateBadge state={provider.status === "validated" ? "ready" : provider.status === "failed" ? "failed" : "not evaluated"} label={t(provider.status === "validated" ? "modelSettings.connected" : provider.status === "failed" ? "modelSettings.connectionFailed" : "modelSettings.notChecked")} />{provider.tenantId && provider.tenantId !== tenantId ? <Badge variant="outline">{t("sharing.sharedFrom", { tenant: provider.tenantId })}</Badge> : null}</div>
                       <p className="mt-1 text-xs text-muted-foreground">{provider.kind}</p>
                     </div>
                   </div>
@@ -593,7 +594,7 @@ function ResourceManagement({ resource, view, administrator, onChanged }: { reso
                     <div className="min-w-0"><p className="text-[11px] font-medium text-muted-foreground">{t("modelSettings.endpoint")}</p><code className="mt-1 block truncate text-xs" title={provider.baseUrl}>{provider.baseUrl}</code>{provider.skipTlsVerify ? <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">{t("providerRegistration.tlsSkipped")}</p> : null}</div>
                     <div className="text-right"><p className="text-[11px] font-medium text-muted-foreground">{t("modelSettings.registeredModels")}</p><p className="mt-1 text-sm font-semibold">{providerModelCount}</p></div>
                   </div>
-                  <Button type="button" variant="outline" className="h-11 w-full justify-between" disabled={!administrator || pending} aria-label={`${t("modelSettings.manageProvider")} ${provider.name}`} onClick={() => setProviderTargetId(provider.id)}>{t("modelSettings.manageProvider")}<ChevronRight /></Button>
+                  {!provider.tenantId || provider.tenantId === tenantId ? <Button type="button" variant="outline" className="h-11 w-full justify-between" disabled={!administrator || pending} aria-label={`${t("modelSettings.manageProvider")} ${provider.name}`} onClick={() => setProviderTargetId(provider.id)}>{t("modelSettings.manageProvider")}<ChevronRight /></Button> : null}
                 </article>;
               })}
             </div>
@@ -602,11 +603,11 @@ function ResourceManagement({ resource, view, administrator, onChanged }: { reso
                 <TableHeader><TableRow><TableHead className="pl-5">{t("modelSettings.provider")}</TableHead><TableHead>{t("modelSettings.endpoint")}</TableHead><TableHead>{t("modelSettings.registeredModels")}</TableHead><TableHead>{t("modelSettings.providerConnection")}</TableHead><TableHead className="pr-5 text-right">{t("modelSettings.actions")}</TableHead></TableRow></TableHeader>
                 <TableBody>{view.providers.map((provider) => (
                   <TableRow key={provider.id}>
-                    <TableCell className="pl-5"><div className="flex items-center gap-3"><ProviderMark provider={provider.name} kind={provider.kind} /><div><p className="font-medium">{provider.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{provider.kind}</p></div></div></TableCell>
+                    <TableCell className="pl-5"><div className="flex items-center gap-3"><ProviderMark provider={provider.name} kind={provider.kind} /><div><p className="font-medium">{provider.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{provider.kind}</p>{provider.tenantId && provider.tenantId !== tenantId ? <Badge variant="outline" className="mt-1">{t("sharing.sharedFrom", { tenant: provider.tenantId })}</Badge> : null}</div></div></TableCell>
                     <TableCell><code className="block max-w-80 truncate text-xs text-muted-foreground" title={provider.baseUrl}>{provider.baseUrl}</code>{provider.skipTlsVerify ? <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">{t("providerRegistration.tlsSkipped")}</p> : null}</TableCell>
                     <TableCell>{view.models.filter((model) => model.providerId === provider.id).length}</TableCell>
                     <TableCell><ValidationEvidence kind="provider" status={provider.status} checkedAt={provider.validatedAt} latencyMs={provider.validationLatencyMs} message={provider.validationMessage} /></TableCell>
-                    <TableCell className="pr-5 text-right"><Button type="button" variant="outline" className="h-11" disabled={!administrator || pending} aria-label={`${t("modelSettings.manageProvider")} ${provider.name}`} onClick={() => setProviderTargetId(provider.id)}>{t("modelSettings.manageProvider")}<ChevronRight /></Button></TableCell>
+                    <TableCell className="pr-5 text-right">{!provider.tenantId || provider.tenantId === tenantId ? <Button type="button" variant="outline" className="h-11" disabled={!administrator || pending} aria-label={`${t("modelSettings.manageProvider")} ${provider.name}`} onClick={() => setProviderTargetId(provider.id)}>{t("modelSettings.manageProvider")}<ChevronRight /></Button> : null}</TableCell>
                   </TableRow>
                 ))}</TableBody>
               </Table>
@@ -627,10 +628,10 @@ function ResourceManagement({ resource, view, administrator, onChanged }: { reso
               const provider = view.providers.find((item) => item.id === model.providerId);
               return (
                 <TableRow key={model.id}>
-                  <TableCell className="pl-5"><div><p className="font-medium">{model.name}</p><code className="mt-1 block max-w-80 truncate text-xs text-muted-foreground" title={model.model}>{model.model}</code></div></TableCell>
+                  <TableCell className="pl-5"><div><p className="font-medium">{model.name}</p><code className="mt-1 block max-w-80 truncate text-xs text-muted-foreground" title={model.model}>{model.model}</code>{model.tenantId && model.tenantId !== tenantId ? <Badge variant="outline" className="mt-1">{t("sharing.sharedFrom", { tenant: model.tenantId })}</Badge> : null}</div></TableCell>
                   <TableCell><div className="flex items-start gap-3"><ProviderMark provider={model.providerName} kind={model.providerKind} model={model.model} /><div><p className="mb-1.5 font-medium">{model.providerName}</p>{provider ? <ValidationEvidence kind="provider" status={provider.status} checkedAt={provider.validatedAt} latencyMs={provider.validationLatencyMs} message={provider.validationMessage} /> : <StateBadge state="unavailable" label={t("modelSettings.providerUnavailable")} />}</div></div></TableCell>
                   <TableCell><ModelCallEvidence model={model} checking={probeMutation.isPending && probeMutation.variables?.id === model.id} /></TableCell>
-                  <TableCell className="pr-5"><ResourceActions kind="model" name={model.name} checking={probeMutation.isPending && probeMutation.variables?.id === model.id} pending={pending || !administrator} onRetest={() => probeMutation.mutate({ id: model.id })} onRemove={() => setRemoveTarget({ id: model.id, name: model.name })} /></TableCell>
+                  <TableCell className="pr-5">{!model.tenantId || model.tenantId === tenantId ? <ResourceActions kind="model" name={model.name} checking={probeMutation.isPending && probeMutation.variables?.id === model.id} pending={pending || !administrator} onRetest={() => probeMutation.mutate({ id: model.id })} onRemove={() => setRemoveTarget({ id: model.id, name: model.name })} /> : null}</TableCell>
                 </TableRow>
               );
             })}</TableBody>

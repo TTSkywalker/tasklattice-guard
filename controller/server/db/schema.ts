@@ -36,10 +36,33 @@ import type {
 const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
+export const tenants = pgTable("tenant", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt,
+});
+
+/** A grant permits the recipient to read a resource and its child history.
+ * Draft changes, publication, credential operations and deletion remain owner-only.
+ */
+export const resourceShares = pgTable("resource_share", {
+  id: text("id").primaryKey(),
+  ownerTenantId: text("owner_tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  recipientTenantId: text("recipient_tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id").notNull(),
+  createdBy: text("created_by").references(() => user.id),
+  createdAt,
+}, (table) => [
+  uniqueIndex("resource_share_unique_idx").on(table.ownerTenantId, table.recipientTenantId, table.resourceType, table.resourceId),
+  index("resource_share_owner_idx").on(table.ownerTenantId, table.resourceType, table.resourceId),
+]);
+
 // Better Auth owns these four models. Application code must not create,
 // validate, hash, or rotate human credentials itself.
 export const user = pgTable("auth_user", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
@@ -127,6 +150,7 @@ export const controllerState = pgTable("controller_state", {
 
 export const modelProviders = pgTable("model_provider", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   name: text("name").notNull(),
   kind: text("kind").$type<ModelProviderKind>().notNull(),
   baseUrl: text("base_url").notNull(),
@@ -141,12 +165,13 @@ export const modelProviders = pgTable("model_provider", {
   createdAt,
   updatedAt,
 }, (table) => [
-  uniqueIndex("model_provider_name_idx").on(table.name),
+  uniqueIndex("model_provider_tenant_name_idx").on(table.tenantId, table.name),
   index("model_provider_status_idx").on(table.status),
 ]);
 
 export const modelDefinitions = pgTable("model_definition", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   providerId: text("provider_id").notNull().references(() => modelProviders.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   model: text("model").notNull(),
@@ -184,6 +209,7 @@ export const modelAssignmentValidations = pgTable("model_assignment_validation",
 
 export const modelConfigurationRevisions = pgTable("model_configuration_revision", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   revision: integer("revision").notNull(),
   state: text("state").$type<ModelRevisionState>().notNull().default("draft"),
   generation: bigint("generation", { mode: "number" }),
@@ -196,12 +222,13 @@ export const modelConfigurationRevisions = pgTable("model_configuration_revision
   createdAt,
   updatedAt,
 }, (table) => [
-  uniqueIndex("model_configuration_revision_number_idx").on(table.revision),
+  uniqueIndex("model_configuration_revision_tenant_number_idx").on(table.tenantId, table.revision),
   index("model_configuration_revision_state_idx").on(table.state),
 ]);
 
 export const policyRecords = pgTable("policy_record", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   source: text("source").notNull().default("custom"),
@@ -241,6 +268,7 @@ export const guardrails = pgTable("guardrail", {
   copyOrigin: jsonb("copy_origin").$type<Record<string, unknown>>(),
   duplicateKey: text("duplicate_key").unique(),
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   name: text("name").notNull(),
   draftConfig: jsonb("draft_config").$type<GuardrailDraftConfig>().notNull(),
   draftRevision: integer("draft_revision").notNull().default(1),
@@ -351,7 +379,7 @@ export const artifacts = pgTable("guardrail_artifact", {
 ]);
 
 export const trafficRouters = pgTable("traffic_router", {
-  id: text("id").primaryKey(), name: text("name").notNull(), description: text("description").notNull().default(""),
+  id: text("id").primaryKey(), tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id), name: text("name").notNull(), description: text("description").notNull().default(""),
   draftRevision: integer("draft_revision").notNull().default(1), draft: jsonb("draft").$type<RouterDraft>().notNull(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }), rolloutError: text("rollout_error"),
   activeRevision: integer("active_revision"), activeDraftRevision: integer("active_draft_revision"),
@@ -372,17 +400,22 @@ export const trafficRouterRevisions = pgTable("traffic_router_revision", {
   idempotencyKey: text("idempotency_key").notNull(), requestDraftRevision: integer("request_draft_revision").notNull(), rollbackRevision: integer("rollback_revision"), createdBy: text("created_by").notNull().references(() => user.id), createdAt,
 }, t => [primaryKey({ columns: [t.routerId, t.revision] }), uniqueIndex("traffic_router_revision_idempotency_idx").on(t.routerId, t.idempotencyKey)]);
 export const routeAssignments = pgTable("route_assignment", {
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   callId: text("call_id").notNull(), assignmentStatus: text("assignment_status").notNull(), failureReason: text("failure_reason"),
   decisionId: text("decision_id").primaryKey(), routerId: text("router_id").notNull(), routerRevision: integer("router_revision").notNull(),
   routeId: text("route_id").notNull(), targetId: text("target_id").notNull(), guardrailId: text("guardrail_id").notNull(), guardrailVersion: text("guardrail_version").notNull(),
   endpointId: text("endpoint_id").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
   completionInferred: boolean("completion_inferred").notNull().default(false),
   completedAt: timestamp("completed_at", { withTimezone: true }), outcome: text("outcome"), durationMs: integer("duration_ms"),
-}, t => [index("route_assignment_router_time_idx").on(t.routerId, t.occurredAt)]);
+}, t => [
+  index("route_assignment_router_time_idx").on(t.routerId, t.occurredAt),
+  index("route_assignment_tenant_router_time_idx").on(t.tenantId, t.routerId, t.occurredAt),
+]);
 
 export const endpoints = pgTable("endpoint", {
   trafficRouterId: text("traffic_router_id").references(() => trafficRouters.id),
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   name: text("name").notNull(),
   adapter: text("adapter").notNull(),
   status: text("status").$type<EndpointLifecycleState>().notNull().default("active"),
@@ -396,6 +429,7 @@ export const endpoints = pgTable("endpoint", {
 
 export const routers = pgTable("guardrail_router", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   name: text("name").notNull(),
   guardrailId: text("guardrail_id").notNull().references(() => guardrails.id),
   endpointId: text("endpoint_id").references(() => endpoints.id),
@@ -454,6 +488,7 @@ export const runnerInstances = pgTable("runner_instance", {
 
 export const runtimeEvents = pgTable("runtime_event", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   requestId: text("request_id").notNull(),
@@ -467,6 +502,7 @@ export const runtimeEvents = pgTable("runtime_event", {
   durationMs: integer("duration_ms").notNull(),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
 }, (table) => [
+  index("runtime_event_tenant_time_idx").on(table.tenantId, table.occurredAt),
   index("runtime_event_guardrail_time_idx").on(table.guardrailId, table.occurredAt),
   index("runtime_event_endpoint_time_idx").on(table.endpointId, table.occurredAt),
   index("runtime_event_router_time_idx").on(table.routerId, table.occurredAt, table.id),
@@ -486,13 +522,17 @@ export const telemetryWatermarks = pgTable("telemetry_watermark", {
 
 export const auditEvents = pgTable("audit_event", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default("tenantA").references(() => tenants.id),
   kind: text("kind").notNull(),
   actorId: text("actor_id").references(() => user.id),
   resourceType: text("resource_type").notNull(),
   resourceId: text("resource_id").notNull(),
   detail: jsonb("detail").$type<Record<string, unknown>>().notNull().default({}),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("audit_resource_idx").on(table.resourceType, table.resourceId)]);
+}, (table) => [
+  index("audit_resource_idx").on(table.resourceType, table.resourceId),
+  index("audit_tenant_time_idx").on(table.tenantId, table.occurredAt),
+]);
 
 export const outboxEvents = pgTable("controller_outbox", {
   id: text("id").primaryKey(),
@@ -506,6 +546,8 @@ export const outboxEvents = pgTable("controller_outbox", {
 }, (table) => [index("controller_outbox_pending_idx").on(table.processedAt, table.availableAt)]);
 
 export const schema = {
+  tenants,
+  resourceShares,
   user,
   session,
   account,

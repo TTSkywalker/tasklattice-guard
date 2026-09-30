@@ -7,11 +7,12 @@ import { RouterDetailPage } from "@/routes/router-detail";
 import { LogsPage } from "@/routes/logs";
 import { EndpointsPage } from "@/routes/endpoints";
 import { PlaygroundPage } from "@/routes/playground";
-import { UsersPage } from "@/routes/users";
+import { UsersUnavailablePage } from "@/routes/users-unavailable";
 import { DashboardPage } from "@/routes/dashboard";
 import { PolicyLibraryPage } from "@/routes/policy-library";
 import { AccountPage } from "@/routes/account";
 import { HelpPage } from "@/routes/help";
+import { SharingPage } from "@/routes/sharing";
 import { AuditLogPage } from "@/routes/audit-log";
 import { HealthPage } from "@/routes/status";
 import { RunnerPage } from "@/routes/runner";
@@ -22,6 +23,8 @@ import { isGuardrailVersionId } from "../shared/guardrail-version";
 const rootRoute = createRootRoute({ component: ControlPlaneLayout });
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <Navigate to="/dashboard" replace /> });
 const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: DashboardPage });
+const mockSsoRoute = createRoute({ getParentRoute: () => rootRoute, path: "/mock-sso", component: () => null });
+const sharingRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sharing", component: SharingPage });
 const guardrailsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails", component: GuardrailsPage });
 const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails/$guardrailId", component: GuardrailDetailPage });
 const policyLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/policy-library", validateSearch: policyLibrarySearch, component: PolicyLibraryPage });
@@ -61,7 +64,7 @@ const logsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/logs", 
   ...(Number.isInteger(Number(search.routerRevision)) && Number(search.routerRevision) > 0 ? { routerRevision: Number(search.routerRevision) } : {}),
 }), component: LogsPage });
 const auditLogRoute = createRoute({ getParentRoute: () => rootRoute, path: "/audit-log", component: AuditLogPage });
-const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
+const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersUnavailablePage });
 const accountRoute = createRoute({ getParentRoute: () => rootRoute, path: "/account", component: AccountRoutePage });
 function AccountRoutePage() {
   const path = useRouterState({ select: state => state.location.pathname.replace(/\/$/, "") });
@@ -80,6 +83,8 @@ const helpRoute = createRoute({ getParentRoute: () => rootRoute, path: "/help", 
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
+  mockSsoRoute,
+  sharingRoute,
   guardrailsRoute,
   guardrailDetailRoute,
   policyLibraryRoute,

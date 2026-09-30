@@ -69,6 +69,14 @@ import {
   publicEndpointCredentials,
   revokeEndpointCredential,
 } from "./endpoint-credentials.js";
+import {
+  assertResourceReadAccess,
+  assertResourceWriteAccess,
+  currentTenantId,
+  resourceReadPredicate,
+  resourceWritePredicate,
+  tenantOwnerForCreate,
+} from "./tenant-context.js";
 
 type RunnerRegistration = {
   runnerId: string;
@@ -117,8 +125,12 @@ export class ControlPlaneService {
   }
 
   async listPolicies() {
-    const custom = await this.db.select().from(policyRecords).orderBy(asc(policyRecords.name), asc(policyRecords.id));
-    const versions = await this.db.select().from(policyVersions).orderBy(desc(policyVersions.version));
+    const custom = await this.db.select().from(policyRecords)
+      .where(resourceReadPredicate("policy", policyRecords.id, policyRecords.tenantId))
+      .orderBy(asc(policyRecords.name), asc(policyRecords.id));
+    const versions = custom.length ? await this.db.select().from(policyVersions)
+      .where(inArray(policyVersions.policyId, custom.map((item) => item.id)))
+      .orderBy(desc(policyVersions.version)) : [];
     const versionsByPolicy = new Map<string, typeof versions>();
     for (const version of versions) {
       const items = versionsByPolicy.get(version.policyId) ?? [];
@@ -134,7 +146,9 @@ export class ControlPlaneService {
   async getPolicy(id: string) {
     const builtIn = this.policyCatalog().get(id);
     if (builtIn) return builtIn;
-    const [record] = await this.db.select().from(policyRecords).where(eq(policyRecords.id, id));
+    const [record] = await this.db.select().from(policyRecords).where(and(
+      eq(policyRecords.id, id), resourceReadPredicate("policy", policyRecords.id, policyRecords.tenantId),
+    ));
     if (!record) throw new NotFoundError("Policy", id);
     const versions = await this.db.select().from(policyVersions)
       .where(eq(policyVersions.policyId, id)).orderBy(desc(policyVersions.version));
@@ -154,6 +168,7 @@ export class ControlPlaneService {
     const [created] = await this.db.transaction(async (tx) => {
       const rows = await tx.insert(policyRecords).values({
         id,
+        tenantId: tenantOwnerForCreate(),
         name: input.name,
         description: input.description,
         source: "custom",
@@ -178,8 +193,11 @@ export class ControlPlaneService {
     draft?: ProgrammablePolicyDraft | undefined;
     actorId: string;
   }) {
+    await assertResourceWriteAccess(this.db, "policy", input.id);
     const [updated] = await this.db.transaction(async (tx) => {
-      const [current] = await tx.select().from(policyRecords).where(eq(policyRecords.id, input.id)).for("update");
+      const [current] = await tx.select().from(policyRecords).where(and(
+        eq(policyRecords.id, input.id), resourceWritePredicate(policyRecords.tenantId),
+      )).for("update");
       if (!current) throw new NotFoundError("Policy", input.id);
       if (current.source !== "custom") throw new ValidationError("Built-in Policies are system managed.");
       const draft = input.draft ? programmablePolicyDraftSchema.parse(input.draft) : current.draft;
@@ -205,6 +223,7 @@ export class ControlPlaneService {
   }
 
   async deletePolicy(input: { id: string; actorId: string }): Promise<void> {
+    await assertResourceWriteAccess(this.db, "policy", input.id);
     await this.db.transaction(async (tx) => {
       if (this.policyCatalog().get(input.id)) throw new ValidationError("Built-in Policies are system managed and cannot be deleted.");
       const [record] = await tx.select().from(policyRecords).where(eq(policyRecords.id, input.id)).for("update");
@@ -214,7 +233,7 @@ export class ControlPlaneService {
       const referenced = activeGuardrails.filter((item) => normalizeGuardrailDraft(item.draftConfig).policyBindings.some((binding) => binding.policyId === input.id));
       if (referenced.length) {
         throw new ConflictError(
-          `Policy ${record.name} is still referenced by Guardrail drafts: ${referenced.map((item) => item.name).join(", ")}.`,
+          `Policy ${record.name} is still referenced by Guardrail drafts.`,
           "policy_in_use",
         );
       }
@@ -246,6 +265,7 @@ export class ControlPlaneService {
   }
 
   async requestPolicyValidation(input: { id: string; actorId: string; compilerAvailable: boolean }) {
+    await assertResourceWriteAccess(this.db, "policy", input.id);
     if (!input.compilerAvailable) {
       throw new ConflictError("A healthy GuardRails 0 Runner is required to validate Policy drafts.", "default_runner_unavailable");
     }
@@ -291,6 +311,7 @@ export class ControlPlaneService {
   }
 
   async getPolicyValidation(id: string, runId: string) {
+    await assertResourceReadAccess(this.db, "policy", id);
     const [run] = await this.db.select().from(policyValidationRuns).where(and(eq(policyValidationRuns.policyId, id), eq(policyValidationRuns.id, runId)));
     if (!run) throw new NotFoundError("Policy validation run", runId);
     return policyValidationPayload(run);
@@ -304,6 +325,7 @@ export class ControlPlaneService {
   }
 
   async publishPolicy(input: { id: string; actorId: string; expectedDraftRevision?: number }) {
+    await assertResourceWriteAccess(this.db, "policy", input.id);
     return this.db.transaction(async (tx) => {
       const [record] = await tx.select().from(policyRecords).where(eq(policyRecords.id, input.id)).for("update");
       if (!record) throw new NotFoundError("Policy", input.id);
@@ -343,7 +365,9 @@ export class ControlPlaneService {
   }
 
   async listGuardrails() {
-    const rows = await this.db.select().from(guardrails).where(isNull(guardrails.deletedAt)).orderBy(desc(guardrails.updatedAt));
+    const rows = await this.db.select().from(guardrails).where(and(
+      isNull(guardrails.deletedAt), resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
+    )).orderBy(desc(guardrails.updatedAt));
     return Promise.all(rows.map((row) => this.guardrailSummary(row)));
   }
 
@@ -406,7 +430,9 @@ export class ControlPlaneService {
   }
 
   async getGuardrail(id: string) {
-    const [guardrail] = await this.db.select().from(guardrails).where(and(eq(guardrails.id, id), isNull(guardrails.deletedAt)));
+    const [guardrail] = await this.db.select().from(guardrails).where(and(
+      eq(guardrails.id, id), isNull(guardrails.deletedAt), resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
+    ));
     if (!guardrail) throw new NotFoundError("Guardrail", id);
     const versions = await this.db.select().from(guardrailVersions)
       .where(eq(guardrailVersions.guardrailId, id)).orderBy(desc(guardrailVersions.version));
@@ -426,6 +452,7 @@ export class ControlPlaneService {
     const [guardrail] = await this.db.select().from(guardrails).where(and(
       eq(guardrails.id, id),
       isNull(guardrails.deletedAt),
+      resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
     ));
     if (!guardrail) throw new NotFoundError("Guardrail", id);
     const candidateVersion = guardrailVersionId();
@@ -507,6 +534,7 @@ export class ControlPlaneService {
     const [created] = await this.db.transaction(async (tx) => {
       const rows = await tx.insert(guardrails).values({
         id,
+        tenantId: tenantOwnerForCreate(),
         name: input.name,
         draftConfig,
         runtimeProfile: input.runtimeProfile,
@@ -533,7 +561,10 @@ export class ControlPlaneService {
         if (existing.copyOrigin?.requestDigest !== requestDigest) throw new ConflictError("Idempotency key was used for a different copy request.", "duplicate_key_conflict");
         return existing.id;
       }
-      const [source] = await tx.select().from(guardrails).where(and(eq(guardrails.id, input.id), isNull(guardrails.deletedAt))).for("share");
+      const [source] = await tx.select().from(guardrails).where(and(
+        eq(guardrails.id, input.id), isNull(guardrails.deletedAt),
+        resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
+      )).for("share");
       if (!source) throw new NotFoundError("Guardrail", input.id);
       let snapshot: NonNullable<typeof guardrailVersions.$inferSelect.sourceSnapshot>;
       let sourceVersion = input.sourceVersion;
@@ -549,7 +580,7 @@ export class ControlPlaneService {
       }
       const copiedId = randomUUID();
       const copyOrigin = { sourceGuardrailId: input.id, sourceName: source.name, sourceVersion: sourceVersion ?? null, sourceDraftRevision: input.sourceDraftRevision ?? null, copiedAt: new Date().toISOString(), contentDigest: createHash("sha256").update(stableJson(snapshot)).digest("hex"), requestDigest };
-      await tx.insert(guardrails).values({ id: copiedId, name: input.name, draftConfig: snapshot.draftConfig, runtimeProfile: snapshot.runtimeProfile, loggingLevel: snapshot.loggingLevel as "info" | "debug" | "trace", excludedTestCaseIds: snapshot.excludedTestCaseIds, copyOrigin, duplicateKey });
+      await tx.insert(guardrails).values({ id: copiedId, tenantId: tenantOwnerForCreate(), name: input.name, draftConfig: snapshot.draftConfig, runtimeProfile: snapshot.runtimeProfile, loggingLevel: snapshot.loggingLevel as "info" | "debug" | "trace", excludedTestCaseIds: snapshot.excludedTestCaseIds, copyOrigin, duplicateKey });
       // Case IDs are scoped by Guardrail; preserve IDs so exclusion/override references remain exact.
       if (snapshot.testCases?.length) await tx.insert(testCases).values(snapshot.testCases.map(c => ({ ...c, guardrailId: copiedId, updatedAt: new Date() })));
       else await this.syncGeneratedTestCases(tx, copiedId, snapshot.draftConfig);
@@ -566,6 +597,7 @@ export class ControlPlaneService {
     draftConfig?: GuardrailDraftConfig | undefined;
     runtimeProfile?: string | undefined;
   }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.id);
     const updated = await this.db.transaction(async (tx) => {
       const [existing] = await tx.select().from(guardrails).where(and(
         eq(guardrails.id, input.id), isNull(guardrails.deletedAt),
@@ -605,7 +637,10 @@ export class ControlPlaneService {
     compilerAvailable: boolean;
     expectedDraftRevision?: number;
   }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.guardrailId);
     return this.db.transaction(async (tx) => {
+      // Share revocation checks published Policy references under the same lock.
+      await advisoryTransactionLock(tx, "traffic-router-bindings");
       const [guardrail] = await tx.select().from(guardrails).where(and(
         eq(guardrails.id, input.guardrailId), isNull(guardrails.deletedAt),
       )).for("update");
@@ -658,7 +693,7 @@ export class ControlPlaneService {
           await tx.update(routers).set({
             guardrailVersion: existingVersion.version,
             updatedAt: new Date(),
-          }).where(and(eq(routers.guardrailId, input.guardrailId), isNull(routers.deletedAt)));
+          }).where(and(eq(routers.guardrailId, input.guardrailId), eq(routers.tenantId, guardrail.tenantId), isNull(routers.deletedAt)));
           if (input.guardrailId === DEFAULT_GUARDRAIL_ID) {
             await this.ensureDefaultRouter(tx, existingVersion.version);
           }
@@ -855,7 +890,7 @@ export class ControlPlaneService {
         await tx.update(routers).set({
           guardrailVersion: input.guardrailVersion,
           updatedAt: new Date(),
-        }).where(and(eq(routers.guardrailId, input.guardrailId), isNull(routers.deletedAt)));
+        }).where(and(eq(routers.guardrailId, input.guardrailId), eq(routers.tenantId, guardrail.tenantId), isNull(routers.deletedAt)));
         if (input.guardrailId === DEFAULT_GUARDRAIL_ID) {
           await this.ensureDefaultRouter(tx, input.guardrailVersion);
         }
@@ -901,6 +936,7 @@ export class ControlPlaneService {
   }
 
   async deleteGuardrailVersion(input: { guardrailId: string; version: string; actorId: string }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.guardrailId);
     await this.db.transaction(async tx => {
       // Same lock ordering as composed Router publication: bindings, then resource.
       await advisoryTransactionLock(tx, "traffic-router-bindings");
@@ -926,6 +962,7 @@ export class ControlPlaneService {
   }
 
   async rollbackGuardrail(input: { guardrailId: string; version: string; actorId: string }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.guardrailId);
     return this.db.transaction(async (tx) => {
       const [guardrail] = await tx.select().from(guardrails).where(and(
         eq(guardrails.id, input.guardrailId), isNull(guardrails.deletedAt),
@@ -949,7 +986,7 @@ export class ControlPlaneService {
         updatedAt: new Date(),
       }).where(eq(guardrails.id, input.guardrailId));
       await tx.update(routers).set({ guardrailVersion: input.version, updatedAt: new Date() })
-        .where(and(eq(routers.guardrailId, input.guardrailId), isNull(routers.deletedAt)));
+        .where(and(eq(routers.guardrailId, input.guardrailId), eq(routers.tenantId, guardrail.tenantId), isNull(routers.deletedAt)));
       await tx.insert(outboxEvents).values({
         id: randomUUID(), kind: "runner.desired_state_changed", aggregateId: input.guardrailId,
         payload: { guardrailId: input.guardrailId, version: input.version, generation: state.desiredGeneration },
@@ -965,7 +1002,10 @@ export class ControlPlaneService {
 
   async listTestCases(guardrailId: string) {
     const [guardrail] = await this.db.select({ excludedTestCaseIds: guardrails.excludedTestCaseIds, draftConfig: guardrails.draftConfig })
-      .from(guardrails).where(and(eq(guardrails.id, guardrailId), isNull(guardrails.deletedAt)));
+      .from(guardrails).where(and(
+        eq(guardrails.id, guardrailId), isNull(guardrails.deletedAt),
+        resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
+      ));
     if (!guardrail) throw new NotFoundError("Guardrail", guardrailId);
     const excluded = new Set(guardrail.excludedTestCaseIds);
     const rows = await this.db.select().from(testCases).where(eq(testCases.guardrailId, guardrailId))
@@ -987,6 +1027,7 @@ export class ControlPlaneService {
     groundingSources: string[];
     expectedReasoningResult: string | null;
   }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.guardrailId);
     const id = `custom-${randomUUID()}`;
     const created = await this.db.transaction(async (tx) => {
       const [guardrail] = await tx.select().from(guardrails).where(and(
@@ -1024,6 +1065,7 @@ export class ControlPlaneService {
   }
 
   async deleteTestCase(input: { guardrailId: string; caseId: string; actorId: string }): Promise<void> {
+    await assertResourceWriteAccess(this.db, "guardrail", input.guardrailId);
     await this.db.transaction(async (tx) => {
       const [item] = await tx.select().from(testCases).where(and(eq(testCases.guardrailId, input.guardrailId), eq(testCases.id, input.caseId))).limit(1).for("update");
       if (!item) throw new NotFoundError("Test Case", input.caseId);
@@ -1039,6 +1081,7 @@ export class ControlPlaneService {
   }
 
   async setTestCaseExcluded(input: { guardrailId: string; caseId: string; excluded: boolean; actorId: string }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.guardrailId);
     const stored = await this.db.transaction(async (tx) => {
       const [guardrail] = await tx.select().from(guardrails).where(and(
         eq(guardrails.id, input.guardrailId), isNull(guardrails.deletedAt),
@@ -1068,19 +1111,25 @@ export class ControlPlaneService {
   }
 
   async listValidationRuns(guardrailId?: string | undefined) {
-    const query = this.db.select().from(validationRuns);
-    return guardrailId
-      ? query.where(eq(validationRuns.guardrailId, guardrailId)).orderBy(desc(validationRuns.createdAt))
-      : query.orderBy(desc(validationRuns.createdAt));
+    if (guardrailId) await assertResourceReadAccess(this.db, "guardrail", guardrailId);
+    const visible = currentTenantId() ? exists(this.db.select({ id: guardrails.id }).from(guardrails).where(and(
+      eq(guardrails.id, validationRuns.guardrailId),
+      resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
+    ))) : undefined;
+    return this.db.select().from(validationRuns).where(and(
+      guardrailId ? eq(validationRuns.guardrailId, guardrailId) : undefined, visible,
+    )).orderBy(desc(validationRuns.createdAt));
   }
 
   async getValidationRun(id: string) {
     const [run] = await this.db.select().from(validationRuns).where(eq(validationRuns.id, id));
     if (!run) throw new NotFoundError("Validation Run", id);
+    await assertResourceReadAccess(this.db, "guardrail", run.guardrailId);
     return run;
   }
 
   async requestValidation(input: { guardrailId: string; actorId: string; compilerAvailable: boolean }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.guardrailId);
     if (!input.compilerAvailable) {
       throw new ConflictError("A healthy GuardRails 0 Runner is required to validate Guardrail configurations.", "default_runner_unavailable");
     }
@@ -1259,12 +1308,16 @@ export class ControlPlaneService {
 
   async guardrailLogging(id: string) {
     const [guardrail] = await this.db.select({ id: guardrails.id, level: guardrails.loggingLevel, updatedAt: guardrails.updatedAt })
-      .from(guardrails).where(and(eq(guardrails.id, id), isNull(guardrails.deletedAt)));
+      .from(guardrails).where(and(
+        eq(guardrails.id, id), isNull(guardrails.deletedAt),
+        resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
+      ));
     if (!guardrail) throw new NotFoundError("Guardrail", id);
     return { ...guardrail, contentCaptureEnabled: this.runtimeLogEncryptionKey !== null, retentionDays: 30 };
   }
 
   async updateGuardrailLogging(input: { id: string; level: "info" | "debug" | "trace"; actorId: string }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.id);
     const [updated] = await this.db.transaction(async (tx) => {
       const rows = await tx.update(guardrails).set({ loggingLevel: input.level, updatedAt: new Date() })
         .where(and(eq(guardrails.id, input.id), isNull(guardrails.deletedAt))).returning({ id: guardrails.id, level: guardrails.loggingLevel });
@@ -1290,13 +1343,14 @@ export class ControlPlaneService {
 
   async listEndpoints() {
     const rows = await this.db.select().from(endpoints)
-      .where(isNull(endpoints.deletedAt)).orderBy(desc(endpoints.updatedAt));
+      .where(and(isNull(endpoints.deletedAt), resourceReadPredicate("endpoint", endpoints.id, endpoints.tenantId)))
+      .orderBy(desc(endpoints.updatedAt));
     return rows.map((endpoint) => this.publicEndpoint(endpoint));
   }
 
   async getEndpoint(id: string) {
     const [endpoint] = await this.db.select().from(endpoints)
-      .where(and(eq(endpoints.id, id), isNull(endpoints.deletedAt)));
+      .where(and(eq(endpoints.id, id), isNull(endpoints.deletedAt), resourceReadPredicate("endpoint", endpoints.id, endpoints.tenantId)));
     if (!endpoint) throw new NotFoundError("Endpoint", id);
     return this.publicEndpoint(endpoint);
   }
@@ -1306,6 +1360,7 @@ export class ControlPlaneService {
       .leftJoin(endpoints, eq(routers.endpointId, endpoints.id))
       .where(and(
         isNull(routers.deletedAt),
+        resourceWritePredicate(routers.tenantId),
         or(
           isNull(routers.endpointId),
           and(isNotNull(endpoints.id), isNull(endpoints.deletedAt)),
@@ -1317,7 +1372,7 @@ export class ControlPlaneService {
 
   async getRouter(id: string) {
     const [router] = await this.db.select().from(routers)
-      .where(and(eq(routers.id, id), isNull(routers.deletedAt)));
+      .where(and(eq(routers.id, id), isNull(routers.deletedAt), resourceWritePredicate(routers.tenantId)));
     if (!router) throw new NotFoundError("Router", id);
     return router;
   }
@@ -1329,7 +1384,7 @@ export class ControlPlaneService {
   private metricCache = new Map<string, { until: number; value: Awaited<ReturnType<typeof queryRuntimeMetrics>> }>();
   private metricJobs = new Map<string, ReturnType<typeof queryRuntimeMetrics>>();
   async runtimeMetrics(scope: MetricScope) {
-    const key = JSON.stringify([scope.window, scope.guardrailId ?? null, scope.routerId ?? null]);
+    const key = JSON.stringify([currentTenantId(), scope.window, scope.guardrailId ?? null, scope.routerId ?? null]);
     const cached = this.metricCache.get(key);
     if (cached && cached.until > Date.now()) return cached.value;
     const pending = this.metricJobs.get(key);
@@ -1346,20 +1401,33 @@ export class ControlPlaneService {
   }
 
   async getRuntimeEvent(id: string, includeContent = false) {
-    const [item] = await boundedRead(this.db, tx => tx.select().from(runtimeEvents).where(eq(runtimeEvents.id, id)).limit(1));
+    const [item] = await boundedRead(this.db, tx => tx.select().from(runtimeEvents).where(and(
+      eq(runtimeEvents.id, id), currentTenantId() ? eq(runtimeEvents.tenantId, currentTenantId()!) : undefined,
+    )).limit(1));
     if (!item) throw new NotFoundError("Runtime event", id);
     const { contentCiphertext: _ciphertext, contentBefore: _before, contentAfter: _after, ...safe } = item.metadata;
     return { ...item, metadata: includeContent ? decryptRuntimeEventMetadata(item.metadata, this.runtimeLogEncryptionKey) : safe };
   }
 
-  private endpointActivityCache?: { until: number; value: { items: Record<string, unknown>[] } };
-  private endpointActivityJob: Promise<{ items: Record<string, unknown>[] }> | undefined;
+  private endpointActivityCache = new Map<string, { until: number; value: { items: Record<string, unknown>[] } }>();
+  private endpointActivityJobs = new Map<string, Promise<{ items: Record<string, unknown>[] }>>();
   async runtimeEndpointActivity() {
-    if (this.endpointActivityCache && this.endpointActivityCache.until > Date.now()) return this.endpointActivityCache.value;
-    if (this.endpointActivityJob) return this.endpointActivityJob;
+    // Shared Endpoints can disappear as soon as a grant is revoked. Keep the
+    // system cache, but re-evaluate tenant reads against the live grant table.
+    const cacheable = currentTenantId() === null;
+    const key = "system";
+    if (cacheable) {
+      const cached = this.endpointActivityCache.get(key);
+      if (cached && cached.until > Date.now()) return cached.value;
+      const pending = this.endpointActivityJobs.get(key);
+      if (pending) return pending;
+    }
     const job = boundedRead(this.db, async tx => {
       // Lifetime timestamps are index probes; only recent counters scan a time window.
-      const scope = eq(runtimeEvents.endpointId, endpoints.id);
+      const scope = and(
+        eq(runtimeEvents.endpointId, endpoints.id),
+        currentTenantId() ? eq(runtimeEvents.tenantId, currentTenantId()!) : undefined,
+      );
       const errors = inArray(lowerText(runtimeEvents.decision), ['error','failed','failure','timeout','timed_out']);
       const timestamp = (name: string, filter?: SQL, oldest = false) => tx
         .select({ at: runtimeEvents.occurredAt }).from(runtimeEvents)
@@ -1392,15 +1460,15 @@ export class ControlPlaneService {
         .leftJoinLateral(incoming, join).leftJoinLateral(outgoing, join)
         .leftJoinLateral(finalCheck, join).leftJoinLateral(lastError, join)
         .innerJoinLateral(recent, join).innerJoinLateral(recentErrors, join)
-        .where(isNull(endpoints.deletedAt));
+        .where(and(isNull(endpoints.deletedAt), resourceReadPredicate("endpoint", endpoints.id, endpoints.tenantId)));
       return { items };
     });
-    this.endpointActivityJob = job;
+    if (cacheable) this.endpointActivityJobs.set(key, job);
     try {
       const value = await job;
-      this.endpointActivityCache = { until: Date.now() + 10_000, value };
+      if (cacheable) this.endpointActivityCache.set(key, { until: Date.now() + 10_000, value });
       return value;
-    } finally { this.endpointActivityJob = undefined; }
+    } finally { if (cacheable) this.endpointActivityJobs.delete(key); }
   }
 
   async queryRuntimeEvents(input: {
@@ -1430,6 +1498,7 @@ export class ControlPlaneService {
     }
     const findings = jsonElements(jsonValue(runtimeEvents.metadata, 'findings'), 'finding');
     const conditions = [
+      currentTenantId() ? eq(runtimeEvents.tenantId, currentTenantId()!) : undefined,
       input.severity ? exists(this.db.select({ severity: findingSeverity(findings.item) }).from(findings.source).where(eq(findingSeverity(findings.item), input.severity))) : undefined,
       cursor ? lt(rowValue(runtimeEvents.occurredAt, runtimeEvents.id), rowValue(timestampValue(cursor.at), literal(cursor.id))) : undefined,
       input.requestId ? eq(runtimeEvents.requestId, input.requestId) : undefined,
@@ -1478,7 +1547,9 @@ export class ControlPlaneService {
   }
 
   async listAuditEvents(limit = 100) {
-    return this.db.select().from(auditEvents).orderBy(desc(auditEvents.occurredAt)).limit(limit);
+    return this.db.select().from(auditEvents).where(
+      currentTenantId() ? eq(auditEvents.tenantId, currentTenantId()!) : undefined,
+    ).orderBy(desc(auditEvents.occurredAt)).limit(limit);
   }
 
   async createRouter(input: {
@@ -1512,6 +1583,7 @@ export class ControlPlaneService {
       await advisoryTransactionLock(tx, "traffic-router-bindings");
       const [guardrail] = await tx.select().from(guardrails).where(and(
         eq(guardrails.id, input.guardrailId), eq(guardrails.status, "active"), isNull(guardrails.deletedAt),
+        resourceReadPredicate("guardrail", guardrails.id, guardrails.tenantId),
       ));
       if (!guardrail?.activeArtifactId || !guardrail.activeVersion) {
         throw new ConflictError("Only a compiled active Guardrail can be deployed.", "guardrail_not_active");
@@ -1523,6 +1595,7 @@ export class ControlPlaneService {
       }
       const endpointRows = await tx.select().from(endpoints).where(and(
         inArray(endpoints.id, uniqueEndpointIds), eq(endpoints.status, "active"), isNull(endpoints.deletedAt),
+        resourceWritePredicate(endpoints.tenantId),
       ));
       const activeIds = new Set(endpointRows.map((item) => item.id));
       const missing = uniqueEndpointIds.filter((id) => !activeIds.has(id));
@@ -1554,6 +1627,7 @@ export class ControlPlaneService {
         const id = randomUUID();
         const [row] = await tx.insert(routers).values({
           id,
+          tenantId: tenantOwnerForCreate(),
           name: uniqueEndpointIds.length === 1 ? input.name : `${input.name} · ${endpointRows.find((item) => item.id === endpointId)?.name ?? endpointId}`,
           guardrailId: input.guardrailId,
           guardrailVersion: guardrail.activeVersion,
@@ -1609,6 +1683,7 @@ export class ControlPlaneService {
   }
 
   async reorderRouterRoutes(input: { endpointId: string; routerIds: string[]; actorId: string }) {
+    await assertResourceWriteAccess(this.db, "endpoint", input.endpointId);
     if (new Set(input.routerIds).size !== input.routerIds.length) throw new ValidationError("Router route order contains duplicate IDs.");
     return this.db.transaction(async (tx) => {
       await advisoryTransactionLock(tx, input.endpointId);
@@ -1642,7 +1717,7 @@ export class ControlPlaneService {
     const verification = { credentials: [issued.stored] };
     const [created] = await this.db.transaction(async (tx) => {
       const rows = await tx.insert(endpoints).values({
-        id, name: input.name, adapter: input.adapter, verification,
+        id, tenantId: tenantOwnerForCreate(), name: input.name, adapter: input.adapter, verification,
       }).returning();
       await this.advanceEndpointDesiredState(tx, {
         endpointId: id,
@@ -1664,6 +1739,7 @@ export class ControlPlaneService {
   }
 
   async setEndpointEnabled(input: { id: string; enabled: boolean; actorId: string }) {
+    await assertResourceWriteAccess(this.db, "endpoint", input.id);
     return this.db.transaction(async (tx) => {
       const [endpoint] = await tx.select().from(endpoints)
         .where(and(eq(endpoints.id, input.id), isNull(endpoints.deletedAt))).for("update");
@@ -1686,6 +1762,7 @@ export class ControlPlaneService {
   }
 
   async rotateEndpointCredential(input: { id: string; actorId: string }) {
+    await assertResourceWriteAccess(this.db, "endpoint", input.id);
     const issued = issueEndpointCredential();
     const updated = await this.db.transaction(async (tx) => {
       const [endpoint] = await tx.select().from(endpoints)
@@ -1713,6 +1790,7 @@ export class ControlPlaneService {
   }
 
   async revokeEndpointCredential(input: { id: string; credentialId: string; actorId: string }): Promise<void> {
+    await assertResourceWriteAccess(this.db, "endpoint", input.id);
     await this.db.transaction(async (tx) => {
       const [endpoint] = await tx.select().from(endpoints)
         .where(and(eq(endpoints.id, input.id), isNull(endpoints.deletedAt))).for("update");
@@ -1742,6 +1820,7 @@ export class ControlPlaneService {
   }
 
   async guardrailDeletionImpact(id: string): Promise<DeletionImpact> {
+    await assertResourceWriteAccess(this.db, "guardrail", id);
     if (id === DEFAULT_GUARDRAIL_ID) {
       throw new ValidationError("The Default Guardrail cannot be removed because it protects unmatched traffic.");
     }
@@ -1753,6 +1832,7 @@ export class ControlPlaneService {
   }
 
   async endpointDeletionImpact(id: string): Promise<DeletionImpact> {
+    await assertResourceWriteAccess(this.db, "endpoint", id);
     const [resource] = await this.db.select().from(endpoints).where(and(eq(endpoints.id, id), isNull(endpoints.deletedAt)));
     if (!resource) throw new NotFoundError("Endpoint", id);
     const activeRouters = await this.db.select({ poolId: routers.poolId }).from(routers)
@@ -1761,10 +1841,11 @@ export class ControlPlaneService {
   }
 
   async softDeleteGuardrail(input: { id: string; actorId: string; reason: string; confirmRecentTraffic: boolean; confirmationName?: string | undefined }) {
+    await assertResourceWriteAccess(this.db, "guardrail", input.id);
     if (input.id === DEFAULT_GUARDRAIL_ID) {
       throw new ValidationError("The Default Guardrail cannot be removed because it protects unmatched traffic.");
     }
-    const [resource] = await this.db.select({ name: guardrails.name }).from(guardrails)
+    const [resource] = await this.db.select({ name: guardrails.name, tenantId: guardrails.tenantId }).from(guardrails)
       .where(and(eq(guardrails.id, input.id), isNull(guardrails.deletedAt)));
     if (!resource) throw new NotFoundError("Guardrail", input.id);
     const impact = await this.guardrailDeletionImpact(input.id);
@@ -1772,6 +1853,10 @@ export class ControlPlaneService {
     await this.db.transaction(async (tx) => {
       await advisoryTransactionLock(tx, "traffic-router-bindings");
       await this.trafficRouting.assertGuardrailUnused(input.id, tx);
+      const [foreignRouter] = await tx.select({ id: routers.id }).from(routers).where(and(
+        eq(routers.guardrailId, input.id), ne(routers.tenantId, resource.tenantId), isNull(routers.deletedAt),
+      )).limit(1);
+      if (foreignRouter) throw new ConflictError("Guardrail is still referenced by another tenant's Router.", "guardrail_in_use");
       const [state] = await tx.update(controllerState)
         .set({ desiredGeneration: increment(controllerState.desiredGeneration), updatedAt: new Date() })
         .where(eq(controllerState.id, "singleton")).returning();
@@ -1782,18 +1867,23 @@ export class ControlPlaneService {
       }).where(and(eq(guardrails.id, input.id), isNull(guardrails.deletedAt))).returning({ id: guardrails.id });
       if (!disabled[0]) throw new NotFoundError("Guardrail", input.id);
       await tx.update(routers).set({ enabled: false, updatedAt: new Date() })
-        .where(and(eq(routers.guardrailId, input.id), isNull(routers.deletedAt)));
+        .where(and(eq(routers.guardrailId, input.id), eq(routers.tenantId, resource.tenantId), isNull(routers.deletedAt)));
       await this.recordSoftDelete(tx, "guardrail", input, impact, state.desiredGeneration);
     });
   }
 
   async softDeleteEndpoint(input: { id: string; actorId: string; reason: string; confirmRecentTraffic: boolean; confirmationName?: string | undefined }) {
-    const [resource] = await this.db.select({ name: endpoints.name }).from(endpoints)
+    await assertResourceWriteAccess(this.db, "endpoint", input.id);
+    const [resource] = await this.db.select({ name: endpoints.name, tenantId: endpoints.tenantId }).from(endpoints)
       .where(and(eq(endpoints.id, input.id), isNull(endpoints.deletedAt)));
     if (!resource) throw new NotFoundError("Endpoint", input.id);
     const impact = await this.endpointDeletionImpact(input.id);
     this.assertDeletionAllowed(impact, input.confirmRecentTraffic, input.confirmationName, resource.name);
     await this.db.transaction(async (tx) => {
+      const [foreignRouter] = await tx.select({ id: routers.id }).from(routers).where(and(
+        eq(routers.endpointId, input.id), ne(routers.tenantId, resource.tenantId), isNull(routers.deletedAt),
+      )).limit(1);
+      if (foreignRouter) throw new ConflictError("Endpoint is still referenced by another tenant's Router.", "endpoint_in_use");
       const [state] = await tx.update(controllerState)
         .set({ desiredGeneration: increment(controllerState.desiredGeneration), updatedAt: new Date() })
         .where(eq(controllerState.id, "singleton")).returning();
@@ -1804,7 +1894,7 @@ export class ControlPlaneService {
       }).where(and(eq(endpoints.id, input.id), isNull(endpoints.deletedAt))).returning({ id: endpoints.id });
       if (!disabled[0]) throw new NotFoundError("Endpoint", input.id);
       await tx.update(routers).set({ enabled: false, updatedAt: new Date() })
-        .where(and(eq(routers.endpointId, input.id), isNull(routers.deletedAt)));
+        .where(and(eq(routers.endpointId, input.id), eq(routers.tenantId, resource.tenantId), isNull(routers.deletedAt)));
       await this.recordSoftDelete(tx, "endpoint", input, impact, state.desiredGeneration);
     });
   }
@@ -1814,7 +1904,7 @@ export class ControlPlaneService {
       throw new ValidationError("The Default Router cannot be removed because it protects unmatched traffic.");
     }
     const [resource] = await this.db.select({ poolId: routers.poolId, enabled: routers.enabled })
-      .from(routers).where(and(eq(routers.id, id), isNull(routers.deletedAt)));
+      .from(routers).where(and(eq(routers.id, id), isNull(routers.deletedAt), resourceWritePredicate(routers.tenantId)));
     if (!resource) throw new NotFoundError("Router", id);
     return this.deletionImpact("router", id, resource.enabled ? [resource.poolId] : []);
   }
@@ -1827,7 +1917,7 @@ export class ControlPlaneService {
       name: routers.name,
       endpointId: routers.endpointId,
       guardrailId: routers.guardrailId,
-    }).from(routers).where(and(eq(routers.id, input.id), isNull(routers.deletedAt)));
+    }).from(routers).where(and(eq(routers.id, input.id), isNull(routers.deletedAt), resourceWritePredicate(routers.tenantId)));
     if (!resource) throw new NotFoundError("Router", input.id);
     const impact = await this.routerDeletionImpact(input.id);
     this.assertDeletionAllowed(impact, input.confirmRecentTraffic, input.confirmationName, resource.name);
@@ -1878,9 +1968,24 @@ export class ControlPlaneService {
   async recordRuntimeEvents(events: readonly RuntimeEventInput[]): Promise<void> {
     if (events.length === 0) return;
     await this.db.transaction(async (tx) => {
+      const endpointIds = [...new Set(events.map((event) => event.endpointId).filter((id): id is string => Boolean(id)))];
+      const guardrailIds = [...new Set(events.map((event) => event.guardrailId).filter((id): id is string => Boolean(id)))];
+      const routerIds = [...new Set(events.map((event) => event.routerId).filter((id): id is string => Boolean(id)))];
+      const endpointOwners = new Map((endpointIds.length ? await tx.select({ id: endpoints.id, tenantId: endpoints.tenantId })
+        .from(endpoints).where(inArray(endpoints.id, endpointIds)) : []).map((row) => [row.id, row.tenantId]));
+      const guardrailOwners = new Map((guardrailIds.length ? await tx.select({ id: guardrails.id, tenantId: guardrails.tenantId })
+        .from(guardrails).where(inArray(guardrails.id, guardrailIds)) : []).map((row) => [row.id, row.tenantId]));
+      const trafficRouterOwners = new Map((routerIds.length ? await tx.select({ id: trafficRouters.id, tenantId: trafficRouters.tenantId })
+        .from(trafficRouters).where(inArray(trafficRouters.id, routerIds)) : []).map((row) => [row.id, row.tenantId]));
+      const legacyRouterOwners = new Map((routerIds.length ? await tx.select({ id: routers.id, tenantId: routers.tenantId })
+        .from(routers).where(inArray(routers.id, routerIds)) : []).map((row) => [row.id, row.tenantId]));
       for (const event of events) {
         await tx.insert(runtimeEvents).values({
           id: event.id,
+          tenantId: (event.endpointId && endpointOwners.get(event.endpointId))
+            || (event.routerId && (trafficRouterOwners.get(event.routerId) ?? legacyRouterOwners.get(event.routerId)))
+            || (event.guardrailId && guardrailOwners.get(event.guardrailId))
+            || tenantOwnerForCreate(),
           occurredAt: event.occurredAt,
           requestId: event.requestId,
           runnerId: event.runnerId,
@@ -2295,7 +2400,9 @@ export class ControlPlaneService {
   }
 
   private async policyRecord(id: string) {
-    const [record] = await this.db.select().from(policyRecords).where(eq(policyRecords.id, id));
+    const [record] = await this.db.select().from(policyRecords).where(and(
+      eq(policyRecords.id, id), resourceReadPredicate("policy", policyRecords.id, policyRecords.tenantId),
+    ));
     if (!record) throw new NotFoundError("Policy", id);
     return record;
   }
@@ -2596,7 +2703,9 @@ export class ControlPlaneService {
     const customBindings = draft.policyBindings.filter((binding) => !this.policyCatalog().get(binding.policyId));
     if (!customBindings.length) return [];
     const ids = [...new Set(customBindings.map((item) => item.policyId))];
-    const rows = await this.db.select().from(policyVersions).where(inArray(policyVersions.policyId, ids));
+    const rows = await this.db.select({ policyId: policyVersions.policyId, version: policyVersions.version, snapshot: policyVersions.snapshot })
+      .from(policyVersions).innerJoin(policyRecords, eq(policyRecords.id, policyVersions.policyId))
+      .where(and(inArray(policyVersions.policyId, ids), resourceReadPredicate("policy", policyRecords.id, policyRecords.tenantId)));
     const byKey = new Map(rows.map((item) => [`${item.policyId}@${item.version}`, item.snapshot]));
     return customBindings.map((binding) => {
       if (!/^\d+$/.test(binding.policyVersion)) {
@@ -2652,6 +2761,7 @@ export class ControlPlaneService {
   private publicEndpoint(endpoint: typeof endpoints.$inferSelect) {
     return {
       id: endpoint.id,
+      tenantId: endpoint.tenantId,
       trafficRouterId: endpoint.trafficRouterId,
       name: endpoint.name,
       adapter: endpoint.adapter,
@@ -2709,7 +2819,7 @@ export class ControlPlaneService {
   ) {
     return this.db.transaction(async (tx) => {
       const [current] = await tx.select().from(routers)
-        .where(and(eq(routers.id, id), isNull(routers.deletedAt))).for("update");
+        .where(and(eq(routers.id, id), isNull(routers.deletedAt), resourceWritePredicate(routers.tenantId))).for("update");
       if (!current) throw new NotFoundError("Router", id);
       if (current.id === DEFAULT_ROUTER_ID) {
         throw new ValidationError("The Default Router is system managed and cannot be changed directly.");
@@ -2942,6 +3052,7 @@ function programmablePolicySurface(
   const outputDelivery = Object.fromEntries(surface.execution_contract).output_delivery;
   return {
     implementation: "nemo_native" as const,
+    tenant_id: record.tenantId,
     id: record.id,
     name: latest?.snapshot.name ?? record.name,
     description: latest?.snapshot.description ?? record.description,

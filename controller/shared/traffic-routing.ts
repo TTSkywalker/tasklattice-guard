@@ -78,6 +78,7 @@ export type RouteTarget = z.infer<typeof targetSchema>;
 export type TrafficRoute = z.infer<typeof routeSchema>;
 export type RouterDraft = z.infer<typeof routerDraftSchema>;
 export type TrafficRouter = {
+  tenantId?: string;
   id: string; name: string; description: string; draftRevision: number; draft: RouterDraft; activeRevision: number | null;
   activeDraftRevision: number | null; activeSnapshot: RouterDraft | null; desiredGeneration: number;
   rolloutStatus: RouterRolloutState; endpointIds: string[]; updatedAt: string;

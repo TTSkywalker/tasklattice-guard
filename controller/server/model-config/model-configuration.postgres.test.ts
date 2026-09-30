@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import * as schema from "../db/schema.js";
 import { emptyModelAssignments } from "./domain.js";
 import { ModelConfigurationService } from "./service.js";
+import { runWithTenantContext } from "../services/tenant-context.js";
 
 const url = process.env.GUARD_TEST_POSTGRES_URL;
 describe.skipIf(!url)("Model draft PostgreSQL optimistic locking", () => {
@@ -23,7 +24,7 @@ describe.skipIf(!url)("Model draft PostgreSQL optimistic locking", () => {
     admin = new Pool({ connectionString: url, max: 1 });
     await admin.query(`CREATE SCHEMA "${namespace}"`);
     pool = new Pool({ connectionString: url, max: 2, application_name: namespace, options: `-c search_path=${namespace}` });
-    for (const table of ['model_assignment_validation', 'model_configuration_revision', 'model_provider', 'model_definition', 'policy_version', 'audit_event', 'controller_state', 'controller_outbox']) {
+    for (const table of ['model_assignment_validation', 'model_configuration_revision', 'model_provider', 'model_definition', 'policy_version', 'resource_share', 'audit_event', 'controller_state', 'controller_outbox']) {
       // LIKE copies structure/indexes, not data or foreign keys to public rows.
       await pool.query(`CREATE TABLE "${table}" (LIKE public."${table}" INCLUDING ALL)`);
     }
@@ -37,6 +38,9 @@ describe.skipIf(!url)("Model draft PostgreSQL optimistic locking", () => {
     await admin?.end();
   });
   beforeEach(async () => {
+    await pool.query('DELETE FROM resource_share');
+    await pool.query('DELETE FROM model_definition WHERE id <> $1', [modelId]);
+    await pool.query('DELETE FROM model_provider WHERE id <> $1', [providerId]);
     await pool.query('DELETE FROM model_configuration_revision');
     await pool.query('DELETE FROM model_assignment_validation');
     await pool.query('DELETE FROM controller_outbox');
@@ -45,6 +49,34 @@ describe.skipIf(!url)("Model draft PostgreSQL optimistic locking", () => {
     service = new ModelConfigurationService(drizzle(pool, { schema }), 'synthetic-root',
       resolve('../runner/toolkit/policy_library/assets'), vi.fn(() => { throw new Error('No external calls allowed'); }));
     service.setRailValidator(async () => ({ passed: true, message: 'Synthetic Rail result', latencyMs: 1 }));
+  });
+
+  it('isolates model inventory and keeps shared Provider and Model read-only', async () => {
+    const tenantBProviderId = randomUUID();
+    const tenantBModelId = randomUUID();
+    await pool.query("INSERT INTO model_provider (id,tenant_id,name,kind,base_url,credential_ciphertext) VALUES ($1,'tenantB','B Provider','custom-openai-compatible','http://provider.invalid/v1','')", [tenantBProviderId]);
+    await pool.query("INSERT INTO model_definition (id,tenant_id,provider_id,name,model,profile) VALUES ($1,'tenantB',$2,'B Model','b-model','generic-chat')", [tenantBModelId, tenantBProviderId]);
+
+    const tenantAView = await runWithTenantContext({ tenantId: 'tenantA' }, () => service.view());
+    const tenantBView = await runWithTenantContext({ tenantId: 'tenantB' }, () => service.view());
+    expect(tenantAView.providers.map((item) => item.id)).toEqual([providerId]);
+    expect(tenantAView.models.map((item) => item.id)).toEqual([modelId]);
+    expect(tenantBView.providers.map((item) => item.id)).toEqual([tenantBProviderId]);
+    expect(tenantBView.models.map((item) => item.id)).toEqual([tenantBModelId]);
+
+    await pool.query("INSERT INTO resource_share (id,owner_tenant_id,recipient_tenant_id,resource_type,resource_id) VALUES ($1,'tenantA','tenantB','model_provider',$2),($3,'tenantA','tenantB','model',$4)",
+      [randomUUID(), providerId, randomUUID(), modelId]);
+    const sharedView = await runWithTenantContext({ tenantId: 'tenantB' }, () => service.view());
+    expect(new Set(sharedView.providers.map((item) => item.id))).toEqual(new Set([providerId, tenantBProviderId]));
+    expect(new Set(sharedView.models.map((item) => item.id))).toEqual(new Set([modelId, tenantBModelId]));
+    await expect(runWithTenantContext({ tenantId: 'tenantB' }, () =>
+      service.updateProvider(providerId, { name: 'Changed by B' }, 'group_b')))
+      .rejects.toMatchObject({ code: 'not_found' });
+
+    await pool.query("DELETE FROM resource_share WHERE recipient_tenant_id='tenantB'");
+    const revokedView = await runWithTenantContext({ tenantId: 'tenantB' }, () => service.view());
+    expect(revokedView.providers.map((item) => item.id)).toEqual([tenantBProviderId]);
+    expect(revokedView.models.map((item) => item.id)).toEqual([tenantBModelId]);
   });
 
   async function seed(assigned = false) {

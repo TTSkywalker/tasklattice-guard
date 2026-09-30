@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, CircleUserRound, LogOut, UsersRound } from "lucide-react";
+import { ChevronDown, CircleUserRound, LogOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -65,7 +65,7 @@ export function AccountMenu({
             <>
               <span className="min-w-0 flex-1 text-left">
                 <strong className="block truncate text-xs font-semibold text-sidebar-foreground">{displayName}</strong>
-                <span className="mt-0.5 block truncate text-[10px] text-sidebar-foreground/50">{t("account.localAccount")}</span>
+                <span className="mt-0.5 block truncate text-[10px] text-sidebar-foreground/50">{t("account.tenantLabel", { tenant: user?.tenant_id ?? "tenantA" })}</span>
               </span>
               <ChevronDown className="size-3.5 text-sidebar-foreground/45 transition-transform group-data-[state=open]:rotate-180" />
             </>
@@ -82,6 +82,7 @@ export function AccountMenu({
           <span className="min-w-0">
             <strong className="block truncate text-sm font-semibold text-foreground">{displayName}</strong>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">{user?.email}</span>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{t("account.tenantLabel", { tenant: user?.tenant_id ?? "tenantA" })}</span>
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -91,14 +92,6 @@ export function AccountMenu({
             {t("account.title")}
           </Link>
         </DropdownMenuItem>
-        {user?.role === "admin" ? (
-          <DropdownMenuItem asChild className="min-h-11 rounded-md">
-            <Link to="/access" onClick={onNavigate}>
-              <UsersRound />
-              {t("auth.manageUsers")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem className="min-h-11 rounded-md" variant="destructive" disabled={logoutPending} onSelect={() => void signOut()}>
           <LogOut />

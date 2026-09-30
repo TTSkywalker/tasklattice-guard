@@ -14,7 +14,7 @@ import { allowsTokenPermission } from "../../shared/access-tokens.js";
 const config = loadConfig({ NODE_ENV: "test", CONTROLLER_DATABASE_URL: "postgresql://controller:controller@localhost/controller",
   CONTROLLER_RUNNER_TOKEN: "runner-token-that-is-at-least-32-characters", CONTROLLER_ARTIFACT_SIGNING_KEY_PATH: "/tmp/controller-signing-key.pem",
   CONTROLLER_POLICY_CATALOG_DIR: resolve("../runner/toolkit/policy_library/assets"), BETTER_AUTH_SECRET: "better-auth-secret-that-is-at-least-32-characters" });
-function setup(identity: TokenIdentity | null = { id: "owner", role: "admin", tokenId: "token", permissions: { routers: "read" } }) {
+function setup(identity: TokenIdentity | null = { id: "owner", role: "admin", tenantId: "tenantA", tokenId: "token", permissions: { routers: "read" } }) {
   const getSession = vi.fn().mockResolvedValue({ user: { id: "session-owner", role: "admin" } });
   const accessTokens = { authenticate: vi.fn().mockResolvedValue(identity), recordRequest: vi.fn(), list: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockResolvedValue({ secret: "one-time-secret" }), revoke: vi.fn() };
@@ -47,14 +47,14 @@ describe("Access token HTTP authority", () => {
     expect(createRouter).not.toHaveBeenCalled();
   });
   it("forwards an authorized mutation with the token owner and records token attribution", async () => {
-    const { request, accessTokens, createRouter } = setup({ id: "owner", role: "admin", tokenId: "token", permissions: { routers: "write" } });
+    const { request, accessTokens, createRouter } = setup({ id: "owner", role: "admin", tenantId: "tenantA", tokenId: "token", permissions: { routers: "write" } });
     const draft = { routes: [{ id: "fallback", name: "Fallback", kind: "fallback", enabled: true, selector: { expression: { combinator: "and", conditions: [] } }, targets: [{ id: "target", guardrailId: "guard", guardrailVersion: "1", weightBps: 10000 }] }] };
     expect((await request("POST", "/routers", "Bearer test", { name: "Automation", draft })).status).toBe(201);
     expect(createRouter.mock.calls[0]?.[3]).toBe("owner");
     expect(accessTokens.recordRequest).toHaveBeenCalledWith(expect.objectContaining({ tokenId: "token" }), "POST", "/api/v1/routers", 201);
   });
   it("blocks writes after demotion even if the token still grants write", async () => {
-    const { request } = setup({ id: "owner", role: "user", tokenId: "token", permissions: { routers: "write" } });
+    const { request } = setup({ id: "owner", role: "user", tenantId: "tenantA", tokenId: "token", permissions: { routers: "write" } });
     expect((await request("GET", "/routers")).status).toBe(200);
     expect((await request("POST", "/routers", "Bearer test", {})).status).toBe(403);
   });

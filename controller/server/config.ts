@@ -119,6 +119,7 @@ const environmentSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_TRUSTED_ORIGINS: z.string().default("http://localhost:8080,http://localhost:8092"),
   BETTER_AUTH_MIN_PASSWORD_LENGTH: z.coerce.number().int().min(5).max(128).default(12),
+  CONTROLLER_MOCK_SSO_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS: z
     .enum(["true", "false"])
     .default("false")
@@ -163,6 +164,14 @@ const environmentSchema = z.object({
       code: "custom",
       path: ["CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS"],
       message: "Local default credentials may only be enabled for a loopback Controller URL.",
+    });
+  }
+  const localBind = ["localhost", "127.0.0.1", "::1"].includes(value.CONTROLLER_HTTP_HOST);
+  if (value.CONTROLLER_MOCK_SSO_ENABLED && (value.NODE_ENV === "production" || !isLoopback || !localBind)) {
+    context.addIssue({
+      code: "custom",
+      path: ["CONTROLLER_MOCK_SSO_ENABLED"],
+      message: "Mock SSO is available only outside production with a loopback Controller URL and HTTP bind address.",
     });
   }
   if (Boolean(value.CONTROLLER_BOOTSTRAP_ADMIN_EMAIL) !== Boolean(value.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD)) {
@@ -254,6 +263,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     betterAuthSecret: parsed.BETTER_AUTH_SECRET,
     trustedOrigins: parsed.BETTER_AUTH_TRUSTED_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean),
     minPasswordLength: parsed.BETTER_AUTH_MIN_PASSWORD_LENGTH,
+    mockSsoEnabled: parsed.CONTROLLER_MOCK_SSO_ENABLED,
     allowLocalDefaultCredentials: parsed.CONTROLLER_ALLOW_LOCAL_DEFAULT_CREDENTIALS,
     bootstrapAdmin: parsed.CONTROLLER_BOOTSTRAP_ADMIN_EMAIL && parsed.CONTROLLER_BOOTSTRAP_ADMIN_PASSWORD
       ? {
