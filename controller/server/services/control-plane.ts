@@ -1,13 +1,18 @@
+import { queryAuditEvents } from "./audit-events.js";
+import type { AuditQuery } from "../../shared/audit-query.js";
+import type { EventSeverity } from "../../shared/security-severity.js";
+import { readGuardrailProfiles } from "./guardrail-profiles.js";
+import { expandProtectionPreset } from "../policy-catalog/presets.js";
 import { TrafficRoutingService } from "./traffic-routing.js";
 import { createHash, createPrivateKey, randomUUID, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { programmablePolicyProtection } from "../policy-studio/protection.js";
 import { queryRuntimeMetrics, type MetricScope } from "./runtime-metrics.js";
 import { boundedRead } from '../db/read-budget.js';
-import { asText, findingSeverity, increment, jsonAggregate, jsonArrayLength, jsonElements, jsonObject, jsonText, jsonValue, literal, lowerText, rowValue, scalar, timestampValue } from '../db/postgres-expressions.js';
+import { asText, findingSeverity, securityFinding, increment, jsonAggregate, jsonArrayLength, jsonElements, jsonObject, jsonText, jsonValue, literal, lowerText, rowValue, scalar, timestampValue } from '../db/postgres-expressions.js';
 import { advisoryTransactionLock } from '../db/postgres-locks.js';
 
-import { and, asc, count, countDistinct, desc, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, lte, max, min, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, exists, getTableColumns, gt, gte, inArray, isNotNull, isNull, lt, lte, max, min, ne, or, sql, type SQL } from "drizzle-orm";
 
 import type { ControllerConfig } from "../config.js";
 import type { ControllerDatabase } from "../db/client.js";
@@ -51,6 +56,7 @@ import { buildGuardrailPlan, normalizeGuardrailDraft, type GuardrailDraftConfig 
 import type { CompiledArtifactInput, DeletionImpact, RuntimeEventInput, ValidationCaseResult, ValidationMetrics } from "../domain/models.js";
 import { applyValidationOverrides, emptyValidationMetrics, generatedTestCases } from "../domain/validation.js";
 import { PolicyCatalog } from "../policy-catalog/catalog.js";
+import { customPolicyCompliance } from "../policy-catalog/compliance.js";
 import { registeredAction } from "../action-catalog/catalog.js";
 import type { ValidationTerminalState } from "../../shared/lifecycle.js";
 import { guardrailCategoryLabels } from "../../shared/guardrail-catalog.js";
@@ -114,6 +120,12 @@ export class ControlPlaneService {
   async desiredGeneration(): Promise<number> {
     const [state] = await this.db.select().from(controllerState).where(eq(controllerState.id, "singleton"));
     return state?.desiredGeneration ?? 0;
+  }
+
+  async listGuardrailProfiles() {
+    const profiles = await readGuardrailProfiles(this.db);
+    const policies = await this.listPolicies();
+    return profiles.map(profile => ({ ...profile, policyBindings: expandProtectionPreset(profile, policies) }));
   }
 
   async listPolicies() {
@@ -254,7 +266,7 @@ export class ControlPlaneService {
       if (!record) throw new NotFoundError("Policy", input.id);
       this.validatePolicyDraft(input.id, record.draft, true);
       if (!record.draft.test_cases.length) throw new ValidationError("Add at least one Test Case before creating a Validation Run.");
-      const runId = `policy-validation-${randomUUID()}`;
+      const runId = `policy-testing-report-${randomUUID()}`;
       const candidateVersion = guardrailVersionId();
       const snapshot = policySnapshot(record, String(record.draftRevision), "");
       snapshot.checksum = createHash("sha256").update(stableJson(snapshot)).digest("hex");
@@ -1113,7 +1125,7 @@ export class ControlPlaneService {
         policies: this.policyCatalog().list(),
         programmablePolicies,
       });
-      const runId = `validation-${randomUUID()}`;
+      const runId = `testing-report-${randomUUID()}`;
       await tx.insert(validationRuns).values({
         id: runId,
         guardrailId: guardrail.id,
@@ -1346,9 +1358,15 @@ export class ControlPlaneService {
   }
 
   async getRuntimeEvent(id: string, includeContent = false) {
-    const [item] = await boundedRead(this.db, tx => tx.select().from(runtimeEvents).where(eq(runtimeEvents.id, id)).limit(1));
+    // Exclude large bodies in SQL, before the database driver allocates them in Node.
+    const metadata = includeContent ? runtimeEvents.metadata : sql<Record<string, unknown>>`(${runtimeEvents.metadata} - 'contentCiphertext' - 'contentBefore' - 'contentAfter' - 'httpRequest') || jsonb_build_object('contentAvailable',
+      (${this.runtimeLogEncryptionKey !== null} AND coalesce(${runtimeEvents.metadata}->>'contentCiphertext', '') <> '')
+      OR ${runtimeEvents.metadata}->'contentBefore' IS NOT NULL AND ${runtimeEvents.metadata}->'contentBefore' <> 'null'::jsonb
+      OR ${runtimeEvents.metadata}->'httpRequest' IS NOT NULL AND ${runtimeEvents.metadata}->'httpRequest' <> 'null'::jsonb
+      OR ${runtimeEvents.metadata}->'contentAfter' IS NOT NULL AND ${runtimeEvents.metadata}->'contentAfter' <> 'null'::jsonb)`;
+    const [item] = await boundedRead(this.db, tx => tx.select({ ...getTableColumns(runtimeEvents), metadata }).from(runtimeEvents).where(eq(runtimeEvents.id, id)).limit(1));
     if (!item) throw new NotFoundError("Runtime event", id);
-    const { contentCiphertext: _ciphertext, contentBefore: _before, contentAfter: _after, ...safe } = item.metadata;
+    const { contentCiphertext: _ciphertext, contentBefore: _before, contentAfter: _after, httpRequest: _httpRequest, ...safe } = item.metadata;
     return { ...item, metadata: includeContent ? decryptRuntimeEventMetadata(item.metadata, this.runtimeLogEncryptionKey) : safe };
   }
 
@@ -1419,7 +1437,7 @@ export class ControlPlaneService {
     outcome?: string | undefined;
     captured?: boolean | undefined;
     findingsOnly?: boolean | undefined;
-    severity?: 'critical' | 'high' | 'medium' | 'low' | undefined;
+    severity?: EventSeverity | EventSeverity[] | undefined;
   }) {
     let cursor: { at: string; id: string } | undefined;
     if (input.cursor) {
@@ -1429,14 +1447,15 @@ export class ControlPlaneService {
       } catch { throw new ValidationError("Invalid event cursor"); }
     }
     const findings = jsonElements(jsonValue(runtimeEvents.metadata, 'findings'), 'finding');
+    const severities = input.severity ? (Array.isArray(input.severity) ? input.severity : [input.severity]) : [];
     const conditions = [
-      input.severity ? exists(this.db.select({ severity: findingSeverity(findings.item) }).from(findings.source).where(eq(findingSeverity(findings.item), input.severity))) : undefined,
+      severities.length ? exists(this.db.select({ severity: findingSeverity(findings.item) }).from(findings.source).where(and(securityFinding(findings.item), inArray(findingSeverity(findings.item), severities)))) : undefined,
       cursor ? lt(rowValue(runtimeEvents.occurredAt, runtimeEvents.id), rowValue(timestampValue(cursor.at), literal(cursor.id))) : undefined,
       input.requestId ? eq(runtimeEvents.requestId, input.requestId) : undefined,
       input.direction ? eq(runtimeEvents.direction, input.direction) : undefined,
       input.outcome ? inArray(lowerText(runtimeEvents.decision), input.outcome === 'allow' ? ['allow','allowed','pass','passed'] : input.outcome === 'block' ? ['block','blocked','reject','rejected','deny','denied'] : input.outcome === 'transform' ? ['transform','transformed','redact','redacted','rewrite','rewritten','intervene','intervened'] : ['error','failed','failure','timeout','timed_out']) : undefined,
       input.captured ? eq(jsonText(runtimeEvents.metadata, 'runtimeLogCaptured'), 'true') : undefined,
-      input.findingsOnly ? gt(jsonArrayLength(jsonValue(runtimeEvents.metadata, 'findings')), 0) : undefined,
+      input.findingsOnly ? exists(this.db.select({ item: findings.item }).from(findings.source).where(securityFinding(findings.item))) : undefined,
       input.guardrailId ? eq(runtimeEvents.guardrailId, input.guardrailId) : undefined,
       input.routerId ? eq(runtimeEvents.routerId, input.routerId) : undefined,
       input.routeId ? eq(jsonText(runtimeEvents.metadata, "routeId"), input.routeId) : undefined,
@@ -1449,9 +1468,9 @@ export class ControlPlaneService {
     const predicate = conditions.length ? and(...conditions) : undefined;
     // SQL projection is essential: discarding metadata after SELECT still allocates the full payload in Node.
     return boundedRead(this.db, async tx => {
-    const findingSummary = jsonObject(Object.fromEntries(['id','risk','verdict','confidence','taxonomyId','recommendedAction','policyId','ruleId'].map(key => [key, jsonValue(findings.item, key)])));
+    const findingSummary = jsonObject(Object.fromEntries(['id','risk','verdict','confidence','taxonomyId','recommendedAction','policyId','ruleId','riskSeverity','policyVersion'].map(key => [key, jsonValue(findings.item, key)])));
     const metadata = jsonObject({
-      ...Object.fromEntries(['captureLevel','runtimeLogCaptured','protocol','action','timedOut','timed_out','streamFinalCheck','routeId','targetId','routerRevision','decisionId'].map(key => [key,jsonValue(runtimeEvents.metadata, key)])),
+      ...Object.fromEntries(['executionStatus','captureLevel','runtimeLogCaptured','protocol','action','timedOut','timed_out','streamFinalCheck','routeId','targetId','routerRevision','decisionId'].map(key => [key,jsonValue(runtimeEvents.metadata, key)])),
       findings: scalar(tx.select({ value: jsonAggregate(findingSummary) }).from(findings.source)),
     });
     let itemsQuery = tx.select({
@@ -1477,8 +1496,8 @@ export class ControlPlaneService {
     });
   }
 
-  async listAuditEvents(limit = 100) {
-    return this.db.select().from(auditEvents).orderBy(desc(auditEvents.occurredAt)).limit(limit);
+  async listAuditEvents(query: Partial<AuditQuery> = {}) {
+    return queryAuditEvents(this.db, query);
   }
 
   async createRouter(input: {
@@ -2324,6 +2343,7 @@ export class ControlPlaneService {
     }
     validateBindingGraph(draft);
     if (!validateDependencies) return;
+    if (draft.rail_bindings.some(binding => !binding.risk_severity)) throw new ValidationError("Choose a risk level for every Rule before testing or publishing.");
     const rules = new Map(draft.rail_bindings.map((item) => [flowRuleId(item.rail_type, item.flow_name), item]));
     const covered = new Set<string>();
     const caseIds = draft.test_cases.map((item) => item.id).filter(Boolean);
@@ -2898,6 +2918,7 @@ function programmablePolicySurface(
     description: `Runs ${binding.flow_name} on the ${binding.rail_type} Rail and applies ${binding.on_unsafe} when the Flow reports unsafe content.`,
     form: "colang_flow" as const,
     effect: binding.on_unsafe,
+    risk_severity: binding.risk_severity ?? null,
     rails: [binding.rail_type],
     implementation: {
       engine: "nemo-guardrails",
@@ -2947,6 +2968,11 @@ function programmablePolicySurface(
     description: latest?.snapshot.description ?? record.description,
     source: "custom" as const,
     version: String(latest?.version ?? 0),
+    compliance: customPolicyCompliance({
+      id: record.id, name: latest?.snapshot.name ?? record.name,
+      description: latest?.snapshot.description ?? record.description,
+      version: String(latest?.version ?? 0), rules,
+    }, latest?.snapshot.owner ?? record.owner),
     draft_revision: record.draftRevision,
     owner: latest?.snapshot.owner ?? record.owner,
     updated_at: (latest?.publishedAt ?? record.updatedAt).toISOString(),
@@ -3073,6 +3099,7 @@ function programmablePolicyPlan(
       parameter_values: snapshot.parameter_schema.flatMap((item) => item.default === null ? [] : [[item.name, item.default]]),
       enabled_rule_ids: snapshot.rail_bindings.map((item) => flowRuleId(item.rail_type, item.flow_name)),
       rule_actions: [],
+      rule_severities: snapshot.rail_bindings.filter(item => item.risk_severity).map(item => [flowRuleId(item.rail_type, item.flow_name), item.risk_severity]),
       enabled_rails: phases,
     }],
   };
@@ -3165,12 +3192,13 @@ function validateBindingGraph(draft: ProgrammablePolicyDraft): void {
 
 function decryptRuntimeEventMetadata(value: Record<string, unknown>, key: Buffer | null): Record<string, unknown> {
   const decrypted = decryptRuntimeLogPayload(value.contentCiphertext, key);
-  if (!decrypted) return value;
   const { contentCiphertext: _ciphertext, ...metadata } = value;
+  if (!decrypted) return { ...metadata, contentAvailable: Boolean(metadata.httpRequest || metadata.contentBefore || metadata.contentAfter) };
   return {
     ...metadata,
     contentBefore: decrypted.contentBefore ?? null,
     contentAfter: decrypted.contentAfter ?? null,
+    httpRequest: decrypted.httpRequest ?? null,
     contentAvailable: true,
   };
 }

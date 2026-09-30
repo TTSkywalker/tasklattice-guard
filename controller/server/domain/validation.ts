@@ -4,6 +4,7 @@ import type { PolicyDto } from "../policy-catalog/catalog.js";
 import type { ProgrammablePolicySnapshot } from "../policy-studio/model.js";
 import { normalizeGuardrailDraft, type GuardrailDraftConfig, type ValidationExpectationOverride } from "./guardrail-plan.js";
 import { PHRASE_PARAMETER, PHRASE_POLICY_ID, parsePhraseEntries } from "../../shared/phrase-policy.js";
+import { isSplitTopicPolicy, TOPIC_ALLOW_RULE, TOPIC_DENY_RULE, topicLines, topicPolicyValues } from "../../shared/topic-policy.js";
 import type { ValidationCaseResult, ValidationMetrics } from "./models.js";
 
 export type StoredTestCaseInput = {
@@ -37,9 +38,9 @@ export function generatedTestCases(
   programmablePolicies: readonly ProgrammablePolicySnapshot[] = [],
 ): StoredTestCaseInput[] {
   const draft = normalizeGuardrailDraft(draftValue);
-  const byId = new Map(policies.map((item) => [item.id, item]));
+  const byId = new Map(policies.flatMap(item => [item, ...(item.published_versions ?? [])]).map(item => [`${item.id}@${item.version}`, item]));
   const declarative = draft.policyBindings.flatMap((binding) => {
-    const policy = byId.get(binding.policyId);
+    const policy = byId.get(`${binding.policyId}@${binding.policyVersion}`);
     if (!policy) return [];
     const enabledRails = new Set(binding.enabledRails.length ? binding.enabledRails : policy.rails);
     const enabledRules = new Set(binding.enabledRuleIds);
@@ -48,7 +49,17 @@ export function generatedTestCases(
       if (!enabledRails.has(item.phase)) return [];
       const phase = item.phase;
       if (item.covered_rule_ids.length && !item.covered_rule_ids.some((id) => enabledRules.has(id))) return [];
-      const expanded = policy.id === PHRASE_POLICY_ID
+      const topicCase = policy.id === "builtin-topic-safety" && item.id === "topic-input";
+      const topicAction = binding.ruleActions["model/topic-control"] ?? binding.action ?? "redirect";
+      const topicBlockedDecision = topicAction === "reject" ? "block" as const : "intervene" as const;
+      const topicValues = topicPolicyValues(binding.parameterValues);
+      const expanded = isSplitTopicPolicy(binding.policyId, binding.policyVersion) ? item.covered_rule_ids.includes(TOPIC_DENY_RULE)
+        ? topicLines(topicValues.denied).map((topic, index) => ({ ...item, id: `${item.id}/${index + 1}`, name: `Denied topic: ${topic}`, content: `Please help me with this task: ${topic}`, expected_decision: "block" as const }))
+        : [{ ...item, expected_decision: topicValues.mode === "permissive" ? "allow" as const : (binding.ruleActions[TOPIC_ALLOW_RULE] ?? binding.action ?? "redirect") === "reject" ? "block" as const : "intervene" as const }]
+        : topicCase ? [
+        { ...item, expected_decision: draft.topicControlMode === "permissive" ? "allow" as const : topicBlockedDecision },
+        ...draft.restrictedTopics.map((topic, index) => ({ ...item, id: `${item.id}/deny-${index + 1}`, name: `Denied topic: ${topic}`, content: `Please help me with this task: ${topic}`, expected_decision: topicBlockedDecision })),
+      ] : policy.id === PHRASE_POLICY_ID
         ? parsePhraseEntries(binding.parameterValues[PHRASE_PARAMETER] ?? "").map((entry) => ({
             ...item, id: `${item.id}/${entry.id}`, name: `${item.name}: ${entry.phrase}`,
             content: entry.phrase,
@@ -133,7 +144,7 @@ export function generatedTestCases(
 }
 
 /** Preserve template assertions in storage; freeze reviewed local overlays into each run. */
-export function applyValidationOverrides<T extends { id: string; sourcePolicyId: string | null; sourcePolicyVersion: string | null; sourceCaseId: string | null; expectedDecision: string }>(cases: readonly T[], draftValue: GuardrailDraftConfig): Array<T & { expectationOverride?: ValidationExpectationOverride }> {
+export function applyValidationOverrides<T extends { id: string; sourcePolicyId: string | null; sourcePolicyVersion: string | null; sourceCaseId: string | null; expectedDecision: string; coveredRuleIds?: string[]; content?: string }>(cases: readonly T[], draftValue: GuardrailDraftConfig): Array<T & { expectationOverride?: ValidationExpectationOverride }> {
   const draft = normalizeGuardrailDraft(draftValue);
   const bindings = new Map(draft.policyBindings.map((binding) => [binding.policyId, binding]));
   for (const binding of draft.policyBindings) {
@@ -144,7 +155,19 @@ export function applyValidationOverrides<T extends { id: string; sourcePolicyId:
         throw new Error(`Review the stale expectation override for ${binding.policyId}/${caseId} after changing Policy version.`);
       }
       if (source.expectedDecision !== "allow" && override.expectedDecision === "allow") {
-        throw new Error(`Cannot weaken an unsafe inherited Test Case to allow: ${binding.policyId}/${caseId}. Use an explicit scoped exclusion instead.`);
+        // Observation-only is an explicit action contract, not a discarded
+        // unsafe test: every covered detector must still match, and the full
+        // original content must survive unchanged.
+        const recordsOnly = Boolean(source.coveredRuleIds?.length)
+          && source.coveredRuleIds!.every((ruleId) =>
+            (binding.ruleActions[ruleId] ?? binding.action) === "pass"
+            && override.expectedMatches.some((match) => match.policyId === binding.policyId && match.ruleId === ruleId))
+          && override.expectedMatches.every((match) => {
+            const target = bindings.get(match.policyId);
+            return target && (target.ruleActions[match.ruleId] ?? target.action) === "pass";
+          })
+          && typeof source.content === "string" && override.expectedOutputContent === source.content;
+        if (!recordsOnly) throw new Error(`Cannot weaken an unsafe inherited Test Case to allow: ${binding.policyId}/${caseId}. Observation-only expectations require explicit pass actions, retained Rule matches and unchanged content.`);
       }
       for (const match of override.expectedMatches) {
         if (!bindings.get(match.policyId)?.enabledRuleIds.includes(match.ruleId)) {

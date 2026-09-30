@@ -160,7 +160,7 @@ function tabs() {
 }
 
 function clickTab(tab: HTMLElement) {
-  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.click(tab, { button: 0, ctrlKey: false });
   fireEvent.mouseUp(tab, { button: 0, ctrlKey: false });
   fireEvent.click(tab);
 }

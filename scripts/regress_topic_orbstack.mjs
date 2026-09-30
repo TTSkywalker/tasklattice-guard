@@ -111,8 +111,8 @@ for (const [scope, expected] of [['Product support', 'allow'], ['Cooking and rec
   assert.deepEqual(saved.excludedTestCaseIds, []);
   assert.equal(saved.draftRevision, 1);
   const requested = saved.latestValidationRun?.status === 'passed' ? saved.latestValidationRun
-    : (await call('/api/v1/validation-runs', { body: { guardrailId: created.id }, expected: 202 })).data;
-  const validation = await until('inherited Topic validation', async () => (await call(`/api/v1/validation-runs/${requested.id}`)).data,
+    : (await call(`/api/v1/guardrails/${encodeURIComponent(created.id)}/test-runs`, { body: { guardrailId: created.id }, expected: 202 })).data;
+  const validation = await until('inherited Topic validation', async () => (await call(`/api/v1/test-runs/${requested.id}`)).data,
     d => ['passed', 'failed'].includes(d.status));
   assert.equal(validation.status, 'passed', JSON.stringify(validation.results));
   assert(validation.metrics.total > 0);

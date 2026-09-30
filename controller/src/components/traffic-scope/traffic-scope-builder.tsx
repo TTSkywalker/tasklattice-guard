@@ -8,9 +8,9 @@ import {
   type ValueEditorProps,
 } from "react-querybuilder";
 import "react-querybuilder/dist/query-builder.css";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
-import { QueryBuilderShadcn, ShadcnValueEditor } from "@/components/query-builder";
+import { QueryBuilderCarbon, CarbonValueEditor } from "@/components/query-builder";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,7 +57,7 @@ export function TrafficScopeBuilder({
             <span className="rounded-md border bg-background px-2 py-1 font-mono text-xs text-muted-foreground">{ruleCount} / {maxRules}</span>
           </div>
 
-          <QueryBuilderShadcn>
+          <QueryBuilderCarbon>
             <QueryBuilder
               fields={fields}
               query={query}
@@ -106,13 +106,13 @@ export function TrafficScopeBuilder({
               }}
               resetOnFieldChange
             />
-          </QueryBuilderShadcn>
+          </QueryBuilderCarbon>
 
           {conflicts.map((conflict) => {
             const label = t(`routers.trafficScopeFields.${conflict.field.replaceAll(".", "_")}`);
             const field = conflict.key ? `${label}:${conflict.key}` : label;
             return (
-              <Alert key={`${conflict.path.join(".")}:${conflict.field}:${conflict.key}`} className="border-amber-200 bg-amber-50 text-amber-800">
+              <Alert variant="warning" key={`${conflict.path.join(".")}:${conflict.field}:${conflict.key}`} className="border-amber-200 bg-amber-50 text-amber-800">
                 <AlertTriangle />
                 <AlertTitle>{t("routers.trafficScopeBuilder.conflictTitle")}</AlertTitle>
                 <AlertDescription className="text-amber-800/80">
@@ -172,24 +172,25 @@ function TrafficActionElement({
 }
 
 function TrafficValueEditor(props: ValueEditorProps) {
+  const { t: uiText } = useTranslation();
   const definition = (props.fieldData as TrafficField).definition;
   if (!definition?.custom_key) {
-    return <ShadcnValueEditor {...props} className={cn(props.className, "min-h-10")} extraProps={{ "aria-label": fieldLabelForId(props.field) }} />;
+    return <CarbonValueEditor {...props} className={cn(props.className, "min-h-10")} extraProps={{ "aria-label": fieldLabelForId(props.field) }} />;
   }
   const encoded = customRuleValue(props.value);
   return (
     <div className={cn(props.className, "grid min-w-0 gap-2 sm:grid-cols-2")}>
       <Input
-        className="min-h-10 font-mono text-xs"
-        aria-label="Attribute name"
+        className="field:min-h-10 field:font-mono field:text-xs"
+        aria-label={uiText("uiCopy.attributeName")}
         value={encoded.key}
         placeholder={definition.source === "header" ? "x-app-id" : definition.source === "jwt_claim" ? "department" : "sdk.agent_id"}
         disabled={props.disabled}
         onChange={(event) => props.handleOnChange({ ...encoded, key: event.target.value })}
       />
       <Input
-        className="min-h-10 font-mono text-xs"
-        aria-label="Attribute value"
+        className="field:min-h-10 field:font-mono field:text-xs"
+        aria-label={uiText("uiCopy.attributeValue")}
         value={encoded.value}
         placeholder="finance-agent"
         disabled={props.disabled}

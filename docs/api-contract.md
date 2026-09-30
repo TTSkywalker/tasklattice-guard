@@ -19,12 +19,12 @@ After changing an API, run `npm run openapi:generate --prefix controller`. Build
 | Product domain | OpenAPI Tags |
 | --- | --- |
 | Account | account, access-tokens |
-| Guardrail Design | guardrails, policies, validation, authoring, playground |
+| Guardrail Design | guardrails, policies, testing, authoring, playground |
 | Integration | routers, endpoints |
 | Observability | telemetry, audit |
 | Platform Settings | model-providers, models, model-configurations, runners, system |
 
-Tags explain the product; they do not determine authorization. For example, Router traffic statistics belong to telemetry but still require routers:read. Guardrail and Policy validation both belong to validation but require their respective module permissions. Use each operation's `x-token-permission` as the authority.
+Tags explain the product; they do not determine authorization. For example, Router traffic statistics belong to telemetry but still require routers:read. Guardrail and Policy testing both belong to testing but require their respective module permissions. Use each operation's `x-token-permission` as the authority.
 
 Tokens are passed through `Authorization: Bearer <token>`. `GET /api/v1/account/identity` returns identity and effective permissions. The current authorization scope is module-level read/write, covering all resources in that module. Writes also require the current account to have an administrator role. Token management accepts only the account owner's browser Session.
 
@@ -35,9 +35,9 @@ The paths below omit the common `/api/v1` prefix. Old paths have been removed, w
 | Resource / responsibility | Current path and behavior |
 | --- | --- |
 | Guardrail Test Case | `GET/POST /guardrails/{guardrailId}/test-cases`; `DELETE /guardrails/{guardrailId}/test-cases/{caseId}`. The parent ID is required to locate the case. |
-| Executable Guardrail validation | `POST /guardrails/{guardrailId}/validation-runs` creates a job; global `/validation-runs` supports queries across Guardrails. |
+| Executable Guardrail testing | `POST /guardrails/{guardrailId}/test-runs` creates a job; global `/test-runs` supports queries across Guardrails. |
 | Static Policy checks | `GET /policies/{id}/draft/checks` performs read-only checks without creating a Runner job. |
-| Executable Policy validation | `POST /policies/{id}/validation-runs` creates a job and returns 202, Location, and statusUrl. Poll this specific job through `/policies/{id}/validation-runs/{runId}`; latest is only for browsing the most recent record. |
+| Executable Policy testing | `POST /policies/{id}/test-runs` creates a job and returns 202, Location, and statusUrl. Poll this specific job through `/policies/{id}/test-runs/{runId}`; latest is only for browsing the most recent record. |
 | Router publication preview | `POST /routers/{id}/publication-preview` resolves the reviewed version, snapshot, and Endpoint set. |
 | Router rule simulation | `POST /routers/{id}/simulations` computes input matches without publishing or executing a Guardrail. |
 | Router historical traffic | `/routers/{id}/traffic-distribution` and its route-specific counterpart. Read Router rolloutStatus/desiredGeneration for configuration distribution status. |

@@ -1,3 +1,4 @@
+import { uiCopyEn } from "../ui-copy-i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -17,6 +18,7 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
   useTranslation: () => ({
     t: (key: string, values?: Record<string, string | number>) => {
+      if (key.startsWith("uiCopy.")) return uiCopyEn[key.slice(7) as keyof typeof uiCopyEn];
       const labels: Record<string, string> = {
         "common.cancel": "Cancel",
         "common.back": "Back",
@@ -459,6 +461,21 @@ describe("Endpoint onboarding", () => {
 });
 
 describe("Endpoint request quality", () => {
+  afterEach(cleanup);
+  it("keeps the row action menu separate from opening the Endpoint drawer", async () => {
+    const item = endpoint();
+    const onEndpointChange = vi.fn();
+    deleteEndpointMock.mockClear();
+    getEndpointsMock.mockResolvedValue({ items: [item] });
+    renderWithProviders(<EndpointsPage onEndpointChange={onEndpointChange} />);
+    fireEvent.click(await screen.findByRole("button", { name: "resourceList.actionsFor" }));
+    expect(onEndpointChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "resourceList.viewDetails" }));
+    expect(onEndpointChange).toHaveBeenCalledExactlyOnceWith(item.id);
+    expect(deleteEndpointMock).not.toHaveBeenCalled();
+  });
+
+
   it("shows observed success rate and detection P95 with a request sample", async () => {
     getEndpointsMock.mockResolvedValue({ items: [endpoint({ request_count: 4, error_count: 1, detection_p95_ms: 90 })] });
     renderWithProviders(<EndpointsPage />);

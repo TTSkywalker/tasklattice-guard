@@ -295,23 +295,114 @@
         },
         "type": "object"
       },
-      "getAuditEventsQueryLimit": {
-        "default": 100,
-        "maximum": 500,
-        "minimum": 1,
-        "type": "integer"
+      "getAuditEventsQuery": {
+        "properties": {
+          "actor": {
+            "default": "all",
+            "enum": [
+              "all",
+              "human",
+              "system"
+            ],
+            "type": "string"
+          },
+          "before": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "limit": {
+            "default": 25,
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page": {
+            "default": 1,
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "q": {
+            "default": "",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "resourceType": {
+            "default": "",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "window": {
+            "default": "7d",
+            "enum": [
+              "24h",
+              "7d",
+              "30d",
+              "all"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "getAuditEventsResponse": {
         "properties": {
+          "before": {
+            "type": "string"
+          },
+          "facets": {
+            "$ref": "#/components/schemas/getAuditEventsResponseFacets"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/getAuditEventsResponseItemsItem"
             },
             "type": "array"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
           }
         },
         "required": [
-          "items"
+          "items",
+          "total",
+          "page",
+          "limit",
+          "before",
+          "facets"
+        ],
+        "type": "object"
+      },
+      "getAuditEventsResponseFacets": {
+        "properties": {
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "resourceTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kinds",
+          "resourceTypes"
         ],
         "type": "object"
       },
@@ -328,7 +419,7 @@
             ]
           },
           "detail": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "id": {
             "type": "string"
@@ -632,6 +723,550 @@
         ],
         "type": "object"
       },
+      "getGuardrailProfilesResponse": {
+        "properties": {
+          "count": {
+            "type": "number"
+          },
+          "directories": {
+            "maxItems": 8,
+            "minItems": 8,
+            "prefixItems": [
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem0"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem1"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem2"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem3"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem4"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem5"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem6"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem7"
+              }
+            ],
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "directories",
+          "items",
+          "count"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem0": {
+        "properties": {
+          "description": {
+            "const": "Harmful content, harassment, discrimination and abuse.",
+            "type": "string"
+          },
+          "id": {
+            "const": "content_safety",
+            "type": "string"
+          },
+          "label": {
+            "const": "Content safety",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem1": {
+        "properties": {
+          "description": {
+            "const": "Personal information, financial identifiers, passwords and credentials.",
+            "type": "string"
+          },
+          "id": {
+            "const": "privacy",
+            "type": "string"
+          },
+          "label": {
+            "const": "Privacy & sensitive information",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem2": {
+        "properties": {
+          "description": {
+            "const": "Keep conversations within your approved business scope.",
+            "type": "string"
+          },
+          "id": {
+            "const": "business_topics",
+            "type": "string"
+          },
+          "label": {
+            "const": "Business topics",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem3": {
+        "properties": {
+          "description": {
+            "const": "Your own words, phrases, brands and content patterns.",
+            "type": "string"
+          },
+          "id": {
+            "const": "content_filters",
+            "type": "string"
+          },
+          "label": {
+            "const": "Words & content filters",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem4": {
+        "properties": {
+          "description": {
+            "const": "Jailbreaks, prompt manipulation and abusive context padding.",
+            "type": "string"
+          },
+          "id": {
+            "const": "attacks_and_abuse",
+            "type": "string"
+          },
+          "label": {
+            "const": "Attacks & abuse",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem5": {
+        "properties": {
+          "description": {
+            "const": "Potentially dangerous code, SQL, templates and rendered content.",
+            "type": "string"
+          },
+          "id": {
+            "const": "application_injection",
+            "type": "string"
+          },
+          "label": {
+            "const": "Code & application injection",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem6": {
+        "properties": {
+          "description": {
+            "const": "Reviewed business restrictions and industry-specific text controls.",
+            "type": "string"
+          },
+          "id": {
+            "const": "business_rules",
+            "type": "string"
+          },
+          "label": {
+            "const": "Business & industry rules",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseDirectoriesItem7": {
+        "properties": {
+          "description": {
+            "const": "Check responses against evidence and explicit business rules.",
+            "type": "string"
+          },
+          "id": {
+            "const": "answer_reliability",
+            "type": "string"
+          },
+          "label": {
+            "const": "Answer reliability",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItem": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "categoryName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "industry": {
+            "enum": [
+              "banking",
+              "general",
+              "internet",
+              "securities"
+            ],
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "jurisdictions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "optionalPolicyIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPoliciesItem"
+            },
+            "type": "array"
+          },
+          "policyBindings": {
+            "items": {
+              "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItem"
+            },
+            "type": "array"
+          },
+          "suggestedTopics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "name",
+          "description",
+          "industry",
+          "jurisdictions",
+          "policies",
+          "suggestedTopics",
+          "optionalPolicyIds",
+          "limitations",
+          "category",
+          "categoryName",
+          "isDefault",
+          "policyBindings"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPoliciesItem": {
+        "properties": {
+          "enabledRails": {
+            "items": {
+              "enum": [
+                "input",
+                "output"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "parameterValues": {
+            "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPoliciesItemParameterValues"
+          },
+          "policyId": {
+            "type": "string"
+          },
+          "policyVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "policyId",
+          "policyVersion",
+          "enabledRails",
+          "parameterValues"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPoliciesItemParameterValues": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPolicyBindingsItem": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": "clarify",
+                "type": "string"
+              },
+              {
+                "const": "fallback",
+                "type": "string"
+              },
+              {
+                "const": "pass",
+                "type": "string"
+              },
+              {
+                "const": "redact",
+                "type": "string"
+              },
+              {
+                "const": "redirect",
+                "type": "string"
+              },
+              {
+                "const": "regenerate",
+                "type": "string"
+              },
+              {
+                "const": "reject",
+                "type": "string"
+              },
+              {
+                "const": "rewrite",
+                "type": "string"
+              }
+            ]
+          },
+          "enabledRails": {
+            "items": {
+              "enum": [
+                "dialog",
+                "execution",
+                "input",
+                "output",
+                "retrieval"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabledRuleIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "parameterValues": {
+            "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPoliciesItemParameterValues"
+          },
+          "policyId": {
+            "type": "string"
+          },
+          "policyVersion": {
+            "type": "string"
+          },
+          "reasoningPolicy": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItemReasoningPolicy"
+              }
+            ]
+          },
+          "ruleActions": {
+            "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItemRuleActions"
+          },
+          "ruleOrder": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "testCaseOverrides": {
+            "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverrides"
+          }
+        },
+        "required": [
+          "policyId",
+          "policyVersion",
+          "action",
+          "parameterValues",
+          "enabledRuleIds",
+          "ruleActions",
+          "enabledRails",
+          "reasoningPolicy"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPolicyBindingsItemReasoningPolicy": {
+        "properties": {
+          "confidenceThreshold": {
+            "type": "number"
+          },
+          "policyId": {
+            "type": "string"
+          },
+          "policyVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "policyId",
+          "policyVersion",
+          "confidenceThreshold"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPolicyBindingsItemRuleActions": {
+        "additionalProperties": {
+          "enum": [
+            "clarify",
+            "fallback",
+            "pass",
+            "redact",
+            "redirect",
+            "regenerate",
+            "reject",
+            "rewrite"
+          ],
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverrides": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverridesValue"
+        },
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverridesValue": {
+        "properties": {
+          "expectedDecision": {
+            "enum": [
+              "allow",
+              "block",
+              "intervene",
+              "transform"
+            ],
+            "type": "string"
+          },
+          "expectedMatches": {
+            "items": {
+              "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverridesValueExpectedMatchesItem"
+            },
+            "type": "array"
+          },
+          "expectedOutputContent": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sourcePolicyVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourcePolicyVersion",
+          "reason",
+          "expectedDecision",
+          "expectedMatches"
+        ],
+        "type": "object"
+      },
+      "getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverridesValueExpectedMatchesItem": {
+        "properties": {
+          "policyId": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "policyId",
+          "ruleId"
+        ],
+        "type": "object"
+      },
       "getGuardrailsByGuardrailIdTestCasesResponse": {
         "properties": {
           "count": {
@@ -678,7 +1313,7 @@
             "type": "boolean"
           },
           "expectationOverride": {
-            "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverridesValue"
+            "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverridesValue"
           },
           "expectedDecision": {
             "type": "string"
@@ -1105,7 +1740,7 @@
             "type": "boolean"
           },
           "plan": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "runtimeProfile": {
             "type": "string"
@@ -1188,7 +1823,7 @@
             "type": "string"
           },
           "plan": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "prompts": {
             "items": {
@@ -1419,7 +2054,7 @@
           },
           "policyBindings": {
             "items": {
-              "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItem"
+              "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItem"
             },
             "type": "array"
           },
@@ -1432,6 +2067,13 @@
           "safetyLevel": {
             "enum": [
               "balanced",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "topicControlMode": {
+            "enum": [
+              "permissive",
               "strict"
             ],
             "type": "string"
@@ -1643,7 +2285,7 @@
             "type": "array"
           },
           "expectationOverride": {
-            "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverridesValue"
+            "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPolicyBindingsItemTestCaseOverridesValue"
           },
           "expectedDecision": {
             "type": "string"
@@ -1670,7 +2312,7 @@
           },
           "findings": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           },
@@ -1767,7 +2409,7 @@
           },
           "trace": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           },
@@ -1927,16 +2569,6 @@
               "$ref": "#/components/schemas/getModelConfigurationResponseProvidersItem"
             },
             "type": "array"
-          },
-          "rollbackTarget": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "type": "string"
-              }
-            ]
           }
         },
         "required": [
@@ -1945,8 +2577,7 @@
           "draft",
           "active",
           "activating",
-          "failed",
-          "rollbackTarget"
+          "failed"
         ],
         "type": "object"
       },
@@ -1993,8 +2624,8 @@
           "id": {
             "type": "string"
           },
-          "revision": {
-            "type": "number"
+          "reviewToken": {
+            "type": "string"
           },
           "state": {
             "enum": [
@@ -2035,7 +2666,7 @@
         },
         "required": [
           "id",
-          "revision",
+          "reviewToken",
           "state",
           "generation",
           "assignments",
@@ -2759,7 +3390,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse": {
+      "getPoliciesByIdTestRunsLatestResponse": {
         "properties": {
           "status": {
             "const": "not_run",
@@ -2771,7 +3402,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse2": {
+      "getPoliciesByIdTestRunsLatestResponse2": {
         "properties": {
           "created_at": {
             "type": "string"
@@ -2797,7 +3428,7 @@
           },
           "results": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItem"
             },
             "type": "array"
           },
@@ -2822,7 +3453,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse2ResultsItem": {
+      "getPoliciesByIdTestRunsLatestResponse2ResultsItem": {
         "properties": {
           "actual_decision": {
             "type": "string"
@@ -2899,7 +3530,7 @@
           },
           "trace": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           }
@@ -2923,7 +3554,7 @@
         ],
         "type": "object"
       },
-      "getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem": {
+      "getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem": {
         "additionalProperties": {
           "description": "Application-defined JSON value."
         },
@@ -2956,6 +3587,9 @@
       },
       "getPoliciesResponseItemsItem": {
         "properties": {
+          "compliance": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemCompliance"
+          },
           "description": {
             "type": "string"
           },
@@ -3005,6 +3639,12 @@
           },
           "protection": {
             "$ref": "#/components/schemas/getPoliciesResponseItemsItemProtection"
+          },
+          "published_versions": {
+            "items": {
+              "$ref": "#/components/schemas/getPoliciesResponseItemsItem"
+            },
+            "type": "array"
           },
           "rails": {
             "items": {
@@ -3081,6 +3721,9 @@
       },
       "getPoliciesResponseItemsItem2": {
         "properties": {
+          "compliance": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemCompliance"
+          },
           "description": {
             "type": "string"
           },
@@ -3205,6 +3848,7 @@
           "description",
           "source",
           "version",
+          "compliance",
           "draft_revision",
           "owner",
           "updated_at",
@@ -3467,6 +4111,33 @@
           "required": {
             "type": "boolean"
           },
+          "risk_severity": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": "critical",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "type": "string"
+              },
+              {
+                "const": "informational",
+                "type": "string"
+              },
+              {
+                "const": "low",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "type": "string"
+              }
+            ]
+          },
           "timeout_ms": {
             "type": "number"
           }
@@ -3476,6 +4147,7 @@
           "flow_name",
           "execution_mode",
           "on_unsafe",
+          "risk_severity",
           "parallel_group",
           "priority",
           "timeout_ms",
@@ -3818,6 +4490,9 @@
       },
       "getPoliciesResponseItemsItem2Published_versionsItem": {
         "properties": {
+          "compliance": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemCompliance"
+          },
           "description": {
             "type": "string"
           },
@@ -3929,6 +4604,7 @@
           "description",
           "source",
           "version",
+          "compliance",
           "owner",
           "updated_at",
           "tags",
@@ -4059,6 +4735,33 @@
           "redaction": {
             "type": "null"
           },
+          "risk_severity": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": "critical",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "type": "string"
+              },
+              {
+                "const": "informational",
+                "type": "string"
+              },
+              {
+                "const": "low",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "type": "string"
+              }
+            ]
+          },
           "severity_threshold": {
             "type": "null"
           }
@@ -4069,6 +4772,7 @@
           "description",
           "form",
           "effect",
+          "risk_severity",
           "rails",
           "implementation",
           "expression",
@@ -4376,6 +5080,174 @@
         ],
         "type": "object"
       },
+      "getPoliciesResponseItemsItemCompliance": {
+        "properties": {
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceCoverageItem"
+            },
+            "type": "array"
+          },
+          "jurisdiction": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          },
+          "license_status": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          },
+          "limitations": {
+            "items": {
+              "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+            },
+            "type": "array"
+          },
+          "maintainer": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceReferencesItem"
+            },
+            "type": "array"
+          },
+          "review": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceReview"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          },
+          "upstream_status": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          }
+        },
+        "required": [
+          "policy_version",
+          "summary",
+          "jurisdiction",
+          "provenance",
+          "maintainer",
+          "upstream_status",
+          "license_status",
+          "references",
+          "coverage",
+          "limitations",
+          "review"
+        ],
+        "type": "object"
+      },
+      "getPoliciesResponseItemsItemComplianceCoverageItem": {
+        "properties": {
+          "description": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          },
+          "rule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rule_ids",
+          "description"
+        ],
+        "type": "object"
+      },
+      "getPoliciesResponseItemsItemComplianceReferencesItem": {
+        "properties": {
+          "provision": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "relevance": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          },
+          "rule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "url",
+          "publisher",
+          "provision",
+          "relevance",
+          "rule_ids"
+        ],
+        "type": "object"
+      },
+      "getPoliciesResponseItemsItemComplianceReview": {
+        "properties": {
+          "notes": {
+            "$ref": "#/components/schemas/getPoliciesResponseItemsItemComplianceSummary"
+          },
+          "reviewed_on": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "reviewer": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "reviewed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reviewed_on",
+          "reviewer",
+          "notes"
+        ],
+        "type": "object"
+      },
+      "getPoliciesResponseItemsItemComplianceSummary": {
+        "properties": {
+          "en": {
+            "type": "string"
+          },
+          "zh": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "en",
+          "zh"
+        ],
+        "type": "object"
+      },
       "getPoliciesResponseItemsItemParametersItem": {
         "properties": {
           "default": {
@@ -4622,6 +5494,33 @@
               }
             ]
           },
+          "risk_severity": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": "critical",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "type": "string"
+              },
+              {
+                "const": "informational",
+                "type": "string"
+              },
+              {
+                "const": "low",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "type": "string"
+              }
+            ]
+          },
           "severity_threshold": {
             "anyOf": [
               {
@@ -4645,6 +5544,7 @@
           "description",
           "form",
           "effect",
+          "risk_severity",
           "rails",
           "implementation",
           "expression",
@@ -4968,35 +5868,35 @@
             "minItems": 8,
             "prefixItems": [
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem0"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem0"
               },
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem1"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem1"
               },
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem2"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem2"
               },
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem3"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem3"
               },
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem4"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem4"
               },
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem5"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem5"
               },
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem6"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem6"
               },
               {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseDirectoriesItem7"
+                "$ref": "#/components/schemas/getGuardrailProfilesResponseDirectoriesItem7"
               }
             ],
             "type": "array"
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItem"
+              "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItem"
             },
             "type": "array"
           }
@@ -5005,488 +5905,6 @@
           "directories",
           "items",
           "count"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem0": {
-        "properties": {
-          "description": {
-            "const": "Harmful content, harassment, discrimination and abuse.",
-            "type": "string"
-          },
-          "id": {
-            "const": "content_safety",
-            "type": "string"
-          },
-          "label": {
-            "const": "Content safety",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem1": {
-        "properties": {
-          "description": {
-            "const": "Personal information, financial identifiers, passwords and credentials.",
-            "type": "string"
-          },
-          "id": {
-            "const": "privacy",
-            "type": "string"
-          },
-          "label": {
-            "const": "Privacy & sensitive information",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem2": {
-        "properties": {
-          "description": {
-            "const": "Keep conversations within your approved business scope.",
-            "type": "string"
-          },
-          "id": {
-            "const": "business_topics",
-            "type": "string"
-          },
-          "label": {
-            "const": "Business topics",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem3": {
-        "properties": {
-          "description": {
-            "const": "Your own words, phrases, brands and content patterns.",
-            "type": "string"
-          },
-          "id": {
-            "const": "content_filters",
-            "type": "string"
-          },
-          "label": {
-            "const": "Words & content filters",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem4": {
-        "properties": {
-          "description": {
-            "const": "Jailbreaks, prompt manipulation and abusive context padding.",
-            "type": "string"
-          },
-          "id": {
-            "const": "attacks_and_abuse",
-            "type": "string"
-          },
-          "label": {
-            "const": "Attacks & abuse",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem5": {
-        "properties": {
-          "description": {
-            "const": "Potentially dangerous code, SQL, templates and rendered content.",
-            "type": "string"
-          },
-          "id": {
-            "const": "application_injection",
-            "type": "string"
-          },
-          "label": {
-            "const": "Code & application injection",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem6": {
-        "properties": {
-          "description": {
-            "const": "Reviewed business restrictions and industry-specific text controls.",
-            "type": "string"
-          },
-          "id": {
-            "const": "business_rules",
-            "type": "string"
-          },
-          "label": {
-            "const": "Business & industry rules",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseDirectoriesItem7": {
-        "properties": {
-          "description": {
-            "const": "Check responses against evidence and explicit business rules.",
-            "type": "string"
-          },
-          "id": {
-            "const": "answer_reliability",
-            "type": "string"
-          },
-          "label": {
-            "const": "Answer reliability",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "description"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItem": {
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "industry": {
-            "enum": [
-              "banking",
-              "general",
-              "internet",
-              "securities"
-            ],
-            "type": "string"
-          },
-          "jurisdictions": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "limitations": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "name": {
-            "type": "string"
-          },
-          "optionalPolicyIds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "policies": {
-            "items": {
-              "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPoliciesItem"
-            },
-            "type": "array"
-          },
-          "policyBindings": {
-            "items": {
-              "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItem"
-            },
-            "type": "array"
-          },
-          "suggestedTopics": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "version": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "version",
-          "name",
-          "description",
-          "industry",
-          "jurisdictions",
-          "policies",
-          "suggestedTopics",
-          "optionalPolicyIds",
-          "limitations",
-          "policyBindings"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPoliciesItem": {
-        "properties": {
-          "enabledRails": {
-            "items": {
-              "enum": [
-                "input",
-                "output"
-              ],
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "parameterValues": {
-            "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPoliciesItemParameterValues"
-          },
-          "policyId": {
-            "type": "string"
-          },
-          "policyVersion": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "policyId",
-          "policyVersion",
-          "enabledRails",
-          "parameterValues"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPoliciesItemParameterValues": {
-        "additionalProperties": {
-          "type": "string"
-        },
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItem": {
-        "properties": {
-          "action": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "const": "clarify",
-                "type": "string"
-              },
-              {
-                "const": "fallback",
-                "type": "string"
-              },
-              {
-                "const": "pass",
-                "type": "string"
-              },
-              {
-                "const": "redact",
-                "type": "string"
-              },
-              {
-                "const": "redirect",
-                "type": "string"
-              },
-              {
-                "const": "regenerate",
-                "type": "string"
-              },
-              {
-                "const": "reject",
-                "type": "string"
-              },
-              {
-                "const": "rewrite",
-                "type": "string"
-              }
-            ]
-          },
-          "enabledRails": {
-            "items": {
-              "enum": [
-                "dialog",
-                "execution",
-                "input",
-                "output",
-                "retrieval"
-              ],
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "enabledRuleIds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "parameterValues": {
-            "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPoliciesItemParameterValues"
-          },
-          "policyId": {
-            "type": "string"
-          },
-          "policyVersion": {
-            "type": "string"
-          },
-          "reasoningPolicy": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemReasoningPolicy"
-              }
-            ]
-          },
-          "ruleActions": {
-            "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemRuleActions"
-          },
-          "ruleOrder": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "testCaseOverrides": {
-            "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverrides"
-          }
-        },
-        "required": [
-          "policyId",
-          "policyVersion",
-          "action",
-          "parameterValues",
-          "enabledRuleIds",
-          "ruleActions",
-          "enabledRails",
-          "reasoningPolicy"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemReasoningPolicy": {
-        "properties": {
-          "confidenceThreshold": {
-            "type": "number"
-          },
-          "policyId": {
-            "type": "string"
-          },
-          "policyVersion": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "policyId",
-          "policyVersion",
-          "confidenceThreshold"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemRuleActions": {
-        "additionalProperties": {
-          "enum": [
-            "clarify",
-            "fallback",
-            "pass",
-            "redact",
-            "redirect",
-            "regenerate",
-            "reject",
-            "rewrite"
-          ],
-          "type": "string"
-        },
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverrides": {
-        "additionalProperties": {
-          "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverridesValue"
-        },
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverridesValue": {
-        "properties": {
-          "expectedDecision": {
-            "enum": [
-              "allow",
-              "block",
-              "intervene",
-              "transform"
-            ],
-            "type": "string"
-          },
-          "expectedMatches": {
-            "items": {
-              "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverridesValueExpectedMatchesItem"
-            },
-            "type": "array"
-          },
-          "expectedOutputContent": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "sourcePolicyVersion": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "sourcePolicyVersion",
-          "reason",
-          "expectedDecision",
-          "expectedMatches"
-        ],
-        "type": "object"
-      },
-      "getPolicyCatalogProtectionPresetsResponseItemsItemPolicyBindingsItemTestCaseOverridesValueExpectedMatchesItem": {
-        "properties": {
-          "policyId": {
-            "type": "string"
-          },
-          "ruleId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "policyId",
-          "ruleId"
         ],
         "type": "object"
       },
@@ -6637,7 +7055,7 @@
             "type": "number"
           },
           "labels": {
-            "$ref": "#/components/schemas/getPolicyCatalogProtectionPresetsResponseItemsItemPoliciesItemParameterValues"
+            "$ref": "#/components/schemas/getGuardrailProfilesResponseItemsItemPoliciesItemParameterValues"
           },
           "lastHeartbeatAt": {
             "format": "date-time",
@@ -7261,11 +7679,122 @@
         ],
         "type": "object"
       },
+      "getSystemVersionResponse": {
+        "properties": {
+          "controlPlane": {
+            "$ref": "#/components/schemas/getSystemVersionResponseControlPlane"
+          },
+          "dataPlane": {
+            "items": {
+              "$ref": "#/components/schemas/getSystemVersionResponseDataPlaneItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "controlPlane",
+          "dataPlane"
+        ],
+        "type": "object"
+      },
+      "getSystemVersionResponseControlPlane": {
+        "properties": {
+          "branch": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "dirty": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": false,
+                "type": "boolean"
+              },
+              {
+                "const": true,
+                "type": "boolean"
+              }
+            ]
+          },
+          "source": {
+            "enum": [
+              "build",
+              "unknown",
+              "workspace"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "commit",
+          "branch",
+          "dirty",
+          "source"
+        ],
+        "type": "object"
+      },
+      "getSystemVersionResponseDataPlaneItem": {
+        "properties": {
+          "lastHeartbeatAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "poolId": {
+            "type": "string"
+          },
+          "runnerId": {
+            "type": "string"
+          },
+          "software": {
+            "$ref": "#/components/schemas/getSystemVersionResponseControlPlane"
+          },
+          "status": {
+            "enum": [
+              "busy",
+              "offline",
+              "ready",
+              "saturated",
+              "syncing"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "runnerId",
+          "poolId",
+          "status",
+          "lastHeartbeatAt",
+          "software"
+        ],
+        "type": "object"
+      },
       "getTelemetryEndpointActivityResponse": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
             },
             "type": "array"
           }
@@ -7391,6 +7920,19 @@
         ],
         "type": "object"
       },
+      "getTelemetryEventsByIdQuery": {
+        "properties": {
+          "includeContent": {
+            "default": "false",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "getTelemetryEventsByIdResponse": {
         "properties": {
           "decision": {
@@ -7436,7 +7978,7 @@
             "type": "string"
           },
           "metadata": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "occurredAt": {
             "format": "date-time",
@@ -7550,12 +8092,7 @@
             "type": "integer"
           },
           "severity": {
-            "enum": [
-              "critical",
-              "high",
-              "medium",
-              "low"
-            ],
+            "description": "One or more comma-separated Rule risk levels: critical, high, medium, low, informational, unclassified. Matches any selected level before pagination.",
             "type": "string"
           },
           "since": {
@@ -7643,7 +8180,7 @@
             "type": "string"
           },
           "metadata": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "occurredAt": {
             "format": "date-time",
@@ -8006,6 +8543,9 @@
           "high": {
             "type": "number"
           },
+          "informational": {
+            "type": "number"
+          },
           "latest_at": {
             "anyOf": [
               {
@@ -8025,6 +8565,9 @@
           },
           "total": {
             "type": "number"
+          },
+          "unclassified": {
+            "type": "number"
           }
         },
         "required": [
@@ -8033,6 +8576,8 @@
           "high",
           "medium",
           "low",
+          "informational",
+          "unclassified",
           "affected_traces",
           "latest_at"
         ],
@@ -8285,7 +8830,7 @@
         ],
         "type": "object"
       },
-      "getValidationRunsResponse": {
+      "getTestRunsResponse": {
         "properties": {
           "count": {
             "type": "number"
@@ -8606,9 +9151,11 @@
               "restrictedTopics": {
                 "default": [],
                 "items": {
-                  "not": {}
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
                 },
-                "maxItems": 0,
+                "maxItems": 256,
                 "type": "array"
               },
               "safetyLevel": {
@@ -8616,6 +9163,14 @@
                 "enum": [
                   "balanced",
                   "strict"
+                ],
+                "type": "string"
+              },
+              "topicControlMode": {
+                "default": "permissive",
+                "enum": [
+                  "strict",
+                  "permissive"
                 ],
                 "type": "string"
               }
@@ -8643,7 +9198,7 @@
         },
         "type": "object"
       },
-      "patchGuardrailsByIdValidationScopeRequest": {
+      "patchGuardrailsByIdTestScopeRequest": {
         "properties": {
           "caseId": {
             "minLength": 1,
@@ -8659,7 +9214,7 @@
         ],
         "type": "object"
       },
-      "patchGuardrailsByIdValidationScopeResponse": {
+      "patchGuardrailsByIdTestScopeResponse": {
         "properties": {
           "caseType": {
             "type": "string"
@@ -9076,6 +9631,24 @@
                     "required": {
                       "default": true,
                       "type": "boolean"
+                    },
+                    "risk_severity": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "critical",
+                            "high",
+                            "medium",
+                            "low",
+                            "informational"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
                     },
                     "timeout_ms": {
                       "default": 2000,
@@ -9516,6 +10089,12 @@
             },
             "type": "array"
           },
+          "restricted_topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "review_notes": {
             "items": {
               "type": "string"
@@ -9533,12 +10112,20 @@
           },
           "summary": {
             "type": "string"
+          },
+          "topic_control_mode": {
+            "enum": [
+              "permissive",
+              "strict"
+            ],
+            "type": "string"
           }
         },
         "required": [
           "summary",
           "structured_purpose",
           "allowed_topics",
+          "restricted_topics",
           "review_notes",
           "requirements",
           "recommended_policy_ids",
@@ -9620,6 +10207,11 @@
       },
       "postAuthoringIntentAnalysesRequest": {
         "properties": {
+          "deniedPurpose": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
           "language": {
             "default": "en",
             "enum": [
@@ -9630,7 +10222,15 @@
           },
           "purpose": {
             "maxLength": 2000,
-            "minLength": 20,
+            "minLength": 1,
+            "type": "string"
+          },
+          "topicControlMode": {
+            "default": "permissive",
+            "enum": [
+              "strict",
+              "permissive"
+            ],
             "type": "string"
           }
         },
@@ -9647,6 +10247,12 @@
             },
             "type": "array"
           },
+          "restricted_topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "review_notes": {
             "items": {
               "type": "string"
@@ -9658,12 +10264,20 @@
           },
           "summary": {
             "type": "string"
+          },
+          "topic_control_mode": {
+            "enum": [
+              "permissive",
+              "strict"
+            ],
+            "type": "string"
           }
         },
         "required": [
           "summary",
           "structured_purpose",
           "allowed_topics",
+          "restricted_topics",
           "review_notes"
         ],
         "type": "object"
@@ -9916,9 +10530,11 @@
               "restrictedTopics": {
                 "default": [],
                 "items": {
-                  "not": {}
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
                 },
-                "maxItems": 0,
+                "maxItems": 256,
                 "type": "array"
               },
               "safetyLevel": {
@@ -9926,6 +10542,14 @@
                 "enum": [
                   "balanced",
                   "strict"
+                ],
+                "type": "string"
+              },
+              "topicControlMode": {
+                "default": "permissive",
+                "enum": [
+                  "strict",
+                  "permissive"
                 ],
                 "type": "string"
               }
@@ -10645,7 +11269,7 @@
             "type": "string"
           },
           "plan": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "runtimeProfile": {
             "type": "string"
@@ -11081,9 +11705,11 @@
               "restrictedTopics": {
                 "default": [],
                 "items": {
-                  "not": {}
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
                 },
-                "maxItems": 0,
+                "maxItems": 256,
                 "type": "array"
               },
               "safetyLevel": {
@@ -11091,6 +11717,14 @@
                 "enum": [
                   "balanced",
                   "strict"
+                ],
+                "type": "string"
+              },
+              "topicControlMode": {
+                "default": "permissive",
+                "enum": [
+                  "strict",
+                  "permissive"
                 ],
                 "type": "string"
               }
@@ -11119,6 +11753,137 @@
         "required": [
           "name",
           "draftConfig"
+        ],
+        "type": "object"
+      },
+      "postModelConfigurationApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "bindingIds": {
+            "items": {
+              "enum": [
+                "content_safety.input",
+                "content_safety.output",
+                "jailbreak.input",
+                "topic_control.input",
+                "pii_semantic.input",
+                "pii_semantic.output",
+                "contextual_grounding.output",
+                "automated_reasoning.output"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "x-runtime-validation": "Additional runtime refinements apply; JSON Schema validation alone does not guarantee acceptance."
+          },
+          "expectedActiveId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedDraftToken": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "bindingIds",
+          "expectedDraftToken",
+          "expectedActiveId"
+        ],
+        "type": "object"
+      },
+      "postModelConfigurationApplyResponse": {
+        "properties": {
+          "activating": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
+              }
+            ]
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
+              }
+            ]
+          },
+          "distribution": {
+            "$ref": "#/components/schemas/postModelConfigurationApplyResponseDistribution"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
+              }
+            ]
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
+              }
+            ]
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/getModelConfigurationResponseModelsItem"
+            },
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/getModelConfigurationResponseProvidersItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "models",
+          "draft",
+          "active",
+          "activating",
+          "failed",
+          "distribution"
+        ],
+        "type": "object"
+      },
+      "postModelConfigurationApplyResponseDistribution": {
+        "properties": {
+          "desiredGeneration": {
+            "type": "number"
+          },
+          "distributionStatus": {
+            "enum": [
+              "ready",
+              "syncing"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "desiredGeneration",
+          "distributionStatus"
         ],
         "type": "object"
       },
@@ -11195,8 +11960,8 @@
           "id": {
             "type": "string"
           },
-          "revision": {
-            "type": "number"
+          "reviewToken": {
+            "type": "string"
           },
           "state": {
             "enum": [
@@ -11242,7 +12007,7 @@
           "validationId",
           "expiresAt",
           "id",
-          "revision",
+          "reviewToken",
           "state",
           "generation",
           "assignments",
@@ -11268,198 +12033,6 @@
           "automated_reasoning.output"
         ],
         "type": "string"
-      },
-      "postModelConfigurationRevisionsByIdActivateResponse": {
-        "properties": {
-          "activating": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "active": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "distribution": {
-            "$ref": "#/components/schemas/postModelConfigurationRevisionsByIdActivateResponseDistribution"
-          },
-          "draft": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "failed": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "models": {
-            "items": {
-              "$ref": "#/components/schemas/getModelConfigurationResponseModelsItem"
-            },
-            "type": "array"
-          },
-          "providers": {
-            "items": {
-              "$ref": "#/components/schemas/getModelConfigurationResponseProvidersItem"
-            },
-            "type": "array"
-          },
-          "rollbackTarget": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "type": "string"
-              }
-            ]
-          }
-        },
-        "required": [
-          "providers",
-          "models",
-          "draft",
-          "active",
-          "activating",
-          "failed",
-          "rollbackTarget",
-          "distribution"
-        ],
-        "type": "object"
-      },
-      "postModelConfigurationRevisionsByIdActivateResponseDistribution": {
-        "properties": {
-          "desiredGeneration": {
-            "type": "number"
-          },
-          "distributionStatus": {
-            "enum": [
-              "ready",
-              "syncing"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "desiredGeneration",
-          "distributionStatus"
-        ],
-        "type": "object"
-      },
-      "postModelConfigurationRollbackRequest": {
-        "properties": {
-          "targetRevisionId": {
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "targetRevisionId"
-        ],
-        "type": "object"
-      },
-      "postModelConfigurationRollbackResponse": {
-        "properties": {
-          "activating": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "active": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "distribution": {
-            "$ref": "#/components/schemas/postModelConfigurationRevisionsByIdActivateResponseDistribution"
-          },
-          "draft": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "failed": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/getModelConfigurationResponseDraft"
-              }
-            ]
-          },
-          "models": {
-            "items": {
-              "$ref": "#/components/schemas/getModelConfigurationResponseModelsItem"
-            },
-            "type": "array"
-          },
-          "providers": {
-            "items": {
-              "$ref": "#/components/schemas/getModelConfigurationResponseProvidersItem"
-            },
-            "type": "array"
-          },
-          "rollbackTarget": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "type": "string"
-              }
-            ]
-          }
-        },
-        "required": [
-          "providers",
-          "models",
-          "draft",
-          "active",
-          "activating",
-          "failed",
-          "rollbackTarget",
-          "distribution"
-        ],
-        "type": "object"
       },
       "postModelProviderDiscoveriesRequest": {
         "properties": {
@@ -12235,6 +12808,16 @@
               }
             ]
           },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
           "recommended_action": {
             "type": "string"
           },
@@ -12250,9 +12833,12 @@
           },
           "severity": {
             "enum": [
+              "critical",
               "high",
+              "informational",
               "low",
-              "medium"
+              "medium",
+              "unclassified"
             ],
             "type": "string"
           },
@@ -12272,6 +12858,7 @@
           "confidence",
           "recommended_action",
           "policy_id",
+          "policy_version",
           "rule_id"
         ],
         "type": "object"
@@ -12799,7 +13386,7 @@
       "postPlaygroundPathTestsResponse2": {
         "properties": {
           "body": {
-            "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItemTraceItem"
+            "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItemTraceItem"
           },
           "callId": {
             "type": "string"
@@ -13140,7 +13727,7 @@
         ],
         "type": "object"
       },
-      "postPoliciesByIdValidationRunsResponse": {
+      "postPoliciesByIdTestRunsResponse": {
         "properties": {
           "completedAt": {
             "anyOf": [
@@ -13181,7 +13768,7 @@
           },
           "results": {
             "items": {
-              "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2ResultsItem"
+              "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2ResultsItem"
             },
             "type": "array"
           },
@@ -13448,6 +14035,24 @@
                     "required": {
                       "default": true,
                       "type": "boolean"
+                    },
+                    "risk_severity": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "critical",
+                            "high",
+                            "medium",
+                            "low",
+                            "informational"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
                     },
                     "timeout_ms": {
                       "default": 2000,
@@ -16082,7 +16687,7 @@
         },
         "x-product-area": "Account",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#325"
+        "x-source": "server/http/app.ts#332"
       },
       "post": {
         "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. Browser session only. Revocation is a no-op when already revoked. Creation returns the secret once; it cannot be recovered or transparently replayed. Browser session only. Personal access tokens cannot manage credentials. Ownership is taken from the authenticated session.",
@@ -16233,7 +16838,7 @@
         },
         "x-product-area": "Account",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#327"
+        "x-source": "server/http/app.ts#334"
       }
     },
     "/api/v1/account/access-tokens/{id}": {
@@ -16379,7 +16984,7 @@
         },
         "x-product-area": "Account",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#332"
+        "x-source": "server/http/app.ts#339"
       }
     },
     "/api/v1/account/identity": {
@@ -16515,7 +17120,7 @@
         },
         "x-product-area": "Account",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#336"
+        "x-source": "server/http/app.ts#343"
       }
     },
     "/api/v1/audit-events": {
@@ -16525,10 +17130,93 @@
         "parameters": [
           {
             "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 300,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "human",
+                "system"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "7d",
+              "enum": [
+                "24h",
+                "7d",
+                "30d",
+                "all"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resourceType",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/getAuditEventsQueryLimit"
+              "default": 25,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+              "type": "string"
             }
           }
         ],
@@ -16652,7 +17340,7 @@
         },
         "x-product-area": "Observability",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#958",
+        "x-source": "server/http/app.ts#973",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -18375,6 +19063,138 @@
         }
       }
     },
+    "/api/v1/guardrail-profiles": {
+      "get": {
+        "description": "Reads current state without creating resources or advancing a lifecycle. Requires policies:read for personal access tokens. Token access covers all resources in the selected module.",
+        "operationId": "getGuardrailProfiles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/getGuardrailProfilesResponse"
+                }
+              }
+            },
+            "description": "Successful response."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request schema validation failed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing, invalid, expired or revoked credential."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Insufficient token permission, account role, or session requirement."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "State conflict; reload and review before retrying."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Domain validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal server error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Required service or runtime is unavailable."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Other Controller or upstream failure. Inspect error.code and error.message before deciding whether to retry."
+          }
+        },
+        "security": [
+          {
+            "personalAccessToken": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Read guardrail profiles",
+        "tags": [
+          "guardrails"
+        ],
+        "x-account-role": "user",
+        "x-idempotency": {
+          "mode": "safe-read"
+        },
+        "x-product-area": "Guardrail Design",
+        "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
+        "x-source": "server/http/app.ts#463",
+        "x-token-account-role": "user",
+        "x-token-permission": {
+          "access": "read",
+          "module": "policies"
+        }
+      }
+    },
     "/api/v1/guardrails": {
       "get": {
         "description": "Reads current state without creating resources or advancing a lifecycle. Requires guardrails:read for personal access tokens. Token access covers all resources in the selected module.",
@@ -18773,7 +19593,7 @@
         ],
         "summary": "Read test cases",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -18923,7 +19743,7 @@
         ],
         "summary": "Create test cases",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -19066,7 +19886,7 @@
         ],
         "summary": "Delete test cases",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -19082,10 +19902,10 @@
         }
       }
     },
-    "/api/v1/guardrails/{guardrailId}/validation-runs": {
+    "/api/v1/guardrails/{guardrailId}/test-runs": {
       "post": {
         "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. Creates a new Runner task on each request. Track the returned run ID rather than latest, which can change when another task is created. Requires guardrails:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "postGuardrailsByGuardrailIdValidationRuns",
+        "operationId": "postGuardrailsByGuardrailIdTestRuns",
         "parameters": [
           {
             "in": "path",
@@ -19206,9 +20026,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Start an executable validation run",
+        "summary": "Start a Test Run",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -20563,10 +21383,10 @@
         }
       }
     },
-    "/api/v1/guardrails/{id}/validation-scope": {
+    "/api/v1/guardrails/{id}/test-scope": {
       "patch": {
         "description": "Updates the supplied fields; omitted fields are retained. Validation or draft state may be invalidated. Requires guardrails:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "patchGuardrailsByIdValidationScope",
+        "operationId": "patchGuardrailsByIdTestScope",
         "parameters": [
           {
             "in": "path",
@@ -20581,7 +21401,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/patchGuardrailsByIdValidationScopeRequest"
+                "$ref": "#/components/schemas/patchGuardrailsByIdTestScopeRequest"
               }
             }
           },
@@ -20592,7 +21412,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/patchGuardrailsByIdValidationScopeResponse"
+                  "$ref": "#/components/schemas/patchGuardrailsByIdTestScopeResponse"
                 }
               }
             },
@@ -20697,9 +21517,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Update validation scope",
+        "summary": "Update test scope",
         "tags": [
-          "guardrails"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -20982,10 +21802,162 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#345",
+        "x-source": "server/http/app.ts#352",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
+          "module": "models"
+        }
+      }
+    },
+    "/api/v1/model-configuration/apply": {
+      "post": {
+        "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. Requires bindingIds, expectedDraftToken (from draft.reviewToken) and expectedActiveId. Applies only selected changes with Runner Rail evidence; explicit removals are allowed. Unselected bindings retain current values, and pending edits remain saved. Stale reviews and in-flight applies return 409. 200 means Runner synchronization completed; 202 means still syncing, not yet globally effective. Replaces current configuration after acknowledgement; no version history or rollback is retained. Read GET /model-configuration before retrying. Requires models:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
+        "operationId": "postModelConfigurationApply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/postModelConfigurationApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/postModelConfigurationApplyResponse"
+                }
+              }
+            },
+            "description": "Successful response."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/postModelConfigurationApplyResponse"
+                }
+              }
+            },
+            "description": "Accepted for asynchronous processing; this does not guarantee deployment or completion."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request schema validation failed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing, invalid, expired or revoked credential."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Insufficient token permission, account role, or session requirement."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "State conflict; reload and review before retrying."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Domain validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal server error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Required service or runtime is unavailable."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Other Controller or upstream failure. Inspect error.code and error.message before deciding whether to retry."
+          }
+        },
+        "security": [
+          {
+            "personalAccessToken": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Apply selected model configuration changes",
+        "tags": [
+          "model-configurations"
+        ],
+        "x-account-role": "admin",
+        "x-idempotency": {
+          "mode": "not-guaranteed"
+        },
+        "x-product-area": "Platform Settings",
+        "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
+        "x-source": "server/http/app.ts#446",
+        "x-token-account-role": "admin",
+        "x-token-permission": {
+          "access": "write",
           "module": "models"
         }
       }
@@ -21124,7 +22096,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#409",
+        "x-source": "server/http/app.ts#416",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -21276,7 +22248,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#413",
+        "x-source": "server/http/app.ts#420",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -21428,7 +22400,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#424",
+        "x-source": "server/http/app.ts#431",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -21578,7 +22550,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#430",
+        "x-source": "server/http/app.ts#437",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -21720,7 +22692,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#419",
+        "x-source": "server/http/app.ts#426",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -21852,311 +22824,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#435",
-        "x-token-account-role": "admin",
-        "x-token-permission": {
-          "access": "write",
-          "module": "models"
-        }
-      }
-    },
-    "/api/v1/model-configuration/revisions/{id}/activate": {
-      "post": {
-        "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. A revision can be consumed once; repeated activation can return 409. 200 means current distribution completed, 202 means it is still syncing. Read GET /model-configuration to track activating/active/failed by revision ID. Requires models:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "postModelConfigurationRevisionsByIdActivate",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/postModelConfigurationRevisionsByIdActivateResponse"
-                }
-              }
-            },
-            "description": "Successful response."
-          },
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/postModelConfigurationRevisionsByIdActivateResponse"
-                }
-              }
-            },
-            "description": "Accepted for asynchronous processing; this does not guarantee deployment or completion."
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Request schema validation failed."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing, invalid, expired or revoked credential."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Insufficient token permission, account role, or session requirement."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "State conflict; reload and review before retrying."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Domain validation failed."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal server error."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Required service or runtime is unavailable."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Other Controller or upstream failure. Inspect error.code and error.message before deciding whether to retry."
-          }
-        },
-        "security": [
-          {
-            "personalAccessToken": []
-          },
-          {
-            "sessionCookie": []
-          }
-        ],
-        "summary": "Activate the identified validated model configuration revision",
-        "tags": [
-          "model-configurations"
-        ],
-        "x-account-role": "admin",
-        "x-idempotency": {
-          "mode": "not-guaranteed"
-        },
-        "x-product-area": "Platform Settings",
-        "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#439",
-        "x-token-account-role": "admin",
-        "x-token-permission": {
-          "access": "write",
-          "module": "models"
-        }
-      }
-    },
-    "/api/v1/model-configuration/rollback": {
-      "post": {
-        "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. targetRevisionId must identify a superseded revision. Control-plane Chat assignment is retained. This operation creates and activates a new revision; do not automatically retry it. Requires models:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "postModelConfigurationRollback",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/postModelConfigurationRollbackRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/postModelConfigurationRollbackResponse"
-                }
-              }
-            },
-            "description": "Successful response."
-          },
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/postModelConfigurationRollbackResponse"
-                }
-              }
-            },
-            "description": "Accepted for asynchronous processing; this does not guarantee deployment or completion."
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Request schema validation failed."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing, invalid, expired or revoked credential."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Insufficient token permission, account role, or session requirement."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "State conflict; reload and review before retrying."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Domain validation failed."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal server error."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Required service or runtime is unavailable."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Other Controller or upstream failure. Inspect error.code and error.message before deciding whether to retry."
-          }
-        },
-        "security": [
-          {
-            "personalAccessToken": []
-          },
-          {
-            "sessionCookie": []
-          }
-        ],
-        "summary": "Roll back to an explicit model configuration revision",
-        "tags": [
-          "model-configurations"
-        ],
-        "x-account-role": "admin",
-        "x-idempotency": {
-          "mode": "not-guaranteed"
-        },
-        "x-product-area": "Platform Settings",
-        "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#450",
+        "x-source": "server/http/app.ts#442",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -22298,7 +22966,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#357",
+        "x-source": "server/http/app.ts#364",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -22440,7 +23108,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#361",
+        "x-source": "server/http/app.ts#368",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -22575,7 +23243,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#378",
+        "x-source": "server/http/app.ts#385",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -22715,7 +23383,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#349",
+        "x-source": "server/http/app.ts#356",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -22850,7 +23518,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#373",
+        "x-source": "server/http/app.ts#380",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -23000,7 +23668,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#353",
+        "x-source": "server/http/app.ts#360",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -23142,7 +23810,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#365",
+        "x-source": "server/http/app.ts#372",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -23284,7 +23952,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#369",
+        "x-source": "server/http/app.ts#376",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -23419,7 +24087,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#383",
+        "x-source": "server/http/app.ts#390",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -23559,7 +24227,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#388",
+        "x-source": "server/http/app.ts#395",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -23694,7 +24362,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#404",
+        "x-source": "server/http/app.ts#411",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -23836,7 +24504,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#392",
+        "x-source": "server/http/app.ts#399",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -23978,7 +24646,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#396",
+        "x-source": "server/http/app.ts#403",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -24130,7 +24798,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#400",
+        "x-source": "server/http/app.ts#407",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -24871,7 +25539,7 @@
         },
         "x-product-area": "Guardrail Design",
         "x-retry-policy": "Simulation may repeat. Execution can incur model work; inspect the result before retrying.",
-        "x-source": "server/http/app.ts#892",
+        "x-source": "server/http/app.ts#904",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -25003,7 +25671,7 @@
         },
         "x-product-area": "Guardrail Design",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#463",
+        "x-source": "server/http/app.ts#459",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -25877,10 +26545,10 @@
         }
       }
     },
-    "/api/v1/policies/{id}/validation-runs": {
+    "/api/v1/policies/{id}/test-runs": {
       "post": {
         "description": "Creates a resource or executes the named operation. A network failure does not prove that execution failed. Creates a new Runner task on each request. Track the returned run ID rather than latest, which can change when another task is created. Requires policies:write for personal access tokens. Write includes read access and requires a current administrator account. This operation also requires the admin account role. Token access covers all resources in the selected module.",
-        "operationId": "postPoliciesByIdValidationRuns",
+        "operationId": "postPoliciesByIdTestRuns",
         "parameters": [
           {
             "in": "path",
@@ -25896,7 +26564,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/postPoliciesByIdValidationRunsResponse"
+                  "$ref": "#/components/schemas/postPoliciesByIdTestRunsResponse"
                 }
               }
             },
@@ -26001,9 +26669,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Start an executable validation run",
+        "summary": "Start a Test Run",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "admin",
         "x-idempotency": {
@@ -26019,10 +26687,10 @@
         }
       }
     },
-    "/api/v1/policies/{id}/validation-runs/latest": {
+    "/api/v1/policies/{id}/test-runs/latest": {
       "get": {
-        "description": "Reads current state without creating resources or advancing a lifecycle. The target can change when another run starts. To track your request, use the returned runId on /policies/{id}/validation-runs/{runId}. Requires policies:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getPoliciesByIdValidationRunsLatest",
+        "description": "Reads current state without creating resources or advancing a lifecycle. The target can change when another run starts. To track your request, use the returned runId on /policies/{id}/test-runs/{runId}. Requires policies:read for personal access tokens. Token access covers all resources in the selected module.",
+        "operationId": "getPoliciesByIdTestRunsLatest",
         "parameters": [
           {
             "in": "path",
@@ -26040,10 +26708,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse"
+                      "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2"
+                      "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2"
                     }
                   ]
                 }
@@ -26150,9 +26818,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read the most recent Policy validation run",
+        "summary": "Read the most recent Policy Test Run",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -26168,10 +26836,10 @@
         }
       }
     },
-    "/api/v1/policies/{id}/validation-runs/{runId}": {
+    "/api/v1/policies/{id}/test-runs/{runId}": {
       "get": {
         "description": "Reads current state without creating resources or advancing a lifecycle. Requires policies:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getPoliciesByIdValidationRunsByRunId",
+        "operationId": "getPoliciesByIdTestRunsByRunId",
         "parameters": [
           {
             "in": "path",
@@ -26195,7 +26863,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/getPoliciesByIdValidationRunsLatestResponse2"
+                  "$ref": "#/components/schemas/getPoliciesByIdTestRunsLatestResponse2"
                 }
               }
             },
@@ -26300,9 +26968,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read validation runs",
+        "summary": "Read test runs",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -26574,7 +27242,7 @@
         },
         "x-product-area": "Guardrail Design",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#467",
+        "x-source": "server/http/app.ts#468",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -26706,7 +27374,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#831",
+        "x-source": "server/http/app.ts#843",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -26846,7 +27514,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#836",
+        "x-source": "server/http/app.ts#848",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -26981,7 +27649,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#844",
+        "x-source": "server/http/app.ts#856",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -27121,7 +27789,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#835",
+        "x-source": "server/http/app.ts#847",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -27273,7 +27941,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "GET the draft and compare contents after uncertainty; never substitute a newer expectedDraftRevision without review.",
-        "x-source": "server/http/app.ts#840",
+        "x-source": "server/http/app.ts#852",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -27425,7 +28093,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#869",
+        "x-source": "server/http/app.ts#881",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -27577,7 +28245,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "May repeat; referenced versions or Endpoint bindings may have changed. Review the new result.",
-        "x-source": "server/http/app.ts#849",
+        "x-source": "server/http/app.ts#861",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -27736,7 +28404,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same key and normalized body after uncertainty. Inspect publication.replayed and the original revision; do not issue a new key blindly.",
-        "x-source": "server/http/app.ts#853",
+        "x-source": "server/http/app.ts#865",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -27878,7 +28546,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#875",
+        "x-source": "server/http/app.ts#887",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -28021,7 +28689,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#859",
+        "x-source": "server/http/app.ts#871",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -28169,7 +28837,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#876",
+        "x-source": "server/http/app.ts#888",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -28328,7 +28996,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same key and normalized body after uncertainty. Inspect publication.replayed and the original revision; do not issue a new key blindly.",
-        "x-source": "server/http/app.ts#863",
+        "x-source": "server/http/app.ts#875",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -28508,7 +29176,7 @@
         },
         "x-product-area": "Observability",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#887",
+        "x-source": "server/http/app.ts#899",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -28660,7 +29328,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "May repeat with the same input.",
-        "x-source": "server/http/app.ts#918",
+        "x-source": "server/http/app.ts#930",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -28832,7 +29500,7 @@
         },
         "x-product-area": "Observability",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#883",
+        "x-source": "server/http/app.ts#895",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -28975,7 +29643,7 @@
         },
         "x-product-area": "Integration",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#923",
+        "x-source": "server/http/app.ts#935",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -29133,7 +29801,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Refresh Runner state after an uncertain response. A reconnect may create a new registration.",
-        "x-source": "server/http/app.ts#818",
+        "x-source": "server/http/app.ts#830",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -29265,7 +29933,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#813",
+        "x-source": "server/http/app.ts#825",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -29417,7 +30085,7 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Do not automatically retry an uncertain write. Read its result or current resource first.",
-        "x-source": "server/http/app.ts#814",
+        "x-source": "server/http/app.ts#826",
         "x-token-account-role": "admin",
         "x-token-permission": {
           "access": "write",
@@ -29522,7 +30190,139 @@
         },
         "x-product-area": "Platform Settings",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#243"
+        "x-source": "server/http/app.ts#250"
+      }
+    },
+    "/api/v1/system/version": {
+      "get": {
+        "description": "Reads current state without creating resources or advancing a lifecycle. Requires runners:read for personal access tokens. Token access covers all resources in the selected module.",
+        "operationId": "getSystemVersion",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/getSystemVersionResponse"
+                }
+              }
+            },
+            "description": "Successful response."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request schema validation failed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing, invalid, expired or revoked credential."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Insufficient token permission, account role, or session requirement."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "State conflict; reload and review before retrying."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Domain validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal server error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Required service or runtime is unavailable."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Other Controller or upstream failure. Inspect error.code and error.message before deciding whether to retry."
+          }
+        },
+        "security": [
+          {
+            "personalAccessToken": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Read version",
+        "tags": [
+          "system"
+        ],
+        "x-account-role": "user",
+        "x-idempotency": {
+          "mode": "safe-read"
+        },
+        "x-product-area": "Platform Settings",
+        "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
+        "x-source": "server/http/app.ts#813",
+        "x-token-account-role": "user",
+        "x-token-permission": {
+          "access": "read",
+          "module": "runners"
+        }
       }
     },
     "/api/v1/telemetry/endpoint-activity": {
@@ -29656,7 +30456,7 @@
         },
         "x-product-area": "Observability",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#953",
+        "x-source": "server/http/app.ts#968",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -29824,12 +30624,7 @@
             "name": "severity",
             "required": false,
             "schema": {
-              "enum": [
-                "critical",
-                "high",
-                "medium",
-                "low"
-              ],
+              "description": "One or more comma-separated Rule risk levels: critical, high, medium, low, informational, unclassified. Matches any selected level before pagination.",
               "type": "string"
             }
           }
@@ -29954,7 +30749,7 @@
         },
         "x-product-area": "Observability",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#931",
+        "x-source": "server/http/app.ts#943",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -29972,6 +30767,19 @@
             "name": "id",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeContent",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
               "type": "string"
             }
           }
@@ -30096,7 +30904,7 @@
         },
         "x-product-area": "Observability",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#952",
+        "x-source": "server/http/app.ts#964",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -30264,7 +31072,7 @@
         },
         "x-product-area": "Observability",
         "x-retry-policy": "Repeat the same request; the response may reflect newer state or absence.",
-        "x-source": "server/http/app.ts#954",
+        "x-source": "server/http/app.ts#969",
         "x-token-account-role": "user",
         "x-token-permission": {
           "access": "read",
@@ -30272,10 +31080,10 @@
         }
       }
     },
-    "/api/v1/validation-runs": {
+    "/api/v1/test-runs": {
       "get": {
         "description": "Reads current state without creating resources or advancing a lifecycle. Requires guardrails:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getValidationRuns",
+        "operationId": "getTestRuns",
         "parameters": [
           {
             "in": "query",
@@ -30291,7 +31099,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/getValidationRunsResponse"
+                  "$ref": "#/components/schemas/getTestRunsResponse"
                 }
               }
             },
@@ -30396,9 +31204,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read validation runs",
+        "summary": "Read test runs",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -30414,10 +31222,10 @@
         }
       }
     },
-    "/api/v1/validation-runs/{runId}": {
+    "/api/v1/test-runs/{runId}": {
       "get": {
         "description": "Reads current state without creating resources or advancing a lifecycle. Requires guardrails:read for personal access tokens. Token access covers all resources in the selected module.",
-        "operationId": "getValidationRunsByRunId",
+        "operationId": "getTestRunsByRunId",
         "parameters": [
           {
             "in": "path",
@@ -30538,9 +31346,9 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Read validation runs",
+        "summary": "Read test runs",
         "tags": [
-          "validation"
+          "testing"
         ],
         "x-account-role": "user",
         "x-idempotency": {
@@ -30585,8 +31393,8 @@
       "x-product-area": "Guardrail Design"
     },
     {
-      "description": "Guardrail Test Cases and executable Guardrail/Policy validation runs.",
-      "name": "validation",
+      "description": "Test Cases and Test Runs that check Guardrail/Policy Rule behavior against expected results.",
+      "name": "testing",
       "x-product-area": "Guardrail Design"
     },
     {

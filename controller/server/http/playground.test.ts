@@ -222,6 +222,8 @@ describe("Guardrail Playground HTTP capability", () => {
         taxonomy_id: "TALI-PRIVACY-PII",
         verdict: "unsafe",
         confidence: 0.99,
+        risk_severity: "medium",
+        policy_version: "7",
         evidence: "PII detected",
         recommended_action: "reject",
         policy_id: "privacy",
@@ -254,7 +256,9 @@ describe("Guardrail Playground HTTP capability", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ state: "input_blocked", assistant_message: null });
+    await expect(response.json()).resolves.toMatchObject({ state: "input_blocked", assistant_message: null,
+      input_check: { findings: [expect.objectContaining({ severity: "medium", policy_version: "7", recommended_action: "reject" })] },
+    });
     expect(modelFetch).not.toHaveBeenCalled();
     expect(runnerFetch).toHaveBeenCalledTimes(1);
   });

@@ -137,7 +137,7 @@ describe("ProbeConversationPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "playground.sendMessage" }));
 
     await waitFor(() => expect(request).toHaveBeenCalledWith("Second question"));
-    expect(screen.getByText("Second question")).toBeTruthy();
+    expect(await screen.findByText("Second question")).toBeTruthy();
     expect(screen.getByText("playground.processingTurnDescription")).toBeTruthy();
     expect(screen.getByRole("button", { name: "playground.sendMessage" }).querySelector(".animate-spin")).toBeTruthy();
 

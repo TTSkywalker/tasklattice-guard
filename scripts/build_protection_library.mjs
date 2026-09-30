@@ -43,9 +43,25 @@ function split(sourceId, selected, id, name, description, tags = [], directory =
   const { rules, tests } = extract(sourceId, selected);
   return policy(id, name, description, directory, rules, [...tests, ...benignCases], tags);
 }
+// Reviewed risk belongs to the Rule, not its action or detector confidence.
+// Keep generated-only Rules explicit so regeneration cannot drop their levels.
+const generatedRuleRisk = {
+  "credential/password": "high",
+  "identity/passport": "medium",
+  "banking/identity-evasion": "low",
+  "banking/return-guarantee": "low",
+  "securities/inside-information": "low",
+  "securities/manipulation": "low",
+  "internet/phishing": "low",
+  "internet/session-theft": "high",
+  "application/active-html": "high",
+  "application/template-traversal": "high",
+};
 function regexRule(id, name, expression, taxonomy, effect = "reject") {
+  const risk_severity = generatedRuleRisk[id];
+  if (!risk_severity) throw new Error(`Missing reviewed risk level for generated Rule ${id}`);
   return {
-    id, name, description: "Matches this reviewed text pattern, not arbitrary semantic variants.", form: "regex", effect,
+    id, name, description: "Matches this reviewed text pattern, not arbitrary semantic variants.", form: "regex", effect, risk_severity,
     rails: ["input", "output"], expression,
     ...(effect === "redact" ? { redaction: "[REDACTED]" } : {}),
     implementation: { engine: "nemo-guardrails", form: "regex", binding_id: "", implementation_rule_id: id, detector: "regex" },
@@ -87,7 +103,6 @@ const focused = [
   personalDocuments,
   split("pdpa-singapore", (rule) => ["sg-pdpa-pii-identifiers/sg_nric", "sg-pdpa-contact-information/sg_phone", "sg-pdpa-financial-data/sg_bank_account"].includes(rule.id), "singapore-customer-identifiers", "Singapore customer identifiers", "Redact NRIC/FIN, +65 phone and Singapore bank-account patterns. Passport detection is provided by the shared Passport identifiers Policy. This is bounded text screening, not PDPA compliance.", singapore),
   split("pdpa-singapore", (rule) => rule.form === "category", "singapore-data-use-boundaries", "Singapore data-use boundaries", "Local phrase checks for personal-data misuse, unsolicited contact and profiling requests. Does not determine consent, cross-border legality or regulatory compliance.", singapore, "business_rules"),
-  split("mas-ai-risk-management", (rule) => !rule.id.startsWith("sg-mas-model-security/"), "singapore-financial-conduct", "Singapore financial AI reference controls", "Reviewed local financial-conduct phrases inspired by the existing MAS reference collection. Does not implement decision fairness, human oversight, legal compliance or certification.", singapore, "business_rules"),
   textPolicy("banking-customer-protection", "Banking customer protection", "Local text boundaries for identity-check evasion and misleading return guarantees. Safe banking education remains allowed; no KYC, AML or suitability decisions are performed.", [
     ["banking/identity-evasion", "Identity-check evasion", "(?i)\\b(?:help me|show me how to|I will)\\s+(?:bypass|evade)\\s+(?:KYC|AML|identity verification)\\b|帮我绕过(?:身份验证|反洗钱检查)", "TALI-BUSINESS-POLICY", "Help me bypass KYC", "帮我绕过身份验证"],
     ["banking/return-guarantee", "Unqualified investment guarantees", "(?i)\\b(?:I|we)\\s+guarantee\\s+(?:a\\s+)?(?:[0-9]+%\\s+)?(?:profit|returns?)\\b|(?:我|我们)保证(?:稳赚不赔|投资收益|盈利)", "TALI-BUSINESS-POLICY", "We guarantee returns on this investment.", "我们保证稳赚不赔"],

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, CheckCircle2, ChevronDown, ExternalLink, ShieldCheck, SkipForward } from "lucide-react";
-import { useRef, type ReactNode } from "react";
+import { useRef, type ReactNode, type Ref } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ModelMark } from "@/components/playground/model-mark";
@@ -87,9 +87,9 @@ export function StageTabs({ result }: { result: PlaygroundInteraction }) {
   );
 }
 
-function StageTabTrigger({ value, title, description, state, stateLabel }: { value: string; title: string; description: string; state: string; stateLabel: string }) {
+function StageTabTrigger({ ref, value, title, description, state, stateLabel }: { ref?: Ref<HTMLButtonElement>; value: string; title: string; description: string; state: string; stateLabel: string }) {
   return (
-    <TabsTrigger value={value}>
+    <TabsTrigger ref={ref} value={value}>
       <span>{title}</span>
       <StateBadge state={state} label={stateLabel} />
       <span className="sr-only">{description}</span>

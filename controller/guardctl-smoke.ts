@@ -60,7 +60,7 @@ async function main() {
     ['show audit-events', 'GET /api/v1/audit-events'],
     ['show identity', 'GET /api/v1/account/identity'],
     ['show access-tokens', 'GET /api/v1/account/access-tokens'],
-    ['show validation-runs', 'GET /api/v1/validation-runs'],
+    ['show test-runs', 'GET /api/v1/test-runs'],
   ];
   for (const [name, pathStr] of anonymousCommands) {
     const [m, p] = pathStr.split(' ');
@@ -101,7 +101,7 @@ async function main() {
     record('show test-cases <guardrail-id>', await req('GET', '/api/v1/guardrails/' + encodeURIComponent(grId) + '/test-cases'));
   }
   if (polId) {
-    record('show policy-validation <policy-id>', await req('GET', '/api/v1/policies/' + encodeURIComponent(polId) + '/validation-runs/latest'));
+    record('show policy-test <policy-id>', await req('GET', '/api/v1/policies/' + encodeURIComponent(polId) + '/test-runs/latest'));
     record('show policies <id>', await req('GET', '/api/v1/policies/' + encodeURIComponent(polId)));
   }
   if (rtrId) {

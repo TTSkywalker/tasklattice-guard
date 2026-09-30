@@ -1,9 +1,13 @@
+import { readSoftwareVersion } from "../services/software-version.js";
+import { parseSoftwareVersion } from "../../shared/software-version.js";
+import { auditQuerySchema } from "../../shared/audit-query.js";
 import { pathTestSchema, parseHttpRequest, requestSource } from "../../shared/playground-path.js";
 import { openApiDocument, apiReferenceHtml, apiAgentIndex } from "./openapi.js";
 import { allowsTokenPermission } from "../../shared/access-tokens.js";
 import type { AccessTokenService, TokenIdentity } from "../services/access-tokens.js";
 import { requiredTokenPermission } from "./token-permissions.js";
-import { routerDraftSchema, previewRouter, selectorFields, selectorFieldCatalog, RoutingEvaluationError, routingInputSchema } from "../../shared/traffic-routing.js";
+import { partialModelActivationSchema } from "../../shared/model-activation.js";
+import { routerDraftSchema, previewRouter, selectorFields, selectableSelectorFields, RoutingEvaluationError, routingInputSchema } from "../../shared/traffic-routing.js";
 import { routingEventSchema } from "../services/traffic-routing.js";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -40,8 +44,6 @@ import {
 import { isGuardrailVersionId } from "../../shared/guardrail-version.js";
 import type { PlatformStatusSnapshot } from "../../shared/platform-status.js";
 import { protectionDirectories } from "../../shared/protection-map.js";
-import { protectionPresets } from "../../shared/protection-presets.js";
-import { expandProtectionPreset } from "../policy-catalog/presets.js";
 
 type Actor = { id: string; role: string; tokenId?: string; permissions?: TokenIdentity["permissions"] };
 type Variables = { actor: Actor };
@@ -72,7 +74,8 @@ const guardrailPolicyBindingInput = z.object({
 });
 const guardrailDraftInput = z.strictObject({
   allowedTopics: z.array(z.string().trim().min(1).max(500)).max(256).default([]),
-  restrictedTopics: z.array(z.never()).max(0, "Topic Control is allowlist-only; restricted topics are not accepted.").default([]),
+  restrictedTopics: z.array(z.string().trim().min(1).max(500)).max(256).default([]),
+  topicControlMode: z.enum(["strict", "permissive"]).default("permissive"),
   policyBindings: z.array(guardrailPolicyBindingInput).min(1).max(128),
   safetyLevel: z.enum(["balanced", "strict"]).default("balanced"),
   outputDelivery: z.enum(["interruptible", "window_buffered", "full_buffered"]).default("full_buffered"),
@@ -84,7 +87,9 @@ const guardrailInput = z.strictObject({
 });
 const guardrailUpdateInput = guardrailInput.partial();
 const intentAnalysisInput = z.object({
-  purpose: z.string().trim().min(20).max(2_000),
+  purpose: z.string().trim().min(1).max(2_000),
+  deniedPurpose: z.string().trim().min(1).max(2_000).optional(),
+  topicControlMode: z.enum(["strict", "permissive"]).default("permissive"),
   language: z.enum(["en", "zh-CN"]).default("en"),
 });
 const loggingInput = z.object({ level: z.enum(["info", "debug", "trace"]), acknowledgeCost: z.boolean().default(false) });
@@ -197,13 +202,15 @@ export function createHttpApp(input: {
     prefix: "guard_controller_",
     collectDefaultMetrics: false,
   });
+  const controllerVersion = readSoftwareVersion();
   const policyCatalog = PolicyCatalog.load(input.config.policyCatalogDir);
   const legacyIntentAnalyzer = input.intentAnalyzer ?? null;
   const legacyPlaygroundModel = input.playgroundModel ?? null;
   const playgroundRunner = input.playgroundRunner ?? null;
   const currentIntentAnalyzer = async () => {
     const configured = await input.models?.controlPlaneModel("policy_authoring");
-    return configured ? new OpenAICompatibleIntentAnalyzer(configured) : legacyIntentAnalyzer;
+    // Authoring produces full structured proposals, unlike short model probes.
+    return configured ? new OpenAICompatibleIntentAnalyzer({ ...configured, timeoutMs: Math.max(configured.timeoutMs, 60_000) }) : legacyIntentAnalyzer;
   };
   const currentPlaygroundModel = async () => {
     const configured = await input.models?.controlPlaneModel("playground_chat");
@@ -436,9 +443,10 @@ export function createHttpApp(input: {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
     return context.json(await input.models.validateDraft(context.get("actor").id));
   });
-  app.post("/api/v1/model-configuration/revisions/:id/activate", authenticated, administrator, async (context) => {
+  app.post("/api/v1/model-configuration/apply", authenticated, administrator, async (context) => {
     if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
-    const revision = await input.models.beginActivation(context.req.param("id"), context.get("actor").id);
+    const selection = partialModelActivationSchema.parse(await context.req.json());
+    const revision = await input.models.applyConfiguration(context.get("actor").id, selection);
     const distribution = await input.runnerControl.distributeDesiredState("default", 10_000);
     if (distribution.distributionStatus === "ready") await input.models.finalizeActivation(revision.id);
     const view = await input.models.view();
@@ -447,26 +455,18 @@ export function createHttpApp(input: {
     }
     return context.json({ ...view, distribution }, distribution.distributionStatus === "ready" ? 200 : 202);
   });
-  app.post("/api/v1/model-configuration/rollback", authenticated, administrator, async (context) => {
-    if (!input.models) throw new ControllerError("Model configuration is unavailable.", 503, "model_configuration_unavailable");
-    const body = z.object({ targetRevisionId: z.string().uuid() }).parse(await context.req.json());
-    const revision = await input.models.rollback(context.get("actor").id, body.targetRevisionId);
-    const distribution = await input.runnerControl.distributeDesiredState("default", 10_000);
-    if (distribution.distributionStatus === "ready") await input.models.finalizeActivation(revision.id);
-    const view = await input.models.view();
-    if (view.failed?.id === revision.id) {
-      throw new ConflictError(view.failed.failureReason || "Runner rejected the rollback Model configuration.", "model_configuration_runner_rejected");
-    }
-    return context.json({ ...view, distribution }, distribution.distributionStatus === "ready" ? 200 : 202);
-  });
 
   app.get("/api/v1/policies", authenticated, async (context) => {
     const items = await input.service.listPolicies();
     return context.json({ items, count: items.length });
   });
-  app.get("/api/v1/policy-catalog/protection-presets", authenticated, (context) => {
-    const policies = policyCatalog.list();
-    const items = protectionPresets.map((preset) => ({ ...preset, policyBindings: expandProtectionPreset(preset, policies) }));
+  app.get("/api/v1/guardrail-profiles", authenticated, async (context) => {
+    const items = await input.service.listGuardrailProfiles();
+    return context.json({ directories: protectionDirectories, items, count: items.length });
+  });
+  // Compatibility route for existing API clients; both paths read the database.
+  app.get("/api/v1/policy-catalog/protection-presets", authenticated, async (context) => {
+    const items = await input.service.listGuardrailProfiles();
     // This is a preview, not a save/activation or evidence that runtime checks passed.
     return context.json({ directories: protectionDirectories, items, count: items.length });
   });
@@ -486,17 +486,17 @@ export function createHttpApp(input: {
   app.get("/api/v1/policies/:id/draft/checks", authenticated, async (context) => {
     return context.json(await input.service.validatePolicy(context.req.param("id")));
   });
-  app.get("/api/v1/policies/:id/validation-runs/latest", authenticated, async (context) => {
+  app.get("/api/v1/policies/:id/test-runs/latest", authenticated, async (context) => {
     return context.json(await input.service.latestPolicyValidation(context.req.param("id")));
   });
-  app.get("/api/v1/policies/:id/validation-runs/:runId", authenticated, async context =>
+  app.get("/api/v1/policies/:id/test-runs/:runId", authenticated, async context =>
     context.json(await input.service.getPolicyValidation(context.req.param("id"), context.req.param("runId"))));
-  app.post("/api/v1/policies/:id/validation-runs", authenticated, administrator, async (context) => {
+  app.post("/api/v1/policies/:id/test-runs", authenticated, administrator, async (context) => {
     const run = await input.service.requestPolicyValidation({
       id: context.req.param("id"), actorId: context.get("actor").id,
       compilerAvailable: input.runnerControl.hasDefaultCompiler(),
     });
-    const statusUrl = `/api/v1/policies/${encodeURIComponent(context.req.param("id"))}/validation-runs/${encodeURIComponent(run.id)}`;
+    const statusUrl = `/api/v1/policies/${encodeURIComponent(context.req.param("id"))}/test-runs/${encodeURIComponent(run.id)}`;
     context.header("Location", statusUrl);
     return context.json({ ...run, statusUrl }, 202);
   });
@@ -738,21 +738,21 @@ export function createHttpApp(input: {
     await input.service.deleteTestCase({ guardrailId: context.req.param("guardrailId"), caseId: context.req.param("caseId"), actorId: context.get("actor").id });
     return context.body(null, 204);
   });
-  app.patch("/api/v1/guardrails/:id/validation-scope", authenticated, administrator, async (context) => {
+  app.patch("/api/v1/guardrails/:id/test-scope", authenticated, administrator, async (context) => {
     const body = validationScopeInput.parse(await context.req.json());
     return context.json(await input.service.setTestCaseExcluded({
       guardrailId: context.req.param("id"), caseId: body.caseId, excluded: body.excluded,
       actorId: context.get("actor").id,
     }));
   });
-  app.get("/api/v1/validation-runs", authenticated, async (context) => {
+  app.get("/api/v1/test-runs", authenticated, async (context) => {
     const items = await input.service.listValidationRuns(context.req.query("guardrailId"));
     return context.json({ items, count: items.length });
   });
-  app.get("/api/v1/validation-runs/:runId", authenticated, async (context) => {
+  app.get("/api/v1/test-runs/:runId", authenticated, async (context) => {
     return context.json(await input.service.getValidationRun(context.req.param("runId")));
   });
-  app.post("/api/v1/guardrails/:guardrailId/validation-runs", authenticated, administrator, async (context) => {
+  app.post("/api/v1/guardrails/:guardrailId/test-runs", authenticated, administrator, async (context) => {
     return context.json(await input.service.requestValidation({
       guardrailId: context.req.param("guardrailId"),
       actorId: context.get("actor").id,
@@ -810,6 +810,18 @@ export function createHttpApp(input: {
     return context.body(null, 204);
   });
 
+  app.get("/api/v1/system/version", authenticated, async (context) => {
+    const pools = await input.service.listRunnerPoolsWithCapacity();
+    context.header("Cache-Control", "no-store");
+    return context.json({
+      controlPlane: controllerVersion,
+      dataPlane: pools.flatMap(pool => pool.instances.map(runner => ({
+        runnerId: runner.runnerId, poolId: pool.id, status: runner.status,
+        lastHeartbeatAt: runner.lastHeartbeatAt,
+        software: parseSoftwareVersion(runner.labels?.["tasklattice.build"], runner.runnerVersion),
+      }))),
+    });
+  });
   app.get("/api/v1/runner-pools", authenticated, async (context) => context.json({ items: await input.service.listRunnerPoolsWithCapacity() }));
   app.patch("/api/v1/runner-pools/:id", authenticated, administrator, async (context) => {
     const body = runnerPoolInput.parse(await context.req.json());
@@ -924,7 +936,7 @@ export function createHttpApp(input: {
     const endpointIds = context.req.query("endpointIds")?.split(",").filter(Boolean);
     const all = await input.service.listEndpoints();
     const selected = endpointIds ? all.filter(e => endpointIds.includes(e.id)) : all;
-    const items = selectorFieldCatalog(selected);
+    const items = selectableSelectorFields(selected);
     return context.json({ items, endpoints: selected.map(e => ({ id: e.id, adapter: e.adapter })), count: items.length });
   });
 
@@ -945,19 +957,22 @@ export function createHttpApp(input: {
       outcome: z.enum(['allow','block','transform','error']).optional(),
       captured: z.enum(['true']).transform(() => true).optional(),
       findingsOnly: z.enum(['true']).transform(() => true).optional(),
-      severity: z.enum(['critical','high','medium','low']).optional(),
+      severity: z.string().describe('One or more comma-separated Rule risk levels: critical, high, medium, low, informational, unclassified. Matches any selected level before pagination.').transform(value => value.split(',')).pipe(z.array(z.enum(['critical','high','medium','low','informational','unclassified'])).min(1).max(6)).optional(),
     }).parse(context.req.query());
     return context.json(await input.service.queryRuntimeEvents(query));
   });
-  app.get('/api/v1/telemetry/events/:id', authenticated, async context => context.json(await input.service.getRuntimeEvent(context.req.param('id'), context.get('actor').role === 'admin')));
+  app.get('/api/v1/telemetry/events/:id', authenticated, async context => {
+    const query = z.object({ includeContent: z.enum(['true', 'false']).default('false') }).parse(context.req.query());
+    return context.json(await input.service.getRuntimeEvent(context.req.param('id'), query.includeContent === 'true' && context.get('actor').role === 'admin'));
+  });
   app.get('/api/v1/telemetry/endpoint-activity', authenticated, async context => context.json(await input.service.runtimeEndpointActivity()));
   app.get('/api/v1/telemetry/metrics', authenticated, async context => {
     const scope = z.object({ window: z.enum(['1h','24h','7d','15d','30d']).default('24h'), guardrailId:z.string().max(256).optional(), routerId:z.string().max(256).optional() }).parse(context.req.query());
     return context.json(await input.service.runtimeMetrics(scope));
   });
   app.get("/api/v1/audit-events", authenticated, async (context) => {
-    const limit = z.coerce.number().int().min(1).max(500).default(100).parse(context.req.query("limit"));
-    return context.json({ items: await input.service.listAuditEvents(limit) });
+    const query = auditQuerySchema.parse(context.req.query());
+    return context.json(await input.service.listAuditEvents(query));
   });
 
   app.post("/api/internal/v1/runtime-events", runnerAuthentication(input.config.runnerToken), async (context) => {
@@ -995,6 +1010,11 @@ export function createHttpApp(input: {
     if (error instanceof SyntaxError) return context.json({ error: { code: "invalid_json", message: "Request body must be valid JSON." } }, 400);
     if (error instanceof RoutingEvaluationError) return context.json({ error: { code: error.code, message: error.message } }, 422);
     if (error instanceof ControllerError) {
+      if (error instanceof IntentAnalysisError) {
+        const { diagnosticId, provider, model, stage, upstreamStatus, elapsedMs, timeoutMs } = error.detail;
+        // Correlate failures without persisting user prompts, documents or provider response bodies.
+        console.error(JSON.stringify({ event: "intent_analysis_failed", diagnosticId, provider, model, stage, upstreamStatus, elapsedMs, timeoutMs, status: error.status }));
+      }
       return context.json({ error: { code: error.code, message: error.message, detail: error.detail } }, error.status as 400);
     }
     if (error instanceof z.ZodError) {
@@ -1008,9 +1028,28 @@ export function createHttpApp(input: {
   app.all("/api/*", context => context.json({ error: { code: "not_found", message: "API operation not found." } }, 404));
   const uiRoot = resolve(input.config.uiDist);
   if (existsSync(uiRoot)) {
+    // Hashed build assets must never fall through to the SPA document. During
+    // an upgrade an old/new hash may be unavailable on a particular replica.
+    app.use("/assets/*", async (context, next) => {
+      await next();
+      context.header("Cache-Control", context.res.status === 200 || context.res.status === 206
+        ? "public, max-age=31536000, immutable" : "no-store");
+    });
     app.use("/assets/*", serveStatic({ root: uiRoot }));
+    app.all("/assets/*", context => {
+      context.header("Cache-Control", "no-store");
+      return context.text("Asset not found. Reload the page to load the current version.", 404);
+    });
+    app.use("/docs/diagrams/*", serveStatic({ root: uiRoot }));
+    app.get("/docs/diagrams/*", context => context.text("Not found", 404));
+    app.get("/favicon.svg", serveStatic({ root: uiRoot, path: "favicon.svg" }));
     app.get("/favicon.ico", serveStatic({ root: uiRoot, path: "favicon.ico" }));
-    app.get("*", serveStatic({ root: uiRoot, path: "index.html" }));
+    // Each navigation must fetch the document for the current deployment,
+    // rather than retaining references to a previous build's asset hashes.
+    app.get("*", async (context, next) => {
+      context.header("Cache-Control", "no-store");
+      await next();
+    }, serveStatic({ root: uiRoot, path: "index.html" }));
   }
   return app;
 }

@@ -492,7 +492,7 @@ export const auditEvents = pgTable("audit_event", {
   resourceId: text("resource_id").notNull(),
   detail: jsonb("detail").$type<Record<string, unknown>>().notNull().default({}),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("audit_resource_idx").on(table.resourceType, table.resourceId)]);
+}, (table) => [index("audit_resource_idx").on(table.resourceType, table.resourceId), index("audit_time_id_idx").on(table.occurredAt.desc(), table.id.desc())]);
 
 export const outboxEvents = pgTable("controller_outbox", {
   id: text("id").primaryKey(),
@@ -528,3 +528,15 @@ export const schema = {
   auditEvents,
   outboxEvents,
 };
+
+export const guardrailProfiles = pgTable("guardrail_profile", {
+  id: text("id").primaryKey(),
+  category: text("category").notNull(),
+  categoryName: text("category_name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  definition: jsonb("definition").$type<Omit<import("../../shared/protection-map.js").ProtectionPreset, "id">>().notNull(),
+  createdAt,
+  updatedAt,
+}, table => [uniqueIndex("guardrail_profile_category_default_idx").on(table.category).where(sql`${table.isDefault} AND ${table.enabled}`)]);

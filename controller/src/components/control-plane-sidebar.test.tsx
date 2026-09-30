@@ -1,8 +1,8 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import i18n from "@/i18n";
@@ -39,14 +39,15 @@ describe("ControlPlaneSidebar", () => {
     expect(screen.queryByRole("link", { name: "Deployments" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Integrations" })).toBeNull();
 
-    const help = screen.getByRole("link", { name: "Help center" });
+    const help = screen.getByRole("link", { name: "Documentation" });
     const settings = screen.getByRole("link", { name: "Settings" });
     expect(help.closest('[data-sidebar="footer"]')).toBe(settings.closest('[data-sidebar="footer"]'));
+    expect(help.getAttribute("href")).toBe("/document");
     expect(settings.getAttribute("href")).toBe("/settings/health");
     expect(settings.getAttribute("aria-haspopup")).toBeNull();
     expect(settings.querySelectorAll("svg")).toHaveLength(1);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.body.textContent).toContain("Help center");
+    expect(document.body.textContent).toContain("Documentation");
 
     const links = screen.getAllByRole("link");
     expect(links.slice(0, 4).map((link) => link.textContent?.trim())).toEqual([
@@ -57,9 +58,33 @@ describe("ControlPlaneSidebar", () => {
     ]);
     expect(links[0].getAttribute("href")).toBe("/dashboard");
     expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Validation Runs" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Testing Reports" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Runner capacity" })).toBeNull();
     expect(document.body.textContent).toContain("Guardrail Design");
     expect(document.body.textContent).not.toContain("Build & validate");
   });
+  it("preserves explicit collapse controls without expanding on hover", () => {
+    const { container } = render(
+      <SidebarProvider>
+        <ControlPlaneSidebar />
+        <SidebarTrigger />
+      </SidebarProvider>,
+    );
+    const sidebar = container.querySelector('[data-slot="sidebar"]')!;
+    const rail = container.querySelector<HTMLButtonElement>('[data-sidebar="rail"]')!;
+    const toggle = screen.getAllByRole("button", { name: "Toggle navigation" }).find(button => button !== rail)!;
+    expect(screen.getByRole("link", { name: "TaskLattice Guard" }).closest('[data-sidebar="header"]')).not.toBeNull();
+    expect(sidebar.getAttribute("data-state")).toBe("expanded");
+    fireEvent.click(toggle);
+    expect(sidebar.getAttribute("data-state")).toBe("collapsed");
+    fireEvent.mouseEnter(sidebar);
+    expect(sidebar.getAttribute("data-state")).toBe("collapsed");
+    fireEvent.click(rail);
+    expect(sidebar.getAttribute("data-state")).toBe("expanded");
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    expect(sidebar.getAttribute("data-state")).toBe("collapsed");
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    expect(sidebar.getAttribute("data-state")).toBe("expanded");
+  });
+
 });

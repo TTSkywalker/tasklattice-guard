@@ -36,7 +36,7 @@ import {
   trafficRouterKeys,
   type TrafficRouter,
 } from "@/lib/traffic-routing-api";
-import { useRoutingText } from "./form";
+
 
 export const endpointHref = (id: string) =>
   `/integration/endpoint?${new URLSearchParams({ endpointId: id })}`;
@@ -51,7 +51,8 @@ export function RouterEndpoints({
   canEdit: boolean;
   onBound: (next: TrafficRouter) => void | Promise<void>;
 }) {
-  const t = useRoutingText();
+  const { t: localize } = useTranslation();
+  const { t } = useTranslation();
   const { t: translate } = useTranslation();
   const client = useQueryClient();
   const opener = useRef<HTMLElement | null>(null);
@@ -80,7 +81,7 @@ export function RouterEndpoints({
         keywords: [endpoint.id],
         disabled: Boolean(owner),
         description: owner
-          ? `${t("已绑定到", "Bound to")} ${owner.name}`
+          ? `${t("routing.boundTo")} ${owner.name}`
           : translate(`endpoints.setupStatuses.${endpoint.setup_status}`),
       };
     });
@@ -101,14 +102,11 @@ export function RouterEndpoints({
     mutationFn: async () => {
       if (!canEdit || !action)
         throw new Error(
-          t("当前不可编辑绑定。", "Bindings cannot be edited right now."),
+          t("routing.bindingsCannotBeEditedRightNow"),
         );
       if (action.kind === "attach" && (!sourcesReady || !selectionAvailable))
         throw new Error(
-          t(
-            "请刷新并重新选择可用 Endpoint。",
-            "Refresh and select available Endpoints.",
-          ),
+          t("routing.refreshAndSelectAvailableEndpoints"),
         );
       // This API replaces the full list. Preserve all existing bindings on attach.
       const ids =
@@ -139,18 +137,15 @@ export function RouterEndpoints({
   const close = () => {
     if (!mutation.isPending) setAction(null);
   };
-  const attachLabel = t("附加 Endpoint", "Attach endpoint");
-  const detachLabel = t("从 Router 解除绑定", "Detach from router");
+  const attachLabel = t("routing.attachEndpoint");
+  const detachLabel = t("routing.detachFromRouter");
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold">Endpoints</h2>
+          <h2 className="font-semibold">{localize("routing.endpoints2")}</h2>
           <p className="text-sm text-muted-foreground">
-            {t(
-              "接入此 Router 的来源 Endpoint。",
-              "Source Endpoints attached to this Router.",
-            )}
+            {t("routing.sourceEndpointsAttachedToThisRouter")}
           </p>
         </div>
         {canEdit && (
@@ -165,17 +160,14 @@ export function RouterEndpoints({
       </div>
       {!canEdit && (
         <p className="text-sm text-muted-foreground">
-          {t(
-            "只读：仅管理员可修改 Endpoint 绑定。",
-            "Read only. Only administrators can change Endpoint bindings.",
-          )}
+          {t("routing.readOnlyOnlyAdministratorsCanChangeEndpointBindings")}
         </p>
       )}
       {endpoints.error && (
         <div className="space-y-2">
           <ErrorNotice error={endpoints.error} />
           <Button variant="outline" onClick={() => void endpoints.refetch()}>
-            {t("重试", "Retry")}
+            {t("routing.retry")}
           </Button>
         </div>
       )}
@@ -186,11 +178,11 @@ export function RouterEndpoints({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Endpoint</TableHead>
-                <TableHead>{t("协议", "Protocol")}</TableHead>
-                <TableHead>{t("状态", "Status")}</TableHead>
+                <TableHead>{localize("routing.endpoint")}</TableHead>
+                <TableHead>{t("routing.protocol")}</TableHead>
+                <TableHead>{t("routing.status")}</TableHead>
                 <TableHead className="text-right">
-                  {t("操作", "Actions")}
+                  {t("routing.actions")}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -231,7 +223,7 @@ export function RouterEndpoints({
                         </div>
                       ) : (
                         <span className="text-muted-foreground">
-                          {t("状态不可用", "Status unavailable")}
+                          {t("routing.statusUnavailable")}
                         </span>
                       )}
                     </TableCell>
@@ -242,7 +234,7 @@ export function RouterEndpoints({
                             variant="ghost"
                             size="icon"
                             className="size-11"
-                            aria-label={`${t("操作", "Actions")}: ${name}`}
+                            aria-label={`${t("routing.actions")}: ${name}`}
                             onClick={(event) => {
                               opener.current = event.currentTarget;
                             }}
@@ -256,7 +248,7 @@ export function RouterEndpoints({
                               to="/integration/endpoint"
                               search={{ endpointId: id }}
                             >
-                              {t("查看 Endpoint", "View endpoint")}
+                              {t("routing.viewEndpoint")}
                             </Link>
                           </DropdownMenuItem>
                           {canEdit && (
@@ -285,11 +277,8 @@ export function RouterEndpoints({
       ) : (
         !endpoints.error && (
           <EmptyState
-            title={t("尚未绑定 Endpoint", "No Endpoints attached")}
-            description={t(
-              "附加 Endpoint 以将来源流量接入此 Router。",
-              "Attach an Endpoint to connect incoming traffic to this Router.",
-            )}
+            title={t("routing.noEndpointsAttached")}
+            description={t("routing.attachAnEndpointToConnectIncomingTrafficToThis")}
           />
         )
       )}
@@ -305,14 +294,8 @@ export function RouterEndpoints({
         title={action?.kind === "detach" ? detachLabel : attachLabel}
         description={
           action?.kind === "detach"
-            ? t(
-                "解除绑定立即生效，该 Endpoint 将无法通过此 Router 接收评估调用。",
-                "Detaching takes effect immediately. Traffic from this Endpoint will no longer use this Router.",
-              )
-            : t(
-                "每个 Endpoint 只能绑定一个 Router；已属于其他 Router 的 Endpoint 不可选择。",
-                "Each Endpoint can belong to only one Router. Endpoints owned by other Routers cannot be selected.",
-              )
+            ? t("routing.detachingTakesEffectImmediatelyTrafficFromThisEndpointWill")
+            : t("routing.eachEndpointCanBelongToOnlyOneRouterEndpoints")
         }
         footer={
           <>
@@ -321,7 +304,7 @@ export function RouterEndpoints({
               disabled={mutation.isPending}
               onClick={close}
             >
-              {t("取消", "Cancel")}
+              {t("routing.cancel")}
             </Button>
             <Button
               variant={action?.kind === "detach" ? "destructive" : "default"}
@@ -334,9 +317,9 @@ export function RouterEndpoints({
               onClick={() => mutation.mutate()}
             >
               {mutation.isPending
-                ? t("保存中…", "Saving…")
+                ? t("routing.saving")
                 : action?.kind === "detach"
-                  ? t("解除绑定", "Detach endpoint")
+                  ? t("routing.detachEndpoint")
                   : attachLabel}
             </Button>
           </>
@@ -351,20 +334,14 @@ export function RouterEndpoints({
                 <Skeleton className="h-12" />
               )}
               <MultiSelectCombobox
-                ariaLabel={t("选择 Endpoint", "Select Endpoints")}
+                ariaLabel={t("routing.selectEndpoints")}
                 options={options}
                 value={selected}
                 onValueChange={setSelected}
                 disabled={!canEdit || mutation.isPending || !sourcesReady}
-                placeholder={t(
-                  "搜索或选择 Endpoint…",
-                  "Search or select Endpoints…",
-                )}
-                searchPlaceholder={t("按名称搜索…", "Search by name…")}
-                noOptionsMessage={t(
-                  "没有可附加的 Endpoint。",
-                  "No Endpoints to attach.",
-                )}
+                placeholder={t("routing.searchOrSelectEndpoints")}
+                searchPlaceholder={t("routing.searchByName")}
+                noOptionsMessage={t("routing.noEndpointsToAttach")}
               />
               {endpoints.error && <ErrorNotice error={endpoints.error} />}
               {routers.error && <ErrorNotice error={routers.error} />}
@@ -376,7 +353,7 @@ export function RouterEndpoints({
                     void routers.refetch();
                   }}
                 >
-                  {t("重试", "Retry")}
+                  {t("routing.retry")}
                 </Button>
               )}
             </>

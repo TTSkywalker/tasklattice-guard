@@ -1,3 +1,4 @@
+import type { AuditQuery } from "../../shared/audit-query";
 import type { EnforcementAction } from "../../shared/enforcement-action.generated";
 import type {
   GuardrailLifecycleState,
@@ -80,7 +81,9 @@ export type ModelValidationReport = {
 
 export type ModelConfigurationRevision = {
   id: string;
-  revision: number;
+  reviewToken?: string;
+  /** Legacy field; current API exposes configuration state, not version history. */
+  revision?: number;
   state: "draft" | "validated" | "activating" | "active" | "superseded" | "failed";
   generation: number | null;
   assignments: ModelAssignments;
@@ -96,7 +99,6 @@ export type ModelConfigurationView = {
   providers: ModelProvider[];
   models: ModelDefinition[];
   draft: ModelConfigurationRevision | null;
-  rollbackTarget?: string | null;
   active: ModelConfigurationRevision | null;
   activating: ModelConfigurationRevision | null;
   failed: ModelConfigurationRevision | null;
@@ -105,6 +107,7 @@ export type ModelConfigurationView = {
 export type GuardrailDraftConfig = {
   allowedTopics: string[];
   restrictedTopics: string[];
+  topicControlMode?: "strict" | "permissive";
   policyBindings: Array<{
     policyId: string;
     policyVersion: string;
@@ -338,6 +341,13 @@ export type AuditEvent = {
   occurredAt: string;
 };
 
+export class ControllerRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string, readonly detail?: unknown) {
+    super(message);
+    this.name = "ControllerRequestError";
+  }
+}
+
 export async function requestController<T>(path: string, init?: RequestInit): Promise<T> {
   const formData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(path, {
@@ -347,17 +357,21 @@ export async function requestController<T>(path: string, init?: RequestInit): Pr
     headers: init?.body && !formData ? { "content-type": "application/json", ...init.headers } : init?.headers,
   });
   if (response.status === 204) return undefined as T;
-  const payload = await response.json().catch(() => ({})) as { error?: { message?: string; detail?: unknown }; detail?: unknown; message?: string };
+  const rawResponse = response.ok ? undefined : response.clone?.();
+  const payload = await response.json().catch(async () => ({ message: await rawResponse?.text().catch(() => "") })) as { error?: { code?: string; message?: string; detail?: unknown }; detail?: unknown; message?: string };
   if (!response.ok) {
     // A forbidden write may mean the user's role changed. Recheck identity,
     // without treating every 403 as a logout or retrying the rejected write.
     if (response.status === 401 || response.status === 403) window.dispatchEvent(new CustomEvent("tasklattice:unauthorized"));
-    throw new Error(formatApiError(payload.error?.detail ?? payload.error?.message ?? payload.detail ?? payload.message, response.status));
+    throw new ControllerRequestError(
+      formatApiError(payload.error?.detail ?? payload.detail) ?? payload.error?.message ?? payload.message ?? `Request failed with status ${response.status}.`,
+      response.status, payload.error?.code, payload.error?.detail ?? payload.detail,
+    );
   }
   return payload as T;
 }
 
-function formatApiError(detail: unknown, status: number): string {
+function formatApiError(detail: unknown): string | undefined {
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail)) {
     const messages = detail.map((item) => {
@@ -377,7 +391,7 @@ function formatApiError(detail: unknown, status: number): string {
     if (typeof issue.msg === "string" && issue.msg) return issue.msg;
     if (typeof issue.message === "string" && issue.message) return issue.message;
   }
-  return `Request failed with status ${status}.`;
+  return undefined;
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -415,8 +429,7 @@ export const validateModelConfiguration = () => requestController<ModelConfigura
 export type ModelAssignmentTarget = "control_plane" | CapabilityBindingId;
 export const saveModelAssignment = (target: ModelAssignmentTarget, modelId: string | null, validationId?: string) => requestController<ModelConfigurationRevision>(`/api/v1/model-configuration/draft/assignments/${encodeURIComponent(target)}`, json("PUT", { modelId, validationId }));
 export const validateModelAssignment = (target: ModelAssignmentTarget, modelId?: string) => requestController<ModelConfigurationRevision & { validationId?: string }>(`/api/v1/model-configuration/draft/assignments/${encodeURIComponent(target)}/${modelId ? "candidate-validations" : "validations"}`, json("POST", modelId ? { modelId } : undefined));
-export const activateModelConfiguration = (revisionId: string) => requestController<ModelConfigurationView & { distribution: { desiredGeneration: number; distributionStatus: "ready" | "syncing" } }>(`/api/v1/model-configuration/revisions/${encodeURIComponent(revisionId)}/activate`, json("POST"));
-export const rollbackModelConfiguration = (targetRevisionId: string) => requestController<ModelConfigurationView & { distribution: { desiredGeneration: number; distributionStatus: "ready" | "syncing" } }>("/api/v1/model-configuration/rollback", json("POST", { targetRevisionId }));
+export const applyModelConfiguration = (selection: import("../../shared/model-activation").PartialModelActivation) => requestController<ModelConfigurationView & { distribution: { desiredGeneration: number; distributionStatus: "ready" | "syncing" } }>("/api/v1/model-configuration/apply", json("POST", selection));
 export const listControllerGuardrails = () => requestController<Collection<Guardrail>>("/api/v1/guardrails");
 export const getControllerGuardrail = (id: string) => requestController<GuardrailDetail>(`/api/v1/guardrails/${encodeURIComponent(id)}`);
 export const createControllerGuardrail = (input: Pick<Guardrail, "name" | "draftConfig" | "runtimeProfile">) => requestController<Guardrail>("/api/v1/guardrails", json("POST", input));
@@ -444,7 +457,18 @@ export const listRuntimeEvents = (limit = 100, filters: { guardrailId?: string; 
   for (const [key, value] of Object.entries(filters)) if (value) query.set(key, String(value));
   return requestController<Collection<RuntimeEvent>>(`/api/v1/telemetry/events?${query.toString()}`, signal ? { signal } : undefined);
 };
-export const getRuntimeEvent = (id: string, signal?: AbortSignal) => requestController<RuntimeEvent>(`/api/v1/telemetry/events/${encodeURIComponent(id)}`, signal ? { signal } : undefined);
-export const listAuditEvents = (limit = 100) => requestController<Collection<AuditEvent>>(`/api/v1/audit-events?limit=${Math.min(500, Math.max(1, limit))}`);
+export const getRuntimeEvent = (id: string, signal?: AbortSignal, includeContent = false) => requestController<RuntimeEvent>(`/api/v1/telemetry/events/${encodeURIComponent(id)}${includeContent ? "?includeContent=true" : ""}`, signal ? { signal } : undefined);
+export type AuditEventPage = { items: AuditEvent[]; total: number; page: number; limit: number; before: string; facets: { kinds: string[]; resourceTypes: string[] } };
+export const listAuditEvents = (query: Partial<AuditQuery> = {}, signal?: AbortSignal) => {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") search.set(key, String(value));
+  return requestController<AuditEventPage>(`/api/v1/audit-events?${search}`, signal ? { signal } : undefined);
+};
 
 export const deleteControllerGuardrailVersion = (id: string, version: string) => requestController<void>(`/api/v1/guardrails/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`, { method: "DELETE" });
+
+export type SystemVersion = {
+  controlPlane: import("../../shared/software-version").SoftwareVersion;
+  dataPlane: Array<{ runnerId: string; poolId: string; status: RunnerStatus; lastHeartbeatAt: string | null; software: import("../../shared/software-version").SoftwareVersion }>;
+};
+export const getSystemVersion = () => requestController<SystemVersion>("/api/v1/system/version");

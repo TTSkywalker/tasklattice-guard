@@ -92,6 +92,41 @@
       "when": 1789233600000,
       "tag": "0012_api_semantics",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789862400000,
+      "tag": "0013_guardrail_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789866000000,
+      "tag": "0014_current_model_configuration",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790058000000,
+      "tag": "0015_china_mainland_guardrail_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790061600000,
+      "tag": "0016_retire_unverified_singapore_financial_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790670000000,
+      "tag": "0017_audit_query_index",
+      "breakpoints": true
     }
   ]
 }

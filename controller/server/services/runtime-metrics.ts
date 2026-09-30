@@ -35,6 +35,7 @@ import {
   distinctArray,
   distinctCountWhere,
   findingSeverity,
+  securityFinding,
   jsonArrayKey,
   jsonElements,
   jsonText,
@@ -424,7 +425,7 @@ export async function queryRuntimeMetrics(
         })
         .from(event)
         .innerJoin(finding.source, eq(event.id, event.id))
-        .where(currentPredicate),
+        .where(and(currentPredicate, securityFinding(finding.item))),
     );
     const risks = await execute(
       tx
@@ -442,6 +443,8 @@ export async function queryRuntimeMetrics(
           high: countWhere(eq(findingRows.severity, "high")),
           medium: countWhere(eq(findingRows.severity, "medium")),
           low: countWhere(eq(findingRows.severity, "low")),
+          informational: countWhere(eq(findingRows.severity, "informational")),
+          unclassified: countWhere(eq(findingRows.severity, "unclassified")),
           affected_traces: countDistinct(findingRows.request_id),
           latest_at: max(findingRows.occurred_at),
         })

@@ -1,3 +1,4 @@
+import { SecuritySeverityBadge } from "@/components/security-severity";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -8,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileCode2,
+  BookOpen,
   Download,
   FlaskConical,
   LoaderCircle,
@@ -21,7 +23,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { PolicyStudioSheet } from "@/components/policy-studio";
 import { ConfirmationSheet } from "@/components/confirmation-sheet";
@@ -32,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PolicyCompliancePanel } from "@/components/policy-compliance";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryKeys } from "@/features/query-keys";
 import { useAuth } from "@/lib/auth";
@@ -55,6 +58,7 @@ const POLICY_FACET_ORDER = ["source", "framework", "jurisdiction"];
 type CatalogFacetTag = Omit<PolicyTag, "namespace"> & { namespace: PolicyTag["namespace"] | "source"; count?: number };
 const JURISDICTION_FLAGS: Record<string, string> = {
   au: "🇦🇺",
+  cn: "🇨🇳",
   eu: "🇪🇺",
   sg: "🇸🇬",
   uae: "🇦🇪",
@@ -181,7 +185,7 @@ export function PolicyLibraryPage() {
           <span className="sr-only">{t("policyLibrary.searchCatalog")}</span>
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="min-h-11 bg-card pl-9"
+            className="field:min-h-11 field:bg-card field:pl-9"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t("policyLibrary.catalogSearchPlaceholder")}
@@ -397,9 +401,10 @@ export function PolicyDetail({ policy, onClose, onEdit, onExport, onDelete }: { 
       <Tabs key={policy.id} defaultValue="policy" className="mt-5">
         <div className="overflow-x-auto">
           <TabsList aria-label={t("policyLibrary.detailViews")} className="min-w-max">
-            <TabsTrigger value="policy">{t("policyLibrary.tabs.policy")}</TabsTrigger>
-            <TabsTrigger value="validation">{t("policyLibrary.tabs.testCases")}</TabsTrigger>
-            <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
+            <TabsTrigger value="policy"><ShieldCheck aria-hidden="true" /><span className="flex items-center gap-2">{t("policyLibrary.tabs.policy")}<Badge variant="outline" className="font-mono text-[10px]">{policy.rules.length}</Badge></span></TabsTrigger>
+            <TabsTrigger value="validation"><FlaskConical aria-hidden="true" /><span className="flex items-center gap-2">{t("policyLibrary.tabs.testCases")}<Badge variant="outline" className="font-mono text-[10px]">{policy.test_count}</Badge></span></TabsTrigger>
+            <TabsTrigger value="compliance"><BookOpen aria-hidden="true" />{t("policyLibrary.tabs.compliance")}</TabsTrigger>
+            <TabsTrigger aria-label={t("policyLibrary.tabs.implementation")} value="implementation"><FileCode2 aria-hidden="true" /><span aria-hidden className="sm:hidden">{t("policyLibrary.tabs.implementationShort")}</span><span aria-hidden className="hidden sm:inline">{t("policyLibrary.tabs.implementation")}</span></TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="policy" className="space-y-5 pt-3 sm:pt-4">
@@ -412,6 +417,7 @@ export function PolicyDetail({ policy, onClose, onEdit, onExport, onDelete }: { 
           <RuleList policy={policy} />
         </TabsContent>
         <TabsContent value="validation" className="pt-3 sm:pt-4"><PolicyTestCases policy={policy} /></TabsContent>
+        <TabsContent value="compliance" className="pt-3 sm:pt-4"><PolicyCompliancePanel policy={policy} /></TabsContent>
         <TabsContent value="implementation" className="pt-3 sm:pt-4"><Implementation policy={policy} /></TabsContent>
       </Tabs>
     </EntitySheet>
@@ -446,7 +452,7 @@ function RuleList({ policy }: { policy: Policy }) {
   const { t } = useTranslation();
   return (
     <section>
-      <h3 className="text-sm font-semibold">{t("policyLibrary.ruleListTitle", { count: policy.rules.length })}</h3>
+      <h3 className="text-sm font-semibold">{t("policyLibrary.ruleListTitle")}</h3>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("policyLibrary.ruleListDescription")}</p>
       <div className="mt-4 divide-y overflow-hidden rounded-lg border">
         {policy.rules.map((rule) => <RuleRow key={rule.id} rule={rule} />)}
@@ -462,7 +468,7 @@ function RuleRow({ rule }: { rule: PolicyRule }) {
       <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <CheckCircle2 className="size-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-medium">{rule.name}</strong><span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{rule.id}</span></span>
-        <Badge variant="outline">{t(`policyLibrary.effects.${rule.effect}`, { defaultValue: rule.effect })}</Badge>
+        <SecuritySeverityBadge severity={rule.risk_severity} /><Badge variant="outline">{t(`policyLibrary.effects.${rule.effect}`, { defaultValue: rule.effect })}</Badge>
         <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
       </summary>
       <div className="border-t bg-muted/15 px-4 py-4 text-xs">
@@ -483,7 +489,7 @@ function PolicyTestCases({ policy }: { policy: Policy }) {
   const groups = Array.from(new Set(policy.test_cases.map((testCase) => testCase.group)));
   return (
     <section>
-      <h3 className="text-sm font-semibold">{t("policyLibrary.testCasesTitle", { count: policy.test_count })}</h3>
+      <h3 className="text-sm font-semibold">{t("policyLibrary.testCasesTitle")}</h3>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("policyLibrary.testCasesDescription")}</p>
       <div className="mt-4 space-y-4">
         {groups.map((group) => (

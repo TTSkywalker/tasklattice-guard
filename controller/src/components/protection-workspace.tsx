@@ -21,7 +21,7 @@ export function ProtectionPresetPicker({ presets, policies, selected, onSelect, 
     <label className="block space-y-2 text-sm font-medium">
       <span>{t("protection.preset")}</span>
       <Select value={selected} onValueChange={onSelect}>
-        <SelectTrigger className="min-h-11 bg-card"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="field:min-h-11 field:bg-card"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="blank">{t("protection.blank")}</SelectItem>
           {presets.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}

@@ -68,8 +68,8 @@ if (resumePolicy) {
 }
 const policyPath = `/api/v1/policies/${policy.id}`;
 report(resumePolicy ? "policy-resumed" : "policy-created", { policyId: policy.id });
-await call(controller, `${policyPath}/validation-runs`, {}, 202);
-const policyValidation = await until("Policy validation", async () => (await call(controller, `${policyPath}/validation-runs/latest`)).data,
+await call(controller, `${policyPath}/test-runs`, {}, 202);
+const policyValidation = await until("Policy validation", async () => (await call(controller, `${policyPath}/test-runs/latest`)).data,
   value => ["passed", "failed"].includes(value.status));
 assert.equal(policyValidation.status, "passed", JSON.stringify(policyValidation));
 await call(controller, `${policyPath}/publish`, {}, 201);
@@ -78,8 +78,8 @@ const guardrail = (await call(controller, "/api/v1/guardrails", {
     policyBindings: [{ policyId: policy.id, policyVersion: "1", enabledRails: ["output"], enabledRuleIds: [`flow/output/${flow}`] }] },
 }, 201)).data;
 report("guardrail-created", { guardrailId: guardrail.id, policyValidationId: policyValidation.id });
-const validationRequest = (await call(controller, "/api/v1/validation-runs", { guardrailId: guardrail.id }, 202)).data;
-const validation = await until("Guardrail validation", async () => (await call(controller, `/api/v1/validation-runs/${validationRequest.id}`)).data,
+const validationRequest = (await call(controller, `/api/v1/guardrails/${encodeURIComponent(guardrail.id)}/test-runs`, { guardrailId: guardrail.id }, 202)).data;
+const validation = await until("Guardrail validation", async () => (await call(controller, `/api/v1/test-runs/${validationRequest.id}`)).data,
   value => ["passed", "failed"].includes(value.status));
 assert.equal(validation.status, "passed", JSON.stringify(validation));
 assert.deepEqual(validation.excludedCaseIds, []);

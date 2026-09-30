@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { KeyRound, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { Button } from "@/components/ui/button";
@@ -80,7 +80,7 @@ export function ProviderCredentialSettings({ provider, disabled, onChanged }: {
           <Label htmlFor={inputId}>{t("modelSettings.newCredential")}</Label>
           <Input
             id={inputId}
-            className="h-11 font-mono"
+            className="field:h-11 field:font-mono"
             type="password"
             autoComplete="new-password"
             spellCheck={false}

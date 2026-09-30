@@ -74,6 +74,12 @@ jobs:
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Capture Git build identity
+        id: git-build
+        run: echo "info=$(node scripts/git-build-info.mjs)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Helm
         uses: azure/setup-helm@v5.0.1
@@ -121,6 +127,8 @@ jobs:
         with:
           context: .
           file: ./${{ matrix.dockerfile }}
+          build-args: |
+            TALI_BUILD_INFO=${{ steps.git-build.outputs.info }}
           target: runtime
           platforms: linux/${{ matrix.architecture }}
           push: true

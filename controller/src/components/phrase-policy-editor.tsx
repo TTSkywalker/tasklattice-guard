@@ -35,7 +35,7 @@ export function PhrasePolicyEditor({ value, onChange }: { value: string; onChang
       {entries.map((entry, index) => <li key={entry.id} className="space-y-3 p-3">
         <div className="flex flex-wrap items-end gap-2">
           <label className="grid min-w-0 flex-[1_1_12rem] gap-2 text-xs font-medium">{t("protection.phrases.match", { index: index + 1 })}
-            <Input className="min-h-11" value={entry.phrase} maxLength={240} onChange={(event) => update(index, { phrase: event.target.value })} />
+            <Input className="field:min-h-11" value={entry.phrase} maxLength={240} onChange={(event) => update(index, { phrase: event.target.value })} />
           </label>
           <div className="ml-auto flex gap-1">
             <Button type="button" size="icon" variant="ghost" className="size-11" aria-label={t("protection.phrases.up", { index: index + 1 })} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp /></Button>
@@ -46,12 +46,12 @@ export function PhrasePolicyEditor({ value, onChange }: { value: string; onChang
         <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
           <label className="grid gap-2 text-xs font-medium">{t("protection.phrases.action")}
             <Select value={entry.action} onValueChange={(action) => update(index, { action: action as PhraseEntry["action"] })}>
-              <SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="field:min-h-11"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="reject">{t("protection.phrases.block")}</SelectItem><SelectItem value="redact">{t("protection.phrases.replace")}</SelectItem></SelectContent>
             </Select>
           </label>
           {entry.action === "redact" ? <label className="grid gap-2 text-xs font-medium">{t("protection.phrases.replacement")}
-            <Input className="min-h-11" value={entry.replacement} maxLength={240} onChange={(event) => update(index, { replacement: event.target.value })} />
+            <Input className="field:min-h-11" value={entry.replacement} maxLength={240} onChange={(event) => update(index, { replacement: event.target.value })} />
           </label> : null}
         </div>
       </li>)}

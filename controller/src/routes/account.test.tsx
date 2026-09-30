@@ -2,12 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IdentityUser } from "@/lib/identity-api";
+import { updateMe, type IdentityUser } from "@/lib/identity-api";
 
 import { AccountPage } from "./account";
 
 const updateProfileMock = vi.fn();
 const navigateMock = vi.fn();
+const authClientMock = vi.hoisted(() => ({ updateUser: vi.fn(), getSession: vi.fn() }));
+vi.mock("@/lib/better-auth", () => ({ authClient: authClientMock }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigateMock }));
 
 const user: IdentityUser = {
@@ -64,7 +66,7 @@ vi.mock("@/lib/auth", () => ({
   useAuth: () => ({ user, updateProfile: updateProfileMock }),
 }));
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/components/ui/notifications", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 function renderPage(section: "general" | "security" = "general") {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
@@ -72,7 +74,11 @@ function renderPage(section: "general" | "security" = "general") {
 }
 
 describe("AccountPage", () => {
-  beforeEach(() => updateProfileMock.mockReset().mockResolvedValue(undefined));
+  beforeEach(() => {
+    updateProfileMock.mockReset().mockResolvedValue(undefined);
+    authClientMock.updateUser.mockReset();
+    authClientMock.getSession.mockReset();
+  });
   afterEach(cleanup);
 
   it("persists an edited display name with the current account language", async () => {
@@ -84,8 +90,7 @@ describe("AccountPage", () => {
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Guard Operator" } });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
-    expect(updateProfileMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     await waitFor(() => expect(updateProfileMock).toHaveBeenCalledWith({
       display_name: "Guard Operator",
@@ -105,5 +110,32 @@ describe("AccountPage", () => {
     renderPage("security");
     expect(await screen.findByText("Password & sessions")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Change password" })).toBeTruthy();
+  });
+
+  it("saves a language change directly through the status-only API", async () => {
+    authClientMock.updateUser.mockResolvedValue({ data: { status: true }, error: null });
+    authClientMock.getSession.mockResolvedValue({ data: { user: {
+      id: user.id, name: user.display_name, email: user.email, role: user.role,
+      preferredLanguage: "zh-CN", createdAt: user.created_at, updatedAt: user.updated_at,
+    } }, error: null });
+    updateProfileMock.mockImplementation(updateMe);
+    const scrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+
+    try {
+      renderPage();
+      // Language is the only profile preference; there is no timezone selector.
+      expect(screen.getAllByRole("combobox")).toHaveLength(1);
+      fireEvent.keyDown(screen.getByRole("combobox", { name: "Interface language" }), { key: "Enter" });
+      fireEvent.click(await screen.findByRole("option", { name: "common.chinese" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+      await waitFor(() => expect(authClientMock.updateUser).toHaveBeenCalledWith({ name: user.display_name, preferredLanguage: "zh-CN" }));
+      expect(authClientMock.getSession).toHaveBeenCalledWith({ query: { disableCookieCache: true } });
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      if (scrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollIntoView);
+      else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
   });
 });

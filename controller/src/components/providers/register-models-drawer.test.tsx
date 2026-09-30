@@ -24,8 +24,8 @@ function mount(intent: "add-provider" | "register-models" = "register-models", m
   return render(<QueryClientProvider client={client}><RegisterModelsDrawer open intent={intent} providers={[provider]} registeredModels={models} onChanged={onChanged} onOpenChange={onOpenChange} /></QueryClientProvider>);
 }
 async function chooseProvider(name: string) {
-  fireEvent.click(screen.getByRole("button", { name: "Select Provider" }));
-  fireEvent.click(await screen.findByRole("button", { name: new RegExp(name) }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Select Provider" }));
+  fireEvent.click(await screen.findByRole("option", { name: new RegExp(name) }));
 }
 describe("Relay registration workflow", () => {
   beforeEach(async () => {
@@ -76,6 +76,31 @@ describe("Relay registration workflow", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the provider catalog grouped and supports search and keyboard selection", async () => {
+    mount("add-provider");
+    const picker = screen.getByRole("combobox", { name: "Select Provider" });
+    fireEvent.click(picker);
+    expect(within(screen.getByRole("group", { name: "Popular" })).getByRole("option", { name: /OpenAI/ })).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Chinese Providers" })).getAllByRole("option")).toHaveLength(2);
+    expect(within(screen.getByRole("group", { name: "Infrastructure" })).getByRole("option", { name: /NVIDIA/ })).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Self-Hosted \/ Custom" })).getAllByRole("option")).toHaveLength(3);
+    fireEvent.change(picker, { target: { value: "NVIDIA" } });
+    expect(screen.queryByRole("group", { name: "Popular" })).toBeNull();
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    fireEvent.keyDown(picker, { key: "Enter" });
+    expect((screen.getByLabelText("Base URL") as HTMLInputElement).value).toBe("https://integrate.api.nvidia.com/v1");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(registerProviderModels).not.toHaveBeenCalled();
+    fireEvent.click(picker);
+    fireEvent.change(picker, { target: { value: "missing-provider" } });
+    expect(screen.getByRole("status").textContent).toBe("No providers match this search.");
+    fireEvent.keyDown(picker, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect((picker as HTMLInputElement).value).toBe("NVIDIA NIM");
   });
 
   it("uses the branded provider catalog and does not save credentials at discovery", async () => {
@@ -146,10 +171,10 @@ describe("Relay registration workflow", () => {
     mount("add-provider");
     await chooseProvider("DeepSeek");
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "do-not-reuse" } });
-    fireEvent.click(screen.getByRole("button", { name: "Selected Provider: DeepSeek" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Search providers…" }), { target: { value: "NVIDIA" } });
-    expect(screen.queryByRole("button", { name: /OpenAI models/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /NVIDIA NIM/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Select Provider" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Select Provider" }), { target: { value: "NVIDIA" } });
+    expect(screen.queryByRole("option", { name: /OpenAI models/ })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /NVIDIA NIM/ }));
     expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("Base URL") as HTMLInputElement).value).toBe("https://integrate.api.nvidia.com/v1");
   });

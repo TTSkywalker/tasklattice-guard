@@ -25,6 +25,8 @@ COPY --link --from=dependencies /opt/tasklattice/venv /opt/tasklattice/venv
 # Runner contains the complete data plane: runtime host, NeMo toolkit, policy
 # materialization, and the Default Runner compiler. No Controller code is copied.
 COPY --link runner ./runner
+ARG TALI_BUILD_INFO
+ENV TALI_BUILD_INFO=${TALI_BUILD_INFO}
 USER 65532:65532
 EXPOSE 8091
 VOLUME ["/var/lib/tasklattice/guard-runner"]

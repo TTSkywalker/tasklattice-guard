@@ -92,8 +92,10 @@ serves its generated OpenAPI contract at `/api/openapi.json` and reference UI at
 
 ## Control protocol
 
-Runner initiates a long-lived gRPC stream authenticated with a Runner token and,
-in production, mutual TLS. It registers first, then sends heartbeats, load,
+Runner initiates a long-lived gRPC stream authenticated with a Runner token.
+Production defaults to mutual TLS; explicitly disabling `security.controlTls.enabled`
+selects plaintext gRPC without changing Token authentication or artifact signing.
+It registers first, then sends heartbeats, load,
 compile/validation results, and ACK/NACK messages. Controller sends desired
 state, compile/validation requests, and drain commands.
 
@@ -220,7 +222,7 @@ See [revision lifecycles](revision-lifecycle.md) for the exact constraints.
 ## Identity, secrets, and retained data
 
 - Better Auth owns human identity, sessions, passwords, and roles. Local
-  OrbStack credentials are `admin` / `admin`; production requires a strong
+  OrbStack credentials are `admin` / `Password`; production requires a strong
   bootstrap Secret. Bootstrap creates a missing identity without resetting an
   existing password.
 - Management API clients can use personal Access Tokens with module permissions,
@@ -233,7 +235,20 @@ See [revision lifecycles](revision-lifecycle.md) for the exact constraints.
 - Runtime events contain bounded metadata by default. When the Guardrail logging
   level qualifies and an encryption key is configured, Runner encrypts captured
   before/after content with AES-GCM before writing the WAL or exporting it.
-  Controller stores ciphertext and decrypts content for authorized reads.
+  The same encrypted payload includes the HTTP request received at the Runner:
+  method, target, HTTP version, ordered headers (including duplicates), and the
+  complete body bytes. Authentication header values are replaced with
+  `[REDACTED]` before encryption. Controller exposes this envelope only on
+  administrator detail reads with `includeContent=true`; lists and ordinary
+  detail reads exclude it in SQL, before allocating a body in Controller.
+  Opening an Item loads metadata and Trace only. Expanding a content panel or
+  clicking download fetches that checkpoint's body on demand; closing the panel's
+  sheet aborts pending reads and releases its content. Previews are bounded to
+  64 KiB with limits on JSON tokens and nesting; downloads remain complete.
+  The console displays only the body, formatting and highlighting valid JSON
+  without changing numeric precision. HTTP downloads retain the captured body
+  bytes and headers. Older records without an HTTP envelope offer retained-text
+  downloads only; missing headers and original bodies cannot be reconstructed.
 - Runtime logs and routing events are batched from the local Runner WAL to
   Controller over authenticated HTTP outside the synchronous protection path.
   Redis call/stream content has the separate retention boundary described above.
@@ -256,3 +271,84 @@ Runner traffic, pinned call/stream behavior, authenticated telemetry with encryp
 content capture, and deletion evidence retention. Run the relevant Controller,
 Runner, protocol, and Helm checks through the repository's Makefile and package
 scripts; this document is not a test-results ledger.
+
+
+## Topic Control boundaries
+
+Topic Control drafts carry `allowedTopics`, `restrictedTopics`, and
+`topicControlMode` (`strict` or `permissive`). New drafts and intent analyses
+default to permissive mode. Existing drafts without a mode
+remain strict. A denied task takes precedence over an allowed task. Strict mode
+requires every substantive requested task to fit the allow-list; permissive mode
+allows unmatched tasks after denied-topic checks. Other safety Policies and
+fail-closed handling of model errors remain in effect.
+
+The authoring UI uses one intent description with placeholder examples for the
+business purpose, allowed tasks, prohibited behavior, and exceptions. The configured
+control-plane AI returns editable `allowed_topics` and `restricted_topics` lists;
+the user-selected mode is preserved, and applying the proposal is explicit.
+Document analysis extracts both lists from source evidence. Draft editing,
+candidate previews, immutable plans and both NeMo topic execution paths preserve
+the same configuration. New modes always request semantic judgment; merely
+mentioning an allowed phrase cannot skip denied-topic evaluation. Existing
+immutable artifacts marked `topic_mode=allowlist` retain their legacy behavior
+until a new version is published. Semantic classification is probabilistic;
+Policy validation includes mode-aware unmatched-topic and denied-topic cases.
+
+
+Intent and document authoring use at least a 60-second model timeout, or the
+configured model timeout when longer, because structured proposals take longer
+than short connection probes. Timeout failures return HTTP 504; upstream HTTP,
+transport, response decoding, and proposal validation failures return HTTP 502
+with a distinct `stage`. Administrator responses include provider/model,
+endpoint, a diagnostic ID, elapsed time, upstream status/request ID when
+available, and redacted response/validation evidence. The UI preserves the
+message and displays expandable diagnostic details. Server logs retain only
+correlation and timing metadata, never prompt/document or response content.
+A socket disconnect before TLS establishment is retried once within the same
+request deadline. Certificate errors, provider HTTP failures, timeouts, and
+response validation failures are not retried automatically.
+
+
+Guardrail creation checks the active `topic_control.input` assignment on the
+Configure protections step. Missing, unverified, failed or inactive assignments
+keep Topic Control visible with a setup explanation, but disable model-dependent
+Policy selection and topic boundary authoring. Local keyword Policies remain
+selectable. Preset selections are preserved and removable; unavailable topic
+bindings block candidate preview and creation. Both intent and document authoring
+entry points are hidden until the runtime capability is ready. The five protection
+sections are Safety & attacks, Data & privacy, Business rules, Topic Control and
+Correctness checks. Classification follows policy purpose; model readiness is a
+separate state. Local keyword rules remain under Business rules. Availability refreshes while the
+wizard is open; the control-plane authoring model is not runtime capability evidence.
+
+Contextual Grounding and Automated Reasoning independently require a verified,
+active `contextual_grounding.output` or `automated_reasoning.output` assignment.
+Creation and draft editing disable unavailable checks and their configuration,
+while allowing existing bindings to be removed. Preset and document proposals
+cannot bypass this requirement, and unavailable bindings block preview/save.
+A control-plane model or connection-only probe is not capability evidence.
+Grounding additionally needs query/source content; reasoning needs a versioned
+formal policy and a compatible reasoning service, not a generic chat endpoint.
+
+### Guardrail Profiles
+
+A Profile is a preconfigured starting template, distinct from a Guardrail draft
+and from an evaluator/model profile. `guardrail_profile` stores its category,
+default flag, enabled state, display order, and versioned definition, including
+ordered Policy/version references, Rails and parameter values. Migration 0013
+seeds defaults for General, Banking, Securities, Internet support and Singapore
+finance. Its partial unique index allows one enabled default per category.
+Seeds run once through the migration journal; runtime startup never replaces
+operator changes. Add new defaults through a migration, not a request-time seed.
+
+`GET /api/v1/guardrail-profiles` reads enabled records from PostgreSQL on each
+request and expands their pinned Policy references. The legacy
+`/api/v1/policy-catalog/protection-presets` route remains a database-backed alias.
+Both require authenticated Policies read access. Profile application copies
+bindings into the draft; later Profile changes do not rewrite existing Guardrails.
+The UI initially loads the General default and lists all Profiles in one dropdown,
+with the name followed by industry/use-case and default tags. It preserves
+explicit append/replace/cancel/undo behavior.
+Choosing blank is respected. Runtime model availability gates still apply to
+all selected bindings, including those inherited from a Profile.

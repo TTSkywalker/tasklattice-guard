@@ -33,7 +33,7 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/components/ui/notifications", () => ({ toast: { error: vi.fn() } }));
 
 describe("AccountMenu", () => {
   afterEach(cleanup);
@@ -44,7 +44,7 @@ describe("AccountMenu", () => {
     const trigger = screen.getByRole("button", { name: "Open account menu for Local Administrator" });
     expect(trigger.textContent).toBe("LA");
 
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
 
     expect(screen.getByText("Local Administrator")).toBeTruthy();
     expect(screen.getByText("admin@tasklattice.local")).toBeTruthy();

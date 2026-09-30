@@ -50,7 +50,7 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/notifications", () => ({
   toast: { success: mocks.toastSuccess, error: vi.fn() },
 }));
 

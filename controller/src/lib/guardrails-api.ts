@@ -1,6 +1,6 @@
 import type { TrafficRouter } from "./traffic-routing-api";
 import * as controllerApi from "@/lib/controller-api";
-import type { ProtectionPreset } from "../../shared/protection-map";
+import type { GuardrailProfile, ProtectionPreset } from "../../shared/protection-map";
 import {
   arrayOfRecords,
   arrayOfStrings,
@@ -122,6 +122,7 @@ function mapGuardrail(
     name: value.name,
     allowed_topics: value.draftConfig.allowedTopics,
     restricted_topics: value.draftConfig.restrictedTopics,
+    topic_control_mode: value.draftConfig.topicControlMode ?? "strict",
     policy_bindings: value.draftConfig.policyBindings.map(fromCurrentBinding),
     safety_level: value.draftConfig.safetyLevel,
     output_delivery: value.draftConfig.outputDelivery,
@@ -173,6 +174,8 @@ export async function getGuardrail(id: string): Promise<Guardrail> {
 export async function createGuardrail(input: {
   name: string;
   allowed_topics?: string[];
+  restricted_topics?: string[];
+  topic_control_mode?: "strict" | "permissive";
   policy_bindings: GuardrailPolicyBinding[];
   safety_level?: SafetyLevel;
   output_delivery?: OutputDelivery;
@@ -181,7 +184,8 @@ export async function createGuardrail(input: {
     name: input.name,
     draftConfig: {
       allowedTopics: input.allowed_topics ?? [],
-      restrictedTopics: [],
+      restrictedTopics: input.restricted_topics ?? [],
+      topicControlMode: input.topic_control_mode ?? "permissive",
       policyBindings: input.policy_bindings.map(toCurrentBinding),
       safetyLevel: input.safety_level ?? "balanced",
       outputDelivery: input.output_delivery ?? "window_buffered",
@@ -193,19 +197,20 @@ export async function createGuardrail(input: {
 
 export const updateGuardrail = (
   id: string,
-  input: Partial<Pick<Guardrail, "name" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
+  input: Partial<Pick<Guardrail, "name" | "allowed_topics" | "restricted_topics" | "topic_control_mode" | "policy_bindings" | "safety_level" | "output_delivery">>,
 ) => updateGuardrailDraft(id, input);
 
 async function updateGuardrailDraft(
   id: string,
-  input: Partial<Pick<Guardrail, "name" | "allowed_topics" | "policy_bindings" | "safety_level" | "output_delivery">>,
+  input: Partial<Pick<Guardrail, "name" | "allowed_topics" | "restricted_topics" | "topic_control_mode" | "policy_bindings" | "safety_level" | "output_delivery">>,
 ): Promise<Guardrail> {
   const current = await controllerApi.getControllerGuardrail(id);
   const updated = await controllerApi.updateControllerGuardrail(id, {
     ...(input.name !== undefined ? { name: input.name } : {}),
     draftConfig: {
       allowedTopics: input.allowed_topics ?? current.draftConfig.allowedTopics,
-      restrictedTopics: [],
+      restrictedTopics: input.restricted_topics ?? current.draftConfig.restrictedTopics,
+      topicControlMode: input.topic_control_mode ?? current.draftConfig.topicControlMode ?? "strict",
       policyBindings: (input.policy_bindings ?? current.draftConfig.policyBindings.map(fromCurrentBinding)).map(toCurrentBinding),
       safetyLevel: input.safety_level ?? current.draftConfig.safetyLevel,
       outputDelivery: input.output_delivery ?? current.draftConfig.outputDelivery,
@@ -370,6 +375,8 @@ export const rollbackGuardrail = (guardrailId: string, version: string) =>
 export function previewGuardrailCandidate(input: {
   name: string;
   allowed_topics?: string[];
+  restricted_topics?: string[];
+  topic_control_mode?: "strict" | "permissive";
   policy_bindings: GuardrailPolicyBinding[];
   safety_level?: SafetyLevel;
   output_delivery?: OutputDelivery;
@@ -378,7 +385,8 @@ export function previewGuardrailCandidate(input: {
     name: input.name,
     draftConfig: {
       allowedTopics: input.allowed_topics ?? [],
-      restrictedTopics: [],
+      restrictedTopics: input.restricted_topics ?? [],
+      topicControlMode: input.topic_control_mode ?? "permissive",
       policyBindings: input.policy_bindings.map(toCurrentBinding),
       safetyLevel: input.safety_level ?? "balanced",
       outputDelivery: input.output_delivery ?? "full_buffered",
@@ -403,9 +411,10 @@ export async function getGuardrailCompilePreview(id: string): Promise<GuardrailC
 }
 
 export const getPolicies = () => controllerApi.requestController<Collection<Policy>>("/api/v1/policies");
-export type ProtectionPresetPreview = ProtectionPreset & { bindings: GuardrailPolicyBinding[] };
-export async function getProtectionPresets(): Promise<Collection<ProtectionPresetPreview>> {
-  const result = await controllerApi.requestController<Collection<ProtectionPreset & { policyBindings: CurrentPolicyBinding[] }>>("/api/v1/policy-catalog/protection-presets");
+export type GuardrailProfilePreview = ProtectionPreset & Partial<Pick<GuardrailProfile, "category" | "categoryName" | "isDefault">> & { bindings: GuardrailPolicyBinding[] };
+export type ProtectionPresetPreview = GuardrailProfilePreview;
+export async function getGuardrailProfiles(): Promise<Collection<ProtectionPresetPreview>> {
+  const result = await controllerApi.requestController<Collection<GuardrailProfile & { policyBindings: CurrentPolicyBinding[] }>>("/api/v1/guardrail-profiles");
   return { ...result, items: result.items.map(({ policyBindings, ...preset }) => ({ ...preset, bindings: policyBindings.map(fromCurrentBinding) })) };
 }
 export const getPolicy = (id: string) => controllerApi.requestController<Policy>(`/api/v1/policies/${encodeURIComponent(id)}`);
@@ -419,15 +428,15 @@ export const updateProgrammablePolicy = (id: string, input: { name?: string; des
 });
 export const deleteProgrammablePolicy = (id: string) => controllerApi.requestController<void>(`/api/v1/policies/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const validateProgrammablePolicy = (id: string) => controllerApi.requestController<PolicyValidation>(`/api/v1/policies/${encodeURIComponent(id)}/draft/checks`);
-export const getLatestProgrammablePolicyValidation = (id: string) => controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs/latest`);
+export const getLatestProgrammablePolicyValidation = (id: string) => controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/test-runs/latest`);
 export async function runProgrammablePolicyValidation(id: string): Promise<PolicyDraftValidationRun> {
-  const initial = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs`, { method: "POST" });
+  const initial = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/test-runs`, { method: "POST" });
   if (!initial.id) throw new Error("Policy validation did not return a run ID.");
   const deadline = Date.now() + 5 * 60_000;
   let current = initial;
   while ((current.status === "queued" || current.status === "running") && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    current = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/validation-runs/${encodeURIComponent(initial.id)}`);
+    current = await controllerApi.requestController<PolicyDraftValidationRun>(`/api/v1/policies/${encodeURIComponent(id)}/test-runs/${encodeURIComponent(initial.id)}`);
   }
   if (current.status === "queued" || current.status === "running") throw new Error("Policy Validation timed out while waiting for GuardRails 0.");
   return current;
@@ -435,7 +444,7 @@ export async function runProgrammablePolicyValidation(id: string): Promise<Polic
 export const publishProgrammablePolicy = (id: string, expectedDraftRevision: number) => controllerApi.requestController<ProgrammablePolicyVersion>(`/api/v1/policies/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify({ expectedDraftRevision }) });
 
 export const getIntentAnalysisStatus = () => controllerApi.requestController<IntentAnalysisStatus>("/api/v1/authoring/capabilities");
-export const analyzeGuardrailIntent = (input: { purpose: string; language: "en" | "zh-CN" }) => controllerApi.requestController<IntentAnalysis>("/api/v1/authoring/intent-analyses", {
+export const analyzeGuardrailIntent = (input: { purpose: string; deniedPurpose?: string; topicControlMode: "strict" | "permissive"; language: "en" | "zh-CN" }) => controllerApi.requestController<IntentAnalysis>("/api/v1/authoring/intent-analyses", {
   method: "POST",
   body: JSON.stringify(input),
 });
@@ -469,13 +478,13 @@ function moduleTimeoutForStep(step: Record<string, unknown>, modules: Record<str
 export const getGuardrailLoggingSettings = (id: string) => controllerApi.requestController<CurrentLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`).then(mapLogging);
 export const updateGuardrailLoggingSettings = (id: string, level: LoggingLevel, acknowledgeCost = false) => controllerApi.requestController<CurrentLoggingSettings>(`/api/v1/guardrails/${encodeURIComponent(id)}/logging`, { method: "PATCH", body: JSON.stringify({ level, acknowledgeCost }) }).then(mapLogging);
 
-export const createValidationRun = (guardrailId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-runs`, { method: "POST" }).then(waitForValidation);
+export const createValidationRun = (guardrailId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-runs`, { method: "POST" }).then(waitForValidation);
 export async function getValidationRuns(guardrailId?: string): Promise<Collection<ValidationRun>> {
   const suffix = guardrailId ? `?guardrailId=${encodeURIComponent(guardrailId)}` : "";
-  const response = await controllerApi.requestController<{ items: controllerApi.ValidationRun[]; count: number }>(`/api/v1/validation-runs${suffix}`);
+  const response = await controllerApi.requestController<{ items: controllerApi.ValidationRun[]; count: number }>(`/api/v1/test-runs${suffix}`);
   return { items: response.items.map(mapValidationRun), count: response.count };
 }
-export const getValidationRun = (runId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/validation-runs/${encodeURIComponent(runId)}`).then(mapValidationRun);
+export const getValidationRun = (runId: string) => controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/test-runs/${encodeURIComponent(runId)}`).then(mapValidationRun);
 export const getPlaygroundModels = () => controllerApi.requestController<Collection<PlaygroundModel>>("/api/v1/playground/models");
 export const preparePlaygroundDraftPreview = (guardrailId: string) =>
   controllerApi.requestController<PlaygroundDraftPreview>(`/api/v1/playground/guardrails/${encodeURIComponent(guardrailId)}/draft-previews`, {
@@ -524,11 +533,11 @@ export const createTestCase = (
 }) }).then(mapTestCase);
 export const deleteTestCase = (guardrailId: string, caseId: string) => controllerApi.requestController<void>(`/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-cases/${encodeURIComponent(caseId)}`, { method: "DELETE" });
 export const excludeGuardrailTestCase = (guardrailId: string, caseId: string) => controllerApi.requestController<TestCase>(
-  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-scope`,
+  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-scope`,
   { method: "PATCH", body: JSON.stringify({ caseId, excluded: true }) },
 );
 export const restoreGuardrailTestCase = (guardrailId: string, caseId: string) => controllerApi.requestController<TestCase>(
-  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/validation-scope`,
+  `/api/v1/guardrails/${encodeURIComponent(guardrailId)}/test-scope`,
   { method: "PATCH", body: JSON.stringify({ caseId, excluded: false }) },
 );
 
@@ -618,7 +627,7 @@ async function waitForValidation(initial: controllerApi.ValidationRun): Promise<
   const deadline = Date.now() + 5 * 60_000;
   while ((current.status === "queued" || current.status === "running") && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    current = await controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/validation-runs/${encodeURIComponent(initial.id)}`);
+    current = await controllerApi.requestController<controllerApi.ValidationRun>(`/api/v1/test-runs/${encodeURIComponent(initial.id)}`);
   }
   return mapValidationRun(current);
 }

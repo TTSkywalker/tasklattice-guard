@@ -18,7 +18,8 @@
         "id": "configured/phrases",
         "name": "Configured phrase sequence",
         "description": "Execute the reviewed phrase entries. Each entry specifies block or replacement; a Rule action override applies to the entire sequence.",
-        "form": "keyword", "effect": "reject", "rails": ["input", "output"],
+        "form": "keyword", "effect": "reject",
+        "risk_severity": "low", "rails": ["input", "output"],
         "implementation": { "engine": "nemo-guardrails", "form": "keyword", "binding_id": "configured-phrase-filter", "implementation_rule_id": "phrases", "detector": "configured_phrases", "action_name": "GuardContentFilterAction" },
         "taxonomy_ids": ["TALI-BUSINESS-POLICY"]
       }

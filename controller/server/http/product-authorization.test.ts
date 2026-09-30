@@ -1,3 +1,4 @@
+import { defaultGuardrailProfiles } from "../../shared/guardrail-profiles.js";
 // @vitest-environment node
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -32,10 +33,9 @@ const adminRoutes = [
   ["PUT", "/models/model/protocol"], ["DELETE", "/models/model"],
   ["PUT", "/model-configuration/draft"], ["PUT", "/model-configuration/draft/assignments/content_safety.input"],
   ["POST", "/model-configuration/draft/assignments/content_safety.input/validations"],
-  ["POST", "/model-configuration/draft/validations"], ["POST", "/model-configuration/revisions/revision/activate"],
-  ["POST", "/model-configuration/rollback"],
+  ["POST", "/model-configuration/draft/validations"], ["POST", "/model-configuration/apply"],
   ["POST", "/policies"], ["PATCH", "/policies/policy"], ["DELETE", "/policies/policy"],
-  ["POST", "/policies/policy/validation-runs"],
+  ["POST", "/policies/policy/test-runs"],
   ["POST", "/policies/policy/publish"], ["POST", "/authoring/intent-analyses"],
   ["POST", "/authoring/document-analyses"],
   ["POST", "/playground/guardrails/guard/draft-previews"], ["POST", "/playground/guardrails/guard/draft-interactions"],
@@ -44,7 +44,7 @@ const adminRoutes = [
   ["POST", "/guardrails/guard/rollback"],
   ["PATCH", "/guardrails/guard/logging"], ["GET", "/guardrails/guard/deletion-impact"],
   ["DELETE", "/guardrails/guard"], ["POST", "/guardrails/guard/test-cases"], ["DELETE", "/guardrails/guard/test-cases/case"],
-  ["PATCH", "/guardrails/guard/validation-scope"], ["POST", "/guardrails/guard/validation-runs"],
+  ["PATCH", "/guardrails/guard/test-scope"], ["POST", "/guardrails/guard/test-runs"],
   ["POST", "/endpoints"], ["PATCH", "/endpoints/endpoint"],
   ["POST", "/endpoints/endpoint/credentials"], ["DELETE", "/endpoints/endpoint/credentials/credential"],
   ["GET", "/endpoints/endpoint/deletion-impact"], ["DELETE", "/endpoints/endpoint"],
@@ -58,7 +58,7 @@ const adminRoutes = [
 function setup(role: string | null) {
   const getSession = vi.fn().mockResolvedValue(role === null ? null : { user: { id: "actor", role } });
   const unexpected = vi.fn(() => { throw new Error("Protected service was reached"); });
-  const service = new Proxy({}, { get: () => unexpected });
+  const service = new Proxy({}, { get: (_, key) => key === "listGuardrailProfiles" ? async () => defaultGuardrailProfiles : unexpected });
   const app = createHttpApp({ config,
     auth: { api: { getSession }, handler: vi.fn() } as unknown as ControllerAuth,
     service: service as ControlPlaneService, runnerControl: service as RunnerControlServer,
@@ -133,6 +133,7 @@ describe("Session freshness and read-only access", () => {
     const body = await response.json();
     expect(body.items.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([
       "common-baseline", "banking-assistant", "securities-assistant", "internet-customer-support",
+      "china-mainland-runtime", "china-banking-assistant",
     ]));
     expect(unexpected).not.toHaveBeenCalled();
     expect((await setup(null).app.request("/api/v1/policy-catalog/protection-presets")).status).toBe(401);

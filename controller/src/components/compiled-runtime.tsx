@@ -60,7 +60,7 @@ export function CompiledRuntime({ detail }: { detail: GuardrailVersionDetail }) 
                     {t("guardrails.generatedFile")}
                   </label>
                   <Select value={selectedArtifact.path} onValueChange={setSelectedPath}>
-                    <SelectTrigger id="compiled-runtime-file" className="min-h-11" aria-label={t("guardrails.generatedFile")}>
+                    <SelectTrigger id="compiled-runtime-file" className="field:min-h-11" aria-label={t("guardrails.generatedFile")}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

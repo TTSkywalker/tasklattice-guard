@@ -4,67 +4,148 @@ Run TaskLattice Guard from source, execute its test suites, and update generated
 contracts. For a complete local Kubernetes installation, use the
 [Helm guide](../charts/tali-guard/README.md#orbstacklocal-installation).
 
+## UI platform scope
+
+The Controller console targets **desktop browsers only**. Future features and
+fixes do not require phone/mobile layout compatibility, touch-specific interaction
+support, mobile screenshots or mobile regression acceptance. See the
+[design contract](protection-productization.md#platform-scope-desktop-only).
+
+Continue verifying desktop primary/error/recovery paths, keyboard accessibility,
+focus, browser zoom and layout at desktop window sizes. Existing mobile styles
+and historical tests may remain; this is a scope change, not a request to remove
+working code. Feature-specific QA instructions must follow this desktop-only scope.
+
+## Console design language: Carbon
+
+The desktop console uses Carbon's productive UI language. `controller/src/design-system.scss`
+imports the installed Carbon g10 theme and maps its semantic tokens to the shared
+UI primitives and the existing console shell. `controller/src/styles.css` defines locally
+hosted IBM Plex Sans / IBM Plex Mono with Noto Sans SC for Chinese. Keep the
+TaskLattice brand and domain terminology.
+
+- Use the g10 canvas, white content layers, neutral separators, and square controls.
+  Reserve shadows for overlays, not ordinary content cards.
+- Use a 32px regular-weight page title, 14px UI text, the existing 64px shell header, a 252px
+  expanded sidebar and 72px collapsed sidebar, and 8px spacing increments. Default controls are 40px; dense controls
+  may be 32px. Keep visible keyboard focus and preserve existing accessible names.
+- Center button labels and inline icons together, with symmetric inline padding;
+  do not reserve trailing-icon space for buttons that use inline children.
+- Blue identifies the primary operation. Editing is an operation, not a warning.
+  Use warning, danger, and success colors for actual domain states and keep a text
+  label alongside status color. Risk severity, requested action, and execution
+  status remain separate concepts.
+- Shared controls in `controller/src/components/ui` compose native `@carbon/react`
+  components: Button, TextInput/TextArea, Dropdown/ComboBox/FilterableMultiSelect,
+  Checkbox/Toggle, Tabs, DataTable primitives, OverflowMenu, and notifications.
+  Add new controls here rather than adding another component library. Native Select is used for short HTML-form option lists.
+- Preserve the existing application shell layout and interaction contracts. The
+  brand belongs in the sidebar header and collapses to its icon; the toggle stays
+  in the content header, before the breadcrumbs. Keep navigation indentation,
+  group spacing, footer links, edge-rail toggle and Ctrl/Cmd+B shortcut. Hovering
+  must not expand a collapsed sidebar. Carbon visual migration does not replace
+  this shell with Carbon Header/SideNav/Content. Resource forms and
+  side-effect confirmations open in the existing right-side, full-height drawers
+  (`EntitySheet` / `ConfirmationSheet`), with a scrollable body and fixed actions.
+  Do not convert them to centered modals as part of a design-system migration.
+  Retain focus trapping/restoration, nested drawers, cancellation, pending-close
+  protection, and explicit confirmation before writes. Keep wizard keyboard
+  navigation and step-gating behavior. Carbon styles do not override these rules.
+  The drawer keeps its proven Radix Dialog behavior with Carbon form controls.
+  Dropdowns use floating positioning inside drawers; Escape closes the open
+  dropdown before the drawer. Preserve existing interaction test assertions;
+  adapting component selectors must not weaken behavior or layout contracts.
+- Query Builder, routing diagrams, charts, code/diff editors, and the conversation
+  engine remain domain components. Their controls, typography and surfaces share
+  the Carbon system; do not replace domain behavior with visual mockups.
+- Use the focused `@radix-ui/react-dialog` and `@radix-ui/react-slot` primitives
+  for the existing drawer, sidebar and wizard interaction contracts. The umbrella Radix,
+  shadcn and Sonner dependencies are removed. Global toasts use the shared Carbon
+  notification service.
+- Import only used native Carbon component styles, not a second global reset.
+  The Security Events toolbar uses `@carbon/react` through `EventFilterToolbar`
+  with a white local layer under `.guard-carbon`. Reuse it for matching filters.
+  Risk filters are multi-select and URL-backed; filtering happens before cursor
+  pagination, while option counts cover the selected time range.
+- Check default, focus, selected, disabled, empty, and error/recovery states at
+  desktop widths in both languages. Honor reduced-motion preferences.
+
 ## Run from source
 
-Requirements: Python 3.13, uv, Node.js 24, npm, PostgreSQL, and OpenSSL.
+Requirements: Python 3.13, uv, Node.js 24+, npm, and PostgreSQL.
+
+Run commands from the repository root. The root `package.json` is the command
+entry point, following Relay's `dev:*`, `test:*`, `images:*`, and `helm:*` naming.
+Controller keeps its own lockfile; `npm run sync` installs both Python and
+Controller dependencies without restructuring their dependency trees.
 
 ```bash
-make sync
-openssl genpkey -algorithm ED25519 -out /tmp/guard-private.pem
-openssl pkey -in /tmp/guard-private.pem -pubout -out /tmp/guard-public.pem
+npm run sync
+npm run dev:setup
 ```
 
-Copy [`.env.example`](../.env.example) to `.env` if you do not already have a
-local configuration, then configure a local PostgreSQL database matching
-`CONTROLLER_DATABASE_URL`. Replace the secret placeholders;
-`CONTROLLER_RUNNER_TOKEN` and `GUARD_CONTROLLER_TOKEN` must have the same value.
-Use shell-compatible quoting for values containing spaces, for example
-`CONTROLLER_BOOTSTRAP_ADMIN_NAME="Local Administrator"`.
+`dev:setup` creates or completes the ignored root `.env`, generates local
+Ed25519 keys under `.local-secrets/`, and generates random internal tokens.
+Existing credentials and signing keys are preserved across repeated runs.
+It does not start PostgreSQL or connect to Kubernetes. Configure a reachable
+PostgreSQL database in `CONTROLLER_DATABASE_URL` before starting Controller.
+The default is `postgresql://guard:guard@localhost:5432/guard`.
 
-The Make targets do not automatically load `.env`. From the repository root,
-load it in each backend terminal before starting the process.
-
-Controller terminal:
+Start each service in a separate terminal:
 
 ```bash
-set -a
-. ./.env
-set +a
-make controller-dev
+npm run dev          # Controller watch mode; alias of dev:controller
+npm run dev:runner   # Runner
+npm run dev:ui       # Vite UI on port 8092
 ```
 
-Runner terminal:
+These development commands automatically load the root `.env`; exported shell
+variables take precedence. No `source .env` is required. Controller-specific
+file paths resolve from `controller/`; Runner paths resolve from the repository
+root. The setup command writes absolute paths for generated keys.
+
+Open [the development UI](http://localhost:8092); Vite proxies API requests to
+Controller on port 8080. Set `CONTROLLER_DEV_PROXY` in `.env` for another backend.
+Alternatively build and start Controller with the static UI:
 
 ```bash
-set -a
-. ./.env
-set +a
-make runner-run
+npm run build       # Controller UI + server
+npm start
 ```
 
-Start the UI in a third terminal:
+Controller runs database migrations and creates the bootstrap administrator
+only if absent. New local accounts initialized by `dev:setup` use `admin` /
+`password`, stored as a salted Better Auth hash. Existing accounts are not reset.
+For a complete local Kubernetes stack, use `npm run helm:deploy:dev` instead;
+that deployment initializes credentials inside Kubernetes independently.
 
-```bash
-npm run dev:ui --prefix controller
-```
+| Task | Root command |
+| --- | --- |
+| Build both development images | `npm run images:build:dev` |
+| Deploy local Helm release | `npm run helm:deploy:dev` |
+| Deploy with performance diagnostics | `npm run helm:deploy:dev:debug` |
+| Render local chart | `npm run helm:template` |
+| Inspect / test release | `npm run helm:status` / `npm run helm:test` |
+| Uninstall release | `npm run helm:delete:dev` |
+| Package chart | `npm run helm:package -- 0.2.5` |
 
-Open [the development UI](http://localhost:8092); Vite proxies API requests to Controller on port
-8080. Alternatively, run `npm run build:ui --prefix controller` and use
-[Controller's static UI](http://localhost:8080).
-
-Controller runs database migrations and idempotently creates the bootstrap
-administrator through Better Auth. With the example local configuration, sign
-in as `admin` / `admin`; the corresponding internal Better Auth email is
-`admin@tasklattice.local`.
+Helm commands accept `HELM_CONTEXT`, `HELM_NAMESPACE`, `HELM_RELEASE`,
+`HELM_DEV_VALUES`, and `HELM_TIMEOUT` as environment variables. For example:
+`HELM_NAMESPACE=guard-dev npm run helm:deploy:dev -- --values ./values-local.yaml`.
+The default context/namespace are `orbstack` / `tali`. Additional flags after
+`--` reach Helm as separate arguments. Make targets remain compatibility aliases
+only; new workflows should use npm. Legacy `HELM_VALUES_ARGS` is replaced by
+explicit arguments after `--`.
 
 ## Tests and generated contracts
 
-The [Makefile](../Makefile) separates `test-control-plane`, `test-data-plane`,
-`test-e2e` (Controller/Runner communication), and `test-contracts`. The aggregate
-target also typechecks and builds Controller:
+The root [package.json](../package.json) separates `test:control-plane`,
+`test:data-plane`, `test:e2e` (Controller/Runner communication), and
+`test:contracts`. The aggregate command also tests the CLI helpers, typechecks,
+and builds Controller:
 
 ```bash
-make test
+npm test
 ```
 
 In addition to development dependencies, the contract checks require Helm and
@@ -85,8 +166,8 @@ Controller/Runner gRPC messages are defined under
 the checked-in Python and TypeScript bindings and verify them with:
 
 ```bash
-make proto-generate
-make proto-check
+npm run proto:generate
+npm run proto:check
 ```
 
 The gRPC envelopes use typed business messages, with explicitly documented

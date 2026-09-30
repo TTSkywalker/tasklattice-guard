@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { EntitySheet } from "@/components/entity-sheet";
 import { StateBadge } from "@/components/product-shell";
@@ -289,7 +289,7 @@ export function ProviderManagementSheet({
             <Label htmlFor={`provider-new-credential-${provider.id}`}>{t("modelSettings.newCredential")}</Label>
             <Input
               id={`provider-new-credential-${provider.id}`}
-              className="h-11 font-mono"
+              className="field:h-11 field:font-mono"
               type="password"
               autoComplete="new-password"
               spellCheck={false}

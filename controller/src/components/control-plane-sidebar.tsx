@@ -93,7 +93,7 @@ export function ControlPlaneSidebar() {
                             asChild
                             isActive={active}
                             tooltip={label}
-                            className="h-11 rounded-lg px-2.5 text-[13px] text-sidebar-foreground/80 data-active:bg-accent data-active:font-medium data-active:text-accent-foreground group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
+                            className="h-11 rounded-lg px-2.5 text-[13px] text-sidebar-foreground/80 data-[active=true]:bg-accent data-[active=true]:font-medium data-[active=true]:text-accent-foreground group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
                           >
                             <Link
                               to={item.to}
@@ -120,16 +120,18 @@ export function ControlPlaneSidebar() {
             <SidebarMenuItem>
               <SidebarMenuButton
                 asChild
-                isActive={pathname === "/help"}
+                isActive={pathname === "/document"}
                 tooltip={t("nav.helpCenter")}
-                className="h-11 rounded-lg px-2.5 text-[13px] text-sidebar-foreground/80 data-active:bg-accent data-active:font-medium data-active:text-accent-foreground group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
+                className="h-11 rounded-lg px-2.5 text-[13px] text-sidebar-foreground/80 data-[active=true]:bg-accent data-[active=true]:font-medium data-[active=true]:text-accent-foreground group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
               >
                 <Link
-                  to="/help"
+                  to="/document"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   aria-label={state === "collapsed" ? t("nav.helpCenter") : undefined}
                   onClick={() => setOpenMobile(false)}
                 >
-                  <CircleHelp className="size-4.5" strokeWidth={pathname === "/help" ? 2.2 : 1.8} />
+                  <CircleHelp className="size-4.5" strokeWidth={pathname === "/document" ? 2.2 : 1.8} />
                   <span className="group-data-[collapsible=icon]:hidden">{t("nav.helpCenter")}</span>
                 </Link>
               </SidebarMenuButton>
@@ -139,7 +141,7 @@ export function ControlPlaneSidebar() {
                 asChild
                 isActive={settingsActive}
                 tooltip={t("nav.settings")}
-                className="h-11 rounded-lg px-2.5 text-[13px] text-sidebar-foreground/80 data-active:bg-accent data-active:font-medium data-active:text-accent-foreground focus-visible:ring-1 focus-visible:ring-inset group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
+                className="h-11 rounded-lg px-2.5 text-[13px] text-sidebar-foreground/80 data-[active=true]:bg-accent data-[active=true]:font-medium data-[active=true]:text-accent-foreground focus-visible:ring-1 focus-visible:ring-inset group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
               >
                 <Link
                   to="/settings/health"

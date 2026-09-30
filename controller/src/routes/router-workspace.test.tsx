@@ -1,5 +1,7 @@
+import "@/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -19,29 +21,26 @@ const { save, preview, publish, role } = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({
   useAuth: () => ({ user: { role: role.value } }),
 }));
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: "en", exists: () => false },
-  }),
+
+const navigation = vi.hoisted(() => ({
+  search: {} as { tab?: string; routeId?: string },
+  listeners: new Set<() => void>(),
+  navigate: vi.fn(),
+  blocker: vi.fn(),
 }));
-vi.mock("@tanstack/react-router", () => ({
-  Link: ({
-    children,
-    to,
-    ...props
-  }: {
-    children: React.ReactNode;
-    to: string;
-  }) => (
-    <a href={to} {...props}>
-      {children}
-    </a>
-  ),
-  useSearch: () => ({}),
-  useParams: () => ({}),
-  useBlocker: () => ({ status: "idle" }),
-}));
+vi.mock("@tanstack/react-router", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => <a href={to} {...props}>{children}</a>,
+    useSearch: () => useSyncExternalStore(
+      listener => { navigation.listeners.add(listener); return () => { navigation.listeners.delete(listener); }; },
+      () => navigation.search,
+    ),
+    useNavigate: () => navigation.navigate,
+    useParams: () => ({}),
+    useBlocker: (options: unknown) => { navigation.blocker(options); return { status: "idle" }; },
+  };
+});
 vi.mock("@/lib/endpoints-api", () => ({
   getEndpoints: async () => ({ items: [] }),
 }));
@@ -141,9 +140,9 @@ function mount(value = router) {
   );
 }
 async function edit() {
-  fireEvent.mouseDown(screen.getByRole("tab", { name: "Routing", exact: true }), { button: 0, ctrlKey: false });
+  fireEvent.click(screen.getByRole("tab", { name: "Routing", exact: true }), { button: 0, ctrlKey: false });
   await screen.findByRole("button", { name: /01 Partner traffic/ });
-  fireEvent.pointerDown(
+  fireEvent.click(
     await screen.findByRole("button", { name: "Actions for Partner traffic" }),
     { button: 0, pointerType: "mouse", ctrlKey: false },
   );
@@ -157,6 +156,12 @@ async function edit() {
 describe("Router detail workflow", () => {
   beforeEach(() => {
     role.value = "admin";
+    navigation.search = {};
+    navigation.navigate.mockImplementation(({ search }: { search: (previous: typeof navigation.search) => typeof navigation.search }) => {
+      navigation.search = search(navigation.search);
+      navigation.listeners.forEach(listener => listener());
+      return Promise.resolve();
+    });
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -207,14 +212,44 @@ describe("Router detail workflow", () => {
     }
     expect(screen.queryByLabelText("Route name")).toBeNull();
   });
+  it("writes tab changes to the URL and restores externally changed search without remounting", async () => {
+    navigation.search = { tab: "monitoring", routeId: "partner" };
+    mount();
+    expect(screen.getByRole("tab", { name: "Monitoring" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(navigation.search).toEqual({ tab: "overview", routeId: "partner" });
+    act(() => {
+      navigation.search = { tab: "monitoring", routeId: "partner" };
+      navigation.listeners.forEach(listener => listener());
+    });
+    expect(screen.getByRole("tab", { name: "Monitoring" }).getAttribute("aria-selected")).toBe("true");
+    await screen.findByTestId("monitoring-distribution");
+  });
+  it("normalizes a route deep link using replace and preserves drafts across tab navigation", async () => {
+    navigation.search = { routeId: "partner" };
+    mount();
+    expect(navigation.navigate).toHaveBeenCalledWith(expect.objectContaining({ replace: true, resetScroll: false }));
+    expect(navigation.search).toEqual({ tab: "routing", routeId: "partner" });
+    await edit();
+    fireEvent.change(screen.getByLabelText("Route name"), { target: { value: "Unsaved partner" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes", exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Monitoring" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Routing", exact: true }));
+    expect(await screen.findByRole("button", { name: /01 Unsaved partner/ })).toBeTruthy();
+    const { shouldBlockFn } = navigation.blocker.mock.calls.at(-1)![0];
+    expect(shouldBlockFn({ current: { pathname: "/integration/routers/one" }, next: { pathname: "/integration/routers/one" } })).toBe(false);
+    expect(shouldBlockFn({ current: { pathname: "/integration/routers/one" }, next: { pathname: "/integration/routers/two" } })).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
   it("isolates runtime metrics in Monitoring and keeps Overview static", async () => {
     mount();
     await screen.findByRole("heading", { name: "Traffic Flow" });
     expect(screen.queryByTestId("monitoring-distribution")).toBeNull();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Monitoring" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Monitoring" }), { button: 0, ctrlKey: false });
     await screen.findByTestId("monitoring-distribution");
     expect(screen.queryByRole("heading", { name: "Traffic Flow" })).toBeNull();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Overview" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }), { button: 0, ctrlKey: false });
     await screen.findByRole("heading", { name: "Traffic Flow" });
     expect(screen.queryByTestId("monitoring-distribution")).toBeNull();
   });
@@ -282,7 +317,7 @@ describe("Router detail workflow", () => {
   });
   it("keeps fallback separate, without delete or reorder", async () => {
     mount();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Routing", exact: true }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Routing", exact: true }), { button: 0, ctrlKey: false });
     fireEvent.click(
       await screen.findByRole("button", { name: /Fallback · All unmatched/ }),
     );
@@ -299,7 +334,7 @@ describe("Router detail workflow", () => {
   });
   it("creates in a side sheet and cancels without inserting an empty rule", async () => {
     mount();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Routing" }), {
+    fireEvent.click(screen.getByRole("tab", { name: "Routing" }), {
       button: 0,
       ctrlKey: false,
     });
@@ -325,14 +360,14 @@ describe("Router detail workflow", () => {
   });
   it("confirms row deletion without publishing and lets cancellation preserve the rule", async () => {
     mount();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Routing" }), {
+    fireEvent.click(screen.getByRole("tab", { name: "Routing" }), {
       button: 0,
       ctrlKey: false,
     });
     expect(
       await screen.findAllByRole("button", { name: "Add routing rule" }),
     ).toHaveLength(1);
-    fireEvent.pointerDown(
+    fireEvent.click(
       await screen.findByRole("button", {
         name: "Actions for Partner traffic",
       }),
@@ -350,7 +385,7 @@ describe("Router detail workflow", () => {
     expect(
       screen.getByRole("button", { name: "01 Partner traffic" }),
     ).toBeTruthy();
-    fireEvent.pointerDown(
+    fireEvent.click(
       await screen.findByRole("button", {
         name: "Actions for Partner traffic",
       }),
@@ -380,7 +415,7 @@ describe("Router detail workflow", () => {
     mount();
     await screen.findByRole("heading", { name: "Traffic Flow" });
     expect(screen.queryByRole("button", { name: "Edit routing" })).toBeNull();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Endpoints" }), {
+    fireEvent.click(screen.getByRole("tab", { name: "Endpoints" }), {
       button: 0,
       ctrlKey: false,
     });

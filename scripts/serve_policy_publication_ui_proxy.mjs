@@ -27,7 +27,7 @@ const server = createServer(async (req, res) => {
       const update = path === ownPath && req.method === 'PATCH' && !state.publicationCount && localDraft(JSON.parse(bytes));
       const remove = path === ownPath && req.method === 'DELETE';
       const validate = ownPath && req.method === 'POST' && !state.publicationCount &&
-        ['/validate', '/validation-runs'].some(suffix => path === `${ownPath}${suffix}`);
+        ['/validate', '/test-runs'].some(suffix => path === `${ownPath}${suffix}`);
       const publication = ownPath && req.method === 'POST' && path === `${ownPath}/publish` ? JSON.parse(bytes) : null;
       const publish = publication && state.validationPassed && state.publicationCount < (dropPublicationResponse ? 2 : 1) &&
         Number.isInteger(publication.expectedDraftRevision) && publication.expectedDraftRevision > 0 &&
@@ -51,7 +51,7 @@ const server = createServer(async (req, res) => {
     });
     const body = Buffer.from(await reply.arrayBuffer());
     if (path === '/api/v1/policies' && req.method === 'POST' && reply.status === 201) state.policyId = JSON.parse(body).id;
-    if (ownPath && path.startsWith(`${ownPath}/validation-runs`) && reply.ok && JSON.parse(body).status === 'passed') state.validationPassed = true;
+    if (ownPath && path.startsWith(`${ownPath}/test-runs`) && reply.ok && JSON.parse(body).status === 'passed') state.validationPassed = true;
     if (path === `${ownPath}/publish` && reply.status === 201) {
       state.publicationCount++; state.publishedVersion = JSON.parse(body).version;
       if (dropPublicationResponse && !state.responseDropped) {

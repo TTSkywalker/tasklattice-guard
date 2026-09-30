@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, CircleUserRound, LogOut, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -55,7 +55,7 @@ export function AccountMenu({
           className={cn(
             "group flex h-11 items-center outline-none transition-colors focus-visible:ring-2",
             placement === "header"
-              ? "size-11 justify-center rounded-full p-1.5 text-foreground hover:bg-muted focus-visible:ring-ring/40 data-[state=open]:bg-muted data-[state=open]:ring-1 data-[state=open]:ring-border"
+              ? "console-account size-11 justify-center rounded-none p-1.5 focus-visible:ring-ring"
               : "rounded-lg text-sidebar-foreground hover:bg-sidebar-accent focus-visible:ring-sidebar-ring data-[state=open]:bg-sidebar-accent",
             collapsed ? "mx-auto size-11 justify-center" : placement === "header" ? "" : "w-full gap-2.5 px-2",
           )}
@@ -75,24 +75,23 @@ export function AccountMenu({
       <DropdownMenuContent
         align={placement === "header" ? "end" : collapsed ? "start" : "center"}
         side={placement === "header" ? "bottom" : collapsed ? "right" : "top"}
-        className="w-64 rounded-lg"
+        className="w-64 account-menu-options"
       >
-        <DropdownMenuLabel className="flex items-center gap-3 py-2 font-normal">
-          <UserAvatar name={displayName} size="large" />
+        <DropdownMenuLabel className="font-normal">
           <span className="min-w-0">
             <strong className="block truncate text-sm font-semibold text-foreground">{displayName}</strong>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">{user?.email}</span>
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="min-h-11 rounded-md">
+        <DropdownMenuItem asChild className="min-h-11">
           <Link to="/account" onClick={onNavigate}>
             <CircleUserRound />
             {t("account.title")}
           </Link>
         </DropdownMenuItem>
         {user?.role === "admin" ? (
-          <DropdownMenuItem asChild className="min-h-11 rounded-md">
+          <DropdownMenuItem asChild className="min-h-11">
             <Link to="/access" onClick={onNavigate}>
               <UsersRound />
               {t("auth.manageUsers")}
@@ -100,7 +99,7 @@ export function AccountMenu({
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="min-h-11 rounded-md" variant="destructive" disabled={logoutPending} onSelect={() => void signOut()}>
+        <DropdownMenuItem className="min-h-11" variant="destructive" disabled={logoutPending} onSelect={() => void signOut()}>
           <LogOut />
           {t(logoutPending ? "auth.signingOut" : "auth.signOut")}
         </DropdownMenuItem>

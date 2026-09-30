@@ -1,3 +1,4 @@
+import { selectedSeverities, type EventSeverity } from "../../shared/security-severity";
 import * as controllerApi from "@/lib/controller-api";
 import {
   arrayOfRecords,
@@ -15,6 +16,7 @@ import type {
   Metrics,
   MetricWindow,
   RuntimeLogInteraction,
+  RuntimeHttpRequest,
 } from "@/lib/api-types";
 
 export function metricWindowMilliseconds(window: MetricWindow): number {
@@ -28,14 +30,15 @@ export function metricWindowMilliseconds(window: MetricWindow): number {
 }
 
 export const getGuardrailFindings = async (
-  guardrailId: string, window: MetricWindow, limit = 100, cursor?: string, signal?: AbortSignal, severity?: string,
+  guardrailId: string, window: MetricWindow, limit = 100, cursor?: string, signal?: AbortSignal, severity?: string | EventSeverity[],
 ): Promise<GuardrailFindingPage> => {
   const since = new Date(Date.now() - metricWindowMilliseconds(window)).toISOString();
+  const severities = selectedSeverities(severity);
   const [events, metrics] = await Promise.all([
-    controllerApi.listRuntimeEvents(limit, { guardrailId, since, findingsOnly: 'true', ...(cursor ? { cursor } : {}), ...(severity && severity !== 'all' ? { severity } : {}) }, signal),
+    controllerApi.listRuntimeEvents(limit, { guardrailId, since, findingsOnly: 'true', ...(cursor ? { cursor } : {}), ...(severities.length ? { severity: severities.join(',') } : {}) }, signal),
     controllerApi.requestController<Metrics>(`/api/v1/telemetry/metrics?${new URLSearchParams({guardrailId,window})}`, signal ? { signal } : undefined),
   ]);
-  const items = events.items.flatMap(runtimeFindings).filter(f => !severity || severity === 'all' || f.severity === severity);
+  const items = events.items.flatMap(runtimeFindings).filter(f => !severities.length || severities.includes(f.severity));
   if (!metrics.findings_summary) throw new Error("Runtime findings summary is unavailable. Update the Controller and retry.");
   return {
     items, count: items.length, nextCursor: events.nextCursor,
@@ -47,6 +50,7 @@ export const getGuardrailFindings = async (
 function runtimeLogEntry(event: controllerApi.RuntimeEvent): RuntimeLogInteraction["entries"][number] {
   const before = runtimeLogContent(event.metadata.contentBefore);
   const after = runtimeLogContent(event.metadata.contentAfter);
+  const httpRequest = runtimeHttpRequest(event.metadata.httpRequest);
   return {
     id: event.id,
     trace_id: event.requestId,
@@ -57,10 +61,12 @@ function runtimeLogEntry(event: controllerApi.RuntimeEvent): RuntimeLogInteracti
     risk: runtimeFindings(event)[0]?.risk ?? arrayOfStrings(event.metadata.risks)[0] ?? null,
     latency_ms: event.durationMs,
     timed_out: isTimedOut(event),
+    execution_status: event.metadata.executionStatus === "error" || isTimedOut(event) || arrayOfRecords(event.metadata.findings).some(f => f.verdict === "error") ? "error" : event.metadata.executionStatus === "complete" ? "complete" : "unknown",
     detail: `Runner ${event.runnerId} reported ${event.direction} decision “${event.decision}” in ${event.durationMs} ms.`,
+    http_request: httpRequest,
     content_before: before,
     content_after: after,
-    content_available: Boolean(event.metadata.contentAvailable) && (before !== null || after !== null),
+    content_available: Boolean(event.metadata.contentAvailable),
     findings: runtimeFindings(event),
     steps: runtimeTraceSteps(event),
   };
@@ -72,12 +78,13 @@ function worstOutcome(values: string[]): string {
 }
 
 export function runtimeLogInteractions(events: controllerApi.RuntimeEvent[], filters: {
+  includeUncaptured?: boolean;
   phase?: "input" | "output";
   outcome?: "allow" | "transform" | "block" | "error";
 } = {}): RuntimeLogInteraction[] {
   const matching = events
     .filter((event): event is controllerApi.RuntimeEvent & { guardrailId: string } => Boolean(event.guardrailId))
-    .filter((event) => event.metadata.runtimeLogCaptured === true)
+    .filter((event) => filters.includeUncaptured || event.metadata.runtimeLogCaptured === true)
     .filter((event) => !filters.phase || (event.direction === "incoming" ? "input" : "output") === filters.phase)
     .filter((event) => !filters.outcome || normalizeOutcome(event.decision) === filters.outcome);
   const grouped = new Map<string, typeof matching>();
@@ -104,6 +111,21 @@ export function runtimeLogInteractions(events: controllerApi.RuntimeEvent[], fil
       entries: ordered.map(runtimeLogEntry),
     };
   }).sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+}
+
+function runtimeHttpRequest(value: unknown): RuntimeHttpRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  if (typeof request.method !== "string" || typeof request.target !== "string" ||
+      typeof request.httpVersion !== "string" || typeof request.bodyBase64 !== "string" ||
+      !Array.isArray(request.headers) || !request.headers.every(header =>
+        Array.isArray(header) && header.length === 2 && header.every(part => typeof part === "string"))) return null;
+  try { atob(request.bodyBase64); } catch { return null; }
+  return {
+    method: request.method, target: request.target, httpVersion: request.httpVersion,
+    headers: request.headers as [string, string][], bodyBase64: request.bodyBase64,
+    redactedHeaders: arrayOfStrings(request.redactedHeaders),
+  };
 }
 
 function runtimeLogContent(value: unknown): RuntimeLogInteraction["entries"][number]["content_before"] {

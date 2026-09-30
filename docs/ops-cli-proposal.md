@@ -70,13 +70,13 @@ denies.
 | `models` | `model_definition`; `/api/v1/models` | Physical model, profile, transport/validation state | model configuration |
 | `model-configuration` | `model_configuration_revision`; `/api/v1/model-configuration` | Draft/validated/active model assignments and activation history | model configuration |
 | `policies`, `policy` | `policy_record`, `policy_version`; `/api/v1/policies` | Versioned programmable Policy source and immutable snapshots | Policy Library |
-| `policy-validations` | `policy_validation_run`; `/api/v1/policies/:id/validation-runs/*` | Policy draft validation results | Policy Library |
+| `policy-tests` | `policy_validation_run`; `/api/v1/policies/:id/test-runs/*` | Policy draft validation results | Policy Library |
 | `protection-presets` | `/api/v1/policy-catalog/protection-presets` | Catalog-provided Protection starting points | Policy Library |
 | `actions` | `/api/v1/policy-catalog/actions` | Registered runtime Actions available to Policies | Policy Library |
 | `guardrails`, `guardrail` | `guardrail`, `guardrail_version`, `guardrail_artifact`; `/api/v1/guardrails` | Guardrail draft, immutable versions, compiled artifact and desired generation | GuardRails |
 | `guardrail-logging` | `/api/v1/guardrails/:id/logging` | Evidence/logging level: `info`, `debug`, `trace` | GuardRails |
 | `test-cases` | `guardrail_test_case`; `/api/v1/guardrails/:id/test-cases` | Guardrail validation fixtures and scope | GuardRails |
-| `validation-runs` | `guardrail_validation_run`; `/api/v1/validation-runs` | Guardrail validation execution and evidence | GuardRails |
+| `test-runs` | `guardrail_validation_run`; `/api/v1/test-runs` | Guardrail validation execution and evidence | GuardRails |
 | `endpoints`, `endpoint` | `endpoint`; `/api/v1/endpoints` | Runtime integration adapter, lifecycle, setup, and credential metadata | Endpoints |
 | `routers`, `router` | `traffic_router`; `/api/v1/routers` | Traffic-routing draft, active revision, rollout state, bound Endpoints | Routers |
 | `router-revisions` | `traffic_router_revision`; `/api/v1/routers/:id/revisions` | Immutable published Router snapshots and rollback history | Routers |
@@ -149,12 +149,12 @@ show system
 show identity
 show providers | models | model-configuration
 show policies [<policy-id>]
-show policy-validation <policy-id> [<run-id>]
+show policy-test <policy-id> [<run-id>]
 show protection-presets | actions
 show guardrails [<guardrail-id>]
 show guardrail-logging <guardrail-id>
 show test-cases <guardrail-id>
-show validation-runs [--guardrail <id>]
+show test-runs [--guardrail <id>]
 show endpoints [<endpoint-id>]
 show routers [<router-id>]
 show router-revisions <router-id> [<revision>]

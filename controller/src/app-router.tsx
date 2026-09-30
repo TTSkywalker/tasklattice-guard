@@ -1,3 +1,5 @@
+import { auditLogSearch } from "../shared/audit-query";
+import { selectedSeverities } from "../shared/security-severity";
 import { createBrowserHistory, createRootRoute, createRoute, createRouter, Navigate, redirect, useRouterState } from "@tanstack/react-router";
 
 import { ControlPlaneLayout } from "@/routes/layout";
@@ -13,6 +15,7 @@ import { PolicyLibraryPage } from "@/routes/policy-library";
 import { AccountPage } from "@/routes/account";
 import { HelpPage } from "@/routes/help";
 import { AuditLogPage } from "@/routes/audit-log";
+import { VersionPage } from "@/routes/version";
 import { HealthPage } from "@/routes/status";
 import { RunnerPage } from "@/routes/runner";
 import { GuardrailCatalogPage, ModelsPage, ProvidersPage } from "@/routes/models";
@@ -23,7 +26,11 @@ const rootRoute = createRootRoute({ component: ControlPlaneLayout });
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <Navigate to="/dashboard" replace /> });
 const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: DashboardPage });
 const guardrailsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails", component: GuardrailsPage });
-const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails/$guardrailId", component: GuardrailDetailPage });
+const guardrailDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/guardrails/$guardrailId", validateSearch: (search: Record<string, unknown>): { tab?: string; window?: "1h" | "24h" | "7d" | "15d" | "30d"; severity?: string } => ({
+  tab: ["runtime", "findings", "immutable", "testing", "draft"].includes(String(search.tab)) ? String(search.tab) : undefined,
+  window: ["1h", "24h", "7d", "15d", "30d"].includes(String(search.window)) ? search.window as "1h" | "24h" | "7d" | "15d" | "30d" : undefined,
+  severity: selectedSeverities(search.severity).join(",") || undefined,
+}), component: GuardrailDetailPage });
 const policyLibraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/policy-library", validateSearch: policyLibrarySearch, component: PolicyLibraryPage });
 const guardrailSearch = (search: Record<string, unknown>) => ({ guardrail: typeof search.guardrail === "string" ? search.guardrail : undefined });
 const playgroundSearch = (search: Record<string, unknown>): { guardrail?: string; target?: "draft"; version?: string; mode?: "advanced"; router?: string; endpoint?: string } => {
@@ -56,11 +63,12 @@ function EndpointRoutePage() {
     void navigate({ search: (previous) => ({ ...previous, endpointId: id }), replace: id === undefined });
   }} />;
 }
-const logsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/logs", validateSearch: (search: Record<string, unknown>): { routerId?: string; routeId?: string; targetId?: string; routerRevision?: number; since?: string; until?: string; endpointId?: string } => ({
-  ...Object.fromEntries(['routerId', 'routeId', 'targetId', 'endpointId', 'since', 'until'].flatMap(key => typeof search[key] === 'string' ? [[key, search[key]]] : [])),
+const logsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/logs", validateSearch: (search: Record<string, unknown>): { tab?: "interactions" | "checkpoints" | "system"; requestId?: string; checkpointId?: string; guardrailId?: string; routerId?: string; routeId?: string; targetId?: string; routerRevision?: number; since?: string; until?: string; endpointId?: string } => ({
+  tab: search.tab === "checkpoints" || search.tab === "system" ? search.tab : undefined,
+  ...Object.fromEntries(['requestId', 'checkpointId', 'guardrailId', 'routerId', 'routeId', 'targetId', 'endpointId', 'since', 'until'].flatMap(key => typeof search[key] === 'string' && search[key].trim() ? [[key, search[key]]] : [])),
   ...(Number.isInteger(Number(search.routerRevision)) && Number(search.routerRevision) > 0 ? { routerRevision: Number(search.routerRevision) } : {}),
 }), component: LogsPage });
-const auditLogRoute = createRoute({ getParentRoute: () => rootRoute, path: "/audit-log", component: AuditLogPage });
+const auditLogRoute = createRoute({ getParentRoute: () => rootRoute, path: "/audit-log", validateSearch: auditLogSearch, component: AuditLogPage });
 const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/access", component: UsersPage });
 const accountRoute = createRoute({ getParentRoute: () => rootRoute, path: "/account", component: AccountRoutePage });
 function AccountRoutePage() {
@@ -71,12 +79,18 @@ const accountSecurityRoute = createRoute({ getParentRoute: () => accountRoute, p
 const accountTokensRoute = createRoute({ getParentRoute: () => accountRoute, path: "access-tokens", component: () => null });
 const accountGeneralRoute = createRoute({ getParentRoute: () => accountRoute, path: "general", beforeLoad: () => { throw redirect({ to: "/account", replace: true }); } });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: () => <Navigate to="/settings/health" replace /> });
+const versionRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/version", component: VersionPage });
 const healthRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/health", component: HealthPage });
 const runnerRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/runner", component: RunnerPage });
 const providersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/providers", component: ProvidersPage });
 const modelsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/models", component: ModelsPage });
 const guardrailCatalogRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/guardrail-catalog", component: GuardrailCatalogPage });
-const helpRoute = createRoute({ getParentRoute: () => rootRoute, path: "/help", component: HelpPage });
+const documentRoute = createRoute({ getParentRoute: () => rootRoute, path: "/document", component: HelpPage });
+function LegacyHelpRedirect() {
+  const hash = useRouterState({ select: state => state.location.hash });
+  return <Navigate to="/document" hash={hash} replace />;
+}
+const helpRoute = createRoute({ getParentRoute: () => rootRoute, path: "/help", component: LegacyHelpRedirect });
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
@@ -93,10 +107,12 @@ export const routeTree = rootRoute.addChildren([
   accountRoute.addChildren([accountSecurityRoute, accountTokensRoute, accountGeneralRoute]),
   settingsRoute,
   healthRoute,
+  versionRoute,
   runnerRoute,
   providersRoute,
   modelsRoute,
   guardrailCatalogRoute,
+  documentRoute,
   helpRoute,
 ]);
 export const router = createRouter({ routeTree, history: createBrowserHistory() });

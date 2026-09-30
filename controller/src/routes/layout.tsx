@@ -16,10 +16,11 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/notifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { LoginPage } from "@/routes/login";
+import { HelpLayout } from "@/routes/help-layout";
 
 const names: Record<string, { group?: string; page: string }> = {
   "/": { page: "nav.dashboard" },
@@ -34,12 +35,13 @@ const names: Record<string, { group?: string; page: string }> = {
   "/access": { group: "nav.system", page: "nav.access" },
   "/account": { group: "nav.system", page: "account.title" },
   "/settings": { group: "nav.settings", page: "nav.health" },
+  "/settings/version": { group: "nav.settings", page: "nav.version" },
   "/settings/health": { group: "nav.settings", page: "nav.health" },
   "/settings/runner": { group: "nav.settings", page: "nav.runner" },
   "/settings/providers": { group: "nav.settings", page: "nav.providers" },
   "/settings/models": { group: "nav.settings", page: "nav.models" },
   "/settings/guardrail-catalog": { group: "nav.settings", page: "nav.guardrailCatalog" },
-  "/help": { group: "nav.helpResources", page: "nav.helpCenter" },
+  "/document": { group: "nav.helpResources", page: "nav.helpCenter" },
 };
 
 export function ControlPlaneLayout() {
@@ -55,6 +57,7 @@ export function ControlPlaneLayout() {
     return <div className="flex min-h-dvh items-center justify-center bg-background"><div className="flex items-center gap-3 text-sm text-muted-foreground"><ShieldCheck className="size-5 animate-pulse text-primary" />{t("auth.sessionLoading")}</div></div>;
   }
   if (!auth.status?.authenticated || !auth.user) return <LoginPage />;
+  if (["/document", "/help"].includes(pathname.replace(/\/$/, ""))) return <HelpLayout />;
 
   return (
     <TooltipProvider>
@@ -64,7 +67,7 @@ export function ControlPlaneLayout() {
           <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-card/90 px-4 backdrop-blur-md sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <SidebarTrigger className="size-11 rounded-lg" />
-              <Separator orientation="vertical" className="h-5" />
+              <Separator orientation="vertical" className="h-5 self-center" />
               {location.group ? <Breadcrumb className="min-w-0">
                 <BreadcrumbList className="flex-nowrap">
                   <BreadcrumbItem className="hidden sm:inline-flex">{t(location.group)}</BreadcrumbItem>
@@ -83,7 +86,7 @@ export function ControlPlaneLayout() {
             <Outlet />
           </main>
         </SidebarInset>
-        <Toaster richColors />
+        <Toaster />
       </SidebarProvider>
     </TooltipProvider>
   );

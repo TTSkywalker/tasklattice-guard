@@ -9,6 +9,24 @@ import { protectionPresets } from "../../shared/protection-presets.js";
 import { expandProtectionPreset } from "../policy-catalog/presets.js";
 
 describe("Guardrail Validation contract", () => {
+  it("requires explicit pass actions, the original match and unchanged output for observation-only acceptance", () => {
+    const policies = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
+    const draft = defaultGuardrailDraft(policies);
+    const cases = generatedTestCases("guardrail-1", draft, policies);
+    const observed = applyValidationOverrides(cases, draft).find(item => item.sourcePolicyId === "filter-denied-insults")!;
+    expect(observed.expectedDecision).toBe("block");
+    expect(observed.expectationOverride).toMatchObject({ expectedDecision: "allow", expectedOutputContent: observed.content,
+      expectedMatches: [{ policyId: "filter-denied-insults", ruleId: "category/denied_insults" }] });
+    for (const change of ["action", "match", "content"] as const) {
+      const changed = structuredClone(draft);
+      const binding = changed.policyBindings.find(item => item.policyId === "filter-denied-insults")!;
+      const overlay = binding.testCaseOverrides!["accept/denied_insults"]!;
+      if (change === "action") binding.ruleActions = {};
+      if (change === "match") overlay.expectedMatches = [{ policyId: "local-credentials", ruleId: "unrelated" }];
+      if (change === "content") overlay.expectedOutputContent = "changed";
+      expect(() => applyValidationOverrides(cases, changed)).toThrow(/Cannot weaken/);
+    }
+  });
   it("does not generate Output assertions after the user selects Input-only protection", () => {
     const policies = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
     const binding = expandProtectionPreset(protectionPresets[0]!, policies)[0]!;
@@ -75,6 +93,18 @@ describe("Guardrail Validation contract", () => {
       expectedDecision: "block",
       coveredRuleIds: ["keyword/blocked-words"],
     });
+  });
+
+  it("generates mode-aware unmatched and denied-topic cases", () => {
+    const policies = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
+    const binding = { policyId: "builtin-topic-safety", policyVersion: "1.0.0", action: "reject" as const,
+      parameterValues: {}, enabledRuleIds: ["model/topic-control"], ruleActions: {}, enabledRails: ["input" as const], reasoningPolicy: null };
+    const draft = { allowedTopics: ["Order support"], restrictedTopics: ["Fabricating refund evidence"], safetyLevel: "balanced" as const, outputDelivery: "full_buffered" as const, policyBindings: [binding] };
+    for (const mode of ["strict", "permissive"] as const) {
+      const cases = generatedTestCases("topic", { ...draft, topicControlMode: mode }, policies);
+      expect(cases.find(item => item.sourceCaseId === "topic-input")?.expectedDecision).toBe(mode === "strict" ? "block" : "allow");
+      expect(cases.find(item => item.sourceCaseId === "topic-input/deny-1")).toMatchObject({ expectedDecision: "block", content: "Please help me with this task: Fabricating refund evidence" });
+    }
   });
 
   it("reports rates and p95 from actual case results", () => {

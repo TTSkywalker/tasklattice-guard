@@ -9,9 +9,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { defaultGuardrailDraft, DEFAULT_GUARDRAIL_ID } from "../../server/domain/defaults";
 import { PolicyCatalog } from "../../server/policy-catalog/catalog";
 import * as api from "@/lib/api";
+import * as controllerApi from "@/lib/controller-api";
 import { defaultPolicyBinding } from "@/components/policy-binding-editor";
 
-import { DeleteGuardrailSheet, DraftReleaseView, EditGuardrailSheet, GuardrailFindingsView, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
+import { DeleteGuardrailSheet, DraftReleaseView, EditGuardrailSheet, GuardrailFindingsView, GuardrailLoggingCard, GuardrailRuntimeView, ImmutableVersionView, TestCases } from "./guardrails";
 
 const VERSION_ID = "20260813-080000.000Z";
 
@@ -78,6 +79,51 @@ const deletableGuardrail = {
 describe("Guardrail detail information hierarchy", () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+  it("loads the Guardrail logging level and recovers from a failed settings request", async () => {
+    const load = vi.spyOn(api, "getGuardrailLoggingSettings")
+      .mockRejectedValueOnce(new Error("Logging temporarily unavailable"))
+      .mockResolvedValue({ guardrail_id: "guardrail-default", level: "info", updated_at: "2026-09-22T00:00:00Z",
+        updated_by: null, retention_days: 30, content_capture_enabled: true });
+    const save = vi.spyOn(api, "updateGuardrailLoggingSettings");
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><GuardrailLoggingCard guardrailId="guardrail-default" /></QueryClientProvider>);
+    await screen.findByText("Logging temporarily unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    await screen.findByRole("heading", { name: "guardrails.loggingTitle" });
+    expect(screen.getByRole("combobox", { name: "guardrails.loggingLevel" }).querySelector(".cds--list-box__label")?.textContent).toBe("INFO");
+    expect(load).toHaveBeenCalledWith("guardrail-default");
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each(["shortcut", "policy"])("hides Topic Control settings when removed via %s and saves only after explicit Save", async removal => {
+    vi.spyOn(controllerApi, "getModelConfiguration").mockResolvedValue({ models: [], active: null, draft: null, activating: null } as unknown as controllerApi.ModelConfigurationView);
+    const catalog = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
+    const policies = ["local-credentials", "builtin-topic-safety"].map(id => { const latest = catalog.find(item => item.id === id)!; return id === "builtin-topic-safety" ? latest.published_versions![0]! : latest; });
+    const bindings = policies.map(defaultPolicyBinding);
+    const guardrail = { ...deletableGuardrail, topic_control_mode: "permissive" as const, policy_bindings: bindings };
+    const update = vi.spyOn(api, "updateGuardrail").mockResolvedValue(guardrail);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><TooltipProvider><EditGuardrailSheet guardrail={guardrail} policies={policies} open onOpenChange={vi.fn()} onSaved={vi.fn()} /></TooltipProvider></QueryClientProvider>);
+    const remove = await screen.findByRole("button", { name: "protection.validationReadiness.removeTopic" });
+    expect(screen.getByRole("heading", { name: "guardrails.topicAllowlist" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "common.save" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(removal === "shortcut" ? remove : screen.getByRole("button", { name: `protection.remove name:${policies[1]!.name}` }));
+    expect(screen.queryByRole("heading", { name: "guardrails.topicAllowlist" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "topicControl.mode" })).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    expect(guardrail.policy_bindings).toEqual(bindings);
+    expect(screen.getByRole("button", { name: "common.save" }).hasAttribute("disabled")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith(guardrail.id, expect.objectContaining({ policy_bindings: [bindings[0]] })));
+  });
+
+  it("hides retained topic values when reopening a draft without Topic Control", () => {
+    const policy = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list().find(item => item.id === "local-credentials")!;
+    const guardrail = { ...deletableGuardrail, allowed_topics: ["Kubernetes"], restricted_topics: ["Investments"], policy_bindings: [defaultPolicyBinding(policy)] };
+    render(<QueryClientProvider client={new QueryClient()}><TooltipProvider><EditGuardrailSheet guardrail={guardrail} policies={[policy]} open onOpenChange={vi.fn()} onSaved={vi.fn()} /></TooltipProvider></QueryClientProvider>);
+    expect(screen.queryByRole("heading", { name: "guardrails.topicAllowlist" })).toBeNull();
+    expect(screen.queryByDisplayValue("Kubernetes")).toBeNull();
+    expect(screen.queryByDisplayValue("Investments")).toBeNull();
+  });
+
   it("makes caller distribution the primary runtime evidence", () => {
     const metrics = {
       total_decisions: 40,
@@ -125,12 +171,16 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("Observed traffic scope")).toBeTruthy();
     expect(screen.getByText(VERSION_ID)).toBeTruthy();
     expect(screen.getByText("runtime-chart")).toBeTruthy();
+    expect(screen.getByText("guardrails.runtimeEvidencePrivacyTitle")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    expect(screen.queryByText("guardrails.runtimeEvidencePrivacyTitle")).toBeNull();
+    expect(screen.getByText("runtime-chart")).toBeTruthy();
   });
 
   it("aggregates privacy-safe findings from Playground on the Guardrail", () => {
     const data: GuardrailFindingPage = {
       count: 1,
-      summary: { total: 1, critical: 1, high: 0, medium: 0, low: 0, affected_traces: 1, latest_at: "2026-08-16T09:46:46Z" },
+      summary: { total: 1, critical: 1, high: 0, medium: 0, low: 0, informational: 0, unclassified: 0, affected_traces: 1, latest_at: "2026-08-16T09:46:46Z" },
       items: [{
         id: "finding-critical",
         trace_id: "trace-playground",
@@ -162,7 +212,7 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("99%")).toBeTruthy();
   });
 
-  it("removes findings with repeated local ids when filtering to an empty severity", () => {
+  it("removes findings with repeated local ids when filtering to an empty severity", async () => {
     const repeatedFinding = {
       id: "model/content-safety",
       created_at: "2026-08-16T09:46:46Z",
@@ -183,7 +233,7 @@ describe("Guardrail detail information hierarchy", () => {
     };
     const data: GuardrailFindingPage = {
       count: 2,
-      summary: { total: 2, critical: 0, high: 0, medium: 2, low: 0, affected_traces: 2, latest_at: repeatedFinding.created_at },
+      summary: { total: 2, critical: 0, high: 0, medium: 2, low: 0, informational: 0, unclassified: 0, affected_traces: 2, latest_at: repeatedFinding.created_at },
       items: [
         { ...repeatedFinding, trace_id: "trace-one" },
         { ...repeatedFinding, trace_id: "trace-two" },
@@ -194,12 +244,26 @@ describe("Guardrail detail information hierarchy", () => {
     const { container } = render(<QueryClientProvider client={client}><GuardrailFindingsView data={data} loading={false} error={null} policies={[]} routers={[]} endpoints={[]} window="24h" onWindowChange={() => undefined} /></QueryClientProvider>);
 
     expect(container.querySelectorAll("article")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "routerDetail.severity.critical0" }));
-    expect(container.querySelectorAll("article")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("combobox", { name: /securityEvents.riskLevel/ }));
+    fireEvent.click(screen.getByRole("option", { name: /routerDetail.severity.critical/ }));
+    await waitFor(() => expect(container.querySelectorAll("article")).toHaveLength(0));
     expect(screen.getByText("guardrails.noMatchingFindings")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "routerDetail.severity.medium2" }));
-    expect(container.querySelectorAll("article")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("option", { name: /routerDetail.severity.medium/ }));
+    await waitFor(() => expect(container.querySelectorAll("article")).toHaveLength(2));
+  });
+
+  it("keeps scope totals during filter loading and exposes retry without claiming zero events", () => {
+    const onRetry = vi.fn();
+    const summary = { total: 18, critical: 3, high: 3, medium: 3, low: 3, informational: 3, unclassified: 3, affected_traces: 12, latest_at: null };
+    const props = { summary, policies: [], routers: [], endpoints: [], window: "24h" as const, onWindowChange: vi.fn(), severities: ["high" as const], onRetry };
+    const view = render(<GuardrailFindingsView {...props} loading error={null} />);
+    expect(screen.getByRole("status").textContent).toContain("matched:3 total:18 interactions:12");
+    expect(screen.getByText("securityEvents.updating")).toBeTruthy();
+    view.rerender(<GuardrailFindingsView {...props} loading={false} error={new Error("Offline")} />);
+    fireEvent.click(screen.getByRole("button", { name: "securityEvents.retry" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(screen.queryByText("guardrails.noSecurityFindings")).toBeNull();
   });
 
   it("shows immutable configuration before the unified compiled runtime", () => {
@@ -242,7 +306,7 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("guardrails.dependenciesModels")).toBeTruthy();
 
     const generatedFilesTab = screen.getByRole("tab", { name: "guardrails.generatedFilesTab count:1" });
-    fireEvent.mouseDown(generatedFilesTab, { button: 0, ctrlKey: false });
+    fireEvent.click(generatedFilesTab, { button: 0, ctrlKey: false });
     fireEvent.mouseUp(generatedFilesTab, { button: 0, ctrlKey: false });
     fireEvent.click(generatedFilesTab);
     expect(screen.getAllByText("config.yml").length).toBeGreaterThan(0);
@@ -421,7 +485,10 @@ describe("Guardrail detail information hierarchy", () => {
     expect(screen.getByText("guardrails.topicAllowlist")).toBeTruthy();
     expect(screen.getByText("guardrails.topicAllowlistRequired")).toBeTruthy();
     expect(screen.queryByText("guardrails.restrictedDomains")).toBeNull();
-    expect(screen.queryByText("legacy restricted topic")).toBeNull();
+    expect(screen.getByDisplayValue("legacy restricted topic")).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "topicControl.mode" }), { target: { value: "permissive" } });
+    expect(screen.queryByText("guardrails.topicAllowlistRequired")).toBeNull();
+    fireEvent.change(screen.getByRole("combobox", { name: "topicControl.mode" }), { target: { value: "strict" } });
     expect(screen.getByRole("button", { name: "common.save" }).hasAttribute("disabled")).toBe(true);
   });
 

@@ -4,7 +4,7 @@ export const apiTags = [
   ['access-tokens', 'Account', 'Personal credential lifecycle; browser session required.'],
   ['guardrails', 'Guardrail Design', 'Guardrail drafts, immutable versions and release lifecycle.'],
   ['policies', 'Guardrail Design', 'Reusable Policies and their published versions.'],
-  ['validation', 'Guardrail Design', 'Guardrail Test Cases and executable Guardrail/Policy validation runs.'],
+  ['testing', 'Guardrail Design', 'Test Cases and Test Runs that check Guardrail/Policy Rule behavior against expected results.'],
   ['authoring', 'Guardrail Design', 'Intent analysis, document analysis and proposed plans.'],
   ['playground', 'Guardrail Design', 'Draft and published Guardrail interactions.'],
   ['routers', 'Integration', 'Router drafts, publication, simulation and Endpoint bindings.'],
@@ -22,11 +22,11 @@ export function operationContract(method: string, path: string) {
   const tag = path.includes('/access-tokens') ? 'access-tokens' : path.includes('/account/') ? 'account'
     : path.includes('/authoring/') ? 'authoring' : path.includes('/playground/') ? 'playground'
     : path.includes('/model-configuration') ? 'model-configurations' : path.includes('/model-provider') ? 'model-providers'
-    : path.includes('/models') ? 'models' : path.includes('/test-cases') || path.includes('/validation-runs') ? 'validation'
+    : path.includes('/models') ? 'models' : path.includes('/test-cases') || path.includes('/test-runs') || path.includes('/test-scope') ? 'testing'
     : path.includes('/telemetry/') || path.endsWith('/traffic-distribution') ? 'telemetry'
     : path.includes('/routers') || path.includes('/routing/') ? 'routers' : path.includes('/endpoints') ? 'endpoints'
     : path.includes('/policies') || path.includes('/policy-catalog') ? 'policies'
-    : path.includes('/guardrails') ? 'guardrails' : path.includes('/runner-') ? 'runners' : path.includes('/audit-events') ? 'audit' : 'system';
+    : (path.includes('/guardrails') || path.includes('/guardrail-profiles')) ? 'guardrails' : path.includes('/runner-') ? 'runners' : path.includes('/audit-events') ? 'audit' : 'system';
   const terminal = path.split('/').at(-1)!;
   const noun = (terminal.startsWith(':') ? path.split('/').at(-2)! : terminal).replaceAll('-', ' ');
   let summary = `${({ GET: 'Read', POST: 'Create', PUT: 'Replace', PATCH: 'Update', DELETE: 'Delete' } as Record<string, string>)[method]} ${noun}`;
@@ -54,7 +54,7 @@ export function operationContract(method: string, path: string) {
   if (method === 'PUT' && path.includes('/assignments/:target')) { description += ' Assigning a different non-null model requires a successful unexpired validationId for this account, target and unchanged model. Identical assignments are no-ops. Clearing uses modelId:null.'; }
   if (method === 'PUT' && path === '/api/v1/model-configuration/draft') { description += ' Replaces all assignments and clears validation only when assignments change. It does not certify the replacement; run draft validations before activation.'; }
   if (path.endsWith('/validations') && !path.includes('candidate-validations')) { summary = 'Validate saved model assignments'; description += ' Validates the currently saved target or whole draft; candidate model IDs are not accepted by this operation.'; }
-  if (method === 'POST' && path.endsWith('/validation-runs')) { summary = 'Start an executable validation run'; description += ' Creates a new Runner task on each request. Track the returned run ID rather than latest, which can change when another task is created.'; }
+  if (method === 'POST' && path.endsWith('/test-runs')) { summary = 'Start a Test Run'; description += ' Creates a new Runner task on each request. Track the returned run ID rather than latest, which can change when another task is created.'; }
   if (method === 'POST' && path.includes('/routers/') && /\/(publish|rollback)$/.test(path)) {
     summary = path.endsWith('/rollback') ? 'Publish a previous Router revision' : 'Publish the reviewed Router draft';
     mode = 'keyed'; description += ' expectedDraftRevision prevents stale publication. reviewedSnapshot and reviewedEndpointIds must be supplied together. The resource fields are current; publication.revision and publication.generation identify the original operation even on replay. GET publication.revisionUrl reads the immutable revision; GET publication.statusUrl reports current rolloutStatus and desiredGeneration. A later publication may supersede this revision.';
@@ -65,9 +65,8 @@ export function operationContract(method: string, path: string) {
   if (path === '/api/v1/policies/:id/publish') { mode = 'revision-keyed'; summary = 'Publish a validated Policy draft'; description += ' expectedDraftRevision is required. The same Policy and source draft revision reuse the existing immutable published version.'; retry = 'Repeat the same expectedDraftRevision; a different revision is a different publication.'; }
   if (path === '/api/v1/guardrails/:id/publish') { summary = 'Compile and publish a validated Guardrail draft'; description += ' expectedDraftRevision is required. Existing results may be reused for the latest passed validation, but this is not a general request-key replay protocol. Track the returned version on GET /guardrails/{id}; ready/failed are compilation outcomes.'; }
   if (path === '/api/v1/guardrails/:id/rollback') { summary = 'Reactivate an explicit immutable Guardrail version'; description += ' version must identify a ready compiled version. Updates the active pointer and requests desired-state distribution; 200 confirms the control-plane change, not Runner readiness. Repeating can advance generation again. Read GET /guardrails/{id} before retrying.'; }
-  if (path.endsWith('/validation-runs/latest')) { summary = 'Read the most recent Policy validation run'; description += ' The target can change when another run starts. To track your request, use the returned runId on /policies/{id}/validation-runs/{runId}.'; }
-  if (path === '/api/v1/model-configuration/rollback') { summary = 'Roll back to an explicit model configuration revision'; description += ' targetRevisionId must identify a superseded revision. Control-plane Chat assignment is retained. This operation creates and activates a new revision; do not automatically retry it.'; }
-  if (path.endsWith('/activate')) { summary = 'Activate the identified validated model configuration revision'; description += ' A revision can be consumed once; repeated activation can return 409. 200 means current distribution completed, 202 means it is still syncing. Read GET /model-configuration to track activating/active/failed by revision ID.'; }
+  if (path.endsWith('/test-runs/latest')) { summary = 'Read the most recent Policy Test Run'; description += ' The target can change when another run starts. To track your request, use the returned runId on /policies/{id}/test-runs/{runId}.'; }
+  if (path === '/api/v1/model-configuration/apply') { summary = 'Apply selected model configuration changes'; description += ' Requires bindingIds, expectedDraftToken (from draft.reviewToken) and expectedActiveId. Applies only selected changes with Runner Rail evidence; explicit removals are allowed. Unselected bindings retain current values, and pending edits remain saved. Stale reviews and in-flight applies return 409. 200 means Runner synchronization completed; 202 means still syncing, not yet globally effective. Replaces current configuration after acknowledgement; no version history or rollback is retained. Read GET /model-configuration before retrying.'; }
   if (path.endsWith('/account/identity')) { summary = 'Read the current identity and effective permissions'; }
   if (path.includes('/access-tokens')) { description += ' Browser session only. Revocation is a no-op when already revoked. Creation returns the secret once; it cannot be recovered or transparently replayed.'; }
   return { tags: [tag], summary, description, 'x-product-area': apiTags.find(item => item.name === tag)!['x-product-area'], 'x-idempotency': { mode, ...details }, 'x-retry-policy': retry };

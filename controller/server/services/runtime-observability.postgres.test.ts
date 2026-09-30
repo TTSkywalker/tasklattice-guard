@@ -19,9 +19,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('bounded runtime observability (
     await db.execute(sql`INSERT INTO runtime_event(id,occurred_at,request_id,runner_id,guardrail_id,router_id,direction,decision,duration_ms,metadata)
       SELECT 'event-'||lpad(n::text,6,'0'),now()-interval '1 hour','request-'||n,'runner','guard','router','incoming',
         CASE WHEN n%2=0 THEN 'block' ELSE 'allow' END,n,
-        jsonb_build_object('captureLevel','trace','contentBefore',repeat('private content',2500),'contentCiphertext','private ciphertext',
+        jsonb_build_object('captureLevel','trace','contentBefore',repeat('private content',2500),'contentCiphertext','private ciphertext','httpRequest',jsonb_build_object('bodyBase64',repeat('aaaa',1000)),
           'trace',jsonb_build_array(jsonb_build_object('kind','action','name','same-action','policyId','same-policy','durationMs',n,'outcome','safe')),
-          'findings', CASE WHEN n%2=0 THEN jsonb_build_array(jsonb_build_object('risk','test','verdict','unsafe','confidence',.95,'evidence',repeat('private evidence',100))) ELSE '[]'::jsonb END,
+          'findings', CASE WHEN n%2=0 THEN jsonb_build_array(jsonb_build_object('risk','test','verdict','unsafe','confidence',.95,'riskSeverity','high','evidence',repeat('private evidence',100))) ELSE '[]'::jsonb END,
           'usage',jsonb_build_object('model_invocations',1))
       FROM generate_series(1,10001) n`);
   }, 30_000);
@@ -62,10 +62,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('bounded runtime observability (
     expect(detail.metadata.trace).toHaveLength(1);
     expect(detail.metadata).not.toHaveProperty('contentBefore');
     expect(detail.metadata).not.toHaveProperty('contentCiphertext');
+    expect(detail.metadata).not.toHaveProperty('httpRequest');
+    expect(detail.metadata.contentAvailable).toBe(true);
   });
 
   it('finds older critical events before applying the page limit', async () => {
-    await db.execute(sql`UPDATE runtime_event SET metadata=jsonb_build_object('findings',jsonb_build_array(jsonb_build_object('verdict','error'))) WHERE id='event-000001'`);
+    await db.execute(sql`UPDATE runtime_event SET metadata=jsonb_build_object('findings',jsonb_build_array(jsonb_build_object('verdict','unsafe','riskSeverity','critical','recommendedAction','pass'))) WHERE id='event-000001'`);
     try {
       const page = await service.queryRuntimeEvents({ limit:1, severity:'critical', routerId:'router' });
       expect(page.items.map(r => r.id)).toEqual(['event-000001']);
@@ -73,6 +75,36 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('bounded runtime observability (
     } finally {
       await db.execute(sql`UPDATE runtime_event SET metadata='{}'::jsonb WHERE id='event-000001'`);
     }
+  });
+
+  it('keeps unclassified history and runtime errors separate from the five risk levels', async () => {
+    const fixtures = [
+      ['legacy', { verdict:'unsafe', confidence:1, recommendedAction:'reject' }],
+      ['informational', { verdict:'uncertain', riskSeverity:'informational', recommendedAction:'pass' }],
+      ['error', { verdict:'error', riskSeverity:'critical', recommendedAction:'reject' }],
+      ['safe', { verdict:'safe', riskSeverity:'high', recommendedAction:'pass' }],
+      ['low', { verdict:'unsafe', riskSeverity:'low', recommendedAction:'reject' }],
+    ] as const;
+    for (const [id, finding] of fixtures) await db.execute(sql`INSERT INTO runtime_event(id,occurred_at,request_id,runner_id,guardrail_id,router_id,direction,decision,duration_ms,metadata)
+      VALUES (${id},now(),${id},'runner','classification','classification','incoming','allow',1,${JSON.stringify({ findings:[finding] })}::jsonb)`);
+    try {
+      const result = await queryRuntimeMetrics(db as any, {window:'24h',guardrailId:'classification'});
+      expect(result.findings_summary).toMatchObject({total:3,critical:0,high:0,medium:0,low:1,informational:1,unclassified:1});
+      for (const [severity,id] of [['unclassified','legacy'],['informational','informational'],['low','low']] as const) {
+        const page = await service.queryRuntimeEvents({ guardrailId:'classification', findingsOnly:true, severity });
+        expect(page.items.map(row => row.id)).toEqual([id]);
+      }
+      const first = await service.queryRuntimeEvents({ guardrailId:'classification', findingsOnly:true, severity:['informational','low'], limit:1 });
+      expect(first.items).toHaveLength(1);
+      expect(first.nextCursor).toBeTruthy();
+      const second = await service.queryRuntimeEvents({ guardrailId:'classification', findingsOnly:true, severity:['informational','low'], limit:1, cursor:first.nextCursor! });
+      expect([first.items[0]!.id, second.items[0]!.id].sort()).toEqual(['informational','low']);
+      expect(second.nextCursor).toBeNull();
+      const security = await service.queryRuntimeEvents({guardrailId:'classification', findingsOnly:true});
+      expect(security.items).toHaveLength(3);
+      const runtime = await service.queryRuntimeEvents({guardrailId:'classification'});
+      expect(runtime.items).toHaveLength(5);
+    } finally { await db.execute(sql`DELETE FROM runtime_event WHERE guardrail_id='classification'`); }
   });
 
   it('cancels SQL at the shared deadline and releases the only pool connection', async () => {

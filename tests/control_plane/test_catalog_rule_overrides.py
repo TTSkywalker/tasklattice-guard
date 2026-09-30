@@ -82,6 +82,14 @@ async def test_catalog_rule_action_reaches_real_nemo_and_preserves_later_policie
         )
         assert not result.usage.fail_closed, result.reason
         assert result.usage.model_invocations == 0
+        pii_findings = [finding for finding in result.findings if finding.policy_id == "builtin-pii"]
+        assert pii_findings
+        # Confidence and reject/redact/pass overrides cannot change Rule risk.
+        assert all(finding.risk_severity == "medium" for finding in pii_findings)
+        fragment_findings = [finding for assessment in result.assessments for fragment in assessment.fragments for finding in fragment.findings if finding.policy_id == "builtin-pii"]
+        assert fragment_findings
+        assert all(finding.risk_severity == "medium" for finding in fragment_findings)
+        assert all(finding.policy_version == catalog_plans[f"{phase}:{action}"]["policy_bindings"][0]["policy_version"] for finding in pii_findings)
         assert result.decision == {"pass": "allow", "redact": "transform", "reject": "block", "continue": "transform"}[action]
         if action == "pass":
             # Allow carries no replacement: endpoints forward the original.

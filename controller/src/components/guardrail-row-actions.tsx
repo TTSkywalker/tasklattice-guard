@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, MoreHorizontal, Trash2 } from 'lucide-react';
@@ -7,19 +8,19 @@ import { DuplicateGuardrailSheet } from './guardrail-duplicate';
 import { DeleteGuardrailSheet, type GuardrailDeletionConfirmation } from './guardrail-delete-sheet';
 import { queryKeys } from '@/features/query-keys';
 import { deleteGuardrail, getGuardrailDeletionImpact, type Guardrail } from '@/lib/api';
-import { useRoutingText } from './traffic-routing/form';
+
 
 export function GuardrailRowActions({ guardrail }: { guardrail: Guardrail }) {
-  const t = useRoutingText();
+  const { t } = useTranslation();
   const [action, setAction] = useState<'delete' | 'duplicate' | null>(null);
   return <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-11" aria-label={`${t('操作', 'Actions')}: ${guardrail.name}`}><MoreHorizontal className="size-4" /></Button>
+        <Button variant="ghost" size="icon" className="size-11" aria-label={`${t("routing.actions")}: ${guardrail.name}`}><MoreHorizontal className="size-4" /></Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" onCloseAutoFocus={event => { if (action) event.preventDefault(); }}>
-        <DropdownMenuItem onSelect={() => setAction('duplicate')}><Copy />{t('创建副本', 'Duplicate')}</DropdownMenuItem>
-        <DropdownMenuItem variant="destructive" onSelect={() => setAction('delete')}><Trash2 />{t('删除', 'Delete')}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setAction('duplicate')}><Copy />{t("routing.duplicate")}</DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onSelect={() => setAction('delete')}><Trash2 />{t("routing.delete")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
     {action === 'duplicate' && <DuplicateGuardrailSheet id={guardrail.id} name={guardrail.name} close={() => setAction(null)} />}

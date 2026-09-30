@@ -1,3 +1,4 @@
+import { Checkbox as CarbonCheckbox } from "@/components/ui/checkbox";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
@@ -7,15 +8,14 @@ import {
   Play,
   Plus,
   RefreshCw,
-  RotateCcw,
   Save,
   ShieldCheck,
   TestTube2,
   Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/notifications";
 
 import { ConfirmationSheet } from "@/components/confirmation-sheet";
 import { ErrorNotice, PageHeader, StateBadge } from "@/components/product-shell";
@@ -37,11 +37,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
 import {
-  activateModelConfiguration,
+  applyModelConfiguration,
   deleteModelDefinition,
   getModelConfiguration,
   testModelConnection,
-  rollbackModelConfiguration,
   saveModelAssignment,
   validateModelAssignment,
   type ModelAssignments,
@@ -57,6 +56,8 @@ import {
   type CapabilityBindingDefinition,
   type ImplementedGuardrailRailType,
 } from "../../shared/guardrail-catalog";
+
+import { modelBindingChanges, type PartialModelActivation } from "../../shared/model-activation";
 
 const configurationKey = ["resources", "model-configuration"] as const;
 const noneValue = "__none__";
@@ -120,29 +121,48 @@ export function GuardrailCatalogPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: configurationKey, queryFn: getModelConfiguration, refetchInterval: 10_000, retry: false });
-  const [assignments, setAssignments] = useState<ModelAssignments | null>(null);
+  // Keep local choices separate from the polled draft. Updating one saved
+  // binding must not discard another binding's validated, unsaved choice.
+  const [assignmentEdits, setAssignmentEdits] = useState<Partial<Record<ModelAssignmentTarget, string | null>>>({});
+  const assignments = query.data?.draft ? structuredClone(query.data.draft.assignments) : null;
+  if (assignments) {
+    for (const [target, modelId] of Object.entries(assignmentEdits)) {
+      if (modelId === undefined) continue;
+      if (target === "control_plane") assignments.controlPlane = modelId;
+      else assignments.bindings[target as CapabilityBindingId] = modelId;
+    }
+  }
   const [previewReport, setPreviewReport] = useState<NonNullable<ModelConfigurationView["draft"]>["validationReport"]>(null);
   const validationReceipts = useRef<Record<string, string | undefined>>({});
-  const [pendingAction, setPendingAction] = useState<"activate" | "rollback" | null>(null);
-  useEffect(() => {
-    if (!query.data?.draft?.assignments) return;
-    setAssignments(structuredClone(query.data.draft.assignments));
-  }, [query.data?.draft?.id, query.data?.draft?.updatedAt]);
+  const [pendingAction, setPendingAction] = useState<"activate" | null>(null);
+  const [activationReview, setActivationReview] = useState<ModelConfigurationView | null>(null);
+  const [selectedBindings, setSelectedBindings] = useState<CapabilityBindingId[]>([]);
   const dirty = Boolean(assignments && query.data?.draft && JSON.stringify(assignments.bindings) !== JSON.stringify(query.data.draft.assignments.bindings));
   const administrator = auth.user?.role === "admin";
   const refresh = async () => { await queryClient.invalidateQueries({ queryKey: configurationKey }); };
   const saveAssignmentMutation = useMutation({
     mutationFn: async ({ target, modelId }: { target: ModelAssignmentTarget; modelId: string | null }) => saveModelAssignment(target, modelId, validationReceipts.current[`${target}:${modelId}`]),
-    onSuccess: async (revision, { target }) => { setAssignments(structuredClone(revision.assignments)); toast.success(t(target === "control_plane" ? "modelSettings.controlPlaneSaved" : "modelSettings.assignmentSaved")); await refresh(); },
+    onSuccess: async (revision, { target, modelId }) => {
+      // An in-flight poll may contain the draft from before this save.
+      await queryClient.cancelQueries({ queryKey: configurationKey });
+      queryClient.setQueryData<ModelConfigurationView>(configurationKey, (previous) => previous ? { ...previous, draft: revision } : previous);
+      setAssignmentEdits((previous) => {
+        if (previous[target] !== modelId) return previous;
+        const next = { ...previous };
+        delete next[target];
+        return next;
+      });
+      toast.success(t(target === "control_plane" ? "modelSettings.controlPlaneSaved" : "modelSettings.assignmentSaved"));
+      await refresh();
+    },
     onError: (error) => toast.error(errorMessage(error)),
   });
   const validateAssignmentMutation = useMutation({
     mutationFn: async (target: ModelAssignmentTarget) => {
       const modelId = target === "control_plane" ? assignments?.controlPlane : assignments?.bindings[target];
-      return validateModelAssignment(target, modelId ?? undefined);
+      return { revision: await validateModelAssignment(target, modelId ?? undefined), modelId };
     },
-    onSuccess: async (revision, target) => {
-      const modelId = target === "control_plane" ? assignments?.controlPlane : assignments?.bindings[target];
+    onSuccess: async ({ revision, modelId }, target) => {
       if (revision.validationId && modelId) validationReceipts.current[`${target}:${modelId}`] = revision.validationId;
       const passed = Boolean(modelId && revision.validationReport?.checks.some((check) => check.id === `probe:${target}:${modelId}` && check.status === "passed"));
       toast[passed ? "success" : "error"](t(passed ? "modelSettings.assignmentValidationPassed" : "modelSettings.assignmentValidationFailed"));
@@ -155,7 +175,7 @@ export function GuardrailCatalogPage() {
     onError: (error) => toast.error(errorMessage(error)),
   });
   const activateMutation = useMutation({
-    mutationFn: async (revisionId: string) => activateModelConfiguration(revisionId),
+    mutationFn: async (selection: PartialModelActivation) => applyModelConfiguration(selection),
     onSuccess: async (result) => {
       setPendingAction(null);
       toast[result.distribution.distributionStatus === "ready" ? "success" : "info"](
@@ -165,15 +185,7 @@ export function GuardrailCatalogPage() {
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
-  const rollbackMutation = useMutation({
-    mutationFn: () => {
-      if (!query.data?.rollbackTarget) throw new Error(t("modelSettings.noActiveRevision"));
-      return rollbackModelConfiguration(query.data.rollbackTarget);
-    },
-    onSuccess: async () => { setPendingAction(null); toast.success(t("modelSettings.rollbackStarted")); await refresh(); },
-    onError: (error) => toast.error(errorMessage(error)),
-  });
-  const operationPending = activateMutation.isPending || rollbackMutation.isPending;
+  const operationPending = activateMutation.isPending;
 
   if (query.isLoading) return <ModelsSkeleton />;
   if (query.error || !query.data) {
@@ -189,19 +201,27 @@ export function GuardrailCatalogPage() {
     const modelId = query.data.draft!.assignments.bindings[binding.id];
     return !modelId || report?.checks.some((check) => check.id === `probe:${binding.id}:${modelId}` && check.status === "passed" && check.evidenceKind === "nemo-rail-v1");
   });
-  const confirmationPending = activateMutation.isPending || rollbackMutation.isPending;
-  const confirmationError = pendingAction === "activate"
-        ? activateMutation.error
-        : rollbackMutation.error;
+  const changes = modelBindingChanges(query.data.draft.assignments, query.data.active?.assignments, report?.checks ?? []);
+  const canActivate = administrator && !operationPending && !dirty && !query.data.activating && Boolean(query.data.draft.reviewToken)
+    && selectedBindings.length > 0 && selectedBindings.every(id => changes.some(change => change.id === id && change.ready));
+  const confirmationPending = activateMutation.isPending;
+  const activationReviewChanged = Boolean(activationReview && (
+    activationReview.draft?.id !== query.data.draft.id
+    || activationReview.draft?.updatedAt !== query.data.draft.updatedAt
+    || activationReview.draft?.reviewToken !== query.data.draft.reviewToken
+    || activationReview.active?.id !== query.data.active?.id
+  ));
+  const confirmationError = activateMutation.error;
   const closeConfirmation = () => {
     if (confirmationPending) return;
     activateMutation.reset();
-    rollbackMutation.reset();
     setPendingAction(null);
+    setActivationReview(null);
   };
   const confirmPendingAction = () => {
-    if (pendingAction === "activate") activateMutation.mutate(query.data.draft!.id);
-    if (pendingAction === "rollback") rollbackMutation.mutate();
+    if (pendingAction === "activate" && activationReview?.draft?.reviewToken && !activationReviewChanged && canActivate) activateMutation.mutate({
+      bindingIds: selectedBindings, expectedDraftToken: activationReview.draft.reviewToken, expectedActiveId: activationReview.active?.id ?? null,
+    });
   };
 
   return (
@@ -218,24 +238,12 @@ export function GuardrailCatalogPage() {
         <Alert className="mt-6"><CircleAlert /><AlertTitle>{t("modelSettings.readOnly")}</AlertTitle><AlertDescription>{t("modelSettings.readOnlyDescription")}</AlertDescription></Alert>
       ) : null}
       {query.data.activating ? (
-        <Alert variant="info" className="mt-6"><RefreshCw className="animate-spin motion-reduce:animate-none" /><AlertTitle>{t("modelSettings.syncingTitle")}</AlertTitle><AlertDescription>{t("modelSettings.syncingDescription", { revision: query.data.activating.revision, generation: query.data.activating.generation })}</AlertDescription></Alert>
+        <Alert variant="info" className="mt-6"><RefreshCw className="animate-spin motion-reduce:animate-none" /><AlertTitle>{t("modelSettings.syncingTitle")}</AlertTitle><AlertDescription>{t("modelSettings.syncingDescription")}</AlertDescription></Alert>
       ) : null}
       {query.data.failed?.failureReason ? (
         <Alert variant="destructive" className="mt-6"><CircleAlert /><AlertTitle>{t("modelSettings.activationFailed")}</AlertTitle><AlertDescription>{query.data.failed.failureReason}</AlertDescription></Alert>
       ) : null}
-
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium">{t("modelSettings.draftRevision", { revision: query.data.draft.revision })}</span>
-          <StateBadge state={query.data.draft.state === "validated" && !hasRailEvidence ? "needs_validation" : query.data.draft.state} />
-          {query.data.draft.state === "validated" && !hasRailEvidence ? <span className="text-xs text-muted-foreground">{t("modelSettings.legacyRailEvidence")}</span> : null}
-          {query.data.active ? <span className="text-muted-foreground">{t("modelSettings.activeRevision", { revision: query.data.active.revision })}</span> : <span className="text-muted-foreground">{t("modelSettings.noActiveRevision")}</span>}
-          {dirty ? <Badge variant="secondary">{t("modelSettings.unsaved")}</Badge> : null}
-        </div>
-        <div className="flex gap-2">
-          {query.data.rollbackTarget ? <Button type="button" variant="ghost" className="h-11" disabled={!administrator || operationPending} onClick={() => setPendingAction("rollback")}><RotateCcw />{t("modelSettings.rollback")}</Button> : null}
-        </div>
-      </div>
+      {saveAssignmentMutation.error ? <div className="mt-6"><ErrorNotice error={saveAssignmentMutation.error} /></div> : null}
 
       <GuardrailCatalogSection
         action={(
@@ -243,10 +251,10 @@ export function GuardrailCatalogPage() {
             <Button
               type="button"
               className="h-11"
-              disabled={!administrator || operationPending || dirty || query.data.draft.state !== "validated" || !report?.valid || !hasRailEvidence}
-              onClick={() => activateMutation.mutate(query.data.draft!.id)}
+              disabled={operationPending}
+              onClick={() => { setActivationReview(structuredClone(query.data)); setSelectedBindings(changes.filter(change => change.ready).map(change => change.id)); setPendingAction("activate"); }}
             >
-              {activateMutation.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}{t("modelSettings.activate")}
+              {activateMutation.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}{t("modelSettings.reviewActivation")}
             </Button>
           </div>
         )}
@@ -257,10 +265,7 @@ export function GuardrailCatalogPage() {
         disabled={!administrator || operationPending || saveAssignmentMutation.isPending || validateAssignmentMutation.isPending}
         savingTarget={saveAssignmentMutation.isPending ? saveAssignmentMutation.variables?.target ?? null : null}
         validatingTarget={validateAssignmentMutation.isPending ? validateAssignmentMutation.variables ?? null : null}
-        onChange={(bindingId, modelId) => setAssignments({
-          ...assignments,
-          bindings: { ...assignments.bindings, [bindingId]: modelId },
-        })}
+        onChange={(bindingId, modelId) => setAssignmentEdits((previous) => ({ ...previous, [bindingId]: modelId }))}
         onSave={(target, modelId) => saveAssignmentMutation.mutate({ target, modelId })}
         onValidate={(target) => validateAssignmentMutation.mutate(target)}
       />
@@ -272,7 +277,7 @@ export function GuardrailCatalogPage() {
         disabled={!administrator || operationPending || saveAssignmentMutation.isPending || validateAssignmentMutation.isPending}
         saving={saveAssignmentMutation.isPending && saveAssignmentMutation.variables?.target === "control_plane"}
         validating={validateAssignmentMutation.isPending && validateAssignmentMutation.variables === "control_plane"}
-        onChange={(controlPlane) => setAssignments({ ...assignments, controlPlane })}
+        onChange={(controlPlane) => setAssignmentEdits((previous) => ({ ...previous, control_plane: controlPlane }))}
         onSave={(modelId) => saveAssignmentMutation.mutate({ target: "control_plane", modelId })}
         onValidate={() => validateAssignmentMutation.mutate("control_plane")}
       />
@@ -280,24 +285,83 @@ export function GuardrailCatalogPage() {
         open={Boolean(pendingAction)}
         onOpenChange={(open) => { if (!open) closeConfirmation(); }}
         eyebrow={t("modelSettings.confirmChangeEyebrow")}
-        title={t(`modelSettings.${pendingAction ?? "save"}ConfirmationTitle`)}
-        description={t(`modelSettings.${pendingAction ?? "save"}ConfirmationDescription`)}
+        title={t("modelSettings.applyTitle")}
+        description={t("modelSettings.activateConfirmationDescription")}
         cancelLabel={t("common.cancel")}
-        confirmLabel={t(`modelSettings.${pendingAction ?? "save"}ConfirmationAction`)}
+        confirmLabel={t("modelSettings.activateRevisionAction")}
+        confirmDisabled={pendingAction === "activate" && (activationReviewChanged || !canActivate)}
+        confirmIcon={pendingAction === "activate" ? <Play /> : undefined}
         pendingLabel={t("modelSettings.actionPending")}
         pending={confirmationPending}
-        variant={pendingAction === "rollback" ? "warning" : "default"}
+        variant="default"
         onConfirm={confirmPendingAction}
       >
-        <Alert variant={pendingAction === "rollback" ? "default" : "info"} className={pendingAction === "rollback" ? "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100" : undefined}>
-          {pendingAction === "rollback" ? <CircleAlert /> : <ShieldCheck />}
-          <AlertTitle>{t(`modelSettings.${pendingAction ?? "save"}ConfirmationSummary`)}</AlertTitle>
-          <AlertDescription>{t(`modelSettings.${pendingAction ?? "save"}ConfirmationImpact`)}</AlertDescription>
-        </Alert>
+        {pendingAction === "activate" && activationReview ? <>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{t("modelSettings.pendingConfiguration")}</span>
+              <StateBadge state={activationReview.draft?.state === "validated" && !hasRailEvidence ? "needs_validation" : activationReview.draft?.state ?? "draft"} />
+              {dirty ? <Badge variant="secondary">{t("modelSettings.unsaved")}</Badge> : null}
+            </div>
+          </div>
+          <RunnerConfigurationComparison view={activationReview} selectedBindings={selectedBindings} onSelectionChange={setSelectedBindings} disabled={confirmationPending} />
+          <p className="text-sm text-muted-foreground">{t("modelSettings.partialActivationDescription")}</p>
+          {dirty || !changes.some(change => change.ready) ? <Alert variant="warning"><CircleAlert /><AlertDescription>{t(dirty ? "modelSettings.reviewUnsavedBindings" : "modelSettings.reviewNeedsValidation")}</AlertDescription></Alert> : null}
+          {query.data.activating ? <Alert variant="warning"><CircleAlert /><AlertDescription>{t("modelSettings.activationInProgress")}</AlertDescription></Alert> : null}
+        </> : null}
+        {pendingAction === "activate" && activationReviewChanged ? <Alert variant="warning"><CircleAlert /><AlertDescription>{t("modelSettings.activationReviewChanged")}</AlertDescription></Alert> : null}
         {confirmationError ? <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{errorMessage(confirmationError)}</p> : null}
       </ConfirmationSheet>
     </section>
   );
+}
+
+function RunnerConfigurationComparison({ view, selectedBindings, onSelectionChange, disabled }: { view: ModelConfigurationView; selectedBindings: CapabilityBindingId[]; onSelectionChange: (ids: CapabilityBindingId[]) => void; disabled: boolean }) {
+  const { t } = useTranslation();
+  const draft = view.draft;
+  if (!draft) return null;
+  const changes = modelBindingChanges(draft.assignments, view.active?.assignments, draft.validationReport?.checks ?? []);
+  const bindings = capabilityBindingDefinitions.filter((binding) =>
+    !["contextual_grounding", "automated_reasoning"].includes(binding.capabilityRef)
+    || draft.assignments.bindings[binding.id] || view.active?.assignments.bindings[binding.id]);
+  const modelLabel = (id: string | null | undefined, change?: "added" | "removed") => {
+    if (!id) return <span className="text-muted-foreground">{t("modelSettings.notAssigned")}</span>;
+    const model = view.models.find((item) => item.id === id);
+    return <div className={change ? `rounded-md border p-2 ${change === "added" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300" : "border-destructive/30 bg-destructive/10 text-destructive"}` : "py-2"}>
+      {change ? <p className="mb-1 text-xs font-semibold"><span aria-hidden="true">{change === "added" ? "+ " : "− "}</span>{t(change === "added" ? "modelSettings.bindingAdded" : "modelSettings.bindingRemoved")}</p> : null}
+      <p className="font-medium [overflow-wrap:anywhere]">{model?.name ?? id}</p>
+      {model ? <p className={`mt-1 text-xs [overflow-wrap:anywhere] ${change ? "" : "text-muted-foreground"}`}>{model.providerName} · {model.model}</p> : null}
+    </div>;
+  };
+  return <div className="space-y-3">
+    <p className="text-sm text-muted-foreground">{t("modelSettings.savedConfigurationOnly")}</p>
+    {bindings.every((binding) => (view.active?.assignments.bindings[binding.id] ?? null) === draft.assignments.bindings[binding.id]) ? <p role="status" className="text-sm font-medium">{t("modelSettings.noBindingChanges")}</p> : null}
+    {!capabilityBindingDefinitions.some(binding => selectedBindings.includes(binding.id) ? draft.assignments.bindings[binding.id] : view.active?.assignments.bindings[binding.id]) ? <Alert variant="warning"><CircleAlert /><AlertDescription>{t("modelSettings.emptyRunnerConfiguration")}</AlertDescription></Alert> : null}
+    <Table className="table-fixed">
+      <TableHeader><TableRow>
+        <TableHead className="w-[34%] whitespace-normal">{t("modelSettings.capabilityColumn")}</TableHead>
+        <TableHead className="w-[33%] whitespace-normal">{view.active ? t("modelSettings.currentConfiguration") : t("modelSettings.noActiveConfiguration")}</TableHead>
+        <TableHead className="w-[33%] whitespace-normal">{t("modelSettings.pendingConfiguration")}</TableHead>
+      </TableRow></TableHeader>
+      <TableBody>{bindings.map((binding) => {
+        const current = view.active?.assignments.bindings[binding.id] ?? null;
+        const next = draft.assignments.bindings[binding.id];
+        const change = changes.find(item => item.id === binding.id);
+        const selected = selectedBindings.includes(binding.id);
+        return <TableRow key={binding.id}>
+          <TableCell className="whitespace-normal align-top"><p className="font-medium">{capabilityTitle(t, binding)}</p>
+            {change ? <label className="flex min-h-11 items-center gap-2 text-xs"><CarbonCheckbox aria-label={`${t("modelSettings.applyBinding")} ${binding.id}`} checked={selected} disabled={disabled || !change.ready}
+              onChange={event => onSelectionChange(event.target.checked ? [...selectedBindings, binding.id] : selectedBindings.filter(id => id !== binding.id))} />
+              {t(change.ready ? "modelSettings.bindingReady" : "modelSettings.bindingNotReady")}</label> : null}
+          </TableCell>
+          <TableCell className="whitespace-normal align-top">{modelLabel(current, selected && current !== next && current ? "removed" : undefined)}</TableCell>
+          <TableCell className="whitespace-normal align-top">{modelLabel(next, selected && current !== next && next ? "added" : undefined)}
+            {change && !selected ? <p className="text-xs text-muted-foreground">{t("modelSettings.bindingDeferred")}</p> : null}
+          </TableCell>
+        </TableRow>;
+      })}</TableBody>
+    </Table>
+  </div>;
 }
 
 function ControlPlaneSection({ models, selectedId, savedId, report, disabled, saving, validating, onChange, onSave, onValidate }: {
@@ -330,7 +394,7 @@ function ControlPlaneSection({ models, selectedId, savedId, report, disabled, sa
         <div>
           <Label htmlFor="control-plane-model" className="sr-only">{t("modelSettings.assignedModel")}</Label>
           <Select value={selectedId ?? noneValue} disabled={disabled} onValueChange={(value) => onChange(value === noneValue ? null : value)}>
-            <SelectTrigger id="control-plane-model" className="h-11 w-full"><SelectValue placeholder={t("modelSettings.notAssigned")} /></SelectTrigger>
+            <SelectTrigger id="control-plane-model" className="field:h-11 w-full"><SelectValue placeholder={t("modelSettings.notAssigned")} /></SelectTrigger>
             <SelectContent position="popper">
               <SelectItem value={noneValue}>{t("modelSettings.notAssigned")}</SelectItem>
               {available.map((model) => <SelectItem key={model.id} value={model.id}><ModelOption model={model} /></SelectItem>)}
@@ -381,7 +445,7 @@ function GuardrailCatalogSection({ action, assignments, savedAssignments, models
   });
   return (
     <section className="mt-6 overflow-hidden rounded-lg border bg-card" aria-labelledby="guardrail-catalog-title">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b px-5 py-4">
+      <div className="flex flex-col gap-4 border-b px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1"><h2 id="guardrail-catalog-title" className="text-base font-semibold">{t("modelSettings.catalogConfiguration")}</h2>
         <p className="mt-1 max-w-4xl text-sm leading-6 text-muted-foreground">{t("modelSettings.catalogConfigurationDescription")}</p></div>
         {action}
@@ -444,7 +508,7 @@ function CapabilityBindingTable({ rows, savedAssignments, report, disabled, savi
         <TableCell className="whitespace-normal">
           <Label className="sr-only" htmlFor={`binding-model-${binding.id}`}>{t("modelSettings.modelColumn")}</Label>
           <Select value={modelId ?? noneValue} disabled={disabled || !selectableModels.length} onValueChange={(value) => onChange(binding.id, value === noneValue ? null : value)}>
-            <SelectTrigger id={`binding-model-${binding.id}`} className="h-11 w-full" title={!compatibleModels.length ? t("modelSettings.noCompatibleModels") : undefined}><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
+            <SelectTrigger id={`binding-model-${binding.id}`} className="field:h-11 w-full" title={!compatibleModels.length ? t("modelSettings.noCompatibleModels") : undefined}><SelectValue placeholder={t("modelSettings.selectModel")} /></SelectTrigger>
             <SelectContent position="popper"><SelectItem value={noneValue}>{t(compatibleModels.length ? "modelSettings.notAssigned" : "modelSettings.noCompatibleModelsShort")}</SelectItem>{selectableModels.map((model) => <SelectItem key={model.id} value={model.id}><ModelOption model={model} /></SelectItem>)}</SelectContent>
           </Select>
           {preferred ? <p className="mt-2 text-xs text-muted-foreground">{t("modelSettings.recommendedModel", { name: preferred.name })}</p> : <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t("modelSettings.noCompatibleModelsHelp")}</p>}

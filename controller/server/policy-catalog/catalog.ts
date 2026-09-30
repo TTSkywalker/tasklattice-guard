@@ -2,9 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { z } from "zod";
+import { riskSeverities } from "../../shared/security-severity.js";
+import { policyComplianceSchema, type PolicyCompliance } from "../../shared/policy-compliance.js";
 import { guardrailCategoryIds } from "../../shared/guardrail-catalog.js";
 import type { PolicyProtection } from "../../shared/protection-map.js";
 import { policyProtection, protectionContractsSchema, type ProtectionContracts } from "./protection.js";
+import { builtInPolicyCompliance } from "./compliance.js";
 
 const railTypeSchema = z.enum(["input", "retrieval", "dialog", "execution", "output"]);
 const ruleFormSchema = z.enum(["regex", "keyword", "category", "code_block", "competitor_intent", "colang_flow"]);
@@ -53,6 +56,7 @@ const ruleSchema = z.object({
   description: z.string(),
   form: ruleFormSchema,
   effect: z.string().min(1),
+  risk_severity: z.enum(riskSeverities).nullable().default(null),
   rails: z.array(railTypeSchema),
   implementation: implementationSchema,
   expression: z.string().nullable().default(null),
@@ -88,6 +92,7 @@ const policyAssetSchema = z.object({
   description: z.string(),
   source: z.enum(["built_in", "custom"]),
   version: z.string().min(1),
+  compliance: policyComplianceSchema.optional(),
   tags: z.array(tagSchema).default([]),
   parameters: z.array(parameterSchema).default([]),
   rules: z.array(ruleSchema).default([]),
@@ -103,6 +108,8 @@ type PolicyParameter = z.output<typeof parameterSchema>;
 
 export type PolicyTag = z.output<typeof tagSchema> & { id: string };
 export type PolicyDto = {
+  published_versions?: PolicyDto[];
+  compliance?: PolicyCompliance;
   implementation: "rules";
   id: string;
   name: string;
@@ -125,8 +132,10 @@ export type PolicyDto = {
 export const POLICY_CATALOG_FILE_NAMES = [
   "builtin_policies.json",
   "local_content_filters.json",
+  "legacy_topic_policies.json",
   "model_capability_policies.json",
   "focused_policies.json",
+  "china_policies.json",
   "configurable_policies.json",
 ] as const;
 
@@ -160,7 +169,6 @@ const OWASP_LLM_2025_POLICY_IDS = new Set([
   "block-code-execution",
   "builtin-contextual-grounding",
   "builtin-automated-reasoning",
-  "mas-ai-risk-management",
 ]);
 
 export class PolicyCatalog {
@@ -180,7 +188,10 @@ export class PolicyCatalog {
       for (const policy of readPolicyAssets(path)) {
         // The focused local-filter collection intentionally replaces a legacy
         // definition when it reuses a public Policy ID.
-        merged.set(policy.id, normalizePolicy(policy, contracts));
+        const normalized = normalizePolicy(policy, contracts, fileName);
+        const previous = merged.get(policy.id);
+        if (policy.id === "builtin-topic-safety" && previous && previous.version !== policy.version) normalized.published_versions = [previous];
+        merged.set(policy.id, normalized);
       }
     }
     return new PolicyCatalog(merged);
@@ -205,7 +216,15 @@ function readPolicyAssets(path: string): PolicyAsset[] {
   }
 }
 
-function normalizePolicy(policy: PolicyAsset, contracts: ProtectionContracts): PolicyDto {
+function normalizePolicy(policy: PolicyAsset, contracts: ProtectionContracts, sourceFile: string): PolicyDto {
+  const compliance = policyComplianceSchema.parse(policy.compliance ?? builtInPolicyCompliance(policy, sourceFile));
+  if (compliance) {
+    if (compliance.policy_version !== policy.version) throw new Error(`Compliance version mismatch for ${policy.id}`);
+    const ruleIds = new Set(policy.rules.map(rule => rule.id));
+    for (const entry of [...compliance.references, ...compliance.coverage]) {
+      if (entry.rule_ids.some(id => !ruleIds.has(id))) throw new Error(`Unknown compliance Rule reference for ${policy.id}`);
+    }
+  }
   const tags = new Map<string, PolicyTag>();
   if (OWASP_LLM_2025_POLICY_IDS.has(policy.id)) {
     const tag = policyTag("framework", "owasp-llm-2025", "OWASP LLM 2025", "declared");
@@ -226,6 +245,7 @@ function normalizePolicy(policy: PolicyAsset, contracts: ProtectionContracts): P
     description: policy.description,
     source: policy.source,
     version: policy.version,
+    compliance,
     tags: [...tags.values()],
     parameters: policy.parameters,
     rails: RAIL_ORDER.filter((rail) => configuredRails.has(rail)),

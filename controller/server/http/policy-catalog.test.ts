@@ -1,3 +1,5 @@
+import { defaultGuardrailProfiles } from "../../shared/guardrail-profiles.js";
+import { expandProtectionPreset } from "../policy-catalog/presets.js";
 import { resolve } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -46,8 +48,9 @@ describe("Policy catalog HTTP compatibility", () => {
     const collection = await listResponse.json() as { count: number; items: Array<{ id: string; test_count: number }> };
 
     expect(listResponse.status).toBe(200);
-    expect(collection.count).toBe(69);
-    expect(collection.items).toHaveLength(69);
+    expect(collection.count).toBe(71);
+    expect(collection.items).toHaveLength(71);
+    expect(collection.items.some((item) => ["mas-ai-risk-management", "singapore-financial-conduct"].includes(item.id))).toBe(false);
     expect(collection.items.find((item) => item.id === "pattern-matching")?.test_count).toBeGreaterThan(0);
 
     const detailResponse = await app.request("/api/v1/policies/pattern-matching");
@@ -57,26 +60,36 @@ describe("Policy catalog HTTP compatibility", () => {
     expect(detail.tags).toEqual(expect.arrayContaining([expect.objectContaining({ id: "framework:owasp-llm-2025" })]));
   });
 
-  it("provides authenticated preset previews with pinned ordinary Policy bindings", async () => {
-    expect((await appWithSession(null).request("/api/v1/policy-catalog/protection-presets")).status).toBe(401);
-    const response = await appWithSession({ user: { id: "member-1", role: "user" } }).request("/api/v1/policy-catalog/protection-presets");
+  it.each(["/api/v1/guardrail-profiles", "/api/v1/policy-catalog/protection-presets"])("provides authenticated Profile previews via %s", async route => {
+    expect((await appWithSession(null).request(route)).status).toBe(401);
+    const response = await appWithSession({ user: { id: "member-1", role: "user" } }).request(route);
     expect(response.status).toBe(200);
     const data = await response.json() as { directories: unknown[]; items: Array<{ id: string; policies: unknown[]; policyBindings: Array<{ policyId: string; policyVersion: string }> }> };
     expect(data.directories).toHaveLength(8);
-    expect(data.items).toHaveLength(5);
+    expect(data.items).toHaveLength(7);
     for (const preset of data.items) {
       expect(preset.policyBindings).toHaveLength(preset.policies.length);
       expect(preset.policyBindings.every((binding) => binding.policyVersion.length > 0)).toBe(true);
     }
   });
 
+  it("returns database profiles rather than a hard-coded catalogue", async () => {
+    const listGuardrailProfiles = vi.fn().mockResolvedValue([{ id: "custom-profile", category: "custom", categoryName: "Custom use case", isDefault: true, policyBindings: [] }]);
+    const response = await appWithSession({ user: { id: "member", role: "user" } }, { listGuardrailProfiles }).request("/api/v1/guardrail-profiles");
+    expect(response.status).toBe(200);
+    expect((await response.json()).items).toEqual([{ id: "custom-profile", category: "custom", categoryName: "Custom use case", isDefault: true, policyBindings: [] }]);
+    expect(listGuardrailProfiles).toHaveBeenCalledOnce();
+  });
+
   it("returns the standard not-found envelope and the Runner action catalog", async () => {
     const app = appWithSession({ user: { id: "member-1", role: "user" } });
     const missing = await app.request("/api/v1/policies/not-a-policy");
+    const retired = await app.request("/api/v1/policies/singapore-financial-conduct");
     const actions = await app.request("/api/v1/policy-catalog/actions");
 
     expect(missing.status).toBe(404);
     await expect(missing.json()).resolves.toMatchObject({ error: { code: "not_found" } });
+    expect(retired.status).toBe(404);
     expect(actions.status).toBe(200);
     await expect(actions.json()).resolves.toMatchObject({
       count: 12,
@@ -97,6 +110,7 @@ function appWithSession(session: { user: { id: string; role: string } } | null, 
   } as unknown as ControllerAuth;
   const policies = PolicyCatalog.load(config.policyCatalogDir);
   const service = {
+    listGuardrailProfiles: vi.fn().mockResolvedValue(defaultGuardrailProfiles.map(profile => ({ ...profile, policyBindings: expandProtectionPreset(profile, policies.list()) }))),
     listPolicies: vi.fn().mockResolvedValue(policies.list()),
     getPolicy: vi.fn(async (id: string) => {
       const item = policies.get(id);

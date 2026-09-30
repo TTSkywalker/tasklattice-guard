@@ -2,7 +2,74 @@
   {
     "id": "advanced-au-pii-protection",
     "name": "Advanced PII Protection (Australia)",
-    "description": "Protects Australian-specific identifiers, international employee data, financial information, credentials, protected class information, and industry-specific sensitive data.",
+    "compliance": {
+      "policy_version": "1.95.0",
+      "summary": {
+        "en": "Text-pattern detection and redaction can help reduce exposure of personal identifiers. This Policy is a supporting technical control, not a determination of legal compliance or regulatory certification.",
+        "zh": "通过文本模式检测与脱敏，辅助降低个人标识符的暴露风险。本策略是辅助性技术控制，不代表法律合规结论或监管认证。"
+      },
+      "jurisdiction": { "en": "Australia; applicability depends on the entity, data and processing context.", "zh": "澳大利亚；具体适用性取决于组织主体、数据及处理场景。" },
+      "provenance": {
+        "en": "TaskLattice maintains this built-in Policy definition, Rule grouping, Australian reference mapping, and Test Cases in runner/toolkit/policy_library/assets/builtin_policies.json. Regulatory references are selected independently from implementation lineage.",
+        "zh": "TaskLattice 在 runner/toolkit/policy_library/assets/builtin_policies.json 中维护此内置 Policy 的定义、Rule 分组、澳大利亚参考映射和 Test Cases。监管参考与实现沿革分别选择。"
+      },
+      "maintainer": "TaskLattice",
+      "upstream_status": {
+        "en": "Implementation lineage is repository-maintained. Where third-party detector material is incorporated, THIRD_PARTY_NOTICES.md is authoritative. That technical lineage is not the Policy's regulatory basis or a compliance mapping.",
+        "zh": "实现沿革由仓库维护。若包含第三方检测器材料，以 THIRD_PARTY_NOTICES.md 为准。该技术沿革不是此 Policy 的监管依据，也不构成合规映射。"
+      },
+      "license_status": {
+        "en": "The Policy definition follows the repository license and THIRD_PARTY_NOTICES.md for incorporated material. External regulatory and industry references grant no software rights.",
+        "zh": "Policy 定义遵循仓库许可；所含材料受 THIRD_PARTY_NOTICES.md 约束。外部监管及行业参考不授予软件权利。"
+      },
+      "references": [
+        {
+          "title": "Australian Privacy Principles — APP 11",
+          "url": "https://www.oaic.gov.au/privacy/australian-privacy-principles-guidelines/chapter-11-app-11-security-of-personal-information",
+          "publisher": "Office of the Australian Information Commissioner (OAIC)",
+          "provision": "APP 11.1 — Security of personal information",
+          "relevance": {
+            "en": "OAIC describes reasonable steps to protect personal information, including against unauthorised disclosure. Redacting detected identifiers can contribute to exposure reduction, but does not implement all APP 11 obligations or establish applicability.",
+            "zh": "OAIC 指引说明应采取合理措施保护个人信息，包括防止未经授权的披露。对检出的标识符脱敏可辅助减少暴露，但不实现 APP 11 的全部义务，也不判定其适用性。"
+          },
+          "rule_ids": ["au-pii-tax-identifiers/au_tfn", "au-pii-tax-identifiers/au_medicare", "au-pii-passports/passport_australia"]
+        },
+        {
+          "title": "Privacy (Tax File Number) Rule 2015",
+          "url": "https://www.legislation.gov.au/F2015L00249/latest/text",
+          "publisher": "Federal Register of Legislation",
+          "provision": "TFN information handling — contextual reference, not a clause-level compliance mapping",
+          "relevance": {
+            "en": "A relevant legal reference when handling tax file number information. The TFN Rule detector screens contextual text patterns only; it does not determine lawful collection, use, disclosure, retention or the organisation's obligations.",
+            "zh": "处理税号信息时的相关法律参考。TFN 检测规则仅筛查带上下文的文本模式，不判断收集、使用、披露、留存的合法性或组织的具体义务。"
+          },
+          "rule_ids": ["au-pii-tax-identifiers/au_tfn"]
+        }
+      ],
+      "coverage": [
+        {
+          "rule_ids": ["au-pii-tax-identifiers/au_tfn"],
+          "description": { "en": "Matches configured 8–9 digit TFN patterns near tax-file context and replaces matches with the configured redaction marker on the input rail.", "zh": "在 input rail 上识别税号上下文附近的已配置 8–9 位 TFN 模式，并替换为配置的脱敏标记。" }
+        },
+        {
+          "rule_ids": ["au-pii-tax-identifiers/au_medicare", "au-pii-passports/passport_australia"],
+          "description": { "en": "Screens configured Medicare and Australian passport patterns. These are selected examples, not a complete inventory of the Policy's Rules; see the Policy tab for the full list.", "zh": "筛查已配置的 Medicare 及澳大利亚护照模式。这些是覆盖示例，并非全部 Rules；完整列表见 Policy 页签。" }
+        }
+      ],
+      "limitations": [
+        { "en": "Pattern matching can produce false positives and false negatives; it does not verify identifier authenticity or ownership.", "zh": "模式匹配可能误报或漏报，不验证标识符的真实性或归属。" },
+        { "en": "Does not establish consent, lawful processing, access control, retention, cross-border transfer compliance or incident-response readiness.", "zh": "不证明已满足同意、合法处理、访问控制、数据留存、跨境传输合规或事件响应要求。" },
+        { "en": "Replacing text is not proof of irreversible de-identification under APP 11.2. Copies, logs, other channels and re-identification risk need separate controls.", "zh": "文本替换不能证明满足 APP 11.2 的去标识化要求；副本、日志、其他通道及再识别风险需单独控制。" },
+        { "en": "Passing Test Cases demonstrates only the tested behaviour. Official links may change; obtain qualified review before relying on this mapping for compliance decisions.", "zh": "Test Cases 通过仅说明已测试行为符合预期。官方链接内容可能更新；将此映射用于合规决策前，应取得具备资质人员的审查。" }
+      ],
+      "review": {
+        "status": "reviewed",
+        "reviewed_on": "2026-09-22",
+        "reviewer": "TaskLattice Engineering",
+        "notes": { "en": "Engineering reviewed the repository provenance, official reference targets and technical scope. Legal applicability and clause-level compliance conclusions still require qualified independent review.", "zh": "工程团队已审查仓库来源、官方参考目标和技术范围。法律适用性及条款级合规结论仍需具备资质的独立审查。" }
+      }
+    },
+    "description": "Screens and redacts configured Australian identifiers, international employee data, financial information, credentials, protected-class terms, and selected industry-sensitive data. This is a technical exposure-reduction control, not legal compliance.",
     "source": "built_in",
     "version": "1.95.0",
     "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
@@ -39,6 +106,7 @@
         "description": "Detects Australian Tax File Numbers (8-9 digits) only when near TFN/tax file context to avoid false positives on arbitrary numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -71,6 +139,7 @@
         "description": "Detects Australian Business Numbers (11 digits, optional spaces: XX XXX XXX XXX)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -103,6 +172,7 @@
         "description": "Detects Australian Medicare numbers (formatted XXXX XXXXX X or 11 consecutive digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -135,6 +205,7 @@
         "description": "Australian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -167,6 +238,7 @@
         "description": "Detects US Social Security Numbers (XXX-XX-XXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -199,6 +271,7 @@
         "description": "Detects US SSN without dashes (XXXXXXXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -231,6 +304,7 @@
         "description": "US passport numbers (9 digits or alphanumeric letter + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -263,6 +337,7 @@
         "description": "UK passport numbers (9 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -295,6 +370,7 @@
         "description": "German passport numbers (9 alphanumeric, no vowels)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -327,6 +403,7 @@
         "description": "French passport numbers (2 digits, 2 letters, 5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -359,6 +436,7 @@
         "description": "Dutch passport numbers (2 letters + 6 alphanumeric + 1 digit)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -391,6 +469,7 @@
         "description": "Detects Dutch BSN numbers with contextual keywords",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -423,6 +502,7 @@
         "description": "Chinese passport numbers (E/G prefix + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -455,6 +535,7 @@
         "description": "Indian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -487,6 +568,7 @@
         "description": "Japanese passport numbers (2 letters + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -519,6 +601,7 @@
         "description": "Canadian passport numbers (old: 2 letters + 6 digits; new: 1 letter + 6 digits + 2 letters)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -551,6 +634,7 @@
         "description": "Detects Brazilian CPF numbers (XXX.XXX.XXX-XX or XXX.XXX.XXX/XX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -583,6 +667,7 @@
         "description": "Detects Brazilian CPF numbers without formatting (11 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -615,6 +700,7 @@
         "description": "Detects Brazilian RG identity card numbers (common pattern for SP, RJ, MG states)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -647,6 +733,7 @@
         "description": "Detects Brazilian CNPJ company registration numbers (XX.XXX.XXX/XXXX-XX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -679,6 +766,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -711,6 +799,7 @@
         "description": "Detects US phone numbers in various formats",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -743,6 +832,7 @@
         "description": "Detects Brazilian landline phone numbers with optional area code",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -775,6 +865,7 @@
         "description": "Detects Brazilian mobile phone numbers (9 prefix for mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -807,6 +898,7 @@
         "description": "Detects street addresses (number + street name + street type)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -839,6 +931,7 @@
         "description": "Detects Brazilian CEP postal codes (XXXXX-XXX or XXXXXXXX format)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -871,6 +964,7 @@
         "description": "Detects Visa credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -903,6 +997,7 @@
         "description": "Detects Mastercard credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -935,6 +1030,7 @@
         "description": "Detects American Express credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -967,6 +1063,7 @@
         "description": "Detects Discover credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -999,6 +1096,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1031,6 +1129,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1063,6 +1162,7 @@
         "description": "Detects AWS access keys (AKIA...)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1095,6 +1195,7 @@
         "description": "Detects AWS secret keys (40 characters)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1127,6 +1228,7 @@
         "description": "Detects GitHub personal access tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1159,6 +1261,7 @@
         "description": "Detects Slack API tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1191,6 +1294,7 @@
         "description": "Detects generic API key patterns",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -1223,6 +1327,7 @@
         "description": "Detects IPv4 addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1255,6 +1360,7 @@
         "description": "Detects IPv6 addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1287,6 +1393,7 @@
         "description": "Detects gender identity and sexual orientation terms - protected under fair lending regulations",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1319,6 +1426,7 @@
         "description": "Detects race, ethnicity and national origin terms - protected under ECOA and Fair Housing Act",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1351,6 +1459,7 @@
         "description": "Detects religious affiliation and practice terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1383,6 +1492,7 @@
         "description": "Detects age-related terms - protected under ECOA for applicants 62+",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1415,6 +1525,7 @@
         "description": "Detects disability-related terms - protected under ECOA and ADA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1447,6 +1558,7 @@
         "description": "Detects marital and family status terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1479,6 +1591,7 @@
         "description": "Detects military status terms - protected under SCRA and MLA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -1511,6 +1624,7 @@
         "description": "Detects public assistance terms - protected under ECOA",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2288,6 +2402,7 @@
         "description": "Inline keyword category bundled with this Policy.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -2418,6 +2533,7 @@
         "description": "Detects airline PNR / booking references (6 uppercase alpha characters) when near booking context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2450,6 +2566,7 @@
         "description": "Detects Emirates Skywards frequent flyer numbers (9-10 digits, optional EK prefix) when near loyalty/frequent flyer context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2482,6 +2599,7 @@
         "description": "US passport numbers (9 digits or alphanumeric letter + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2514,6 +2632,7 @@
         "description": "UK passport numbers (9 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2546,6 +2665,7 @@
         "description": "German passport numbers (9 alphanumeric, no vowels)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2578,6 +2698,7 @@
         "description": "French passport numbers (2 digits, 2 letters, 5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2610,6 +2731,7 @@
         "description": "Indian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2642,6 +2764,7 @@
         "description": "Chinese passport numbers (E/G prefix + 8 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2674,6 +2797,7 @@
         "description": "Australian passport numbers (1 letter + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2706,6 +2830,7 @@
         "description": "Japanese passport numbers (2 letters + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2738,6 +2863,7 @@
         "description": "Canadian passport numbers (old: 2 letters + 6 digits; new: 1 letter + 6 digits + 2 letters)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2770,6 +2896,7 @@
         "description": "Dutch passport numbers (2 letters + 6 alphanumeric + 1 digit)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2802,6 +2929,7 @@
         "description": "Detects UAE Emirates ID numbers (784-YYYY-NNNNNNN-C format, 15 digits starting with 784)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -2834,6 +2962,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2866,6 +2995,7 @@
         "description": "Detects Visa credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2898,6 +3028,7 @@
         "description": "Detects Mastercard credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2930,6 +3061,7 @@
         "description": "Detects American Express credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2962,6 +3094,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -2994,6 +3127,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -3026,6 +3160,7 @@
         "description": "Detects UAE phone numbers (+971/00971/0 prefix, landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -3058,6 +3193,7 @@
         "description": "Detects US phone numbers in various formats",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -3486,6 +3622,7 @@
         "description": "Detects airline flight numbers (major IATA 2-letter codes + 1-4 digit flight number) when near flight context",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3518,6 +3655,7 @@
         "description": "Custom regular-expression rule.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3550,6 +3688,7 @@
         "description": "Crew scheduling data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3587,6 +3726,7 @@
         "description": "Crew scheduling data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3624,6 +3764,7 @@
         "description": "Staff duty data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3661,6 +3802,7 @@
         "description": "Pilot scheduling data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3698,6 +3840,7 @@
         "description": "Crew manifest data",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3735,6 +3878,7 @@
         "description": "Blocks AI from generating content about aviation security vulnerabilities, bypass procedures, and restricted operations data",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -3900,6 +4044,7 @@
         "description": "Fake crash report",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -3937,6 +4082,7 @@
         "description": "Fake crash report",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -3974,6 +4120,7 @@
         "description": "Fake incident",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4011,6 +4158,7 @@
         "description": "Fake emergency",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4048,6 +4196,7 @@
         "description": "Fake fatality report",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4085,6 +4234,7 @@
         "description": "Fake fatality confirmation",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4122,6 +4272,7 @@
         "description": "Fake scandal",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4159,6 +4310,7 @@
         "description": "Fake coverup claim",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4196,6 +4348,7 @@
         "description": "Fake grounding claim",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4233,6 +4386,7 @@
         "description": "Fake lawsuit",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4270,6 +4424,7 @@
         "description": "Prevents AI from generating fake incident reports, unauthorized airline statements, or reputation-damaging content",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4426,6 +4581,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4463,6 +4619,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4500,6 +4657,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4537,6 +4695,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -4574,6 +4733,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4611,6 +4771,7 @@
         "description": "Blocks airline ranking, comparison, recommendation, and switching requests while allowing destination and service-policy questions.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -4662,6 +4823,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -5532,6 +5694,7 @@
         "description": "Detects Australian Tax File Numbers (8-9 digits) only when near TFN/tax file context to avoid false positives on arbitrary numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -5564,6 +5727,7 @@
         "description": "Detects Australian Business Numbers (11 digits, optional spaces: XX XXX XXX XXX)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -5596,6 +5760,7 @@
         "description": "Detects Australian Medicare numbers (formatted XXXX XXXXX X or 11 consecutive digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5628,6 +5793,7 @@
         "description": "Detects AWS access keys (AKIA...)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5660,6 +5826,7 @@
         "description": "Detects AWS secret keys (40 characters)",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5692,6 +5859,7 @@
         "description": "Detects GitHub personal access tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5724,6 +5892,7 @@
         "description": "Detects Slack API tokens",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5756,6 +5925,7 @@
         "description": "Detects generic API key patterns",
         "form": "regex",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5788,6 +5958,7 @@
         "description": "Detects Visa credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5820,6 +5991,7 @@
         "description": "Detects Mastercard credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5852,6 +6024,7 @@
         "description": "Detects American Express credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5884,6 +6057,7 @@
         "description": "Detects Discover credit card numbers",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5916,6 +6090,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -5948,6 +6123,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -6230,6 +6406,7 @@
         "description": "Detects coaching on fraudulent insurance claims including exaggeration, fabrication, and document forgery",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -6438,6 +6615,7 @@
         "description": "Detects unauthorized PHI disclosure requests, bulk data extraction, and HIPAA violations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -6646,6 +6824,7 @@
         "description": "Detects attempts to game prior authorization through code manipulation, misrepresentation, and circumvention",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -6849,6 +7028,7 @@
         "description": "Detects system override injection, unauthorized role impersonation, and claims rule bypass attempts",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -7064,6 +7244,7 @@
         "description": "Detects medical advice requests while allowing legitimate claims-related medical terminology",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -7424,6 +7605,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7461,6 +7643,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -7498,6 +7681,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7535,6 +7719,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -7572,6 +7757,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7609,6 +7795,7 @@
         "description": "Blocks airline ranking, comparison, recommendation, and switching requests while allowing destination and service-policy questions.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -7660,6 +7847,7 @@
         "description": "Resolved from reviewed Policy parameters.",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "output"
         ],
@@ -8194,7 +8382,7 @@
   {
     "id": "eu-ai-act-article5",
     "name": "EU AI Act Article 5 — Prohibited Practices",
-    "description": "Comprehensive EU AI Act Article 5 compliance covering all prohibited AI practices. Includes 5 dedicated sub-guardrails per language (English + French) for: subliminal manipulation (Art. 5.1a), vulnerability exploitation (Art. 5.1b), social scoring (Art. 5.1c), emotion recognition in workplace/education (Art. 5.1f), and biometric categorization & predictive profiling (Art. 5.1d/g/h). Uses conditional matching (identifier word + context word).",
+    "description": "Screens selected English and French phrases related to five EU AI Act Article 5 topics: manipulation, vulnerability exploitation, social scoring, emotion recognition, and biometric categorization or profiling. This technical filter does not determine legal scope, exceptions, or compliance.",
     "source": "built_in",
     "version": "1.95.0",
     "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
@@ -8237,6 +8425,7 @@
         "description": "Art. 5.1(a) — Blocks subliminal manipulation, deceptive AI techniques, and covert behavioral influence",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8355,6 +8544,7 @@
         "description": "Art. 5.1(b) — Blocks AI systems that exploit vulnerabilities of children, elderly, or disabled persons",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8492,6 +8682,7 @@
         "description": "Art. 5.1(c) — Blocks social scoring, citizen rating, and trustworthiness classification systems",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8635,6 +8826,7 @@
         "description": "Art. 5.1(f) — Blocks emotion recognition and sentiment analysis in workplace and educational settings",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -8803,6 +8995,7 @@
         "description": "Art. 5.1(d)(g)(h) — Blocks biometric categorization, facial recognition databases, and predictive profiling",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -8974,6 +9167,7 @@
         "description": "Art. 5.1(a) — Bloque la manipulation subliminale, les techniques d'IA trompeuses et l'influence comportementale cachée",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9096,6 +9290,7 @@
         "description": "Art. 5.1(b) — Bloque les systèmes d'IA qui exploitent les vulnérabilités des enfants, personnes âgées ou handicapées",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9228,6 +9423,7 @@
         "description": "Art. 5.1(c) — Bloque les systèmes de notation sociale, de notation des citoyens et de classification de fiabilité",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9381,6 +9577,7 @@
         "description": "Art. 5.1(f) — Bloque la reconnaissance des émotions et l'analyse des sentiments au travail et dans l'éducation",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -9540,6 +9737,7 @@
         "description": "Art. 5.1(d)(g)(h) — Bloque la catégorisation biométrique, les bases de reconnaissance faciale et le profilage prédictif",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -9877,7 +10075,7 @@
   {
     "id": "gdpr-eu-pii-protection",
     "name": "GDPR Art. 32 — EU PII Protection",
-    "description": "GDPR Article 32 compliance for EU personal data protection. Masks French national IDs (NIR/INSEE), EU IBANs, French phone numbers, EU VAT numbers, EU passport numbers, and email addresses. Suitable for applications processing EU citizen data requiring GDPR compliance.",
+    "description": "Masks configured French and EU identifier formats as a supporting security measure in GDPR-related deployments. Identifier matching alone does not satisfy Article 32 or other GDPR obligations.",
     "source": "built_in",
     "version": "1.95.0",
     "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
@@ -9920,6 +10118,7 @@
         "description": "Detects French National Identification Number (Numéro d'Inscription au Répertoire) - 15 digits with specific format: sex + year + month + department + commune + order + key",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -9952,6 +10151,7 @@
         "description": "Detects generic EU passport format (2 digits + 2 letters + 5 digits) - covers France and similar EU formats",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -9984,6 +10184,7 @@
         "description": "Enhanced IBAN detection with more specific format validation (2 letter country + 2 check digits + 4 char bank code + 7 digit account base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -10016,6 +10217,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -10048,6 +10250,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10080,6 +10283,7 @@
         "description": "Detects French phone numbers in various formats (+33, 0033, or 0 prefix followed by 9 digits starting with 1-9)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10112,6 +10316,7 @@
         "description": "Detects French postal codes (5 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10144,6 +10349,7 @@
         "description": "Detects EU VAT identification numbers (2-letter country code + 8-12 alphanumeric characters covering all EU member states)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -10330,6 +10536,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -14087,6 +14294,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -14392,6 +14600,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -14789,6 +14998,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -15082,6 +15292,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -15423,6 +15634,7 @@
         "description": "Detects content related to self-harm, suicide, and eating disorders",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -15784,6 +15996,7 @@
         "description": "Detects inappropriate content involving minors using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -16928,6 +17141,7 @@
         "description": "Detects racial and ethnic discrimination, hate speech, and biased content using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -18522,6 +18736,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -22279,6 +22494,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -22620,6 +22836,7 @@
         "description": "Detects content related to self-harm, suicide, and eating disorders",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -22981,6 +23198,7 @@
         "description": "Detects inappropriate content involving minors using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -24125,6 +24343,7 @@
         "description": "Detects racial and ethnic discrimination, hate speech, and biased content using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -25668,6 +25887,7 @@
         "description": "",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -29425,6 +29645,7 @@
         "description": "Detects content related to self-harm, suicide, and eating disorders",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -29786,6 +30007,7 @@
         "description": "Detects inappropriate content involving minors using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -30930,6 +31152,7 @@
         "description": "Detects racial and ethnic discrimination, hate speech, and biased content using identifier + block word combinations",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -32458,6 +32681,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32495,6 +32719,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32532,6 +32757,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32569,6 +32795,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32606,6 +32833,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32643,6 +32871,7 @@
         "description": "Prompt injection attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32680,6 +32909,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32717,6 +32947,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32754,6 +32985,7 @@
         "description": "System prompt extraction",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32791,6 +33023,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32828,6 +33061,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32865,6 +33099,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32902,6 +33137,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32939,6 +33175,7 @@
         "description": "Jailbreak attempt",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -32976,6 +33213,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33013,6 +33251,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33050,6 +33289,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33087,6 +33327,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33124,6 +33365,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33161,6 +33403,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33198,6 +33441,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33235,6 +33479,7 @@
         "description": "SQL injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33272,6 +33517,7 @@
         "description": "XSS injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33309,6 +33555,7 @@
         "description": "XSS injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33346,6 +33593,7 @@
         "description": "Code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33383,6 +33631,7 @@
         "description": "Code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33420,6 +33669,7 @@
         "description": "Python code injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33457,6 +33707,7 @@
         "description": "Command injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33494,6 +33745,7 @@
         "description": "Command injection",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -33967,745 +34219,9 @@
     ]
   },
   {
-    "id": "mas-ai-risk-management",
-    "name": "Singapore MAS — AI Risk Management for Financial Institutions",
-    "description": "Monetary Authority of Singapore (MAS) AI Risk Management for Financial Institutions alignment. Covers 5 enforceable obligation areas: fairness & bias in financial decisions, transparency & explainability of AI models, human oversight for consequential actions, data governance for financial customer data, and model security against adversarial attacks. Based on Guidelines on Artificial Intelligence Risk Management (MAS), and aligned with the 2018 FEAT Principles and Project MindForge. Zero-cost keyword-based detection.",
-    "source": "built_in",
-    "version": "1.95.0",
-    "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
-      {
-        "namespace": "guardrail_category",
-        "value": "agentic_security",
-        "label": "Agentic Security",
-        "source": "declared"
-      },
-      {
-        "namespace": "domain",
-        "value": "financial-services",
-        "label": "Financial Services",
-        "source": "declared"
-      },
-      {
-        "namespace": "framework",
-        "value": "mas-ai-risk",
-        "label": "MAS AI Risk Management",
-        "source": "declared"
-      },
-      {
-        "namespace": "jurisdiction",
-        "value": "sg",
-        "label": "Singapore",
-        "source": "declared"
-      },
-      {
-        "namespace": "rail",
-        "value": "input",
-        "label": "Input rail",
-        "source": "derived"
-      },
-      {
-        "namespace": "implementation",
-        "value": "category",
-        "label": "Category",
-        "source": "derived"
-      }
-    ],
-    "parameters": [],
-    "rules": [
-      {
-        "id": "sg-mas-fairness-bias/sg_mas_fairness_bias",
-        "name": "SG MAS Fairness Bias",
-        "description": "Guidelines on Artificial Intelligence Risk Management (MAS) — Blocks discriminatory AI practices in financial services that score, deny, or price based on protected attributes",
-        "form": "category",
-        "effect": "reject",
-        "rails": [
-          "input"
-        ],
-        "implementation": {
-          "engine": "nemo-guardrails",
-          "form": "category",
-          "binding_id": "sg-mas-fairness-bias",
-          "implementation_rule_id": "sg_mas_fairness_bias",
-          "detector": "category",
-          "flow_name": null,
-          "action_name": "GuardContentFilterAction"
-        },
-        "expression": null,
-        "context_expression": null,
-        "redaction": null,
-        "severity_threshold": "medium",
-        "identifiers": [
-          "race",
-          "ethnicity",
-          "religion",
-          "gender",
-          "age",
-          "nationality",
-          "marital status",
-          "disability",
-          "pregnancy",
-          "sexual orientation",
-          "malay",
-          "indian",
-          "chinese",
-          "eurasian",
-          "cmio",
-          "pr holder",
-          "foreign worker"
-        ],
-        "conditions": [
-          "credit score",
-          "credit rating",
-          "loan approval",
-          "loan denial",
-          "loan pricing",
-          "interest rate",
-          "insurance premium",
-          "insurance pricing",
-          "insurance denial",
-          "risk score",
-          "risk premium",
-          "deny",
-          "reject",
-          "penalize",
-          "surcharge",
-          "exclude",
-          "discriminate",
-          "higher rate",
-          "lower limit",
-          "restrict access",
-          "profile by",
-          "segment by",
-          "price by",
-          "score by",
-          "weight by",
-          "adjust by"
-        ],
-        "keywords": [],
-        "always_block": [
-          [
-            "deny loan based on race",
-            "high"
-          ],
-          [
-            "credit score by ethnicity",
-            "high"
-          ],
-          [
-            "insurance premium based on religion",
-            "high"
-          ],
-          [
-            "reject application based on nationality",
-            "high"
-          ],
-          [
-            "higher interest rate for malay",
-            "high"
-          ],
-          [
-            "lower credit limit for indian",
-            "high"
-          ],
-          [
-            "penalize based on gender",
-            "high"
-          ],
-          [
-            "discriminate by age in lending",
-            "high"
-          ],
-          [
-            "price insurance by race singapore",
-            "high"
-          ],
-          [
-            "exclude foreign worker from financial service",
-            "high"
-          ]
-        ],
-        "exceptions": [
-          "fairness audit",
-          "bias detection",
-          "bias mitigation",
-          "anti-discrimination",
-          "equal opportunity",
-          "fairness metric",
-          "disparate impact analysis",
-          "compliance review",
-          "explain",
-          "what is",
-          "research",
-          "academic",
-          "feat principles",
-          "model validation"
-        ],
-        "phrase_patterns": [],
-        "taxonomy_ids": [
-          "TALI-SOCIAL-HARM-DISCRIMINATION"
-        ]
-      },
-      {
-        "id": "sg-mas-transparency-explainability/sg_mas_transparency_explainability",
-        "name": "SG MAS Transparency Explainability",
-        "description": "Guidelines on Artificial Intelligence Risk Management (MAS) — Blocks opaque or unexplainable AI systems for consequential financial decisions",
-        "form": "category",
-        "effect": "reject",
-        "rails": [
-          "input"
-        ],
-        "implementation": {
-          "engine": "nemo-guardrails",
-          "form": "category",
-          "binding_id": "sg-mas-transparency-explainability",
-          "implementation_rule_id": "sg_mas_transparency_explainability",
-          "detector": "category",
-          "flow_name": null,
-          "action_name": "GuardContentFilterAction"
-        },
-        "expression": null,
-        "context_expression": null,
-        "redaction": null,
-        "severity_threshold": "medium",
-        "identifiers": [
-          "black box",
-          "unexplainable",
-          "opaque model",
-          "no explanation",
-          "without explanation",
-          "non-interpretable",
-          "uninterpretable",
-          "hidden logic",
-          "credit decision",
-          "lending decision",
-          "loan decision",
-          "claims decision",
-          "underwriting decision",
-          "trading decision",
-          "investment decision",
-          "kyc decision",
-          "aml decision"
-        ],
-        "conditions": [
-          "deploy",
-          "launch",
-          "put into production",
-          "go live",
-          "release",
-          "roll out",
-          "without audit trail",
-          "no logging",
-          "hide reasoning",
-          "skip explanation",
-          "remove explainability",
-          "disable explanation",
-          "suppress reasoning",
-          "customer-facing",
-          "client-facing",
-          "consumer-facing",
-          "customer decision"
-        ],
-        "keywords": [],
-        "always_block": [
-          [
-            "deploy black box model for credit decision",
-            "high"
-          ],
-          [
-            "launch unexplainable ai for lending",
-            "high"
-          ],
-          [
-            "no explanation for loan denial",
-            "high"
-          ],
-          [
-            "hide reasoning from customer",
-            "high"
-          ],
-          [
-            "opaque model for insurance claims",
-            "high"
-          ],
-          [
-            "remove explainability from trading system",
-            "high"
-          ],
-          [
-            "deploy without audit trail financial",
-            "high"
-          ]
-        ],
-        "exceptions": [
-          "improve explainability",
-          "add explainability",
-          "interpretability",
-          "model card",
-          "with audit trail",
-          "add audit trail",
-          "explain what",
-          "explain how",
-          "what is",
-          "shap",
-          "lime",
-          "feature importance",
-          "research",
-          "academic",
-          "improve transparency",
-          "add explanation",
-          "compliance"
-        ],
-        "phrase_patterns": [],
-        "taxonomy_ids": [
-          "TALI-BUSINESS-POLICY"
-        ]
-      },
-      {
-        "id": "sg-mas-human-oversight/sg_mas_human_oversight",
-        "name": "SG MAS Human Oversight",
-        "description": "Guidelines on Artificial Intelligence Risk Management (MAS) — Blocks fully automated financial AI decisions without human oversight for consequential actions",
-        "form": "category",
-        "effect": "reject",
-        "rails": [
-          "input"
-        ],
-        "implementation": {
-          "engine": "nemo-guardrails",
-          "form": "category",
-          "binding_id": "sg-mas-human-oversight",
-          "implementation_rule_id": "sg_mas_human_oversight",
-          "detector": "category",
-          "flow_name": null,
-          "action_name": "GuardContentFilterAction"
-        },
-        "expression": null,
-        "context_expression": null,
-        "redaction": null,
-        "severity_threshold": "medium",
-        "identifiers": [
-          "loan approval",
-          "loan rejection",
-          "credit approval",
-          "credit denial",
-          "insurance claim",
-          "insurance payout",
-          "account closure",
-          "account freeze",
-          "margin call",
-          "trade execution",
-          "fund transfer",
-          "payment block",
-          "customer onboarding",
-          "kyc rejection",
-          "aml flag",
-          "suspicious transaction",
-          "fraud flag"
-        ],
-        "conditions": [
-          "fully automated",
-          "fully autonomous",
-          "no human review",
-          "no human oversight",
-          "without human",
-          "without review",
-          "without approval",
-          "auto-approve",
-          "auto-reject",
-          "auto-deny",
-          "auto-execute",
-          "automatic decision",
-          "remove human",
-          "eliminate human",
-          "bypass review",
-          "skip review",
-          "instant decision",
-          "real-time decision",
-          "zero-touch",
-          "straight-through processing"
-        ],
-        "keywords": [],
-        "always_block": [
-          [
-            "fully automated loan approval without human",
-            "high"
-          ],
-          [
-            "auto-reject credit application",
-            "high"
-          ],
-          [
-            "remove human oversight from trading",
-            "high"
-          ],
-          [
-            "fully autonomous insurance claim decision",
-            "high"
-          ],
-          [
-            "bypass review for account closure",
-            "high"
-          ],
-          [
-            "eliminate human from kyc decision",
-            "high"
-          ],
-          [
-            "auto-execute margin call without review",
-            "high"
-          ],
-          [
-            "zero-touch fraud decision",
-            "high"
-          ]
-        ],
-        "exceptions": [
-          "human in the loop",
-          "human on the loop",
-          "add human review",
-          "with human review",
-          "manual review",
-          "escalation",
-          "appeals process",
-          "override mechanism",
-          "explain what",
-          "explain how",
-          "what is",
-          "research",
-          "improve oversight",
-          "compliance",
-          "governance"
-        ],
-        "phrase_patterns": [],
-        "taxonomy_ids": [
-          "TALI-BUSINESS-POLICY"
-        ]
-      },
-      {
-        "id": "sg-mas-data-governance/sg_mas_data_governance",
-        "name": "SG MAS Data Governance",
-        "description": "Guidelines on Artificial Intelligence Risk Management (MAS) — Blocks unauthorized sharing, exposure, or mishandling of financial customer data without proper governance",
-        "form": "category",
-        "effect": "reject",
-        "rails": [
-          "input"
-        ],
-        "implementation": {
-          "engine": "nemo-guardrails",
-          "form": "category",
-          "binding_id": "sg-mas-data-governance",
-          "implementation_rule_id": "sg_mas_data_governance",
-          "detector": "category",
-          "flow_name": null,
-          "action_name": "GuardContentFilterAction"
-        },
-        "expression": null,
-        "context_expression": null,
-        "redaction": null,
-        "severity_threshold": "medium",
-        "identifiers": [
-          "customer account",
-          "account balance",
-          "transaction history",
-          "financial record",
-          "bank statement",
-          "credit report",
-          "loan record",
-          "portfolio data",
-          "trading record",
-          "payment history",
-          "cpf statement",
-          "cpf balance",
-          "medisave record",
-          "cdp account",
-          "srs account",
-          "giro record",
-          "customer kyc data",
-          "customer identity",
-          "beneficial owner"
-        ],
-        "conditions": [
-          "share without consent",
-          "share externally",
-          "share with third party",
-          "expose",
-          "leak",
-          "dump",
-          "exfiltrate",
-          "without lineage",
-          "without provenance",
-          "no audit trail",
-          "untracked",
-          "unlogged",
-          "train model on",
-          "use for training",
-          "fine-tune on",
-          "without consent",
-          "without authorization",
-          "scrape",
-          "harvest",
-          "bulk extract",
-          "mass download"
-        ],
-        "keywords": [],
-        "always_block": [
-          [
-            "exfiltrate customer financial data",
-            "high"
-          ],
-          [
-            "dump account balances",
-            "high"
-          ],
-          [
-            "leak transaction history",
-            "high"
-          ],
-          [
-            "train model on customer data without consent",
-            "high"
-          ],
-          [
-            "share kyc data with third party without authorization",
-            "high"
-          ],
-          [
-            "scrape cpf statement data",
-            "high"
-          ],
-          [
-            "bulk extract bank statement",
-            "high"
-          ]
-        ],
-        "exceptions": [
-          "data governance",
-          "data lineage",
-          "data provenance",
-          "audit trail",
-          "with consent",
-          "authorized",
-          "compliance",
-          "regulatory reporting",
-          "explain",
-          "what is",
-          "research",
-          "anonymised",
-          "anonymized",
-          "aggregated",
-          "encrypted"
-        ],
-        "phrase_patterns": [],
-        "taxonomy_ids": [
-          "TALI-BUSINESS-POLICY"
-        ]
-      },
-      {
-        "id": "sg-mas-model-security/sg_mas_model_security",
-        "name": "SG MAS Model Security",
-        "description": "Guidelines on Artificial Intelligence Risk Management (MAS) — Blocks adversarial attacks, model poisoning, inversion, and exfiltration attempts targeting financial AI systems",
-        "form": "category",
-        "effect": "reject",
-        "rails": [
-          "input"
-        ],
-        "implementation": {
-          "engine": "nemo-guardrails",
-          "form": "category",
-          "binding_id": "sg-mas-model-security",
-          "implementation_rule_id": "sg_mas_model_security",
-          "detector": "category",
-          "flow_name": null,
-          "action_name": "GuardContentFilterAction"
-        },
-        "expression": null,
-        "context_expression": null,
-        "redaction": null,
-        "severity_threshold": "medium",
-        "identifiers": [
-          "credit model",
-          "fraud model",
-          "trading model",
-          "risk model",
-          "underwriting model",
-          "aml model",
-          "kyc model",
-          "scoring model",
-          "pricing model",
-          "financial model",
-          "production model",
-          "deployed model",
-          "live model",
-          "model endpoint",
-          "model api"
-        ],
-        "conditions": [
-          "adversarial attack",
-          "adversarial example",
-          "adversarial input",
-          "evasion attack",
-          "perturbation",
-          "data poisoning",
-          "poison training",
-          "backdoor",
-          "trojan",
-          "corrupt training data",
-          "model inversion",
-          "model extraction",
-          "model stealing",
-          "model theft",
-          "reverse engineer",
-          "replicate model",
-          "exfiltrate",
-          "extract training data",
-          "membership inference",
-          "data leakage",
-          "prompt injection",
-          "jailbreak",
-          "bypass guardrail",
-          "bypass safety"
-        ],
-        "keywords": [],
-        "always_block": [
-          [
-            "adversarial attack on credit model",
-            "high"
-          ],
-          [
-            "poison training data financial",
-            "high"
-          ],
-          [
-            "model inversion attack fraud model",
-            "high"
-          ],
-          [
-            "steal scoring model weights",
-            "high"
-          ],
-          [
-            "extract training data from financial model",
-            "high"
-          ],
-          [
-            "jailbreak financial ai",
-            "high"
-          ],
-          [
-            "bypass guardrail on trading model",
-            "high"
-          ],
-          [
-            "backdoor in aml model",
-            "high"
-          ]
-        ],
-        "exceptions": [
-          "red team",
-          "red-team",
-          "penetration test",
-          "security audit",
-          "vulnerability assessment",
-          "adversarial testing",
-          "robustness testing",
-          "explain",
-          "what is",
-          "research",
-          "academic",
-          "defend against",
-          "protect from",
-          "mitigate",
-          "detection"
-        ],
-        "phrase_patterns": [],
-        "taxonomy_ids": [
-          "TALI-MODEL-SECURITY"
-        ]
-      }
-    ],
-    "safety_level": "balanced",
-    "output_delivery": "window_buffered",
-    "test_cases": [
-      {
-        "id": "rule-sg-mas-fairness-bias/sg_mas_fairness_bias-acceptance",
-        "name": "Trigger SG MAS Fairness Bias",
-        "description": "Proves that the published category implementation for SG MAS Fairness Bias activates this Rule.",
-        "phase": "input",
-        "content": "Acceptance sample: deny loan based on race",
-        "expected_decision": "block",
-        "covered_rule_ids": [
-          "sg-mas-fairness-bias/sg_mas_fairness_bias"
-        ],
-        "kind": "rule_acceptance",
-        "required": true,
-        "parameter_names": [],
-        "group": "Rule acceptance"
-      },
-      {
-        "id": "rule-sg-mas-transparency-explainability/sg_mas_transparency_explainability-acceptance",
-        "name": "Trigger SG MAS Transparency Explainability",
-        "description": "Proves that the published category implementation for SG MAS Transparency Explainability activates this Rule.",
-        "phase": "input",
-        "content": "Acceptance sample: deploy black box model for credit decision",
-        "expected_decision": "block",
-        "covered_rule_ids": [
-          "sg-mas-transparency-explainability/sg_mas_transparency_explainability"
-        ],
-        "kind": "rule_acceptance",
-        "required": true,
-        "parameter_names": [],
-        "group": "Rule acceptance"
-      },
-      {
-        "id": "rule-sg-mas-human-oversight/sg_mas_human_oversight-acceptance",
-        "name": "Trigger SG MAS Human Oversight",
-        "description": "Proves that the published category implementation for SG MAS Human Oversight activates this Rule.",
-        "phase": "input",
-        "content": "Acceptance sample: fully automated loan approval without human",
-        "expected_decision": "block",
-        "covered_rule_ids": [
-          "sg-mas-human-oversight/sg_mas_human_oversight"
-        ],
-        "kind": "rule_acceptance",
-        "required": true,
-        "parameter_names": [],
-        "group": "Rule acceptance"
-      },
-      {
-        "id": "rule-sg-mas-data-governance/sg_mas_data_governance-acceptance",
-        "name": "Trigger SG MAS Data Governance",
-        "description": "Proves that the published category implementation for SG MAS Data Governance activates this Rule.",
-        "phase": "input",
-        "content": "Acceptance sample: exfiltrate customer financial data",
-        "expected_decision": "block",
-        "covered_rule_ids": [
-          "sg-mas-data-governance/sg_mas_data_governance"
-        ],
-        "kind": "rule_acceptance",
-        "required": true,
-        "parameter_names": [],
-        "group": "Rule acceptance"
-      },
-      {
-        "id": "rule-sg-mas-model-security/sg_mas_model_security-acceptance",
-        "name": "Trigger SG MAS Model Security",
-        "description": "Proves that the published category implementation for SG MAS Model Security activates this Rule.",
-        "phase": "input",
-        "content": "Acceptance sample: adversarial attack on credit model",
-        "expected_decision": "block",
-        "covered_rule_ids": [
-          "sg-mas-model-security/sg_mas_model_security"
-        ],
-        "kind": "rule_acceptance",
-        "required": true,
-        "parameter_names": [],
-        "group": "Rule acceptance"
-      }
-    ]
-  },
-  {
     "id": "pdpa-singapore",
     "name": "Singapore PDPA — Personal Data Protection",
-    "description": "Singapore Personal Data Protection Act (PDPA) compliance. Covers 5 obligation areas: personal identifier collection (s.13 Consent), sensitive data profiling (Advisory Guidelines), Do Not Call Registry violations (Part IX), overseas data transfers (s.26), and automated profiling without human oversight (Model AI Governance Framework). Also includes regex-based PII detection for NRIC/FIN, Singapore phone numbers, postal codes, passports, UEN, and bank account numbers. Zero-cost keyword-based detection.",
+    "description": "Screens selected Singapore identifier formats and phrases related to consent, sensitive-data profiling, Do Not Call requests, overseas transfers, and automated profiling. It does not determine PDPA applicability or compliance.",
     "source": "built_in",
     "version": "1.95.0",
     "tags": [{"namespace":"protection","value":"privacy","label":"Privacy & sensitive information","source":"declared"},
@@ -34760,6 +34276,7 @@
         "description": "Detects Singapore NRIC and FIN numbers (S/T for citizens/PRs, F/G/M for foreigners + 7 digits + checksum letter)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34792,6 +34309,7 @@
         "description": "Detects Singapore passport numbers (E/K prefix + 7 digits)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34824,6 +34342,7 @@
         "description": "Detects Singapore phone numbers (+65/0065/65 prefix with 6/8/9 starting digit for landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34856,6 +34375,7 @@
         "description": "Detects Singapore 6-digit postal codes (ranges 01xxxx to 83xxxx)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34888,6 +34408,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -34920,6 +34441,7 @@
         "description": "Detects Singapore bank account numbers (XXX-XXXXX(X)-X(XX) format for DBS/POSB/OCBC/UOB)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -34952,6 +34474,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -34984,6 +34507,7 @@
         "description": "Detects Singapore Unique Entity Numbers for business registration (various formats: 8/9 digits + letter, or T/R prefix)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35016,6 +34540,7 @@
         "description": "PDPA s.13 — Blocks unauthorized collection, harvesting, or extraction of Singapore personal identifiers (NRIC/FIN, SingPass, passports)",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -35137,6 +34662,7 @@
         "description": "PDPA Advisory Guidelines — Blocks profiling or inference of sensitive personal data categories (race, religion, health, politics) for Singapore residents",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -35255,6 +34781,7 @@
         "description": "PDPA Part IX — Blocks generation of unsolicited marketing lists and DNC Registry bypass attempts for Singapore phone numbers",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -35361,6 +34888,7 @@
         "description": "PDPA s.26 — Blocks unprotected overseas transfer of Singapore personal data without adequate safeguards",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35459,6 +34987,7 @@
         "description": "PDPA + Model AI Governance Framework — Blocks automated profiling and decision-making systems for consequential decisions about Singapore residents without human oversight",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35800,6 +35329,7 @@
         "description": "Off-topic: news",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35837,6 +35367,7 @@
         "description": "Off-topic: news",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35874,6 +35405,7 @@
         "description": "Off-topic: current events",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35911,6 +35443,7 @@
         "description": "Off-topic: politics",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35948,6 +35481,7 @@
         "description": "Off-topic: sports/entertainment",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -35985,6 +35519,7 @@
         "description": "Off-topic: weather",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36022,6 +35557,7 @@
         "description": "Off-topic: finance",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36059,6 +35595,7 @@
         "description": "Off-topic: entertainment",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36096,6 +35633,7 @@
         "description": "Off-topic: entertainment",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36133,6 +35671,7 @@
         "description": "Off-topic: sports",
         "form": "keyword",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36170,6 +35709,7 @@
         "description": "Inline keyword category bundled with this Policy.",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36406,8 +35946,8 @@
   },
   {
     "id": "uae-regulatory-compliance",
-    "name": "UAE Regulatory Compliance",
-    "description": "Compliance with UAE Federal Decree-Law No. 45/2021 (Data Protection) and Federal Decree-Law No. 2/2015 (Anti-Discrimination). Protects Emirates ID numbers, UAE phone numbers, and ensures cultural sensitivity including royal family references and religious content policies.",
+    "name": "UAE Regulatory Reference Controls",
+    "description": "Screens selected UAE identifier formats and cultural-sensitivity or anti-discrimination phrases as reference controls. It does not determine the applicability of UAE law or establish regulatory compliance.",
     "source": "built_in",
     "version": "1.95.0",
     "tags": [{"namespace":"protection","value":"business_rules","label":"Business & industry rules","source":"declared"},
@@ -36450,6 +35990,7 @@
         "description": "Detects UAE Emirates ID numbers (784-YYYY-NNNNNNN-C format, 15 digits starting with 784)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -36482,6 +36023,7 @@
         "description": "Detects UAE phone numbers (+971/00971/0 prefix, landline and mobile)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -36514,6 +36056,7 @@
         "description": "Detects email addresses",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -36546,6 +36089,7 @@
         "description": "Detects IBANs (2 letter country code + 2 check digits + 4 char bank code + 7 digit base + optional 0-16 alphanumeric)",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -36578,6 +36122,7 @@
         "description": "Detects any major credit card number",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "high",
         "rails": [
           "input"
         ],
@@ -36610,6 +36155,7 @@
         "description": "Custom regular-expression rule.",
         "form": "regex",
         "effect": "redact",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],
@@ -36642,6 +36188,7 @@
         "description": "Ensures AI output respects UAE cultural norms, royal family, and religious content policies",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "low",
         "rails": [
           "input"
         ],
@@ -36753,6 +36300,7 @@
         "description": "Blocks content violating UAE Federal anti-discrimination laws (Decree-Law No. 2/2015)",
         "form": "category",
         "effect": "reject",
+        "risk_severity": "medium",
         "rails": [
           "input"
         ],

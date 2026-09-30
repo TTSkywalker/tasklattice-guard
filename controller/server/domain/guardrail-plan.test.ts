@@ -34,7 +34,7 @@ describe("Controller Guardrail plan", () => {
   });
 
   it.each([
-    "builtin-content-safety", "builtin-jailbreak", "builtin-topic-safety", "builtin-pii",
+    "builtin-content-safety", "builtin-jailbreak", "builtin-pii",
     "builtin-company-policy", "builtin-contextual-grounding", "builtin-automated-reasoning",
   ])("compiles the catalog Rule override for %s without changing the source Policy", (id) => {
     const policies = PolicyCatalog.load(resolve("../runner/toolkit/policy_library/assets")).list();
@@ -55,7 +55,7 @@ describe("Controller Guardrail plan", () => {
     expect(steps.length).toBeGreaterThan(0);
     expect(steps.every((step) => step.on_unsafe === "pass")).toBe(true);
     expect(steps.every((step) => step.phases.every((phase) => (policy.rails as string[]).includes(phase)))).toBe(true);
-    expect(plan.policy_bindings).toEqual([expect.objectContaining({ rule_actions: [[rule.id, "pass"]] })]);
+    expect(plan.policy_bindings).toEqual([expect.objectContaining({ rule_actions: [[rule.id, "pass"]], rule_severities: [[rule.id, rule.risk_severity]] })]);
     expect(policy).toEqual(before);
     binding.ruleActions = { missing: "pass" };
     expect(build).toThrow(/unknown Rule action overrides/);
@@ -132,7 +132,7 @@ describe("Controller Guardrail plan", () => {
     expect(plan).toMatchObject({
       guardrail_id: "guardrail-1",
       guardrail_version: "20260904-030000.003Z",
-      compiler_version: "tasklattice-controller-plan-v8-effective-policy-parameters",
+      compiler_version: "tasklattice-controller-plan-v10-topic-rules",
       safety_level: "strict",
     });
     expect(plan.steps).toEqual(expect.arrayContaining([
@@ -223,7 +223,7 @@ describe("Controller Guardrail plan", () => {
           ruleActions: {}, enabledRails: ["input"], reasoningPolicy: null,
         }],
       },
-    })).toThrow(/version/i);
+    })).toThrow(/unavailable/i);
   });
 
   it.each(["interruptible", "window_buffered", "full_buffered"] as const)(
@@ -358,10 +358,14 @@ describe("Controller Guardrail plan", () => {
       draft,
     });
     const parameters = Object.fromEntries((plan.steps as Array<{ parameters: Array<[string, string]> }>)[0]!.parameters);
-    expect(plan).toMatchObject({ topic_control_mode: "allowlist" });
-    expect(parameters).toMatchObject({ topic_mode: "allowlist", allowed_topics: "Order status\nReturns" });
-    expect(parameters).not.toHaveProperty("restricted_topics");
+    expect(plan).toMatchObject({ topic_control_mode: "strict" });
+    expect(parameters).toMatchObject({ topic_mode: "strict", allowed_topics: "Order status\nReturns" });
+    expect(parameters.restricted_topics).toBe("legacy deny-list value");
     expect(Object.keys(parameters).some((key) => key.startsWith("purpose"))).toBe(false);
+
+    const permissive = buildGuardrailPlan({ guardrailId: "permissive", guardrailVersion: "20260905-010000.001Z", draft: { ...draft, topicControlMode: "permissive", allowedTopics: [] } });
+    expect(permissive.topic_control_mode).toBe("permissive");
+    expect(Object.fromEntries(permissive.steps[0]!.parameters)).toMatchObject({ topic_mode: "permissive", restricted_topics: "legacy deny-list value" });
 
     draft.allowedTopics = [];
     expect(() => buildGuardrailPlan({ guardrailId: "topic-allowlist", guardrailVersion: "20260905-010000.001Z", draft }))

@@ -1,0 +1,34 @@
+---
+id: "concept-audit"
+title: "Audit log: trace management changes"
+summary: "Trace control-plane changes by actor, time, and resource, then verify rollout and runtime results."
+order: 4
+---
+Audit log answers “which person or system did what to which resource, and when?” Control-plane events such as Policy validation, Guardrail publication, Router rollback, and credential changes help reconstruct the order of changes. Per-request Decisions are in [runtime logs](#concept-logs), not in this log.
+
+<a id="audit-how-to-use" />
+
+## Follow a change through to real traffic
+
+If a Router moves traffic from Guardrail v1 to v2:
+
+1. Search the audit log by time, **person/system**, and resource ID for the Router publication or rollback event. Open its details to inspect the event kind, actor, and any additional information. System-initiated events show System as their actor.
+2. In [Traffic Routers](/integration/routers), inspect the new revision, Target, and Runner rollout status. An audit event proves a management action occurred, not that Runners applied it.
+3. In [runtime logs](#concept-logs), filter by Guardrail and time range to inspect real requests after the change and confirm their pinned versions and Decisions.
+
+<a id="audit-scope" />
+
+## Scope of the page
+
+Search and filtering run on the server across all retained events in the selected time range, rather than only the latest 500. The page shows the matching total and supports 25, 50, or 100 events per page.
+
+- **Search**: enter keywords from an event, actor ID, resource ID, or recorded details, then select Search or press Enter.
+- **Time range**: select the last 24 hours, 7 days, 30 days, or all retained time.
+- **Filters**: expand actor type, event type, and resource type filters. Remove applied conditions individually or clear them together.
+- **Details**: select an event name or row to inspect the recorded change in a right-side drawer without leaving the query.
+
+For example, to find a Router's publications in the last 30 days, select that time range, filter to the Router resource type and its publication event, and search for the Router ID.
+
+Filters, page number, and the query cutoff are stored in the URL for reloads, Back/Forward navigation, and sharing. The cutoff stays fixed while paging so newly arriving events do not shift rows. Refresh preserves the filters, advances the cutoff, and returns to the first page. The cutoff is shown above the table.
+
+[Open audit log](/audit-log)

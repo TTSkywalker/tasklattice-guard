@@ -247,5 +247,6 @@ function OverallIcon({ state }: { state: BasicDisplayStatus }) {
 }
 
 function StatusSkeleton() {
-  return <div className="mt-6 space-y-5" aria-label="Loading platform health"><Skeleton className="h-56 rounded-xl" /><div className="grid gap-5 lg:grid-cols-2"><Skeleton className="h-72 rounded-xl" /><Skeleton className="h-72 rounded-xl" /></div></div>;
+  const { t: uiText } = useTranslation();
+  return <div className="mt-6 space-y-5" aria-label={uiText("uiCopy.loadingPlatformHealth")}><Skeleton className="h-56 rounded-xl" /><div className="grid gap-5 lg:grid-cols-2"><Skeleton className="h-72 rounded-xl" /><Skeleton className="h-72 rounded-xl" /></div></div>;
 }

@@ -56,8 +56,9 @@ class PolicyParameterSpec:
     label: str
     kind: str
     required: bool
-    placeholder: str
+    placeholder: str = ""
     description: str = ""
+    default: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +84,7 @@ class PolicyRuleSpec:
     rails: tuple[PolicyRail, ...]
     implementation: PolicyImplementationRef
     taxonomy_ids: tuple[str, ...]
+    risk_severity: str | None = None
     expression: str | None = None
     context_expression: str | None = None
     context_max_gap_words: int | None = None

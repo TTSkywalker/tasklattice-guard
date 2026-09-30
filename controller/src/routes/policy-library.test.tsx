@@ -32,10 +32,12 @@ vi.mock("react-i18next", () => ({
         "policyLibrary.detailViews": "Policy detail views",
         "policyLibrary.tabs.policy": "Policy",
         "policyLibrary.tabs.testCases": "Test Cases",
+        "policyLibrary.tabs.compliance": "Sources & Compliance",
+        "policyLibrary.compliance.empty": "Sources and compliance documentation have not been provided for this Policy version.",
         "policyLibrary.tabs.implementation": "NeMo implementation",
-        "policyLibrary.ruleListTitle": "Rules ({{count}})",
+        "policyLibrary.ruleListTitle": "Rules",
         "policyLibrary.ruleListDescription": "Each Rule is linked to Test Cases.",
-        "policyLibrary.testCasesTitle": "Test Cases ({{count}})",
+        "policyLibrary.testCasesTitle": "Test Cases",
         "policyLibrary.testCasesDescription": "Executable Test Cases.",
         "policyLibrary.implementationTitle": "NeMo Guardrails implementation",
         "policyLibrary.implementationDescription": "Technical Rule bindings.",
@@ -49,6 +51,7 @@ vi.mock("react-i18next", () => ({
         "policyLibrary.effectLabel": "Effect",
         "policyLibrary.runtimeManaged": "Runtime managed",
         "policyLibrary.jurisdictions.au": "Australia",
+        "policyLibrary.jurisdictions.cn": "China mainland",
         "policyLibrary.forms.category": "Category",
         "policyLibrary.railTypes.input": "Input rail",
         "policyLibrary.railTiming.input": "Before the main model",
@@ -142,7 +145,7 @@ const policy: Policy = {
 };
 
 function clickTab(tab: HTMLElement) {
-  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.click(tab, { button: 0, ctrlKey: false });
   fireEvent.mouseUp(tab, { button: 0, ctrlKey: false });
   fireEvent.click(tab);
 }
@@ -150,22 +153,26 @@ function clickTab(tab: HTMLElement) {
 describe("Policy detail", () => {
   afterEach(cleanup);
 
-  it("presents Policy, testable Rules, Test Cases, and NeMo implementation as three views", () => {
+  it("presents Policy, Test Cases, Sources & Compliance, and NeMo implementation in order", () => {
     render(<PolicyDetail policy={policy} onClose={vi.fn()} onEdit={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "Competitor Discussion Policy" })).toBeTruthy();
     expect(screen.getByRole("tablist", { name: "Policy detail views" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Policy" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Policy 1" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getAllByText("Input rail").length).toBeGreaterThan(0);
     expect(screen.getByText("Australia").parentElement?.textContent).toBe("🇦🇺Australia");
     expect(screen.queryByText("Category classifier")).toBeNull();
-    expect(screen.getByText("Rules (1)")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Rules" })).toBeTruthy();
     expect(screen.getByText("Competitor comparison intent")).toBeTruthy();
 
-    clickTab(screen.getByRole("tab", { name: "Test Cases" }));
-    expect(screen.getByText("Test Cases (2)")).toBeTruthy();
+    clickTab(screen.getByRole("tab", { name: "Test Cases 2" }));
+    expect(screen.getByRole("heading", { name: "Test Cases" })).toBeTruthy();
     expect(screen.getByText("Block airline comparison")).toBeTruthy();
     expect(screen.getByText("Allow destination question")).toBeTruthy();
+
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Policy1", "Test Cases2", "Sources & Compliance", expect.stringContaining("NeMo implementation")]);
+    clickTab(screen.getByRole("tab", { name: "Sources & Compliance" }));
+    expect(screen.getByText("Sources and compliance documentation have not been provided for this Policy version.")).toBeTruthy();
 
     clickTab(screen.getByRole("tab", { name: "NeMo implementation" }));
     expect(screen.getByRole("heading", { name: "NeMo Guardrails implementation" })).toBeTruthy();
@@ -244,8 +251,9 @@ describe("Catalog filtering", () => {
   const tag = (namespace: "jurisdiction" | "framework" | "collection" | "domain", value: string) => ({ id: `${namespace}:${value}`, namespace, value, label: value, source: "declared" as const });
   const australia: Policy = { ...policy, id: "au", tags: [tag("jurisdiction", "au"), tag("framework", "owasp-llm-2025")] };
   const singapore: Policy = { ...policy, id: "sg", source: "custom", tags: [tag("jurisdiction", "singapore"), tag("framework", "pdpa")] };
+  const china: Policy = { ...policy, id: "cn", tags: [tag("jurisdiction", "cn"), tag("framework", "pipl")] };
   const eu: Policy = { ...policy, id: "eu", tags: [tag("jurisdiction", "eu"), tag("framework", "gdpr")] };
-  const items = [australia, singapore, eu];
+  const items = [australia, singapore, china, eu];
 
   it("unions choices within a group and intersects groups, protection and search", () => {
     expect(filterCatalogPolicies(items, null, new Set(["jurisdiction:au", "jurisdiction:sg"]))).toEqual([australia, singapore]);
@@ -258,7 +266,7 @@ describe("Catalog filtering", () => {
   it("keeps regions discoverable, merges Singapore aliases and omits removed facets", () => {
     const alias: Policy = { ...singapore, id: "alias", tags: [tag("jurisdiction", "sg"), tag("jurisdiction", "singapore"), tag("collection", "old"), tag("domain", "finance")] };
     const facets = tagFacets([...items, alias]);
-    expect(facets.get("jurisdiction")?.map((tag) => tag.value)).toEqual(["au", "eu", "sg"]);
+    expect(facets.get("jurisdiction")?.map((tag) => tag.value)).toEqual(["au", "cn", "eu", "sg"]);
     expect(facets.get("jurisdiction")?.find((tag) => tag.value === "sg")?.count).toBe(2);
     expect(facets.has("collection")).toBe(false);
     expect(facets.has("domain")).toBe(false);
@@ -269,6 +277,14 @@ describe("Catalog filtering", () => {
     expect(tagFacets([australia]).get("source")?.find((tag) => tag.value === "custom")?.count).toBe(0);
   });
 
+  it("shows mainland China as a localized jurisdiction with its flag", () => {
+    render(<TagFilters facets={tagFacets([china])} selected={new Set()} onChange={vi.fn()} />);
+
+    const label = screen.getByText("China mainland");
+    expect(label.parentElement?.textContent).toBe("🇨🇳China mainland");
+    expect(screen.getByRole("checkbox", { name: /China mainland/ })).toBeTruthy();
+  });
+
   it("clears the protection selection together with checkbox selections", () => {
     function Harness() {
       const [directory, setDirectory] = useState<"privacy" | null>("privacy");
@@ -276,11 +292,11 @@ describe("Catalog filtering", () => {
       return <CatalogFilters policies={items} facets={tagFacets(items)} directory={directory} onDirectoryChange={(value) => setDirectory(value as "privacy" | null)} selected={selected} onChange={setSelected} onClear={() => { setDirectory(null); setSelected(new Set()); }} />;
     }
     render(<Harness />);
-    expect(screen.getByRole("checkbox", { name: /Australia/ }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("checkbox", { name: /Australia/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByRole("button", { name: /protection.allDirectories/ })).toBeNull();
-    expect(screen.getByRole("checkbox", { name: /Australia/ }).getAttribute("aria-checked")).toBe("false");
+    expect((screen.getByRole("checkbox", { name: /Australia/ }) as HTMLInputElement).checked).toBe(false);
     expect((screen.getByRole("button", { name: "Clear filters" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /protection.directories.privacy/ }));
     expect(screen.getByRole("button", { name: /protection.directories.privacy/ }).getAttribute("aria-pressed")).toBe("true");

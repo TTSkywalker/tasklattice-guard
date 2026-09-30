@@ -134,11 +134,11 @@ function DashboardFilters({ guardrailId, window, guardrails, onGuardrailChange, 
   return (
     <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(12rem,1fr)_10rem_auto] lg:w-auto lg:grid-cols-[13rem_10rem_auto]">
       <Select value={guardrailId} onValueChange={onGuardrailChange}>
-        <SelectTrigger className="col-span-2 min-h-11 w-full bg-card sm:col-span-1" aria-label={t("dashboard.guardrailFilter")}><SelectValue /></SelectTrigger>
+        <SelectTrigger className="col-span-2 field:min-h-11 w-full field:bg-card sm:col-span-1" aria-label={t("dashboard.guardrailFilter")}><SelectValue /></SelectTrigger>
         <SelectContent><SelectItem value="all">{t("dashboard.allGuardrails")}</SelectItem>{guardrails.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
       </Select>
       <Select value={window} onValueChange={(value) => onWindowChange(value as MetricWindow)}>
-        <SelectTrigger className="min-h-11 w-full bg-card" aria-label={t("dashboard.timeRangeFilter")}><Clock3 className="size-4 text-muted-foreground" /><SelectValue /></SelectTrigger>
+        <SelectTrigger className="field:min-h-11 w-full field:bg-card" aria-label={t("dashboard.timeRangeFilter")}><Clock3 className="size-4 text-muted-foreground" /><SelectValue /></SelectTrigger>
         <SelectContent>
           {(["1h", "24h", "7d", "15d", "30d"] as MetricWindow[]).map((value) => <SelectItem key={value} value={value}>{t(`dashboard.windows.${value}`)}</SelectItem>)}
         </SelectContent>

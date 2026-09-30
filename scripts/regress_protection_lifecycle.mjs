@@ -81,10 +81,10 @@ for (const preset of presets) {
   // jobs when resuming the same explicitly named regression resources.
   const existingValidation = saved.latestValidationRun?.sourceDraftRevision === saved.draftRevision
     ? saved.latestValidationRun : null;
-  const requested = existingValidation ?? (await call(controller, "/api/v1/validation-runs", {
+  const requested = existingValidation ?? (await call(controller, `/api/v1/guardrails/${encodeURIComponent(guardrail.id)}/test-runs`, {
     body: { guardrailId: guardrail.id }, expected: 202,
   })).result;
-  const validation = await until("validation", async () => (await call(controller, `/api/v1/validation-runs/${requested.id}`)).result,
+  const validation = await until("validation", async () => (await call(controller, `/api/v1/test-runs/${requested.id}`)).result,
     (value) => ["passed", "failed"].includes(value.status));
   assert.equal(validation.status, "passed", JSON.stringify({ failure: validation.failureReason, cases: validation.results.filter((item) => !item.passed) }));
   assert(validation.metrics.total > 0);

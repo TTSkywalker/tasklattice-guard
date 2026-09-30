@@ -1,3 +1,4 @@
+import type { RiskSeverity, EventSeverity } from "../../shared/security-severity";
 import type { EnforcementAction } from "../../shared/enforcement-action.generated";
 import type { GuardrailCategoryId } from "../../shared/guardrail-catalog";
 import type { PlatformStatusReason } from "../../shared/platform-status";
@@ -99,6 +100,7 @@ export type RuntimeFinding = {
 };
 
 export type RuntimeTraceStep = {
+  parallel_group?: string | null;
   id: string;
   kind?: string;
   name: string;
@@ -185,7 +187,7 @@ export type PlaygroundCheckPolicy = {
 
 export type PlaygroundCheckFinding = {
   id: string;
-  severity: "high" | "medium" | "low";
+  severity: EventSeverity;
   title: string;
   detail: string;
   confidence: number | null;
@@ -193,6 +195,7 @@ export type PlaygroundCheckFinding = {
   recommended_action: string;
   policy_id: string | null;
   rule_id: string | null;
+  policy_version?: string | null;
 };
 
 export type PlaygroundCheckResult = {
@@ -316,6 +319,7 @@ export type RouterDeletionImpact = {
 };
 
 export type RouterTraceFinding = {
+  event_id?: string;
   id: string;
   trace_id: string;
   created_at: string;
@@ -324,7 +328,7 @@ export type RouterTraceFinding = {
   router_id: string | null;
   endpoint_id: string | null;
   phase: string;
-  severity: "critical" | "high" | "medium" | "low";
+  severity: EventSeverity;
   risk: string;
   taxonomy_id: string;
   verdict: string;
@@ -332,6 +336,7 @@ export type RouterTraceFinding = {
   recommended_action: string;
   policy_id: string | null;
   rule_id: string | null;
+  policy_version?: string | null;
   detail: string;
   protocol?: string | null;
   provider_evidence?: Array<{
@@ -349,6 +354,8 @@ export type RuntimeFindingSummary = {
   high: number;
   medium: number;
   low: number;
+  informational: number;
+  unclassified: number;
   affected_traces: number;
   latest_at: string | null;
 };
@@ -454,6 +461,7 @@ export type Guardrail = {
   name: string;
   allowed_topics: string[];
   restricted_topics: string[];
+  topic_control_mode?: "strict" | "permissive";
   policy_bindings: GuardrailPolicyBinding[];
   safety_level: SafetyLevel;
   output_delivery: OutputDelivery;
@@ -577,6 +585,7 @@ export type PolicyRule = {
   description: string;
   form: "regex" | "keyword" | "category" | "code_block" | "competitor_intent" | "colang_flow";
   effect: string;
+  risk_severity?: RiskSeverity | null;
   rails: NativeRailType[];
   implementation: PolicyRuleImplementation;
   expression: string | null;
@@ -618,6 +627,7 @@ export type PolicyParameter = {
 };
 
 export type Policy = {
+  compliance?: import("../../shared/policy-compliance").PolicyCompliance;
   implementation: "rules" | "nemo_native";
   id: string;
   name: string;
@@ -657,6 +667,7 @@ export type PolicyRailBinding = {
   flow_name: string;
   execution_mode: "detect" | "mutate";
   on_unsafe: EnforcementAction;
+  risk_severity?: RiskSeverity | null;
   parallel_group: string | null;
   priority: number | null;
   timeout_ms: number;
@@ -877,7 +888,18 @@ export type RuntimeLogContentBlock = {
   truncated: boolean;
 };
 
+export type RuntimeHttpRequest = {
+  method: string;
+  target: string;
+  httpVersion: string;
+  headers: [string, string][];
+  bodyBase64: string;
+  redactedHeaders: string[];
+};
+
 export type RuntimeLogEntry = {
+  execution_status?: "error" | "complete" | "unknown";
+  http_request?: RuntimeHttpRequest | null;
   id: string;
   trace_id: string;
   created_at: string;
@@ -1145,6 +1167,8 @@ export type IntentAnalysis = {
   summary: string;
   structured_purpose: PolicyIntentDetails;
   allowed_topics: string[];
+  restricted_topics: string[];
+  topic_control_mode?: "strict" | "permissive";
   review_notes: string[];
 };
 export type ComplianceDocumentSource = {

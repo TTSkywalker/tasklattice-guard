@@ -344,10 +344,10 @@ async function handleShow(args: string[]) {
     console.log('Resources:');
     console.log('  system  | identity | access-tokens');
     console.log('  providers | models | model-configuration');
-    console.log('  policies [<id>] | policy-validation <policy-id> [<run-id>]');
+    console.log('  policies [<id>] | policy-test <policy-id> [<run-id>]');
     console.log('  protection-presets | actions');
     console.log('  guardrails [<id>] | guardrail-logging <id> | test-cases <guardrail-id>');
-    console.log('  validation-runs [--guardrail <id>]');
+    console.log('  test-runs [--guardrail <id>]');
     console.log('  endpoints [<id>] | routers [<id>]');
     console.log('  router-revisions <router-id> [<revision>]');
     console.log('  routes <router-id> [--revision <n>]');
@@ -390,15 +390,16 @@ async function handleShow(args: string[]) {
     case 'policies':
       res = await runApi('GET', `/api/v1/policies${p1 ? '/' + encodeURIComponent(p1) : ''}`);
       break;
+    case 'policy-test':
     case 'policy-validation':
       if (!p1) {
-        console.log('Usage: show policy-validation <policy-id> [<run-id>]');
+        console.log('Usage: show policy-test <policy-id> [<run-id>]');
         return;
       }
       if (p2) {
-        res = await runApi('GET', `/api/v1/policies/${encodeURIComponent(p1)}/validation-runs/${encodeURIComponent(p2)}`);
+        res = await runApi('GET', `/api/v1/policies/${encodeURIComponent(p1)}/test-runs/${encodeURIComponent(p2)}`);
       } else {
-        res = await runApi('GET', `/api/v1/policies/${encodeURIComponent(p1)}/validation-runs/latest`);
+        res = await runApi('GET', `/api/v1/policies/${encodeURIComponent(p1)}/test-runs/latest`);
       }
       break;
     case 'protection-presets':
@@ -418,9 +419,10 @@ async function handleShow(args: string[]) {
       if (!p1) { console.log('Usage: show test-cases <guardrail-id>'); return; }
       res = await runApi('GET', `/api/v1/guardrails/${encodeURIComponent(p1)}/test-cases`);
       break;
+    case 'test-runs':
     case 'validation-runs': {
       const qs = buildQs(flags, ['guardrail']);
-      res = await runApi('GET', `/api/v1/validation-runs${qs}`);
+      res = await runApi('GET', `/api/v1/test-runs${qs}`);
       break;
     }
     case 'endpoints':
